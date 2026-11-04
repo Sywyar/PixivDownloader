@@ -11,6 +11,7 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 public class GuestInviteMapper {
     private static final String TABLE = "guest_invites";
     private static final String ACCESS = "guest_invite_access_stats";
+    private static final String SESSIONS = "guest_invite_sessions";
     private final MainDatabase database;
     public GuestInviteMapper(MainDatabase database) { this.database = database; }
     private static Expression equal(String table, String name, Object value) { return call(EQUAL, column(table, name), value(value)); }
@@ -73,6 +74,28 @@ public class GuestInviteMapper {
     private static boolean bool(Map<String, Object> row, String key) { return Boolean.TRUE.equals(nullableBool(row, key)); }
     public GuestInviteRow findByCode(String code) { return find(equal(TABLE, "code", code), 1).stream().findFirst().orElse(null); }
     public GuestInviteRow findById(long id) { return find(identity(id), 1).stream().findFirst().orElse(null); }
+    public GuestInviteRow findBySession(String hash, long now) {
+        var rows = database.read(s -> s.query(new Query(SESSIONS, fields(SESSIONS, "invite_id"),
+                call(AND, equal(SESSIONS, "token_hash", hash), call(GREATER, column(SESSIONS, "expires"), value(now))),
+                List.of(), List.of(), 1, 0)));
+        return rows.isEmpty() ? null : findById((Long) rows.get(0).get("invite_id"));
+    }
+    public void createSession(long invite, String hash, long now, long expires) {
+        database.transaction(s -> {
+            s.delete(SESSIONS, call(LESS_EQUAL, column(SESSIONS, "expires"), value(now)));
+            var occupied = s.query(new Query(SESSIONS, fields(SESSIONS, "slot"), null, List.of(),
+                    List.of(new Query.Order(column(SESSIONS, "slot"), false, true)), 8192, 0));
+            long slot = 1;
+            for (var row : occupied) { if ((Long) row.get("slot") != slot) break; slot++; }
+            if (slot > 8192) throw new IllegalStateException("INVITE_SESSION_CAPACITY");
+            // 固定槽位的主键约束使并发争用在写入前失败，不超额分配或重放兑换。
+            return s.insert(SESSIONS, Map.of("slot", slot, "token_hash", hash, "invite_id", invite, "expires", expires),
+                    DatabaseSession.Conflict.error());
+        });
+    }
+    public void removeSession(String hash) { database.transaction(s -> s.delete(SESSIONS, equal(SESSIONS, "token_hash", hash))); }
+    public void removeSessions(long invite) { deleteLinks(SESSIONS, invite); }
+    public int removeExpiredSessions(long now) { return database.transaction(s -> s.delete(SESSIONS, call(LESS_EQUAL, column(SESSIONS, "expires"), value(now)))); }
     public List<GuestInviteRow> findAll() { return find(null, Integer.MAX_VALUE); }
     public void updateInviteCore(GuestInviteRow row) {
         var changes = new LinkedHashMap<String, Expression>();

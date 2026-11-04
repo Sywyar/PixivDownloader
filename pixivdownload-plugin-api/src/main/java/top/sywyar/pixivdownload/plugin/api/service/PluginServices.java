@@ -27,9 +27,7 @@ public interface PluginServices {
      * @return 固定当前精确 publication 的成员快照
      * @throws ServiceAccessException 未激活、未声明、超限或宿主不支持
      */
-    default <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key) {
-        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
-    }
+    <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key);
 
     /**
      * 绑定各项导入的完整集合，空集合也是有效选择；成员变化先排空旧轮再激活新轮。
@@ -39,10 +37,8 @@ public interface PluginServices {
      * @return 与唯一绑定共用生命周期的意图
      * @throws ServiceAccessException 未声明、超限或宿主不支持
      */
-    default ServiceBinding bindAll(java.util.List<ServiceKey<?>> dependencies,
-            java.util.function.Consumer<ServiceBindingScope> activate) {
-        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
-    }
+    ServiceBinding bindAll(java.util.List<ServiceKey<?>> dependencies,
+            java.util.function.Consumer<ServiceBindingScope> activate);
 
     /**
      * 登记一组服务依赖；可在初始化时登记，但激活只在消费者及全部唯一提供者发布后执行。
@@ -55,10 +51,8 @@ public interface PluginServices {
      * @return 可查询、重试和永久撤销的意图
      * @throws ServiceAccessException 未声明依赖、消费者已撤回、容量不足或实现不支持
      */
-    default ServiceBinding bind(java.util.List<ServiceKey<?>> dependencies,
-            java.util.function.Consumer<ServiceBindingScope> activate) {
-        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
-    }
+    ServiceBinding bind(java.util.List<ServiceKey<?>> dependencies,
+            java.util.function.Consumer<ServiceBindingScope> activate);
 
     /**
      * 解析当前唯一提供者。返回代理只用于同步纯值调用，参数和结果均被校验并复制。

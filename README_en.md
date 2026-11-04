@@ -4,173 +4,50 @@
 
 [中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | English
 
-> [!NOTE]
-> In this document, "works" includes illustrations, manga, ugoira, and novels.
-
-### Local batch downloader for Pixiv works, supporting novels, manga, and other work types
-
-- Batch download works from work links
-- Batch download works by user ID
-- Batch download works through the built-in search proxy
-- Batch download an entire series by entering a series link or a work link from that series
-- Use Tampermonkey userscripts to scrape illustrations, manga, ugoira, and novels from Pixiv pages, or download directly
-  from single-work pages
-- Powerful artwork and novel galleries
-
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/stargazers)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](../../releases)
 
-## Features
+PixivDownloader is a local batch downloader and gallery manager for Pixiv illustrations, manga, Ugoira animations, and novels, offering desktop UIs (Compose / Swing), a browser download workbench, and Tampermonkey userscripts.
 
-- One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
-- Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
-- Page batch download userscript — scrape works from search results, following feed, rankings, and more
-- Experience-enhancement toolbox (downloaded-work marking, one-click Cookie import)
-- Powerful artwork and novel galleries with search-scope selection, filtering, sorting, and collections
-- Full-text "body" search in the novel gallery (backed by a local full-text index; combinable with age-rating / tag /
-  author filters)
-- Statistics dashboard: overview cards, downloads-by-month line chart, top authors by downloads, popular-tag
-  cloud; authors/tags are clickable and jump to a filtered gallery view
-- Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
-  dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins
-- Plugin marketplace: browse, search and install plugins from trusted repositories, with version notes and screenshots.
-- [Page editor](https://sywyar.github.io/PixivDownloader/#/en/page-editor): drag plugin components, edit layouts and styles, preview, save drafts, publish and restore pages.
-- Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, with sources such as artists' new works, saved searches, and series; plugins can add more sources
-- Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
-- Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
-- Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
-- Novel AI multi-voice narration (beta): an LLM attributes sentences to speakers, each character synthesized with a fixed voice and played back with follow-along highlighting; analysis is cached for replay
+## Key Features
 
-- Save images in original, PNG, JPG and WebP formats; save Ugoira as WebP, GIF, APNG, MP4 and the original ZIP
-- Custom file naming templates (11 variables)
-- Downloaded-state verification: stale DB records auto-pruned; missing records reconstructed from disk to skip re-download
-- Quota and rate limiting for multi-user scenarios
-- Guest invite system (age-rating / tag / author whitelist)
-- Multiple languages / dark mode
-- Desktop GUI (Swing + FlatLaf) with online update
+- **Flexible acquisition and batch downloads**: Supports [Quick Fetch](https://sywyar.github.io/PixivDownloader/#/en/quick-access) (bookmarks, your works, commissions, followed artists' new works, collections), [URL Batch Download](https://sywyar.github.io/PixivDownloader/#/en/batch-download), [Artist Batch Download](https://sywyar.github.io/PixivDownloader/#/en/user-download), [Search Download](https://sywyar.github.io/PixivDownloader/#/en/search), manga/novel series downloads, and [Tampermonkey userscripts](https://sywyar.github.io/PixivDownloader/#/en/userscripts).
+- **Media transcoding and novel workflows**: Save images in multiple formats (original, PNG, JPG, WebP) and Ugoira animations as WebP, GIF, APNG, MP4, or original ZIP; [Novels](https://sywyar.github.io/PixivDownloader/#/en/novel) support TXT / HTML / EPUB (including compiled series EPUB3), full-text search, AI / Youdao / LibreTranslate translation, and AI multi-speaker narration.
+- **Local gallery and organization**: The [Artwork Gallery](https://sywyar.github.io/PixivDownloader/#/en/gallery) and Novel Gallery provide multi-criteria filtering, tri-state tag/author rules, local collections, batch ZIP export, a statistics dashboard, perceptual-hash (dHash) duplicate detection, and read-only guest invitations.
+- **Scheduled tasks and notifications**: [Scheduled Tasks](https://sywyar.github.io/PixivDownloader/#/en/scheduled-tasks) discover and download new works on fixed intervals or 6-field Cron schedules with incremental watermarks, sending email and push notifications on credential expiration, overuse warnings, or circuit-breaker pauses.
+- **Plugins and interface extensions**: Includes Compose and Swing desktop interfaces, SQLite and optional PostgreSQL database providers, [Plugin Management & Marketplace](https://sywyar.github.io/PixivDownloader/#/en/plugin-management), [PixivBatchDownloader Import Support](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import), and the public [Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development).
+- **Page editing and form verification**: Install the optional [Page Editor](https://sywyar.github.io/PixivDownloader/#/en/page-editor) to customize login and invite redemption layouts, create reusable components, and publish or restore pages. [Operation CAPTCHA](https://sywyar.github.io/PixivDownloader/#/en/captcha) provides online and offline components; drag one into a form and publish it to enforce server-side verification.
 
 ## Screenshots
 
-> [!NOTE]
-> Some screenshot devices have HDR enabled, so the color effect may differ.
->
-> The application supports English. The application screenshots below use English; the two userscript screenshots use Simplified Chinese.
+> Some screenshot devices had HDR enabled, so colors may vary. Click the preview animation to view full static screenshots.
 
 [![PixivDownloader light mode preview](./readme/image/en-US/en-US-overview.webp)](./readme/en-US/md/light-screenshot.md)
 
-Click the animation to view the full static screenshots.
-
-### [Light Mode Screenshots](./readme/en-US/md/light-screenshot.md)
-
-### [Dark Mode Screenshots](./readme/en-US/md/dark-screenshot.md)
+- [Light Mode Screenshots](./readme/en-US/md/light-screenshot.md) · [Dark Mode Screenshots](./readme/en-US/md/dark-screenshot.md)
 
 ## Quick Start
 
-### Download
+### 1. Download a Release Package
 
-Download the latest version from [Releases](../../releases):
+Download the latest version from [Releases](../../releases). Use the package table in that release's notes to choose the appropriate download.
 
-| Type                                | Description                                                                                          |
-|-------------------------------------|------------------------------------------------------------------------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows installer with bundled JRE; repair/change/uninstall and optional FFmpeg installation; includes the official plugin distribution set, without Douyin |
-| `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same plugin set as the Windows installer, without Douyin |
-| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; adds the PostgreSQL database and Pixiv Batch Downloader import plugins to the Java standard package, without Douyin |
+### 2. Launch and Initialize
 
-The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
-the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
-loaded from the working directory's `plugins/` folder at startup.
-
-### Run
-
-```bash
-# Windows installer
-PixivDownload.exe
-
-# Java standard / full-offline package (Windows)
-run.bat
-
-# Java standard / full-offline package (Linux/macOS, requires Java 17)
-sh run.sh
-
-# Optional arguments
---no-gui    # Disable the GUI and run in CLI-only mode (server/Docker)
---intro     # Open the product introduction page on startup
-```
-
-After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
-downloading.
+Follow [Installation and Launch](https://sywyar.github.io/PixivDownloader/#/en/installation), then complete [First-Time Setup](https://sywyar.github.io/PixivDownloader/#/en/first-setup).
 
 ## Online Documentation
 
-For detailed installation steps, usage guides, configuration reference, and development guides, see the
-[online documentation](https://sywyar.github.io/PixivDownloader/#/en/). Traditional Chinese readers can switch to the
-[繁體中文 documentation](https://sywyar.github.io/PixivDownloader/#/zh-hant/). Quick jump to each section:
+For complete configuration, migration, troubleshooting, and development guides, visit the [Online Documentation](https://sywyar.github.io/PixivDownloader/#/en/):
 
-**Quick Start**
+- **Get Started**: [Installation](https://sywyar.github.io/PixivDownloader/#/en/installation) · [First-Time Setup](https://sywyar.github.io/PixivDownloader/#/en/first-setup) · [First Download](https://sywyar.github.io/PixivDownloader/#/en/first-download)
+- **Find and Download**: [Quick Fetch](https://sywyar.github.io/PixivDownloader/#/en/quick-access) · [URL Batch Download](https://sywyar.github.io/PixivDownloader/#/en/batch-download) · [Artist Downloads](https://sywyar.github.io/PixivDownloader/#/en/user-download) · [Search](https://sywyar.github.io/PixivDownloader/#/en/search) · [Novels and Narration](https://sywyar.github.io/PixivDownloader/#/en/novel) · [Scheduled Tasks](https://sywyar.github.io/PixivDownloader/#/en/scheduled-tasks) · [Userscripts](https://sywyar.github.io/PixivDownloader/#/en/userscripts) · [Import External Downloads](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import)
+- **Manage and Troubleshoot**: [Artwork Gallery](https://sywyar.github.io/PixivDownloader/#/en/gallery) · [Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration) · [Storage and Backup](https://sywyar.github.io/PixivDownloader/#/en/storage) · [CLI and Advanced Reference](https://sywyar.github.io/PixivDownloader/#/en/usage-guide) · [Network Access](https://sywyar.github.io/PixivDownloader/#/en/network-access) · [FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
+- **Plugins and Development**: [Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management) · [Page Editor](https://sywyar.github.io/PixivDownloader/#/en/page-editor) · [Operation CAPTCHA](https://sywyar.github.io/PixivDownloader/#/en/captcha) · [Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development) · [Main Repository Development](https://sywyar.github.io/PixivDownloader/#/en/development) · [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 
-- [📥 Installation & Startup](https://sywyar.github.io/PixivDownloader/#/en/installation)
-- [⚙️ First-Time Setup](https://sywyar.github.io/PixivDownloader/#/en/first-setup)
-- [⬇️ First Download](https://sywyar.github.io/PixivDownloader/#/en/first-download)
+## License, Related Tools, and Disclaimer
 
-**Feature Guide**
-
-- [⚡ Quick Fetch](https://sywyar.github.io/PixivDownloader/#/en/quick-access)
-- [📋 URL Batch Download](https://sywyar.github.io/PixivDownloader/#/en/batch-download)
-- [👤 Artist Batch Download](https://sywyar.github.io/PixivDownloader/#/en/user-download)
-- [🔍 Search Download](https://sywyar.github.io/PixivDownloader/#/en/search)
-- [📖 Novel Download](https://sywyar.github.io/PixivDownloader/#/en/novel)
-- [🖼️ Artwork Gallery](https://sywyar.github.io/PixivDownloader/#/en/gallery)
-- [⏰ Scheduled Tasks](https://sywyar.github.io/PixivDownloader/#/en/scheduled-tasks)
-- [🧩 Userscripts](https://sywyar.github.io/PixivDownloader/#/en/userscripts)
-
-**Reference**
-
-- [⚙️ Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration)
-- [🔌 Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management)
-- [🧩 Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development)
-- [📦 Plugin SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
-- [💾 Storage Principles](https://sywyar.github.io/PixivDownloader/#/en/storage)
-- [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
-- [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)
-
----
-
-## License and plugins
-
-This project and its official plugins use [AGPL-3.0](LICENSE). Independent third-party plugins may choose the MIT License when they meet the [Plugin Linking Exception](PLUGIN-LINKING-EXCEPTION.txt).
-
-## Disclaimer
-
-- This project is for personal learning and research only; do not use it for any commercial purposes.
-- Content downloaded using this tool is copyrighted by the original creators; please respect creators' rights and do not
-  redistribute or use commercially.
-- This tool accesses Pixiv through user-provided cookies or, with user permission, by extracting cookies via
-  Tampermonkey userscripts; users bear their own account risks.
-- This project has no affiliation with Pixiv; all consequences of using this tool are the user's responsibility.
-- Please set a reasonable download interval to avoid excessive load on Pixiv servers.
-
----
-
-## Additional Notes
-
-Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP.
-Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism
-to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue
-refining this project.
-
-## Friend Links
-
-**[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
-If you want to download directly in your browser without a backend, try this extension.
-
-PixivDownloader provides the **PixivBatchDownloader import support** plugin and userscript to automatically add newly completed illustrations, manga, animations and novels to the local gallery while preserving the original files. See the [usage guide](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import).
-
-Features:
-
-- Many filtering options
-- Useful auxiliary features like ad removal, quick bookmark, image viewer mode, etc.
-  `(can also serve as a Pixiv helper plugin?)`
-- Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
-- Supports multiple languages
+- **License**: This project and its official plugins are licensed under [AGPL-3.0](LICENSE). Independent third-party plugins meeting the [Plugin Linking Exception](PLUGIN-LINKING-EXCEPTION.txt) may choose the MIT License.
+- **Browser Extension Integration**: To download directly inside your browser without running a backend service, check out [PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader). PixivDownloader also offers official [PixivBatchDownloader Import Support](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import) to register its downloads into the local gallery as read-only references.
+- **Disclaimer**: This project is for personal learning and research only; commercial use is prohibited. Copyright of downloaded works belongs to their respective creators; do not redistribute them or use them commercially. This tool accesses Pixiv using cookies provided by the user and is not affiliated with Pixiv; use reasonable request intervals and assume responsibility for your own account.

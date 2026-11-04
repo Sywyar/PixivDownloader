@@ -81,7 +81,7 @@ class AuthFilterTest {
                 .thenAnswer(inv -> inv.getArgument(2));
         lenient().when(appMessages.getForLog(anyString(), any(), any())).thenReturn("rate limited");
         lenient().when(maintenanceProvider.getIfAvailable()).thenReturn(null);
-        lenient().when(guestInviteService.resolveByCode(any())).thenReturn(Optional.empty());
+        lenient().when(guestInviteService.resolveSession(any())).thenReturn(Optional.empty());
     }
 
     private AuthFilter authFilterWithGallery() {
@@ -315,7 +315,7 @@ class AuthFilterTest {
             authFilter = authFilterWithGallery();
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -333,12 +333,12 @@ class AuthFilterTest {
             verify(staticResourceRateLimitService, never()).isAllowed("192.168.1.100");
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
-            verify(guestInviteService).resolveByCode("invite-code");
+            verify(guestInviteService).resolveSession("invite-code");
             assertThat(request.getAttribute(GuestInviteSession.REQUEST_ATTR))
                     .isInstanceOf(GuestInviteSession.class);
 
             clearInvocations(filterChain, guestInviteService, staticResourceRateLimitService);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.empty());
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.empty());
             request = new MockHttpServletRequest("GET", path);
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
             response = new MockHttpServletResponse();
@@ -346,7 +346,7 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             assertThat(response.getStatus()).isEqualTo(403);
-            verify(guestInviteService).resolveByCode("invite-code");
+            verify(guestInviteService).resolveSession("invite-code");
             verify(guestInviteService, never()).recordHit(anyLong());
             verifyNoInteractions(filterChain, staticResourceRateLimitService);
         }
@@ -751,7 +751,7 @@ class AuthFilterTest {
         @DisplayName("璁垮閭€璇蜂細璇濆簲鑳藉姞杞界敾寤婇〉鎷嗗垎璧勬簮")
         void shouldAllowGuestInviteToLoadGallerySplitResource() throws Exception {
             authFilter = authFilterWithGallery();
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -784,7 +784,7 @@ class AuthFilterTest {
         })
         @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖（含导航、页面区块与下钻渲染器）")
         void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -810,7 +810,7 @@ class AuthFilterTest {
         })
         @DisplayName("共享资源放行不应扩展到其它 vendor 资源或管理员 API")
         void shouldRejectGuestOutsideSharedAssetAllowlist(String path) throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -831,7 +831,7 @@ class AuthFilterTest {
         @DisplayName("访客可以调用精确声明的收藏归属只读 POST")
         void shouldAllowGuestMembershipRead(String path) throws Exception {
             when(rateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of())));
             request.setMethod("POST");
@@ -848,7 +848,7 @@ class AuthFilterTest {
         @ValueSource(strings = {"/api/collections/memberships", "/api/collections/novels/memberships"})
         @DisplayName("收藏归属读取仍遵守邀请限流")
         void shouldRateLimitGuestMembershipRead(String path) throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(userscriptGuest()));
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(userscriptGuest()));
             request.setMethod("POST");
             request.setRequestURI(path);
             request.setRemoteAddr("192.168.1.100");
@@ -864,7 +864,7 @@ class AuthFilterTest {
                 "/api/collections/7/novels/456", "/api/collections/7/icon"})
         @DisplayName("收藏归属读取不扩大访客收藏写入能力")
         void shouldRejectGuestCollectionWrites(String path) throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of())));
             request.setMethod("POST");
@@ -891,7 +891,7 @@ class AuthFilterTest {
         @Test
         @DisplayName("访客共享资源只允许安全读取")
         void shouldRejectGuestWriteToSharedAsset() throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -1133,7 +1133,7 @@ class AuthFilterTest {
         @Test
         @DisplayName("TTS 插件未安装时，邀请访客访问在线 TTS 合成 API 不放行")
         void shouldAllowGuestInviteTtsSynthesizeApi() throws Exception {
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -1369,7 +1369,7 @@ class AuthFilterTest {
         @DisplayName("邀请访客访问 VISITOR 脚本入口返回 403 且不触发任何限流桶")
         void invitedGuestIsForbiddenWithoutRateLimit(String mode) throws Exception {
             when(setupService.getMode()).thenReturn(mode);
-            when(guestInviteService.resolveByCode("invite-code"))
+            when(guestInviteService.resolveSession("invite-code"))
                     .thenReturn(Optional.of(userscriptGuest()));
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
@@ -1875,7 +1875,7 @@ class AuthFilterTest {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
             when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -1896,7 +1896,7 @@ class AuthFilterTest {
         void invitedGuestCannotReadSeriesProxy() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -2012,7 +2012,7 @@ class AuthFilterTest {
         void invitedGuestForbidden(String method, String path) throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -2035,7 +2035,7 @@ class AuthFilterTest {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
             when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -2097,7 +2097,7 @@ class AuthFilterTest {
         void invitedGuestForbidden() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -2164,7 +2164,7 @@ class AuthFilterTest {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
             when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
@@ -2230,7 +2230,7 @@ class AuthFilterTest {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
             when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
-            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+            when(guestInviteService.resolveSession("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()

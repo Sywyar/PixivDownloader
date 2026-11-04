@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.core.db.schema;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -46,6 +50,29 @@ class DatabaseInitializerTest {
 
     private DatabaseInitializer newInitializer(SingleConnectionDataSource ds) {
         return newInitializer(ds, new ArrayList<>());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("全库初始化保留未知表并在中文环境输出英文差异告警")
+    void warnsAboutUnknownTablesInEnglish(CapturedOutput output) throws Exception {
+        var locale = Locale.getDefault();
+        var ds = newDataSource();
+        try {
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+            newInitializer(ds).initialize();
+            var jdbc = new JdbcTemplate(ds);
+            jdbc.execute("CREATE TABLE unknown_extension(id INTEGER PRIMARY KEY)");
+            jdbc.execute("INSERT INTO unknown_extension VALUES(7)");
+            newInitializer(ds).initialize();
+            assertThat(jdbc.queryForObject("SELECT id FROM unknown_extension", Integer.class)).isEqualTo(7);
+            assertThat(output.getAll()).contains("WARN", MessageBundles.getForLog(
+                    "download.db.schema.unmanaged-table", "unknown_extension"))
+                    .doesNotContain(MessageBundles.get("download.db.schema.unmanaged-table", "unknown_extension"));
+        } finally {
+            ds.destroy();
+            Locale.setDefault(locale);
+        }
     }
 
     @Test

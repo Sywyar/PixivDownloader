@@ -47,6 +47,7 @@ public final class ExternalCapabilityInvocationRegistry {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExternalCapabilityInvocationRegistry.class);
     private static final int MAX_SERVICE_CALLS = 64;
     private int serviceCalls;
+    private int retainedServices;
     private final ThreadLocal<Integer> serviceDepth = new ThreadLocal<>();
     private top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission serviceAdmission = ignored -> true;
 
@@ -114,11 +115,18 @@ public final class ExternalCapabilityInvocationRegistry {
         private final Class<?> capabilityType;
         private Object target;
         private ServiceKey<?> serviceKey;
+        private final String source;
         private final java.util.concurrent.atomic.AtomicBoolean failureReported = new java.util.concurrent.atomic.AtomicBoolean();
 
         private TargetEntry(Class<?> capabilityType, Object target) {
+            this(capabilityType, target, null);
+        }
+        private TargetEntry(Class<?> capabilityType, Object target, String source) {
             this.capabilityType = capabilityType;
             this.target = target;
+            String type = source == null ? org.springframework.aop.support.AopUtils.getTargetClass(target).getName() : source;
+            if (type.isBlank() || type.length() > 512 || type.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException("SERVICE_SOURCE_LIMIT");
+            this.source = type;
         }
 
         private void clear() {
@@ -538,6 +546,12 @@ public final class ExternalCapabilityInvocationRegistry {
     /** 具名导出留在同一准备批次中，发布、撤回和排空复用现有 owner 状态。 */
     public <T> void prepareService(ExternalCapabilityPreparation preparation,
             ServiceKey<T> key, T target) {
+        prepareService(preparation, key, target, null);
+    }
+
+    /** 方法适配器传入注册时冻结的入口身份，日志不持有额外实现引用。 */
+    public <T> void prepareService(ExternalCapabilityPreparation preparation,
+            ServiceKey<T> key, T target, String source) {
         ServiceValueBoundary.validate(key.type());
         if (!key.type().isInstance(target)) throw new IllegalArgumentException("SERVICE_EXPORT_TYPE_MISMATCH");
         synchronized (lock) {
@@ -545,7 +559,7 @@ public final class ExternalCapabilityInvocationRegistry {
             if (state.targets.values().stream().anyMatch(entry -> key.equals(entry.serviceKey))) {
                 throw new IllegalArgumentException("SERVICE_EXPORT_DUPLICATE");
             }
-            TargetEntry entry = new TargetEntry(key.type(), target);
+            TargetEntry entry = new TargetEntry(key.type(), target, source);
             entry.serviceKey = key;
             long token = Math.incrementExact(nextCapabilityToken);
             state.targets.put(token, entry);
@@ -574,9 +588,99 @@ public final class ExternalCapabilityInvocationRegistry {
         return new ServicePublication(owner.pluginId(), owner.packageId(), owner.pluginGeneration(), owner.publicationId());
     }
 
+    /** 宿主管理面只发现活动键；随后仍须取得精确受管租约，不返回实现对象。 */
+    public <T> List<ServiceKey<T>> serviceKeys(Class<T> type) {
+        synchronized (lock) {
+            var keys = new java.util.TreeMap<String, ServiceKey<T>>();
+            for (var state : states.values()) {
+                if (state.phase != Phase.PUBLISHED || !serviceAdmission.acceptsNewRequests(state.owner.pluginId())) continue;
+                for (var target : state.targets.values()) if (target.serviceKey != null && target.serviceKey.type() == type) {
+                    keys.put(target.serviceKey.contractId(), new ServiceKey<>(target.serviceKey.contractId(), type));
+                    if (keys.size() > 128) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                }
+            }
+            return List.copyOf(keys.values());
+        }
+    }
+
     @FunctionalInterface
-    public interface HostServiceOperation<T, R> {
+    public interface ManagedServiceOperation<T, R> {
         R run(List<ServiceProvider<T>> providers) throws java.io.IOException;
+    }
+
+    /** HTTP 异步请求持有精确代际；每次回调只在当前线程临时进入 owner 作用域。 */
+    public final class RetainedService<T> implements AutoCloseable {
+        private OwnerState state;
+        private final ExternalCapabilityLeaseState.LeaseToken token;
+        private ServiceProvider<T> provider;
+        private final String source;
+
+        private RetainedService(OwnerState state, ExternalCapabilityHandle handle, ServiceKey<T> key,
+                ExternalCapabilityLeaseState.LeaseToken token) {
+            this.state = state; this.token = token;
+            this.source = state.targets.get(handle.capabilityToken()).source;
+            T proxy = bindingProxy(null, key, handle);
+            T managed = key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                    (ignored, method, arguments) -> call(proxy, method, arguments)));
+            this.provider = new ServiceProvider<>(publication(state.owner), managed);
+        }
+
+        public synchronized ServiceProvider<T> provider() {
+            if (state == null) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            return provider;
+        }
+        public String source() { return source; }
+        private synchronized Object call(T proxy, Method method, Object[] arguments) throws Throwable {
+            if (state == null) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            var scope = new ActiveOwnerScope(state);
+            var cleanup = new CleanupTracker();
+            scope.enter();
+            try { return method.invoke(proxy, arguments); }
+            catch (InvocationTargetException failure) { throw failure.getCause(); }
+            finally {
+                closeOwnerScopeFully(scope, cleanup);
+                if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
+            }
+        }
+        @Override public synchronized void close() {
+            if (state == null) return;
+            var cleanup = new CleanupTracker();
+            provider = null;
+            releaseLeaseFully(state.leaseState, token, cleanup);
+            state = null;
+            synchronized (lock) { retainedServices--; }
+            if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
+        }
+    }
+
+    /** 仅供宿主请求编排，不向插件暴露全局服务选择或可持久化句柄。 */
+    public <T> RetainedService<T> retainService(ServiceKey<T> key) {
+        synchronized (lock) {
+            if (retainedServices >= 1024) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+            var selected = serviceCandidates(key, 2);
+            if (selected.size() != 1) throw serviceFailure(selected.isEmpty()
+                    ? ServiceAccessException.Reason.UNAVAILABLE : ServiceAccessException.Reason.AMBIGUOUS);
+            var handle = selected.get(0);
+            var state = states.get(handle.owner().publicationId());
+            var token = new ExternalCapabilityLeaseState.LeaseToken();
+            if (!state.leaseState.tryAcquire(token)) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            try {
+                var retained = new RetainedService<>(state, handle, key, token);
+                retainedServices++;
+                return retained;
+            } catch (RuntimeException | Error failure) {
+                state.leaseState.release(token);
+                throw failure;
+            }
+        }
+    }
+
+    public String serviceSource(ServicePublication publication, ServiceKey<?> key) {
+        synchronized (lock) {
+            for (var state : states.values()) if (publication(state.owner).equals(publication))
+                for (var entry : state.targets.values()) if (key.equals(entry.serviceKey)) return entry.source;
+            return "unavailable";
+        }
     }
 
     /**
@@ -584,9 +688,11 @@ public final class ExternalCapabilityInvocationRegistry {
      * 从验证到宿主副作用共持有精确 provider 租约，撤回等待整个操作退出。
      * 此入口不进入插件 SDK，也不绕过插件的显式 imports。
      */
-    public <T, R> R withHostServices(List<ServiceKey<T>> keys, HostServiceOperation<T, R> operation)
+    public <T, R> R withServices(PluginServices consumer, ServiceKey<T> imported, List<ServiceKey<T>> keys,
+            List<ExternalCapabilityOwner> contributions, ManagedServiceOperation<T, R> operation)
             throws java.io.IOException {
-        if (keys.isEmpty() || keys.size() > 128 || keys.stream().distinct().count() != keys.size()) {
+        ExternalCapabilityOwner consumerOwner = consumer == null ? null : serviceOwner(consumer);
+        if (keys.size() > 128 || keys.stream().distinct().count() != keys.size()) {
             throw serviceFailure(ServiceAccessException.Reason.INVALID_VALUE);
         }
         List<ExternalCapabilityHandle> selected = new java.util.ArrayList<>();
@@ -598,14 +704,42 @@ public final class ExternalCapabilityInvocationRegistry {
         try {
             synchronized (lock) {
                 if (serviceCalls >= MAX_SERVICE_CALLS) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                if (consumerOwner != null) {
+                    if (imported == null || keys.stream().anyMatch(key -> key.type() != imported.type()))
+                        throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+                    // 两个导入键只授权同一个 owner-bound 操作入口，不开放具体 provider 的直接发现。
+                    ServiceKey<?> permitted = imported;
+                    var hookImport = top.sywyar.pixivdownload.plugin.api.operation.OperationHook.IMPORT;
+                    var verificationImport = top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT;
+                    if (!bindingOwnerGone(consumerOwner) && !states.get(consumerOwner.publicationId()).serviceImports.contains(imported)) {
+                        if (hookImport.equals(imported)) permitted = verificationImport;
+                        else if (verificationImport.equals(imported)) permitted = hookImport;
+                    }
+                    validateBindingImports(consumerOwner, List.of(permitted));
+                    if (states.get(consumerOwner.publicationId()).phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(consumerOwner.pluginId())) {
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    }
+                }
                 for (var key : keys) {
                     var candidates = serviceCandidates(key, 2);
                     if (candidates.isEmpty()) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
                     if (candidates.size() != 1) throw serviceFailure(ServiceAccessException.Reason.AMBIGUOUS);
                     selected.add(candidates.get(0));
                 }
-                for (var handle : selected) {
-                    var state = states.get(handle.owner().publicationId());
+                var owners = new java.util.LinkedHashSet<ExternalCapabilityOwner>();
+                if (consumerOwner != null) owners.add(consumerOwner);
+                selected.forEach(handle -> owners.add(handle.owner()));
+                if (contributions.size() > 128) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                for (var owner : contributions) {
+                    var state = states.get(owner.publicationId());
+                    if (state == null || !state.owner.equals(owner) || state.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(owner.pluginId()))
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    owners.add(owner);
+                }
+                for (var owner : owners) {
+                    var state = states.get(owner.publicationId());
                     if (leases.containsKey(state.leaseState)) continue;
                     var token = new ExternalCapabilityLeaseState.LeaseToken();
                     leases.put(state.leaseState, token);
@@ -621,6 +755,7 @@ public final class ExternalCapabilityInvocationRegistry {
             List<ServiceProvider<T>> providers = new java.util.ArrayList<>();
             for (int i = 0; i < keys.size(); i++) {
                 var handle = selected.get(i);
+                // 选择与导入已由宿主受管入口校验；代理只在整个 owner 租约内交给宿主回调。
                 providers.add(new ServiceProvider<>(publication(handle.owner()), bindingProxy(null, keys.get(i), handle)));
             }
             return operation.run(List.copyOf(providers));
@@ -635,6 +770,14 @@ public final class ExternalCapabilityInvocationRegistry {
             if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
             if (!cleanup.isEmpty()) throw serviceFailure(ServiceAccessException.Reason.INVOCATION_FAILED);
         }
+    }
+
+    /** 仅接纳本注册中心创建的访问器，插件自报身份不能建立受管操作入口。 */
+    public ExternalCapabilityOwner serviceOwner(PluginServices services) {
+        if (!(services instanceof ScopedServices scoped) || scoped.registry() != this) {
+            throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+        }
+        return scoped.owner();
     }
 
     /** 同步调用栈不能等待自身排空；生命周期入口在取得操作锁前拒绝这种重入。 */
@@ -1321,6 +1464,9 @@ public final class ExternalCapabilityInvocationRegistry {
 
     private static void reportServiceFailure(TargetEntry entry, ExternalCapabilityHandle handle,
                                              Method method, Throwable failure) {
+        // Hook 编排记录每次调用的终态；此处只为没有该结果边界的服务补诊断。
+        if (method.getDeclaringClass() == top.sywyar.pixivdownload.plugin.api.operation.OperationHook.class
+                && method.getName().equals("invoke") && org.slf4j.MDC.get("operationVerificationId") != null) return;
         if (!entry.failureReported.compareAndSet(false, true)) return;
         var owner = handle.owner();
         log.warn("PLUGIN_SERVICE_INVOCATION_FAILED plugin={} package={} generation={} publication={} service={} method={} failureType={}",

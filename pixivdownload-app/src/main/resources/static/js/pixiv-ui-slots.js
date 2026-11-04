@@ -128,8 +128,11 @@
                 if (entry.abort.signal.aborted) Promise.resolve().then(fn).catch(() => report('UI_CLEANUP_FAILED'));
                 else entry.cleanups.push(fn);
             };
+            const interaction = options.interaction?.(slot, entry.abort.signal);
+            if (interaction) onCleanup(() => interaction.destroy());
             const context = Object.freeze({
                 slotId: slot.slotId, target: slot.target, publication: slot.publication, signal: entry.abort.signal,
+                interaction,
                 get properties() { return copy(properties); },
                 get i18n() { return options.i18n?.(); },
                 region: name => options.regions?.[name] || null,
@@ -238,7 +241,7 @@
                     if (!response.ok) throw new Error('UI_MANIFEST_UNAVAILABLE');
                     const slots = await response.json();
                     if (pending === request) pending = null;
-                    await reconcile(slots, ticket);
+                    await reconcile(options.filter ? slots.filter(options.filter) : slots, ticket);
                 } catch (_) {
                     if (!abort.signal.aborted && ticket === revision) { await reconcile([], ticket); report('UI_MANIFEST_UNAVAILABLE'); }
                 } finally { if (pending === request) pending = null; }

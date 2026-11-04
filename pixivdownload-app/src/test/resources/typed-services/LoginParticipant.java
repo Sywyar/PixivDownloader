@@ -19,7 +19,8 @@ public final class LoginParticipant extends Plugin implements PixivPluginProvide
             public String description() { return "plugin.summary"; }
             public PluginKind kind() { return PluginKind.FEATURE; }
             public List<WebUiSlotContribution> uiSlots() {
-                return List.of(new WebUiSlotContribution(owner + ".proof", "login.verification", "/" + owner + "/proof.js", 0));
+                return List.of(new WebUiSlotContribution(owner + ".proof", "login.verification", "/" + owner + "/proof.js", 0, java.util.Map.of(), "",
+                        new top.sywyar.pixivdownload.plugin.api.web.page.PageInteraction.Participant("neutral-policy", OperationVerification.INTERACTION)));
             }
             public List<WebRouteContribution> routes() { return List.of(WebRouteContribution.publicRoute("/" + owner + "/**")); }
             public List<StaticResourceContribution> staticResources() {
@@ -29,17 +30,19 @@ public final class LoginParticipant extends Plugin implements PixivPluginProvide
     }
     @Configuration(proxyBeanMethods=false)
     public static class Wiring {
-        @Bean LoginVerification verification() {
-            return new LoginVerification() {
+        @Bean OperationVerification verification() {
+            return new OperationVerification() {
                 public String policyId() { return "neutral-policy"; }
-                public LoginVerificationResult verify(LoginVerificationRequest request) {
+                public String generation() { return "fixture-v1"; }
+                public Policy policy() { return new Policy("p1", "", INTERACTION, java.util.List.of()); }
+                public OperationVerificationResult verify(OperationVerificationRequest request) {
                     return switch(mode) {
                         case "fail" -> throw new IllegalStateException("private-verification-details");
-                        case "reject" -> new LoginVerificationResult(LoginVerificationResult.Status.REJECTED, "");
-                        case "challenge" -> new LoginVerificationResult(!request.response() ? LoginVerificationResult.Status.CHALLENGE
-                            : request.proof().equals("neutral-proof") ? LoginVerificationResult.Status.APPROVED : LoginVerificationResult.Status.REJECTED,
+                        case "reject" -> new OperationVerificationResult(OperationVerificationResult.Status.REJECTED, "");
+                        case "challenge" -> new OperationVerificationResult(!request.response() ? OperationVerificationResult.Status.CHALLENGE
+                            : request.proof().equals("neutral-proof") ? OperationVerificationResult.Status.APPROVED : OperationVerificationResult.Status.REJECTED,
                             "neutral-challenge");
-                        default -> new LoginVerificationResult(LoginVerificationResult.Status.APPROVED, "");
+                        default -> new OperationVerificationResult(OperationVerificationResult.Status.APPROVED, "");
                     };
                 }
             };

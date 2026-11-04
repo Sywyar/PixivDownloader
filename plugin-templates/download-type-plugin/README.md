@@ -1,57 +1,41 @@
-# Download type plugin template
+# Download Type Plugin Template
 
-For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
+This standalone Maven project demonstrates how to contribute a custom download type, five acquisition modes, queue operations, a scheduled source, a Vue UI slot, and a dedicated plugin gallery using the PixivDownloader Plugin SDK. All endpoints and queues in this template use deterministic in-memory sample data and perform no external network requests or disk writes. For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
 
-This standalone Maven project demonstrates a stable, resilient, and approachable PixivDownloader Plugin API surface for a new download type. It is intentionally deterministic: the endpoints produce mock items, the queue is in memory, and no external website, credential, proxy, database, or download directory is used.
+> **Execution mode notice:** Because this template uses a Spring child context and behavioral runtime contracts, `plugin.properties` declares `host-process-full-trust` and `process-restart` (with `pixiv.risk-signals=HOST_DATA_ACCESS`). Do not relabel a plugin containing configuration classes, controllers, queues, or scheduled executors as `declarative-process`.
 
-> **Execution trust warning:** this template requires a Spring child context and behavioral capabilities, so its descriptor is `host-process-full-trust` with `process-restart`. A third-party package can use this full-capability path in production after package verification and explicit administrator trust confirmation; a signature proves publisher identity and content integrity, not safety. Do not change the descriptor to `declarative-process` while retaining configuration classes, controllers, queues, schedules, or other in-process behavior.
+## 1. Build and Run
 
-Before publishing a real plugin, replace these identities consistently:
+1. Install JDK 17+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
+2. Run `mvn clean verify` in this directory and confirm `target/example-download-plugin-0.1.0.jar` is generated.
+3. Install the JAR via Plugin Management in a compatible host, complete the administrator trust confirmation, and perform a full process restart.
+4. Sign in as administrator, test the example download type in the download workbench, and open `/example-download-gallery.html`.
+
+Keep the Git-tracked `.pixivdownloader-plugin-project` marker (`pixivdownloader-plugin-project-v1` + LF) in the project root (excluded from the JAR).
+
+## 2. Customize the Template
+
+Replace all template identities consistently across Java classes, `plugin.properties`, frontend modules, i18n bundles, and tests:
 
 | Template value | Replace with |
-|---|---|
-| `example-download-plugin` | Your Maven artifact id |
-| `example-download` | Globally unique plugin and queue type id |
-| `com.example.pixivdownload.downloadtype` | Your Java package |
+| --- | --- |
+| `example-download-plugin` | Your Maven `artifactId` |
+| `example-download` | Globally unique plugin ID, queue type ID, and i18n namespace |
+| `com.example.pixivdownload.downloadtype` | Your Java package and directory path |
 | `ExampleDownload*` | Your Java class prefix |
 | `0.1.0` | Your plugin artifact version |
-| `plugin.requires` | `=FULL_SDK_VERSION` for a prerelease SDK; `MAJOR.MINOR` for a stable SDK |
-| `plugin.provider=Example Developer` | Your provider name |
-| `example-download` i18n namespace | Your unique web i18n namespace |
-| `/api/example-download/**` and `/example-download/**` | Plugin-owned API and static paths |
+| `plugin.requires` | `MAJOR.MINOR` for a stable SDK, or `=FULL_SDK_VERSION` (e.g., `plugin.requires==7.2.3-rc.4`) for a prerelease SDK |
+| `plugin.provider=Example Developer` | Your publisher name |
+| `/api/example-download/**`, `/example-download/**` | Plugin-owned API and static resource paths |
 
-Build with JDK 17, Maven and Node.js using `mvn clean verify`, or build both repository templates with `mvn -f ../pom.xml clean verify`. The POM declares one `pixivdownload-sdk` dependency with `provided` scope, plus JUnit for tests. The SDK supplies public contracts, PF4J, Spring, Servlet and Jackson transitively. The output remains a thin PF4J JAR without copies of those libraries. The configured candidate SDK version must be available in your Maven repository.
+## 3. Contracts Demonstrated and Boundaries
 
-The verified `pixiv.kind`, `pixiv.configuration-classes`, `pixiv.execution-mode`, and `pixiv.lifecycle-policy` entries in `plugin.properties` are authoritative at runtime. Keep the compatibility `configurationClasses()` result aligned with the descriptor for older hosts and SDK tooling.
-
-Update the compile dependency and `plugin.requires` together. For a prerelease SDK, write `plugin.requires==FULL_SDK_VERSION` and test with its matching runtime. The first equals sign is the properties separator; the second requests an exact SDK contract. Older hosts reject this declaration. A historical `major.minor` declaration does not prove compatibility with a specific RC. Publish a new verified package instead of editing an existing release.
-
-## Stable examples included
-
-The download lifecycle example uses interfaces registered as child-context beans: `ExampleDownloadSubmission` implements `DownloadSubmissionHandler`, and the configuration publishes a `DownloadOptionsHook` and `DownloadObserver`. No SDK base class is required. The handler uses a real `QueueTaskTracker` handle and emits completion only after the in-memory domain action succeeds. The host drains the synchronous capability call before closing the child context.
-
-An administrator can submit this type through `DownloadTasks.submit(new DownloadSubmission(requestId, "example-download", "123", Map.of()), null, identity)`, using a trusted request identity supplied by the host. The workbench exposes the same operation at `POST /api/download/tasks` with JSON `{"requestId":"<UUID>","workType":"example-download","workId":"123","options":{}}`. The title hook supplies a default title only for this type; the observer records its events at Java logging level `FINE`. Query the returned attempt ID through `DownloadTasks.find`, or use `snapshot` after reconnecting. Reuse the request UUID only for an identical retry within the retention window. These are current source contracts; build against a matching SDK candidate rather than an older published SDK.
-
-Keep `.pixivdownloader-plugin-project` in the selected project directory and track it with Git. Generated markers contain `pixivdownloader-plugin-project-v1` followed by LF; readers also accept a UTF-8 BOM and no line ending or CRLF. The marker identifies the project format and proves neither publisher identity nor code safety. It stays out of the plugin JAR.
-
-The package declares `pixiv.risk-signals=HOST_DATA_ACCESS` because its controller and scheduled executors consume host-provided identity and task contexts. The example does not download remote content or write artwork files. Update the declaration when adding behavior. Declarations describe capabilities; they do not grant permissions or establish that a plugin is safe.
-
-- PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and explicit Spring child-context configuration.
-- `DownloadTypeDescriptor` contract version 1 with all five acquisition modes, explicit single-item cancellation support, filters, settings, and a required behavior-module URL. UI slots are published separately so their module ownership cannot drift from the host-stamped contribution.
-- `QueueOperations` with clear-all, owner-scoped clear, optional opaque-string `workKey` cancel, and the default already-drained quiesce sentinel. Queue items keep the raw key in top-level `cancelWorkKey`; the host posts it as JSON to the queue-type endpoint, so it is distinct from the card/display id and is not restricted to one URL path segment. The default drain is correct only because this mock performs no background work; an asynchronous implementation must return and drain a real positive generation.
-- A controller that obtains `RequestOwnerIdentity` only from the host-provided `RequestOwnerIdentityResolver`; request bodies and query parameters never choose their own owner.
-- A current-script-scoped queue behavior module with `process(item)`, import, user, series, search, quick, filters, settings, and a declarative settings slot. `process` writes only through `context.updateItem`, and quick actions publish results through `context.publishWorks`; plugins do not receive queue persistence or rendering globals.
-- A separate UI-slot module that mounts a Vue component through the host `PixivVue` helper and uses owner-scoped `supports` / `dispatchQuickAction`. Do not bundle Vue in a plugin.
-- A credential-free schedule source and synchronous work executor using only stable contracts. Its browser hooks read and restore the current single-import value through publication-scoped `context.acquisitionInput(mode)` / `context.restoreAcquisition(mode, value)`; they do not read host DOM ids or call host globals.
-- An admin-only independent gallery page rendered with DOM APIs, i18n bundles, separate HTML/CSS/JS files, and dark-mode variables.
-- Deterministic controller endpoints returning stable machine codes plus i18n keys.
-
-## Deliberate limits
-
-This template is not a network downloader and does not demonstrate authentication, anti-bot workarounds, DRM access, private content, host database access, or a host download-root service. Replace the in-memory domain action with your own lawful blocking download implementation before reporting `ScheduledWorkResult.completed()`.
-
-This template exposes a plugin-owned gallery page by contributing its own routes, static resources, controller, i18n bundle, and `gallery.type-switch` navigation entry. PixivDownloader has no generic gallery API or shared gallery runtime: every download-type plugin owns its gallery data, rendering, media serving, filters, and actions. Do not mount third-party code into `/pixiv-gallery.html`, call another plugin's gallery API, or import gallery, app, runtime-internal, installer, or signature-internal classes to bypass that boundary.
-
-The schedule contracts are stable, but the host remains responsible for claims, leases, credentials, cancellation, pending work, and checkpoints. A plugin owns only its descriptor, opaque definition/payload schemas, source discovery, and synchronous work execution. The current neutral browser input adapter exposed to third-party source modules covers `single-import`; do not reach into host DOM or private mode functions to emulate other editor modes. This example is credential-free and has no checkpoint.
-
-The queue cancel contract is addressed by `(queueType, workKey)`. `workKey` is an opaque stable string within that queue type; validate it only inside your own implementation. The host bridge calls `POST /api/download/queue/{queueType}/cancel` with JSON containing the raw `workKey` plus the backend manifest's `pluginId`, `packageId`, `generation`, and descriptor `publicationId`. Those fields prove descriptor currentness; they are not the user's authorization identity. The server fixes the matching operation proxy before rechecking that descriptor publication and fails closed if either publication changes. User owner/admin scope is derived separately from the current request. Plugin modules should use the host cancel bridge instead of constructing this control request themselves. Never broadcast a key to every queue type, coerce every site identity to a number, place the key in a path segment, or accept a user owner UUID supplied by caller JSON.
+- **PF4J & Spring child context**: Explicit `@Bean` registration via `PixivPluginProvider.configurationClasses()` and `pixiv.configuration-classes` (no host component scanning).
+- **Download type & queue lifecycle**:
+  - `DownloadTypeDescriptor` (contract version 1) declaring `single-import`, `user`, `series`, `search`, and `quick` modes, `cancelSupported=true`, filters, settings, and behavior module URL.
+  - `DownloadSubmissionHandler`, `DownloadOptionsHook`, and `DownloadObserver` wired through `DownloadLifecycle` / `QueueTaskTracker` (admin submission via `DownloadTasks.submit` or `POST /api/download/tasks`).
+  - `QueueOperations` with opaque `workKey` cancellation (sent by the host bridge in JSON to `POST /api/download/queue/{queueType}/cancel`). Real asynchronous downloaders must override `prepareQuiesce` to return and drain a positive generation `QueueDrain` and report completion only after files and records are durably committed.
+- **Trusted request identity**: Controllers resolve the caller via the host-provided `RequestOwnerIdentityResolver` and never trust caller-supplied owner UUIDs.
+- **Frontend isolation & independent gallery**:
+  - Behavior and UI-slot modules interact only through the scoped `context` (`updateItem`, `publishWorks`, `supports`, `dispatchQuickAction`, `acquisitionInput`, `restoreAcquisition`) and host `PixivVue` without bundling Vue or touching private host globals.
+  - Dedicated gallery at `/example-download-gallery.html` contributing its own routes, static assets, controller, i18n, and `gallery.type-switch` navigation entry (never mounting into `/pixiv-gallery.html`).

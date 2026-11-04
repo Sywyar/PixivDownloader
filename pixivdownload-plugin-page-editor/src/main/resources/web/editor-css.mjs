@@ -1,5 +1,5 @@
 /** CSS 草稿属于当前面板；只有校验成功才写入组件/视口的样式目标。 */
-export function installCssEditor(editor, api, t, lifetime, allowedProperties, motion) {
+export function installCssEditor(editor, api, t, lifetime, allowedProperties, motion, onChange) {
     const $ = id => document.getElementById(id);
     const panel = $('css-panel'), allowed = new Set(allowedProperties);
     let cm, view, loading, target, component, device, baseline = '', baselineStyles = '', dirty = false, expanded = false;
@@ -18,6 +18,7 @@ export function installCssEditor(editor, api, t, lifetime, allowedProperties, mo
         $('edit-css').classList.toggle('has-draft', dirty);
         $('style-toggle').classList.toggle('has-draft', dirty);
         $('style-section').hidden = !editor.getSelected() && !dirty;
+        onChange();
     }
     function cancel() {
         const pending = !!request;

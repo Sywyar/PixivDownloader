@@ -1,4 +1,6 @@
 import {checkCssEditor} from './css-editor-browser.mjs';
+import {checkCustomComponents} from './custom-components-browser.mjs';
+import {checkPublishedTitle} from './title-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,7 +32,7 @@ page.on('request', request => { if (!request.url().startsWith(origin) && !reques
 await page.exposeFunction('recordCsp', value => violations.push(value));
 await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event =>
     window.recordCsp({directive: event.violatedDirective, blocked: event.blockedURI})));
-const clickConfirm = async () => page.locator('[data-pixiv-feedback-action="accept"],.pixiv-feedback-button--primary').click();
+const clickConfirm = async () => page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
 const waitStatus = async text => page.waitForFunction(value => document.getElementById('status')?.textContent === value, text);
 async function editor() {
     await context.addCookies([{name: cookie[0], value: cookie.slice(1).join('='), url: origin}]);
@@ -107,14 +109,18 @@ async function checkEditorLayout() {
     await page.screenshot({path: path.join(work, 'editor-design-light.png'), fullPage: true});
     await page.locator('.pixiv-theme-toggle').click();
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await page.evaluate(() => Promise.allSettled(document.getAnimations().filter(animation =>
+        animation.effect.getTiming().iterations !== Infinity).map(animation => animation.finished)));
     await checkContrast();
     await page.screenshot({path: path.join(work, 'editor-design-dark.png'), fullPage: true});
     await page.locator('.pixiv-theme-toggle').click();
     await page.locator('#add-tab').click();
     const container = page.getByRole('button', {name: 'Container', exact: true});
     await container.press('Enter');
+    await page.locator('#component-add').click();
     await page.locator('.gjs-sm-property__flex-direction').waitFor();
     await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+    await page.locator('#component-add').click();
     await page.waitForFunction(() => !document.getElementById('outdent').disabled);
     const layerAlignment = await page.locator('#layers .gjs-layer-item').evaluateAll(rows => rows.every(row => {
         const elements = [...row.querySelectorAll('.gjs-layer-name,.gjs-layer-caret')].filter(node => node.getBoundingClientRect().height);
@@ -127,11 +133,11 @@ async function checkEditorLayout() {
     assert.equal(await page.locator('#delete').isDisabled(), false);
     await page.locator('#delete').click(); await page.locator('#undo').click();
     assert.equal(await page.locator('#redo').isDisabled(), false);
-    for (const viewport of [{width: 390, height: 844}, {width: 900, height: 500}, {width: 1280, height: 720}, {width: 1920, height: 500}]) {
+    for (const viewport of [{width: 320, height: 844}, {width: 390, height: 844}, {width: 900, height: 500}, {width: 1280, height: 720}, {width: 1920, height: 500}]) {
         await page.setViewportSize(viewport);
         await more.click();
         const menu = await page.locator('.action-menu-content').boundingBox();
-        assert.ok(menu.x >= 0 && menu.x + menu.width <= viewport.width + 2, 'menu fits ' + JSON.stringify(viewport));
+        assert.ok(menu.x >= 0 && menu.x + menu.width <= viewport.width + 2, 'menu fits ' + JSON.stringify({viewport, menu}));
         await more.press('Escape');
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), JSON.stringify(viewport));
     }
@@ -145,7 +151,7 @@ async function checkEditorLayout() {
             page.locator('.pixiv-lang-switcher__select').selectOption(locale.tag)
         ]);
         await page.waitForFunction(() => window.pageEditorReady);
-        assert.ok(!(await page.locator('#status').textContent()).includes('(PAGE_'), 'loading an intact draft succeeds');
+        assert.equal(await page.locator('#document-feedback').getAttribute('data-state'), 'idle', 'loading an intact draft succeeds');
         assert.equal(await page.locator('html').getAttribute('lang'), locale.tag);
         await page.locator('#selection').selectOption({index: 2});
         const labels = await page.locator('#styles .gjs-sm-property__padding-top .gjs-sm-label').textContent();
@@ -159,11 +165,70 @@ async function checkEditorLayout() {
     await page.waitForFunction(() => window.pageEditorReady);
 }
 try {
-    if (phase === 'unchanged') {
+    if (phase === 'publication-recovery') {
+        const route = '/api/page-editor/documents/core:login';
+        const post = async (suffix, body) => {
+            const response = await context.request.post(origin + route + suffix, {data: body, headers: {Origin: origin}});
+            assert.equal(response.status(), 200); return response.json();
+        };
+        const commit = async state => {
+            const plan = await post('/prepare', {revision: state.revision, restoring: false});
+            return post('/publish', {revision: state.revision, decision: {
+                revision: plan.revision, fingerprint: plan.fingerprint, approvals: plan.permissions}});
+        };
+        let state = await (await context.request.get(origin + route)).json();
+        const defaults = await (await context.request.get(origin + route + '/default')).json();
+        state = await post('/save', {revision: state.revision, document: {...defaults, title: 'First publication'}});
+        state = await commit(state);
+        state = await post('/save', {revision: state.revision, document: {...defaults, title: 'Second publication'}});
+        const file = path.join(work, 'runtime/data/page-editor/pages/core_login.json');
+        const original = fs.readFileSync(file);
+        // Windows 拒绝替换只读目标；Unix 通过目录写权限阻止原子替换，保留草稿可读。
+        const blockedPath = process.platform === 'win32' ? file : path.dirname(file);
+        const mode = fs.statSync(blockedPath).mode;
+        try {
+            fs.chmodSync(blockedPath, process.platform === 'win32' ? 0o444 : 0o500);
+            state = await commit(state);
+            assert.equal(state.publicationRevision > 0, true);
+            assert.equal(state.previous.title, 'First publication');
+            assert.deepEqual(fs.readFileSync(file), original, 'ordinary publication never rewrites the draft');
+            await editor();
+            const response = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/restore'));
+            await page.locator('#document-more > summary').click();
+            await page.locator('#restore').click(); await clickConfirm();
+            const restoredResponse = await response;
+            assert.equal(restoredResponse.status(), 200);
+            const restored = await restoredResponse.json();
+            assert.equal(restored.draftSaveFailed, true);
+            assert.equal(restored.published.title, 'First publication');
+            assert.equal(restored.previous.title, 'Second publication');
+            assert.equal(restored.publicationRevision, state.publicationRevision + 1);
+            assert.equal(restored.revision, state.revision);
+            await page.waitForFunction(() => document.querySelector('#status')?.dataset.state === 'error');
+            assert.match(await page.locator('#status').textContent(), /published page was restored.*draft was not saved/i);
+            assert.equal(await page.locator('#document-dirty').getAttribute('aria-hidden'), 'false');
+            const persisted = await documentState();
+            assert.equal(persisted.published.title, 'First publication');
+            assert.equal(persisted.draft.title, 'Second publication');
+            assert.deepEqual(persisted.previous, restored.previous);
+            assert.deepEqual(fs.readFileSync(file), original, 'failed restore draft save preserves existing bytes');
+            fs.chmodSync(blockedPath, mode);
+            await page.locator('#save').click(); await waitStatus('Draft saved');
+            const saved = await documentState();
+            assert.equal(saved.draft.title, 'First publication');
+            assert.equal(saved.publicationRevision, restored.publicationRevision);
+            assert.deepEqual(saved.previous, restored.previous);
+            assert.equal(await page.locator('#document-dirty').getAttribute('aria-hidden'), 'true');
+            await page.reload(); await page.waitForFunction(() => window.pageEditorReady);
+            assert.equal((await documentState()).draft.title, 'First publication');
+        } finally {
+            fs.chmodSync(blockedPath, mode);
+        }
+    } else if (phase === 'unchanged') {
         await checkEditorLayout();
         const defaultLogin = async () => {
             const projection = page.waitForResponse(response => response.request().method() === 'GET'
-                && response.url().includes('/api/web/page-publications/'));
+                && decodeURIComponent(new URL(response.url()).pathname) === '/api/web/page-publications/core:login');
             await login();
             assert.equal((await projection).status(), 404);
             assert.equal(await page.locator('#default-page').isVisible(), false);
@@ -190,12 +255,11 @@ try {
         assert.deepEqual((await documentState()).published, source, 'default source is preserved');
         await page.locator('#page-title').fill('Custom login title');
         await page.locator('#publish').click(); await clickConfirm(); await waitStatus('Page published');
+        await checkPublishedTitle(context.browser(), origin, 'Custom login title');
         await login();
-        await page.locator('#default-page').waitFor({state: 'visible'});
+        await page.waitForFunction(() => document.getElementById('native-page').hidden);
         assert.equal(await page.title(), 'Custom login title');
-        await page.locator('#default-page').click();
-        await page.locator('#default-page').waitFor({state: 'hidden'});
-        assert.equal(await page.locator('.center').evaluate(node => node.parentElement.id === 'native-page'), true);
+        assert.equal(await page.locator('#default-page').count(), 0, 'published pages have no visitor layout override');
         await editor();
         await restore();
         assert.deepEqual((await documentState()).published, source, 'restore keeps the original default document');
@@ -241,11 +305,15 @@ try {
         await page.locator('#add-tab').click();
         const block = page.getByRole('button', {name: 'Checklist', exact: true});
         await block.waitFor({timeout: 30000}); await block.press('Enter');
+        assert.equal(await page.locator('#component-detail-group').textContent(), 'Example checklist');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).waitFor();
         const frame = page.frameLocator('iframe.gjs-frame');
         const mounted = await frame.locator('[data-tick]').elementHandle();
         fs.writeFileSync(path.join(work, 'live-discovered'), 'discovered');
         await block.waitFor({state: 'detached', timeout: 15000});
+        assert.deepEqual(await page.evaluate(() => window.grapesjs.editors[0].BlockManager.getCategories()
+            .filter(category => category.id.startsWith('plugin:page-checklist')).map(category => category.id)), []);
         await page.waitForFunction(element => element.dataset.disposed === 'true', mounted);
         const ticks = await mounted.evaluate(element => element.dataset.tick);
         await page.waitForTimeout(160);
@@ -257,23 +325,87 @@ try {
     } else if (phase === 'active') {
         await editor();
         await page.locator('#add-tab').click();
+        const group = type => page.locator('#blocks .gjs-block-category')
+            .filter({has: page.locator('[data-component-block="page-checklist:' + type + '"]')});
+        assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), 'Example checklist');
+        assert.equal((await group('badge').locator('.gjs-title').innerText()).trim(), 'Checks & status');
+        assert.equal((await group('summary').locator('.gjs-title').innerText()).trim(), 'Checklist details');
+        assert.match(await group('badge').locator('.block-group-help').textContent(), /independent plugin/);
+        await page.locator('#block-search').fill('Checks & status');
+        assert.equal(await page.locator('#blocks .gjs-block:not([hidden])').count(), 1);
+        assert.equal(await page.locator('[data-component-block="page-checklist:badge"]').isVisible(), true);
+        await page.locator('#block-search').fill('');
+        await group('badge').locator('.gjs-title').press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-component-block="page-checklist:badge"]')
+            .closest('.gjs-block-category').querySelector('.gjs-title').getAttribute('aria-expanded') === 'false');
+        await group('badge').locator('.gjs-title').press('Space');
+        for (const type of ['box', 'text']) {
+            const heading = page.locator('#blocks .gjs-block-category')
+                .filter({has: page.locator('[data-component-block="' + type + '"]')}).locator('.gjs-title');
+            await heading.click();
+        }
+        await page.waitForFunction(() => [...document.querySelectorAll('#blocks .gjs-blocks-c')]
+            .every(element => element.getAnimations().length === 0));
+        await page.screenshot({path: path.join(work, 'component-categories.png'), fullPage: true});
+        const catalogRoute = '**/api/page-editor/catalog';
+        await page.route(catalogRoute, async route => {
+            const response = await route.fetch(), body = await response.json();
+            body.componentCategories.find(category => category.id === 'page-checklist').namespace = '';
+            await route.fulfill({response, json: body});
+        });
+        try {
+            await page.waitForFunction(() => window.grapesjs.editors[0].BlockManager.get('page-checklist:list')
+                .get('detailCategory') === 'page-checklist');
+            assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), 'page-checklist');
+        } finally { await page.unroute(catalogRoute); }
+        await page.waitForFunction(() => window.grapesjs.editors[0].BlockManager.get('page-checklist:list')
+            .get('detailCategory') === 'Example checklist');
+        await Promise.all([
+            page.waitForEvent('framenavigated', {predicate: frame => frame === page.mainFrame()}),
+            page.locator('.pixiv-lang-switcher__select').selectOption('zh-CN')
+        ]);
+        await page.waitForFunction(() => window.pageEditorReady);
+        await page.locator('#add-tab').click();
+        assert.equal((await group('badge').locator('.gjs-title').innerText()).trim(), '检查与状态');
+        assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), '示例清单');
+        await Promise.all([
+            page.waitForEvent('framenavigated', {predicate: frame => frame === page.mainFrame()}),
+            page.locator('.pixiv-lang-switcher__select').selectOption('en-US')
+        ]);
+        await page.waitForFunction(() => window.pageEditorReady);
+        await page.locator('#add-tab').click();
         const checklist = page.getByRole('button', {name: 'Checklist', exact: true});
         await checklist.waitFor();
         const frame = page.frameLocator('iframe.gjs-frame');
         await frame.locator('[data-page-region="password"]').waitFor();
+        await page.waitForFunction(() => [document, window.grapesjs.editors[0].Canvas.getDocument()].every(doc =>
+            doc.getAnimations().every(animation => animation.playState === 'finished' || animation.playState === 'idle'
+                || animation.effect.getTiming().iterations === Infinity)));
+        assert.deepEqual(await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0], root = editor.getWrapper();
+            const password = root.findType('page-region').find(model => model.get('region') === 'password');
+            return {withinForm: editor.Components.canMove(password.parent(), password).result,
+                outsideForm: editor.Components.canMove(root, password).result};
+        }), {withinForm: true, outsideForm: false}, 'dragging keeps required fields inside their form');
+        await checklist.scrollIntoViewIfNeeded();
         const blockBox = await checklist.boundingBox();
-        const fieldBox = await frame.locator('[data-page-region="password"]').boundingBox();
+        const fieldBox = await frame.locator('[data-page-region="remember"]').boundingBox();
         await page.mouse.move(blockBox.x + blockBox.width / 2, blockBox.y + blockBox.height / 2);
         await page.mouse.down();
-        await page.mouse.move(fieldBox.x + 30, fieldBox.y + fieldBox.height - 2, {steps: 20});
-        await page.mouse.move(fieldBox.x + 35, fieldBox.y + fieldBox.height - 1, {steps: 5});
+        await page.mouse.move(fieldBox.x + 30, fieldBox.y + fieldBox.height / 2, {steps: 20});
+        await page.mouse.move(fieldBox.x + 35, fieldBox.y + fieldBox.height / 2, {steps: 5});
+        await page.waitForFunction(() => window.grapesjs.editors[0].Canvas.getSpots({type: 'target'})
+            .some(spot => spot.get('component')?.get('region') === 'admin-card'));
         await page.mouse.up();
         await frame.getByRole('heading', {name: 'Checklist', exact: true}).waitFor({timeout: 5000});
+        assert.equal(await page.evaluate(() => window.grapesjs.editors[0].getWrapper()
+            .findType('page-component')[0].parent().get('region')), 'admin-card');
         await page.getByLabel('Checklist title', {exact: true}).fill('First list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         await page.getByRole('button', {name: 'Add item', exact: true}).click();
         assert.equal(await page.locator('#properties').getByRole('textbox').count(), 3);
         await checklist.focus(); await checklist.press('Enter');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).fill('Second list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         const instanceLabels = (await page.locator('#selection option').allTextContents()).filter(text => text.includes('Checklist'));
@@ -281,10 +413,12 @@ try {
         assert.equal(new Set(instanceLabels).size, 2, 'component instances have distinct selection labels');
         await page.locator('#properties input[type="checkbox"]').first().check();
         await checklist.focus(); await checklist.press('Enter');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).fill('Third list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         const containerBlock = page.getByRole('button', {name: 'Container', exact: true});
         await containerBlock.press('Enter');
+        await page.locator('#component-add').click();
         await page.waitForFunction(() => document.querySelector('.gjs-sm-property__gap input')?.value === '16');
         await page.locator('.gjs-sm-property__gap input').fill('12');
         await page.locator('.gjs-sm-property__gap input').press('Tab');
@@ -293,6 +427,7 @@ try {
         await page.locator('.gjs-sm-property__gap input').press('Tab');
         await page.locator('#viewport').selectOption('Desktop');
         await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('Layout note');
         await page.locator('#properties textarea').press('Tab');
         await page.locator('#outdent').click();
@@ -309,22 +444,27 @@ try {
             }, {factor, origin});
         });
         await page.locator('.connections-section > summary').click();
+        await page.waitForFunction(() => !document.querySelector('.connections-section').getAnimations({subtree: true})
+            .some(animation => animation.playState === 'running'));
+        await page.locator('#from').selectOption(await page.locator('#from option').first().getAttribute('value'));
         await page.locator('#to').selectOption(await page.locator('#to option').nth(1).getAttribute('value'));
         await page.locator('#connect button').click();
+        await page.waitForFunction(() => document.querySelectorAll('#connections > p').length === 1);
         await page.locator('#from').selectOption(await page.locator('#from option').nth(1).getAttribute('value'));
         await page.locator('#to').selectOption(await page.locator('#to option').nth(2).getAttribute('value'));
         await page.locator('#connect button').click();
+        await page.waitForFunction(() => document.querySelectorAll('#connections > p').length === 2);
         await selectLayer('page-box', 'header');
         await page.locator('.gjs-sm-property__padding-top input').fill('20');
         await page.locator('.gjs-sm-property__padding-top input').press('Tab');
         await selectLayer('page-box', 'footer');
         await page.locator('#add-tab').click();
         await page.getByRole('button', {name: 'Link', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('Registration information');
         await page.locator('#properties textarea').press('Tab');
         await page.getByLabel('Link URL', {exact: true}).fill('https://example.org/registration');
         await page.getByLabel('Link URL', {exact: true}).press('Tab');
-        await page.locator('#page-settings > summary').click();
         await page.locator('#show-hidden').check();
         await frame.locator('[data-page-region="invite-card"]').waitFor({state: 'visible'});
         await page.locator('#show-hidden').uncheck();
@@ -337,6 +477,10 @@ try {
         const find = node => node && typeof node === 'object' ? [node, ...Object.values(node).flatMap(find)] : [];
         const instances = find(state.draft).filter(node => node.type === 'page-component');
         assert.equal(instances.length, 3); assert.equal(new Set(instances.map(instance => instance.instanceId)).size, 3);
+        assert.deepEqual(state.draft.connections, [
+            {from: instances[0].instanceId, to: instances[1].instanceId, output: 'result', input: 'selection'},
+            {from: instances[1].instanceId, to: instances[2].instanceId, output: 'result', input: 'selection'}
+        ]);
         assert.ok(find(state.draft).some(node => node.type === 'page-box' && node.components?.[0]?.content === 'Layout note'));
         assert.equal(find(state.draft).find(node => node.region === 'admin-card').components.filter(node => node.type === 'page-component').length, 3,
             'both independent components are inside the original login card');
@@ -348,8 +492,8 @@ try {
         await page.locator('#preview-loading').waitFor({state: 'hidden'});
         assert.equal(await page.locator('#catalog').isVisible(), false);
         assert.equal(await page.locator('#inspector').isVisible(), false);
-        await page.frameLocator('#preview-root').locator('button:disabled').nth(1).waitFor();
-        assert.equal(await page.frameLocator('#preview-root').locator('button:disabled').count(), 3);
+        await page.frameLocator('#preview-root').locator('[data-tick] button:disabled').nth(1).waitFor();
+        assert.equal(await page.frameLocator('#preview-root').locator('[data-tick] button:disabled').count(), 3);
         await page.frameLocator('#preview-root').getByRole('link', {name: 'Registration information'}).waitFor();
         await page.frameLocator('#preview-root').locator('input[type=password]').waitFor();
         assert.equal(await page.frameLocator('#preview-root').getByText('Layout note', {exact: true})
@@ -378,15 +522,7 @@ try {
         await login();
         await page.getByRole('heading', {name: 'First list', exact: true}).waitFor();
         assert.equal(await page.getByText('Layout note', {exact: true}).evaluate(node => getComputedStyle(node).paddingTop), '18px');
-        const controls = await page.locator('#default-page').evaluate(node => {
-            const language = document.querySelector('.pixiv-lang-switcher__select');
-            return {font: getComputedStyle(node).fontSize, weight: getComputedStyle(node).fontWeight,
-                languageFont: getComputedStyle(language).fontSize, height: node.getBoundingClientRect().height,
-                languageHeight: language.getBoundingClientRect().height};
-        });
-        assert.equal(controls.font, controls.languageFont);
-        assert.equal(controls.weight, '500');
-        assert.ok(Math.abs(controls.height - controls.languageHeight) <= 2, JSON.stringify(controls));
+        assert.equal(await page.locator('#default-page').count(), 0, 'published layouts remain controlled by the editor');
         assert.equal(await page.title(), 'Published example');
         assert.equal(await page.locator('#custom-page header').evaluate(node => getComputedStyle(node).paddingTop), '20px');
         await page.locator('#loginCard').getByRole('heading', {name: 'First list', exact: true}).waitFor();
@@ -420,7 +556,10 @@ try {
             .find(node => node.textContent === 'Layout note').parentElement).gap === '28px');
         assert.equal(await page.getByText('Layout note', {exact: true}).evaluate(node => getComputedStyle(node.parentElement).gap), '28px');
         await page.screenshot({path: path.join(work, 'login-mobile.png'), fullPage: true});
-        await page.locator('#default-page').click();
+        await page.route('**/api/web/page-publications/**', route => route.request().method() === 'HEAD'
+            ? route.fulfill({status: 404}) : route.continue());
+        await page.waitForFunction(() => !document.getElementById('native-page').hidden);
+        await page.unroute('**/api/web/page-publications/**');
         assert.equal(await page.locator('#custom-page').textContent(), '');
         await page.locator('#login-btn').waitFor({state: 'visible'});
         assert.equal(await page.locator('#loginCard input').count(), 3, 'fallback restores original controls');
@@ -430,6 +569,7 @@ try {
         await page.locator('#add-tab').click();
         await page.getByRole('button', {name: 'Text', exact: true}).focus();
         await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('A changed publication');
         await page.locator('#properties textarea').press('Tab');
         await page.locator('#publish').click(); await clickConfirm(); await waitStatus('Page published');
@@ -482,13 +622,23 @@ try {
         await context.addCookies([{name: cookie[0], value: cookie.slice(1).join('='), url: origin}]);
         await page.getByRole('button', {name: 'Verify checklist', exact: true}).first().click();
         await page.waitForFunction(() => document.querySelector('#custom-page output')?.textContent === '0 / 2');
+    } else if (phase === 'custom' || phase === 'custom-restarted') {
+        await editor();
+        await checkCustomComponents({page, context, origin, phase, work, clickConfirm});
     } else if (phase === 'default' || phase === 'corrupt') {
         await login();
         assert.equal(await page.locator('#custom-page').textContent(), '');
         await page.locator('#username').fill('acceptance');
         await page.locator('#password').fill('wrong');
-        await page.locator('#login-btn').click();
+        const submissions = [];
+        page.on('request', request => { if (new URL(request.url()).pathname === '/api/auth/login') submissions.push(request); });
+        const prepared = page.waitForResponse(response => response.url().endsWith(phase === 'corrupt'
+            ? '/api/auth/login' : '/api/operation-hooks/prepare')).catch(error => error);
+        await page.locator('#login-btn').click({timeout: 10000});
+        const result = await prepared; if (result instanceof Error) throw result;
+        assert.equal(result.status(), phase === 'corrupt' ? 503 : 200);
         await page.waitForFunction(() => document.getElementById('error-msg').textContent.length > 0);
+        assert.equal(submissions.length, 1, 'unavailable publication remains rejected by the host before the controller');
     } else throw new Error('unknown phase');
     assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), [], 'product CSP violations');
     assert.deepEqual(errors, [], 'browser errors');
@@ -499,7 +649,8 @@ try {
 } catch (failure) {
     fs.writeFileSync(path.join(work, 'failure-' + phase + '.json'), JSON.stringify(await page.evaluate(() => {
         const editor = window.grapesjs?.editors[0];
-        return {selected: editor?.getSelected()?.toJSON(), styles: editor?.getProjectData().styles,
+        const selected = editor?.getSelected();
+        return {selected: selected && {id: selected.getId(), type: selected.get('type')}, styles: editor?.getProjectData().styles,
             gap: document.querySelector('.gjs-sm-property__gap input')?.value};
     }), null, 2), 'utf8');
     fs.writeFileSync(path.join(work, 'failure-' + phase + '.html'), await page.content(), 'utf8');

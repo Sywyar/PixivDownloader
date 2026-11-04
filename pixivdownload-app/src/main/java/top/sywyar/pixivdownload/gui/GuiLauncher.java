@@ -222,6 +222,8 @@ public class GuiLauncher {
             registerSingleInstanceShutdown(singleInstanceManager);
         }
 
+        top.sywyar.pixivdownload.cli.CliWebPublications.handleIfPresent(args);
+
         try {
             top.sywyar.pixivdownload.transfer.EnvironmentTransferService.runPending(filterArgs(args));
         } catch (java.io.IOException failure) {

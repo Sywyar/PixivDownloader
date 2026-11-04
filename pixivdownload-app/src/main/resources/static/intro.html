@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title data-i18n="page.title">PixivDownloader — 一键归档你的 Pixiv 收藏</title>
-<meta name="description" content="本地 Pixiv 批量下载工具：漫画 / 插画 / 动图 / 小说 全格式支持，附带画廊检索、收藏夹、系列下载和多人配额。Spring Boot + 油猴脚本。" />
+<title data-i18n="page.title">PixivDownloader — 本地保存与浏览 Pixiv 作品</title>
+<meta name="description" content="保存 Pixiv 插画、漫画、动图和小说，使用本地画廊检索、收藏夹和系列下载。" />
 <script src="/js/pixiv-i18n.js"></script>
 <script src="/js/pixiv-feedback.js"></script>
 <script src="/js/pixiv-lang-switcher.js"></script>
@@ -60,9 +60,7 @@
     <div class="slide-inner" style="text-align:center">
       <span class="eyebrow fx"><span class="pulse"></span><span data-i18n="hero.eyebrow">漫画 · 插画 · 动图 · 小说 · 暗色模式 · 多语言</span></span>
       <h1 class="fx d1" style="margin-top:24px" data-i18n-html="hero.title">本地归档<br/>你的 <em>Pixiv 作品</em>。</h1>
-      <p class="lead fx d2" style="margin:20px auto 0" data-i18n="hero.lead">
-        Spring Boot 后端 + 油猴脚本 + 本地画廊。批量、系列、动图转码、画廊检索、收藏夹归档、多人配额——一整套管线，跑在你自己的机器上。
-      </p>
+      <p class="lead fx d2" style="margin:20px auto 0" data-i18n="hero.lead">按链接、作者、搜索条件或系列批量保存作品，再用本地画廊整理和阅读。本页界面、作品和数字均为演示。</p>
       <div class="cta-row fx d3">
         <a class="btn primary layout-touch" data-goto="2">
           <span data-i18n="btn.see-it">看它长什么样</span>
@@ -76,38 +74,36 @@
   <!-- ====== SLIDE 2: PAIN POINTS ====== -->
   <section class="slide s-pain" data-label="PAIN">
     <div class="slide-inner">
-      <span class="eyebrow fx" data-i18n="pain.eyebrow">Why · 为什么</span>
-      <h2 class="fx d1" style="margin-top:16px" data-i18n-html="pain.title">
-        收藏一时爽，<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-3),var(--accent-2));-webkit-background-clip:text;color:transparent">整理火葬场。</em>
-      </h2>
-      <p class="fx d2" style="margin-top:14px" data-i18n="pain.lead">几千件作品横跨漫画/动图/小说、翻页加载、R-18 过滤、画廊检索、收藏夹归档——你真的想手动做吗？</p>
+      <span class="eyebrow fx" data-i18n="pain.eyebrow">使用流程</span>
+      <h2 class="fx d1" style="margin-top:16px" data-i18n-html="pain.title">从选择作品到<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-3),var(--accent-2));-webkit-background-clip:text;color:transparent">本地阅读。</em></h2>
+      <p class="fx d2" style="margin-top:14px" data-i18n="pain.lead">先选取内容，再检查访问条件和保存方式。下载完成后，可按作者、标签或收藏夹查找作品。</p>
 
       <div class="compare">
         <div class="compare-col fx d2">
-          <span class="tag" data-i18n="pain.col1.tag">浏览器右键</span>
-          <h3 data-i18n="pain.col1.title">慢 · 易断 · 无记忆</h3>
+          <span class="tag" data-i18n="pain.col1.tag">选择内容</span>
+          <h3 data-i18n="pain.col1.title">按需要添加作品</h3>
           <ul>
-            <li data-i18n="pain.col1.li1">一次只能存一张</li>
-            <li data-i18n="pain.col1.li2">动图只能存 ZIP，无法播放</li>
-            <li data-i18n="pain.col1.li3">小说？没有原生入口</li>
-            <li data-i18n="pain.col1.li4">无分类、无历史</li>
+            <li data-i18n="pain.col1.li1">输入作品链接</li>
+            <li data-i18n="pain.col1.li2">查看作者作品</li>
+            <li data-i18n="pain.col1.li3">搜索插画或小说</li>
+            <li data-i18n="pain.col1.li4">获取整个系列</li>
           </ul>
         </div>
         <div class="compare-col fx d3">
-          <span class="tag" data-i18n="pain.col2.tag">纯前端脚本</span>
-          <h3 data-i18n="pain.col2.title">简单直接，专注下载</h3>
+          <span class="tag" data-i18n="pain.col2.tag">准备下载</span>
+          <h3 data-i18n="pain.col2.title">确认连接与输出</h3>
           <ul>
-            <li data-i18n="pain.col2.li1">多走浏览器原生下载</li>
-            <li data-i18n="pain.col2.li2">通常不附带画廊与历史检索</li>
-            <li data-i18n="pain.col2.li3">动图大多需要二次处理</li>
-            <li data-i18n="pain.col2.li4">偏单机使用，没有多人配额</li>
+            <li data-i18n="pain.col2.li1">需要登录时保存 Cookie</li>
+            <li data-i18n="pain.col2.li2">选择作品保存目录</li>
+            <li data-i18n="pain.col2.li3">设置图片或动图格式</li>
+            <li data-i18n="pain.col2.li4">检查队列状态与错误</li>
           </ul>
         </div>
         <div class="compare-col win fx d4">
           <span class="tag" data-i18n="pain.col3.tag">PixivDownloader</span>
           <h3 data-i18n="pain.col3.title">批量 · 画廊 · 系列 · 历史</h3>
           <ul>
-            <li data-i18n="pain.col3.li1">插画 / 漫画 / 动图 / 小说 全格式</li>
+            <li data-i18n="pain.col3.li1">插画、漫画、动图和小说</li>
             <li data-i18n="pain.col3.li2">Ugoira 自动转 WebP，可播放</li>
             <li data-i18n="pain.col3.li3">本地画廊 + 作品详情 + 灯箱</li>
             <li data-i18n="pain.col3.li4">系列下载、收藏夹归档、邀请码访客</li>
@@ -151,7 +147,7 @@
           </div>
 
           <div class="mm-body">
-            <div class="mm-panel" data-i18n-tip="monitor.tip.history" data-tip="历史下载记录">
+            <div class="mm-panel" data-i18n-tip="monitor.tip.history" data-tip="数据库中保存的下载历史，支持按 ID、标题、作者、Tag、AI 筛选与排序">
               <div class="mm-panel-label" data-i18n="monitor.panel.history">■ DOWNLOAD HISTORY</div>
               <table class="mm-table">
                 <thead><tr><th data-i18n="monitor.col.id">ID</th><th data-i18n="monitor.col.title">TITLE</th><th data-i18n="monitor.col.cnt">CNT</th><th data-i18n="monitor.col.fmt">FMT</th><th data-i18n="monitor.col.date">DATE</th><th data-i18n="monitor.col.status">STATUS</th></tr></thead>
@@ -189,9 +185,9 @@
       <div class="head">
         <div>
           <span class="eyebrow fx" data-i18n="batch.eyebrow">Batch · 一站式批量</span>
-          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="batch.title">四种入口，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#28a745,#22d3ee);-webkit-background-clip:text;color:transparent">同一个队列。</em></h2>
+          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="batch.title">多种入口，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#28a745,#22d3ee);-webkit-background-clip:text;color:transparent">同一个队列。</em></h2>
         </div>
-        <p class="fx d2" data-i18n="batch.lead">批量导入单作品 · User 主页 · 关键词 Search · 系列下载，全部支持插画 / 漫画 / 动图 / 小说切换。悬浮任意元素可查看说明。</p>
+        <p class="fx d2" data-i18n="batch.lead">支持快捷获取、作品链接、作者、搜索和系列。下方展示部分下载入口；悬浮元素可查看说明。</p>
       </div>
 
       <div class="mock-window fx d3">
@@ -448,15 +444,15 @@
   <section class="slide" data-label="FEAT">
     <div class="slide-inner">
       <span class="eyebrow fx" data-i18n="features.eyebrow">Features · 特性</span>
-      <h2 class="fx d1" style="margin-top:16px;max-width:15ch" data-i18n-html="features.title">不止下载，是一整套<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;color:transparent"> 收藏管线。</em></h2>
+      <h2 class="fx d1" style="margin-top:16px;max-width:15ch" data-i18n-html="features.title">下载、整理和<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;color:transparent">阅读作品。</em></h2>
 
       <div class="feat-grid">
         <div class="feat fx d2">
           <div class="ico">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           </div>
-          <h3 data-i18n="features.f1.title">漫画 · 动图 · 小说 全格式</h3>
-          <p data-i18n="features.f1.body">下载插画、漫画、动图（Ugoira → WebP）和小说（TXT / HTML / EPUB、封面与合订），统一保存下载历史。</p>
+          <h3 data-i18n="features.f1.title">插画、漫画、动图与小说</h3>
+          <p data-i18n="features.f1.body">保存图片，将 Ugoira 转换为所选动画格式，或将小说保存为 TXT、HTML、EPUB。画廊依据数据库中的作品记录显示内容。</p>
         </div>
         <div class="feat fx d3">
           <div class="ico">
@@ -502,13 +498,13 @@
     <div class="slide-inner">
       <span class="eyebrow fx" data-i18n="cta.eyebrow">Get Started · 开始使用</span>
       <h2 class="fx d1" style="margin:16px auto 0;max-width:15ch" data-i18n-html="cta.title">三步，把它<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-2),var(--accent-3));-webkit-background-clip:text;color:transparent">跑起来。</em></h2>
-      <p class="lead fx d2" style="margin:18px auto 0" data-i18n="cta.lead">Windows 使用安装程序；其他平台需要 Java 17，并按网络环境配置代理。</p>
+      <p class="lead fx d2" style="margin:18px auto 0" data-i18n="cta.lead">Windows 安装包自带 JRE；ZIP 包需 Java 17。首次启动后完成管理员与网络设置。</p>
 
       <div class="steps">
         <div class="step fx d2">
           <div class="n">01</div>
           <h3 data-i18n="cta.step1.title">下载并启动</h3>
-          <p data-i18n-html="cta.step1.body">Windows 直接装 <code>*-win-x64-setup.exe</code>（含 GUI 管家）；其他平台从 Releases 下载 <code>PixivDownload.jar</code> 后 <code>java -jar</code>。</p>
+          <p data-i18n-html="cta.step1.body">安装 <code>*-win-x64-setup.exe</code>，或完整解压 Java ZIP 包。保留 <code>plugins/</code>，在解压目录运行 <code>run.bat</code> 或 <code>sh run.sh</code>。</p>
         </div>
         <div class="step fx d3">
           <div class="n">02</div>
@@ -518,7 +514,7 @@
         <div class="step fx d4">
           <div class="n">03</div>
           <h3 data-i18n="cta.step3.title">直接用 pixiv-batch</h3>
-          <p data-i18n-html="cta.step3.body">访问 <code>/pixiv-batch.html</code>，选择下载模式并添加任务；如需在 Pixiv 原页面显示下载按钮，可从 <code>🧩 油猴脚本</code> 卡片安装脚本。</p>
+          <p data-i18n-html="cta.step3.body">登录后访问 <code>/pixiv-batch.html</code> 并添加作品。确认任务完成、文件已保存，再到画廊查看。要从 Pixiv 页面添加任务，可安装配套油猴脚本。</p>
         </div>
       </div>
 
@@ -528,7 +524,7 @@
       </div>
 
       <div class="foot fx d6">
-        <div data-i18n="foot.line1">PixivDownloader · Spring Boot 3.5.7 · Java 17 · SQLite WAL</div>
+        <div data-i18n="foot.line1">PixivDownloader · Java 17 · SQLite / PostgreSQL</div>
         <div data-i18n="foot.line2">made with ♥ by Sywyar</div>
       </div>
     </div>

@@ -261,12 +261,16 @@
         var content = document.getElementById('pm-detail-content');
         document.getElementById('pm-detail-title').textContent = vm.name;
         var html = detailHtml(vm);
+        if (PM.hooks) PM.hooks.render();
         if (content.pmMarkup === html) return;
         if (content.dataset.pluginId !== vm.id) { content.innerHTML = ''; content.dataset.pluginId = vm.id; }
         var focused = document.activeElement;
         var section = focused && focused.closest('[data-pm-section]');
         var open = Array.from(content.querySelectorAll('details[open]')).map(function (item) { return item.dataset.pmSection; });
+        var hooks = content.querySelector('[data-pm-hooks]');
         content.innerHTML = html;
+        if (!hooks) { hooks = document.createElement('section'); hooks.dataset.pmHooks = ''; }
+        content.appendChild(hooks);
         content.pmMarkup = html;
         content.querySelectorAll('details').forEach(function (item) { item.open = open.includes(item.dataset.pmSection); });
         if (focused && !focused.isConnected && modal.open) {
@@ -288,11 +292,13 @@
         document.body.style.overflow = 'hidden';
         modal.hidden = false;
         modal.showModal();
+        if (PM.hooks) PM.hooks.open(document.querySelector('[data-pm-hooks]'), id);
         document.getElementById('pm-detail-content').scrollTop = 0;
         modal.querySelector('[data-pm-detail-dismiss]').focus();
     }
 
     function closeDetail() {
+        if (PM.hooks) PM.hooks.close();
         var modal = document.getElementById('pm-detail-modal');
         modal.close();
         modal.hidden = true;

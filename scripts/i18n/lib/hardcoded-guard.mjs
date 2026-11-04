@@ -19,6 +19,8 @@ const ALLOWED_REL_PREFIXES = [
 
 // 外部数据格式中的 locale 键豁免（不是应用语言清单硬编码），必须写明原因。
 const EXPLICIT_ALLOWED_FILES = {
+    'pixivdownload-plugin-page-editor/src/main/resources/web/vendor/codemirror/codemirror.mjs':
+        '锁定并保留许可证的 CodeMirror 第三方语言包内含标准 HTML lang 补全值，不是应用语言目录。',
     'pixivdownload-app/src/main/java/top/sywyar/pixivdownload/tools/PixivArtworkMetaDump.java':
         '作品元数据转储文件使用 "zh" 等键作为外部 JSON 数据格式字段，不是应用语言配置。',
     'pixivdownload-app/src/main/java/top/sywyar/pixivdownload/tools/ArtworksBackFill.java':

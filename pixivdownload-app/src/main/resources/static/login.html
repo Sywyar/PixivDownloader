@@ -23,7 +23,6 @@
 <header data-layout-height="--layout-header-height">
   <span class="header-title" data-page-region="brand" data-i18n="header.title">Pixiv 批量下载器</span>
   <span class="header-actions" data-page-region="preferences" id="headerActions">
-    <button id="default-page" type="button" hidden data-i18n="page.default">Use default layout</button>
   </span>
 </header>
 
@@ -48,7 +47,7 @@
       <div id="error-msg" class="auth-error" role="status" aria-live="polite"></div>
       <div data-ui-slot="login.verification"></div>
     </div>
-    <button class="btn btn-green layout-touch" id="login-btn" data-page-region="login-submit" data-pixiv-click="doLogin()" data-i18n="button.login">登录</button>
+    <button class="btn btn-green layout-touch" id="login-btn" data-page-region="login-submit" data-pixiv-click="doLogin()" data-i18n="button.login" disabled>登录</button>
     <div class="invite-link-row" data-page-region="invite-link">
       <a id="useInviteCode" data-i18n="invite.use-code">使用邀请码</a>
     </div>
@@ -61,7 +60,7 @@
       <input type="text" id="inviteCodeInput" data-i18n-placeholder="invite.placeholder" placeholder="邀请码" autocomplete="off">
     </div>
     <div id="invite-error" class="auth-error" data-page-region="invite-error"></div>
-    <button class="btn btn-green layout-touch" id="invite-btn" data-page-region="invite-submit" data-pixiv-click="doInviteRedeem()" data-i18n="invite.submit">进入</button>
+    <button class="btn btn-green layout-touch" id="invite-btn" data-page-region="invite-submit" data-pixiv-click="doInviteRedeem()" data-i18n="invite.submit" disabled>进入</button>
     <div class="invite-link-row" data-page-region="back-link">
       <a id="backToLogin" data-i18n="invite.back">返回管理员登录</a>
     </div>

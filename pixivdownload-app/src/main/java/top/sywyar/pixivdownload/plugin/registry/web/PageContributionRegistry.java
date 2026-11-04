@@ -11,7 +11,11 @@ import java.util.*;
 @Component
 public final class PageContributionRegistry implements PageCatalog {
     public record Entry(ExternalCapabilityOwner owner, String token, List<PageComponent> components,
-            List<EditablePage> pages, PageContribution provider, PagePublicationSource source) { }
+            List<EditablePage> pages, List<PageComponentCategory> categories, PageContribution provider) {
+        public Entry {
+            components = List.copyOf(components); pages = List.copyOf(pages); categories = List.copyOf(categories);
+        }
+    }
     private volatile List<Entry> entries = List.of();
     private final List<EditablePage> corePages;
     private final String corePublication = UUID.randomUUID().toString();
@@ -43,8 +47,22 @@ public final class PageContributionRegistry implements PageCatalog {
         return entries.stream().filter(e -> invocations.acceptsInvocations(e.owner())).toList();
     }
 
+    /** 发布事务固定所有页面与组件的精确 owner，待正式提交结束后再释放。 */
+    public List<ExternalCapabilityOwner> owners(Set<String> publications) {
+        var missing = new HashSet<>(publications);
+        missing.remove(corePublication);
+        var result = new ArrayList<ExternalCapabilityOwner>();
+        for (Entry entry : active()) if (missing.remove(entry.token())) result.add(entry.owner());
+        if (!missing.isEmpty()) throw new IllegalStateException("PAGE_COMPONENT_UNAVAILABLE");
+        return List.copyOf(result);
+    }
+
     @Override public List<AvailableComponent> components() {
         return active().stream().flatMap(e -> e.components().stream().map(c -> new AvailableComponent(c, e.token()))).toList();
+    }
+
+    @Override public List<PageComponentCategory> componentCategories() {
+        return active().stream().flatMap(e -> e.categories().stream()).toList();
     }
 
     @Override public List<AvailablePage> pages() {
@@ -89,10 +107,4 @@ public final class PageContributionRegistry implements PageCatalog {
                 || permits(token, owner);
     }
 
-    /** 只有唯一活动来源才能提供投影；缺席与歧义均恢复默认页面。 */
-    public Optional<String> published(String page) {
-        List<Entry> sources = active().stream().filter(e -> e.source() != null).toList();
-        if (sources.size() != 1) return Optional.empty();
-        return sources.get(0).source().published(page);
-    }
 }

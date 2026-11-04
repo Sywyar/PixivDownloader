@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.resource;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Range;
@@ -12,6 +13,9 @@ import org.springframework.web.servlet.resource.CssLinkResourceTransformer;
 import org.springframework.web.servlet.resource.ResourceTransformerChain;
 import org.springframework.web.servlet.resource.TransformedResource;
 import org.springframework.web.util.HtmlUtils;
+import top.sywyar.pixivdownload.common.web.SafeRequestPath;
+import top.sywyar.pixivdownload.plugin.api.web.page.PageCatalog;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 import java.io.IOException;
@@ -25,18 +29,25 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 /** 按实际内容校验静态资源，更新页面与样式的依赖 URL；不缓存资源或插件 owner。 */
 final class StaticResourceVersioning extends CssLinkResourceTransformer {
 
     static final Resource CORE_LOCATION = new ClassPathResource("static/");
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final StaticResourceRegistry registry;
+    private final PageContributionRegistry pages;
+    private final top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications;
     private final PathResourceResolver resolver = new PathResourceResolver();
     private final String runtimeVersion = UUID.randomUUID().toString();
 
-    StaticResourceVersioning(StaticResourceRegistry registry) {
+    StaticResourceVersioning(StaticResourceRegistry registry, PageContributionRegistry pages,
+            top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications) {
         this.registry = registry;
+        this.pages = pages;
+        this.publications = publications;
     }
 
     static String contentHash(Resource resource) {
@@ -78,6 +89,27 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
             }
         }
         List<Replacement> replacements = new ArrayList<>();
+        String requestPath = SafeRequestPath.resolve(request).orElse("");
+        if (pages.pages().stream().filter(page -> page.definition().path().equals(requestPath)).count() == 1
+                && document.head().sourceRange().isTracked()) {
+            String revision;
+            try { revision = publications.revision(request); }
+            catch (IllegalStateException unavailable) { revision = "unavailable"; }
+            int position = document.head().sourceRange().endPos();
+            replacements.add(new Replacement(position, position, "<meta name=\"pixiv-page-revision\" content=\"" + revision + "\">"));
+        }
+        Element title = document.head().selectFirst("title");
+        if (title != null && title.sourceRange().isTracked()) {
+            int contentStart = title.sourceRange().endPos();
+            int contentEnd = title.childNodeSize() == 0 ? contentStart
+                    : title.childNode(title.childNodeSize() - 1).sourceRange().endPos();
+            publishedTitle(request).ifPresent(value -> {
+                replacements.add(new Replacement(contentStart, contentEnd,
+                        HtmlUtils.htmlEscape(value, StandardCharsets.UTF_8.name())));
+                replacements.add(new Replacement(title.sourceRange().endPos() - 1, title.sourceRange().endPos() - 1,
+                        " data-pixiv-page-title"));
+            });
+        }
         Element firstScript = document.selectFirst("script");
         if (firstScript != null && firstScript.sourceRange().isTracked()) {
             String helper = request.getContextPath() + "/js/pixiv-assets.js";
@@ -98,13 +130,34 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
             }
         }
         if (replacements.isEmpty()) return transformed;
-        // 引导脚本先于页面脚本；其余只替换属性值，保留内联脚本、模板与原有字节。
+        // 标题随响应与 ETag 一起更新；局部替换保留内联脚本、模板与其余字节。
         StringBuilder output = new StringBuilder(html);
         replacements.sort(Comparator.comparingInt(Replacement::start).reversed());
         for (Replacement replacement : replacements) {
             output.replace(replacement.start(), replacement.end(), replacement.value());
         }
         return new TransformedResource(transformed, output.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Optional<String> publishedTitle(HttpServletRequest request) {
+        String path = SafeRequestPath.resolve(request).orElse("");
+        var matches = pages.pages().stream().map(PageCatalog.AvailablePage::definition)
+                .filter(page -> page.path().equals(path)).toList();
+        if (matches.size() != 1) return Optional.empty();
+        String pageId = matches.get(0).id();
+        try {
+            var publication = publications.read(pageId, request);
+            if (publication.isEmpty()) return Optional.empty();
+            var view = JSON.readTree(publication.orElseThrow().projection());
+            if (view == null || !pageId.equals(view.path("pageId").asText())) return Optional.empty();
+            var title = view.path("title");
+            return title.isTextual() && !title.textValue().isEmpty() && title.textValue().length() <= 256
+                    ? Optional.of(title.textValue()) : Optional.empty();
+        } catch (IOException | RuntimeException unavailable) {
+            org.slf4j.LoggerFactory.getLogger(StaticResourceVersioning.class)
+                    .debug("PAGE_TITLE_UNAVAILABLE: {}", pageId);
+            return Optional.empty();
+        }
     }
 
     @Override

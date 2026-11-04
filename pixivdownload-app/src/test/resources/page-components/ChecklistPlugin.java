@@ -64,11 +64,17 @@ public final class ChecklistPlugin extends Plugin implements PixivPluginProvider
         @Bean PageContribution pages() {
             return new PageContribution() {
                 public List<PageComponent> components() {
-                    return List.of(new PageComponent("page-checklist:list", 1, "component", "page-checklist",
+                    return List.of("list", "badge", "summary").stream().map(id -> new PageComponent("page-checklist:" + id, 1,
+                            id.equals("list") ? "component" : id, "page-checklist",
                             "/page-checklist/render/component.mjs", "/page-checklist/manage/properties.mjs",
                             schema(), "{\"title\":\"Checklist\",\"items\":[{\"label\":\"First item\",\"checked\":false}]}",
                             true, List.of(new PagePort("selection", "example.pages.checklist-result/v1", resultSchema())),
-                            List.of(new PagePort("result", "example.pages.checklist-result/v1", resultSchema()))));
+                            List.of(new PagePort("result", "example.pages.checklist-result/v1", resultSchema())), null)).toList();
+                }
+                public List<PageComponentCategory> componentCategories() {
+                    return List.of(
+                            new PageComponentCategory("page-checklist:checks", "group.checks", "page-checklist", "group.help", List.of("page-checklist:badge")),
+                            new PageComponentCategory("page-checklist:details", "group.details", "page-checklist", "", List.of("page-checklist:summary")));
                 }
                 public void validate(String type, String json) {
                     try {

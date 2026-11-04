@@ -155,9 +155,9 @@ class StartupSchemaBackfillTest {
         when(target.openConnection()).thenReturn(connection);
         var schema = DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
         var comparison = new DatabaseSchemaInspector.SchemaComparison(false, List.of(
-                new DatabaseSchemaInspector.SchemaDifference(kind, "artworks", "description", "fixture"),
+                new DatabaseSchemaInspector.SchemaDifference(kind, "artworks", "description", "fixture", List.of()),
                 new DatabaseSchemaInspector.SchemaDifference(
-                        DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE, "absent_plugin", null, "fixture")));
+                        DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE, "absent_plugin", null, "fixture", List.of())));
         try (var inspector = mockStatic(DatabaseSchemaInspector.class);
              var backfill = mockStatic(ArtworksBackFill.class);
              var dialogs = mockStatic(DesktopUiDialogs.class);
@@ -210,7 +210,7 @@ class StartupSchemaBackfillTest {
                         DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN,
                         "artworks",
                         "description",
-                        "fixture"
+                        "fixture", List.of()
                 ))
         );
         try (var inspector = mockStatic(DatabaseSchemaInspector.class);

@@ -9,6 +9,11 @@ import java.util.List;
 public interface PageContribution {
     /** @return 此 owner 的全部组件 */
     default List<PageComponent> components() { return List.of(); }
+    /**
+     * 每个组件至多属于一个分类；未列出的组件使用插件显示名称分类。
+     * @return 有序分类及其组件成员；默认不声明分类
+     */
+    default List<PageComponentCategory> componentCategories() { return List.of(); }
     /** @return 此 owner 的可编辑页面 */
     default List<EditablePage> pages() { return List.of(); }
     /**

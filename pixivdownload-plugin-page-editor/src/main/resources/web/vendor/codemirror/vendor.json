@@ -16,6 +16,21 @@
       "source": "https://registry.npmmirror.com/@codemirror/lang-css/-/lang-css-6.3.1.tgz",
       "integrity": "sha512-kr5fwBGiGtmz6l0LSJIbno9QrifNMUusivHbnA1H6Dmqy4HZFte3UAICix1VuKo0lMPKQr2rqB+0BkKi/S3Ejg=="
     },
+    "@codemirror/lang-html": {
+      "version": "6.4.12",
+      "source": "https://registry.npmmirror.com/@codemirror/lang-html/-/lang-html-6.4.12.tgz",
+      "integrity": "sha512-pw2ReWKUqSkbvh76RAT4NYxiogRu+PWkR2ukAwO9uOgrm8uipkzjtKKtNpyeAQwHOqxEeSvAXZ6vr3AfyB9y/w=="
+    },
+    "@codemirror/lang-javascript": {
+      "version": "6.2.5",
+      "source": "https://registry.npmmirror.com/@codemirror/lang-javascript/-/lang-javascript-6.2.5.tgz",
+      "integrity": "sha512-zD4e5mS+50htS7F+TYjBPsiIFGanfVqg4HyUz6WNFikgOPf2BgKlx+TQedI1w6n/IqRBVBbBWmGFdLB/7uxO4A=="
+    },
+    "@codemirror/lang-json": {
+      "version": "6.0.2",
+      "source": "https://registry.npmmirror.com/@codemirror/lang-json/-/lang-json-6.0.2.tgz",
+      "integrity": "sha512-x2OtO+AvwEHrEwR0FyyPtfDUiloG3rnVTSZV1W8UteaLL8/MajQd8DpvUb2YVzC+/T18aSDv0H9mu+xw0EStoQ=="
+    },
     "@codemirror/language": {
       "version": "6.13.1",
       "source": "https://registry.npmmirror.com/@codemirror/language/-/language-6.13.1.tgz",
@@ -56,6 +71,21 @@
       "source": "https://registry.npmmirror.com/@lezer/highlight/-/highlight-1.2.5.tgz",
       "integrity": "sha512-O1GMVKgtf5YspFaRzpmqkVgMtIk2HG9uMAbH6wdAIdNh3TVzCsch/+cRi+6l2//UGDKe6NB9BW3cvuR5ezMQ0w=="
     },
+    "@lezer/html": {
+      "version": "1.3.13",
+      "source": "https://registry.npmmirror.com/@lezer/html/-/html-1.3.13.tgz",
+      "integrity": "sha512-oI7n6NJml729m7pjm9lvLvmXbdoMoi2f+1pwSDJkl9d68zGr7a9Btz8NdHTGQZtW2DA25ybeuv/SyDb9D5tseg=="
+    },
+    "@lezer/javascript": {
+      "version": "1.5.6",
+      "source": "https://registry.npmmirror.com/@lezer/javascript/-/javascript-1.5.6.tgz",
+      "integrity": "sha512-sEvOqpl4vJQca0NugSQK02vQPbc5KrvoojnYGoqqFgFO0MtcYhwGiHKVEB+LuXYJnfyXo4QPA8ztbrEa4Fw5NA=="
+    },
+    "@lezer/json": {
+      "version": "1.0.3",
+      "source": "https://registry.npmmirror.com/@lezer/json/-/json-1.0.3.tgz",
+      "integrity": "sha512-BP9KzdF9Y35PDpv04r0VeSTKDeox5vVr3efE7eBbx3r4s3oNLfunchejZhjArmeieBH+nVOpgIiBJpEAv8ilqQ=="
+    },
     "@lezer/lr": {
       "version": "1.4.11",
       "source": "https://registry.npmmirror.com/@lezer/lr/-/lr-1.4.11.tgz",
@@ -83,7 +113,7 @@
     }
   },
   "files": {
-    "codemirror.mjs": "dcf5a1aec37297d2d490cfee80bcdb30a258f054d9e11485e563fe5ab52bebe3",
-    "LICENSES.txt": "565d77836e68f31e23327632f983c351397b123d30efe9e93959434af54b3aa3"
+    "codemirror.mjs": "30bb2963624350c8f6bcad02c102dc7885b51710e244fce25ee1c55eaf96f3f8",
+    "LICENSES.txt": "c1aea0f339b945da73b933d05031892ee6441d94a8cfcc51d7d55c0218d691da"
   }
 }

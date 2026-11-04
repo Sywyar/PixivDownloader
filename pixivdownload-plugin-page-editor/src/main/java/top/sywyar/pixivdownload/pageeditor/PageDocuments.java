@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.*;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
+import top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -16,9 +17,11 @@ public final class PageDocuments {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private static final Set<String> TYPES = Set.of("wrapper", "page-box", "page-text", "page-link", "page-component", "page-region");
     private static final Set<String> NODE_FIELDS = Set.of("type", "attributes", "style", "components", "content",
-            "region", "componentType", "instanceId", "configVersion", "configuration", "role", "href");
+            "region", "componentType", "instanceId", "configVersion", "configuration", "role", "href", "target");
     private final PageCatalog catalog;
-    public PageDocuments(PageCatalog catalog) { this.catalog = catalog; }
+    private final ComponentLibrary library;
+    public PageDocuments(PageCatalog catalog) { this(catalog, null); }
+    public PageDocuments(PageCatalog catalog, ComponentLibrary library) { this.catalog = catalog; this.library = library; }
 
     static JsonNode parse(String input) {
         return parse(input.getBytes(StandardCharsets.UTF_8));
@@ -112,10 +115,28 @@ public final class PageDocuments {
                 || !doc.path("pageId").isTextual() || !doc.path("pageId").asText().equals(id)
                 || !doc.path("title").isTextual() || doc.path("title").asText().length() > 256) throw invalid("PAGE_DOCUMENT_INVALID");
         parse(doc.toString());
-        fields(doc, Set.of("format", "pageId", "title", "project", "connections"));
+        fields(doc, Set.of("format", "pageId", "title", "project", "connections", "hooks", "actions"));
+        if (doc.has("hooks")) {
+            if (!doc.path("hooks").isArray() || doc.path("hooks").size() > 16) throw invalid("PAGE_HOOK_CAPACITY");
+            var ids = new HashSet<String>();
+            for (var hook : doc.path("hooks")) {
+                fields(hook, Set.of("id", "hook", "operation", "endpoint", "phase", "order", "completion", "configuration", "fields"));
+                if (hook.has("fields")) {
+                    if (!hook.path("fields").isArray() || hook.path("fields").size() > 16) throw invalid("PAGE_HOOK_INVALID");
+                    for (var field : hook.path("fields")) fields(field, Set.of("source", "path", "name"));
+                }
+                if (!hook.path("id").isTextual() || !hook.path("id").asText().matches("[a-zA-Z0-9:._-]{1,128}")
+                        || !ids.add(hook.path("id").asText()) || !hook.path("order").isIntegralNumber()
+                        || !hook.path("order").canConvertToInt() || !hook.path("configuration").isTextual()
+                        || hook.path("configuration").asText().getBytes(StandardCharsets.UTF_8).length > 16384)
+                    throw invalid("PAGE_HOOK_BINDING_INVALID");
+                for (String key : List.of("hook", "operation", "endpoint", "phase", "completion"))
+                    if (!hook.path(key).isTextual() || hook.path(key).asText().length() > 128) throw invalid("PAGE_HOOK_BINDING_INVALID");
+            }
+        }
         fields(doc.path("project"), Set.of("pages", "styles"));
         var availablePage = availablePage(id);
-        EditablePage page = availablePage.definition();
+        EditablePage page = withActions(availablePage.definition(), doc);
         JsonNode pages = doc.path("project").path("pages");
         if (!pages.isArray() || pages.size() != 1 || pages.get(0).path("frames").size() != 1) throw invalid("PAGE_DOCUMENT_INVALID");
         fields(pages.get(0), Set.of("frames"));
@@ -128,7 +149,7 @@ public final class PageDocuments {
         if (!context.regions.equals(context.regionDefinitions.keySet())) throw invalid("PAGE_REQUIRED_REGION");
         JsonNode rules = doc.path("project").path("styles");
         ArrayNode styles = JSON.createArrayNode();
-        if (!rules.isMissingNode() && !rules.isArray()) throw invalid("PAGE_STYLE_INVALID");
+        if (!rules.isMissingNode() && (!rules.isArray() || rules.size() > 512)) throw invalid("PAGE_STYLE_INVALID");
         for (JsonNode rule : rules) {
             fields(rule, Set.of("selectors", "style", "mediaText"));
             String media = rule.path("mediaText").asText("");
@@ -169,7 +190,44 @@ public final class PageDocuments {
         // 预览代码不进入匿名正式投影。
         if (!publishing) view.put("previewModuleUrl", page.previewModuleUrl());
         page.stylesheets().forEach(view.putArray("stylesheets")::add);
+        view.set("targets", JSON.valueToTree(page.targets()));
+        if (doc.has("actions")) view.set("actions", doc.path("actions").deepCopy());
         view.set("body", body); view.set("styles", styles); view.set("connections", connections.deepCopy()); return view;
+    }
+
+    private EditablePage withActions(EditablePage page, JsonNode document) {
+        var actions = document.path("actions");
+        if (actions.isMissingNode()) return page;
+        if (!actions.isArray() || actions.size() > 128) throw invalid("PAGE_ACTION_CAPACITY");
+        try {
+            List<PageInteraction.Action> values = JSON.readerForListOf(PageInteraction.Action.class).readValue(actions);
+            return page.withActions(values, catalog.components().stream().map(value -> value.definition().participation())
+                    .filter(Objects::nonNull).map(PageInteraction.Participant::protocol).distinct().toList());
+        } catch (IOException failure) { throw invalid("PAGE_ACTION_INVALID"); }
+    }
+
+    /** 唯一匹配形成显式草稿绑定；不保存运行中挑战或证明。 */
+    public ObjectNode normalize(String id, JsonNode draft, JsonNode previous) {
+        ObjectNode normalized = draft.deepCopy();
+        var bindings = new HashMap<String, String>();
+        collectBindings(validate(id, normalized, previous, false).path("body"), bindings);
+        applyBindings(normalized.at("/project/pages/0/frames/0/component"), bindings);
+        return normalized;
+    }
+
+    private static void collectBindings(JsonNode node, Map<String, String> bindings) {
+        if (node.has("instanceId") && !node.path("unavailable").asBoolean())
+            bindings.put(node.path("instanceId").asText(), node.path("target").asText());
+        node.path("children").forEach(child -> collectBindings(child, bindings));
+    }
+
+    private static void applyBindings(JsonNode node, Map<String, String> bindings) {
+        if (node.path("type").asText().equals("page-component")) {
+            String target = bindings.get(node.path("instanceId").asText());
+            if (target != null && !target.isEmpty()) ((ObjectNode) node).put("target", target);
+            else if (target != null) ((ObjectNode) node).remove("target");
+        }
+        node.path("components").forEach(child -> applyBindings(child, bindings));
     }
 
     private static void validateConnectionGraph(JsonNode connections) {
@@ -198,6 +256,7 @@ public final class PageDocuments {
         final Map<String, PageComponent> instances = new HashMap<>();
         final Map<String, PageCatalog.AvailableComponent> available = new HashMap<>();
         final Map<String, PageRegion> regionDefinitions = new HashMap<>();
+        final Map<String, Integer> participants = new HashMap<>();
         int count;
         Check(EditablePage page, boolean publishing, JsonNode previous) {
             this.page = page; this.publishing = publishing; this.previous = previous;
@@ -248,10 +307,12 @@ public final class PageDocuments {
                 if (check.publishing && check.page.publicPage() && !definition.publicRenderable()) throw invalid("PAGE_COMPONENT_PRIVATE");
                 check.instances.put(instance, definition);
                 catalog.validate(component, available.publication(), node.path("configVersion").asInt(), configuration.toString());
+                if (library != null && ComponentLibrary.TYPE.equals(component)) library.validateConfiguration(configuration, check.publishing);
                 out.put("moduleUrl", definition.moduleUrl()).put("publication", available.publication())
                         .put("namespace", definition.namespace());
                 out.set("inputs", JSON.valueToTree(definition.inputs()));
                 out.set("outputs", JSON.valueToTree(definition.outputs()));
+                bind(node, out, check, definition, parentRegion);
             }
             out.put("componentType", component).put("instanceId", instance).put("configVersion", node.path("configVersion").asInt());
             out.set("configuration", configuration.deepCopy());
@@ -259,7 +320,7 @@ public final class PageDocuments {
             String content = node.path("content").asText();
             if (content.contains("<") || content.contains(">")) throw invalid("PAGE_TEXT_INVALID");
             out.put("content", content);
-            if (type.equals("page-link")) out.put("href", link(node.path("href").asText()));
+            if (type.equals("page-link")) out.put("href", PagePresentation.link(node.path("href").asText()));
         }
         JsonNode children = node.path("components");
         if (!children.isMissingNode() && !children.isArray()) throw invalid("PAGE_NODE_INVALID");
@@ -268,17 +329,43 @@ public final class PageDocuments {
         for (JsonNode child : children) result.add(node(child, check, depth + 1, parentRegion));
         return out;
     }
-    private static String link(String value) {
-        if (value.length() > 2048 || value.isBlank() || value.contains("\\")
-                || value.chars().anyMatch(c -> c <= 32 || c == 127)) throw invalid("PAGE_LINK_INVALID");
-        try {
-            var uri = new java.net.URI(value);
-            boolean relative = value.startsWith("/") && !value.startsWith("//") && uri.getRawAuthority() == null;
-            boolean external = ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
-                    && uri.getHost() != null && uri.getRawUserInfo() == null;
-            if (!relative && !external) throw invalid("PAGE_LINK_INVALID");
-            return value;
-        } catch (java.net.URISyntaxException failure) { throw invalid("PAGE_LINK_INVALID"); }
+
+    private static void bind(JsonNode source, ObjectNode out, Check check, PageComponent component, String region) {
+        if (component.participation() == null) {
+            if (source.has("target")) throw invalid("PAGE_BINDING_INVALID");
+            return;
+        }
+        var candidates = new ArrayList<PageInteraction.Target>();
+        String scope = region;
+        while (!scope.isEmpty()) {
+            String current = scope;
+            var scoped = check.page.targets().stream().filter(target -> target.region().equals(current)).toList();
+            if (!scoped.isEmpty()) {
+                scoped.stream().filter(target -> target.protocols().stream()
+                        .anyMatch(protocol -> compatible(protocol, component.participation().protocol()))).forEach(candidates::add);
+                break;
+            }
+            scope = check.regionDefinitions.get(scope).parent();
+        }
+        String selected = source.path("target").asText("");
+        PageInteraction.Target target = selected.isEmpty() ? (candidates.size() == 1 ? candidates.get(0) : null)
+                : candidates.stream().filter(value -> value.id().equals(selected)).findFirst()
+                        .orElseThrow(() -> invalid("PAGE_BINDING_INVALID"));
+        if (target == null) {
+            if (check.publishing) throw invalid(candidates.isEmpty() ? "PAGE_BINDING_UNMATCHED" : "PAGE_BINDING_AMBIGUOUS");
+            out.put("bindingStatus", candidates.isEmpty() ? "unmatched" : "ambiguous");
+            return;
+        }
+        int count = check.participants.merge(target.id(), 1, Integer::sum);
+        if (count > target.maximumParticipants()) throw invalid("PAGE_BINDING_CAPACITY");
+        out.put("target", target.id()).put("bindingStatus", "bound");
+        out.set("interaction", JSON.valueToTree(component.participation().protocol()));
+    }
+
+    private static boolean compatible(PageInteraction first, PageInteraction second) {
+        return first.id().equals(second.id()) && first.version() == second.version()
+                && parse(first.stateSchema()).equals(parse(second.stateSchema()))
+                && parse(first.responseSchema()).equals(parse(second.responseSchema()));
     }
     private static void fields(JsonNode node, Set<String> allowed) {
         if (!node.isObject()) throw invalid("PAGE_DOCUMENT_INVALID");

@@ -19,6 +19,17 @@ classpath = os.pathsep.join(str(p) for p in sdk + libraries)
 def run(*args):
     subprocess.run(args, check=True)
 
+types = work / "types"
+types.mkdir()
+with zipfile.ZipFile(next((root / "sdk").glob("pixivdownload-plugin-api-*.jar"))) as archive:
+    prefix = "META-INF/pixivdownload/web/"
+    for name in archive.namelist():
+        if name.startswith(prefix) and name.endswith((".d.ts", ".d.mts")):
+            (types / pathlib.Path(name).name).write_bytes(archive.read(name))
+shutil.copyfile(sources / "operation-types.mts", types / "operation-types.mts")
+run("node", sys.argv[2], "--noEmit", "--strict", "--module", "nodenext", "--target", "es2023",
+    "--lib", "es2023,dom", str(types / "operation-types.mts"))
+
 def compile_java(source, output, extra=""):
     output.mkdir(parents=True, exist_ok=True)
     run("javac", "-proc:none", "-encoding", "UTF-8", "-cp", classpath + extra, "-d", str(output), str(source))
@@ -79,6 +90,9 @@ shutil.copyfile(sources / "properties.mjs", manage / "properties.mjs")
 bundles = classes / "i18n/web"
 bundles.mkdir(parents=True)
 translations = [
+    ("badge", "清单徽标", "Checklist badge"), ("summary", "清单摘要", "Checklist summary"),
+    ("group.checks", "检查与状态", "Checks & status"), ("group.details", "清单详情", "Checklist details"),
+    ("group.help", "独立插件提供的分类说明。", "Category description from an independent plugin."),
     ("plugin.name", "示例清单", "Example checklist"), ("plugin.summary", "页面组件独立接入示例", "Independent page component example"),
     ("component", "清单", "Checklist"), ("verify", "校验清单", "Verify checklist"), ("failed", "校验失败", "Verification failed"),
     ("title", "清单标题", "Checklist title"), ("item", "条目", "Item"), ("checked", "已完成", "Checked"),
@@ -92,3 +106,37 @@ jar(work / "page-checklist.jar", classes,
           "pixiv.configuration-classes=example.pages.plugin.ChecklistPlugin$Configuration\n"
           "pixiv.display-namespace=page-checklist\npixiv.display-name-key=plugin.name\npixiv.description-key=plugin.summary\n"))
 print("PAGE_COMPONENT_INDEPENDENT_PLUGIN_BUILT")
+
+for owner, source, entry, resources, messages in [
+    ("operation-form", "OperationFormPlugin.java", "example.operation.OperationFormPlugin",
+     {"web/index.html": "operation-form.html", "web/form.mjs": "operation-form.mjs"},
+     {"name": "Operation forms", "alpha": "Alpha operation", "beta": "Beta operation", "fields": "Form fields",
+      "ambiguous": "Ambiguous operations", "status.CHALLENGE": "Complete verification and submit again",
+      "status.APPROVED": "Completed", "status.REJECTED": "Verification rejected", "status.UNAVAILABLE": "Verification unavailable",
+      "status.STALE": "Verification expired", "status.INVALID": "Invalid request"}),
+    ("operation-proof", "OperationProofPlugin.java", "example.operationproof.OperationProofPlugin",
+     {"web/proof.mjs": "operation-proof.mjs", "web/cleanup-probe.mjs": "cleanup-probe.mjs"},
+     {"name": "Neutral verification", "respond": "Respond to challenge"})
+]:
+    output = work / (owner + "-classes")
+    compile_java(sources / source, output)
+    extras = {name: (sources / file).read_bytes() for name, file in resources.items()}
+    if owner == "operation-form":
+        configured = (sources / "operation-form.html").read_text(encoding="utf-8").replace(
+            "<body>", '<body data-page-id="operation-form:configured">')
+        for action in ("alpha", "beta"):
+            configured = configured.replace('<form data-page-region="' + action + '-fields"',
+                '<form id="' + action + '-form" method="post" action="/api/operation-form/' + action + '" data-page-region="' + action + '-fields"')
+        extras["web/configured.html"] = configured
+        extras["web/preview.mjs"] = '''export async function mount(root, context) {
+    const html = await (await fetch('/operation-form/configured.html', {signal: context.signal})).text();
+    const node = new DOMParser().parseFromString(html, 'text/html').querySelector('[data-page-region="' + context.properties.region + '"]');
+    if (node) root.append(node.cloneNode(true));
+    return {destroy() { root.replaceChildren(); }};
+}'''
+    for suffix in ["", "_en", "_ja", "_ko", "_zh-Hant"]:
+        extras["i18n/web/" + owner + suffix + ".properties"] = "\n".join(key + "=" + value for key, value in messages.items()) + "\n"
+    jar(work / (owner + ".jar"), output, props(owner, entry,
+        "pixiv.lifecycle-policy=hot-reload\npixiv.configuration-classes=" + entry + "$Wiring\n"
+        "pixiv.display-namespace=" + owner + "\npixiv.display-name-key=name\npixiv.description-key=name\n"), extras)
+print("OPERATION_FORM_AND_PROOF_INDEPENDENT_PLUGINS_BUILT")

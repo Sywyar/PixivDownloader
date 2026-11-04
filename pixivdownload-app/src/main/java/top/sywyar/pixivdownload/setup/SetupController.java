@@ -34,28 +34,20 @@ import java.time.Duration;
 public class SetupController {
 
     private final SetupService setupService;
-    private final LoginRateLimitService loginRateLimitService;
     private final MultiModeConfig multiModeConfig;
     private final ProxySetupService proxySetupService;
     private final AppMessages messages;
-    private final LoginVerificationGate verification;
-
-    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
-                           MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages) {
-        this(setupService, loginRateLimitService, multiModeConfig, proxySetupService, messages,
-                new LoginVerificationGate(null, messages, ""));
-    }
+    private final top.sywyar.pixivdownload.setup.guest.GuestInviteService invites;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
+    public SetupController(SetupService setupService,
                            MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages,
-                           LoginVerificationGate verification) {
+                           top.sywyar.pixivdownload.setup.guest.GuestInviteService invites) {
         this.setupService = setupService;
-        this.loginRateLimitService = loginRateLimitService;
         this.multiModeConfig = multiModeConfig;
         this.proxySetupService = proxySetupService;
         this.messages = messages;
-        this.verification = verification;
+        this.invites = invites;
     }
 
     @Value("${server.ssl.enabled:false}")
@@ -148,24 +140,13 @@ public class SetupController {
     }
 
     @PostMapping("/api/auth/login")
+    @top.sywyar.pixivdownload.plugin.api.operation.OperationEndpoint(operation = "core:login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
-                                               HttpServletRequest httpRequest) throws IOException {
-        if (!loginRateLimitService.isAllowed(httpRequest.getRemoteAddr())) {
-            throw new LocalizedException(
-                    HttpStatus.TOO_MANY_REQUESTS,
-                    "setup.login.rate-limit.exceeded",
-                    "Too many login attempts. Please try again later."
-            );
-        }
-        if (!setupService.checkLogin(request.getUsername(), request.getPassword())) {
-            throw new LocalizedException(
-                    HttpStatus.UNAUTHORIZED,
-                    "setup.login.invalid-credentials",
-                    "Invalid username or password"
-            );
-        }
-
-        return verification.verify(request, httpRequest.getRemoteAddr(), () -> createLoginSession(request));
+                                   HttpServletRequest httpRequest) throws IOException {
+        if (!setupService.checkLogin(request.getUsername(), request.getPassword()))
+            throw new LocalizedException(HttpStatus.UNAUTHORIZED, "setup.login.invalid-credentials", "Invalid username or password");
+        revokeInviteSession(httpRequest);
+        return createLoginSession(request);
     }
 
     private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request) throws IOException {
@@ -189,6 +170,7 @@ public class SetupController {
     @PostMapping("/api/auth/logout")
     public ResponseEntity<AuthResponse> logout(HttpServletRequest request) throws IOException {
         if (GuestInviteSession.isGuestRequest(request)) {
+            revokeInviteSession(request);
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
                     .body(new AuthResponse(true));
@@ -217,6 +199,11 @@ public class SetupController {
     private String clearedInviteCookie() {
         return ResponseCookie.from(AuthFilter.INVITE_COOKIE, "")
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build().toString();
+    }
+
+    private void revokeInviteSession(HttpServletRequest request) {
+        if (request.getCookies() != null) for (var cookie : request.getCookies())
+            if (GuestInviteSession.COOKIE_NAME.equals(cookie.getName())) invites.revokeSession(cookie.getValue());
     }
 
     private static String safeMessage(Throwable e) {

@@ -4,14 +4,13 @@ PixivUiSlots.registerModule(proofModule, (root, context) => {
     const button = document.createElement('button');
     button.type = 'button'; button.textContent = 'Confirm neutral proof'; button.id = 'neutral-proof';
     root.append(button);
-    function update(properties) {
-        window.neutralProofProperties = properties;
-        button.hidden = !properties.challenges['neutral-policy'];
-    }
-    context.on(button, 'click', () => context.emit('proof', {
-        verificationToken: context.properties.verificationToken, policyId: 'neutral-policy', proof: 'neutral-proof'
+    let current;
+    context.onCleanup(context.interaction.onState(state => {
+        current = state;
+        window.neutralProofState = state;
+        button.hidden = !state;
     }));
-    update(context.properties);
-    return {update, destroy() { root.replaceChildren(); }};
+    context.on(button, 'click', () => { if (current) context.interaction.respond(current.id, 'neutral-proof'); });
+    return {destroy() { root.replaceChildren(); }};
 });
 })();

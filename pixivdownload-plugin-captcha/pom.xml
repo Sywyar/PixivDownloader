@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>top.sywyar.lovepopup</groupId><artifactId>pixivdownload-parent</artifactId><version>1.0.0</version></parent>
+    <artifactId>pixivdownload-plugin-captcha</artifactId>
+    <name>PixivDownloader CAPTCHA</name>
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+    <dependencies>
+        <dependency><groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk</artifactId><version>${pixivdownload.sdk.version}</version><scope>provided</scope></dependency>
+        <dependency><groupId>org.altcha</groupId><artifactId>altcha</artifactId><version>2.1.1</version></dependency>
+        <dependency><groupId>cn.hutool</groupId><artifactId>hutool-captcha</artifactId><version>5.8.48</version></dependency>
+        <dependency><groupId>cloud.tianai.captcha</groupId><artifactId>tianai-captcha</artifactId><version>1.5.6</version>
+            <exclusions><exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency><groupId>org.json</groupId><artifactId>json</artifactId><version>20240303</version></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>ch.qos.logback</groupId><artifactId>logback-classic</artifactId><scope>test</scope></dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-dependency-plugin</artifactId><version>3.8.1</version>
+            <executions><execution><id>private-libraries</id><phase>generate-resources</phase><goals><goal>copy-dependencies</goal></goals>
+                <configuration><includeScope>runtime</includeScope><outputDirectory>${project.build.outputDirectory}/lib</outputDirectory></configuration>
+            </execution></executions>
+        </plugin>
+        <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.0</version>
+            <executions><execution><id>local-worker</id><phase>generate-resources</phase><goals><goal>exec</goal></goals>
+                <configuration><skip>false</skip><executable>node</executable><arguments>
+                    <argument>build-assets.mjs</argument><argument>${project.build.outputDirectory}/web/vendor</argument><argument>--offline=${settings.offline}</argument>
+                </arguments></configuration>
+            </execution></executions>
+        </plugin>
+    </plugins></build>
+</project>

@@ -283,7 +283,7 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("默认安装包含桌面与 SQLite，PostgreSQL 和导入按需分发，验证夹具须显式包含")
+    @DisplayName("默认安装包含桌面与 SQLite，验证码与页面编辑器按需安装，验证夹具须显式包含")
     void distributionSeparatesDefaultInstalledOptionalAndValidationPlugins() throws Exception {
         Set<String> defaults = officialPluginIds("Get-OfficialDefaultInstalledPlugins");
         Set<String> optional = officialPluginIds("Get-OfficialOptionalPlugins");
@@ -291,9 +291,9 @@ class PluginReleaseScriptsTest {
                 + "ConvertTo-Json -InputObject @(Get-OfficialRequiredPlugins) -Compress").trim()).isEqualTo("[]");
         assertThat(defaults)
                 .contains("download-workbench", "gui-compose", "gui-swing", "database-sqlite")
-                .doesNotContain("database-postgresql", "pixiv-batch-downloader-import", "recovery-sentinel");
+                .doesNotContain("database-postgresql", "pixiv-batch-downloader-import", "page-editor", "captcha", "recovery-sentinel");
         assertThat(optional)
-                .contains("database-postgresql", "pixiv-batch-downloader-import")
+                .contains("database-postgresql", "pixiv-batch-downloader-import", "page-editor", "captcha")
                 .doesNotContain("recovery-sentinel")
                 .doesNotContainAnyElementsOf(defaults);
         assertThat(officialPluginIds("Get-OfficialDistributionPlugins"))

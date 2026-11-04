@@ -109,7 +109,6 @@ function Get-OfficialDefaultInstalledPlugins {
             )
         },
         [pscustomobject]@{ Id = "gallery-tools"; Module = "pixivdownload-plugin-gallery-tools"; Format = "jar"; PrivateLibs = $false },
-        [pscustomobject]@{ Id = "page-editor"; Module = "pixivdownload-plugin-page-editor"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "posthog"; Module = "pixivdownload-plugin-posthog"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },
@@ -138,6 +137,12 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
+        [pscustomobject]@{ Id = "page-editor"; Module = "pixivdownload-plugin-page-editor"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{
+            Id = "captcha"; Module = "pixivdownload-plugin-captcha"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/captcha/";
+            RequiredLibPatterns = @("^altcha-[0-9].*\.jar$", "^json-[0-9].*\.jar$")
+        },
         [pscustomobject]@{
             Id = "database-postgresql"; Module = "pixivdownload-plugin-database-postgresql"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/databasepostgresql/";

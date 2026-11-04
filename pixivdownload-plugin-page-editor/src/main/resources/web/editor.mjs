@@ -1,6 +1,11 @@
 import {mountComponent, renderPage, pureValue} from '/js/pixiv-pages.mjs';
 import {installCssEditor} from './editor-css.mjs';
 import {installEditorMotion} from './editor-motion.mjs';
+import {icon, decorateIcons} from './editor-icons.mjs';
+import {createEditorFeedback, errorMessage} from './editor-feedback.mjs';
+import {resolveBinding} from './editor-bindings.mjs';
+import {selectPages, publicationSections, publicationLabels} from './editor-publication.mjs';
+import {mountHooks} from './editor-hooks.mjs';
 
 const $ = id => document.getElementById(id);
 let i18n;
@@ -10,6 +15,7 @@ let editor;
 let cssEditor;
 let motion;
 let catalog;
+let detailBlockId = null;
 let state;
 let pageId;
 let dirty = false;
@@ -17,24 +23,48 @@ let savedSource = '';
 let loading = false;
 let busy = false;
 let inspector;
+let inspectorAbort;
 let inspectorGeneration = 0;
+let refreshBinding;
+let refreshProperties;
 let connections = [];
+let hooks = [];
+let actions = [];
+let hooksAbort;
 let preview;
 let previewAbort;
 let previewWork;
 let needsRepair = false;
 const componentViews = new Set();
-const t = (key, fallback) => i18n?.t('page-editor:' + key, fallback || key) || fallback || key;
+const t = (key, fallback, values) => i18n?.t('page-editor:' + key, fallback || key, values) || fallback || key;
+const notify = createEditorFeedback(lifetime.signal, t);
 const componentDefinition = type => catalog.components.find(entry => entry.definition.type === type);
 const label = definition => componentI18n.t(definition.namespace + ':' + definition.labelKey, definition.type || definition.id);
-const activePage = () => catalog.pages.find(entry => entry.definition.id === pageId);
+const activePage = () => {
+    const entry = catalog.pages.find(entry => entry.definition.id === pageId);
+    if (!entry || !actions.length) return entry;
+    const protocols = catalog.components.flatMap(component => component.definition.participation ? [component.definition.participation.protocol] : []);
+    return {...entry, definition: {...entry.definition, targets: [...entry.definition.targets,
+        ...actions.filter(action => !entry.definition.targets.some(target => target.id === action.id)).map(action => ({
+            id: action.id, labelKey: '', region: action.region, operation: action.operation || action.endpoint,
+            protocols, maximumParticipants: 16
+        }))]}};
+};
 const regionDefinition = id => activePage()?.definition.regions.find(region => region.id === id);
 const pageT = (key, fallback) => componentI18n.t(activePage().definition.namespace + ':' + key, fallback || key);
-const status = key => {
-    $('status').textContent = t(key);
-    $('status').dataset.state = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
-        : ['failed', 'conflict', 'required-region', 'css-pending'].includes(key) ? 'error' : 'idle';
-    if (key !== 'unsaved') motion?.reveal($('status'));
+const status = (key, detail = '') => {
+    if (key === 'unsaved' && (busy || state?.draftSaveFailed)) return;
+    const feedback = $('document-feedback');
+    const kind = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
+        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable', 'restored-unsaved', 'restored-unsaved-pages'].includes(key) ? 'error'
+        : ['working', 'saving', 'publishing', 'restoring'].includes(key) ? 'busy' : 'idle';
+    feedback.dataset.state = kind;
+    const message = (key === 'failed' || key === 'conflict') && detail ? errorMessage(detail, t) : t(key);
+    $('status').textContent = message;
+    $('status').dataset.state = kind;
+    if (key === 'unsaved') return;
+    const description = ['failed', 'conflict'].includes(key) ? '' : detail || (['saved', 'published'].includes(key) ? t(key + '-help') : '');
+    notify(kind, message, description);
 };
 
 function canMove(model, target) {
@@ -61,20 +91,24 @@ async function api(path, data, signal = lifetime.signal) {
     if (!response.ok) throw new Error(result.code || 'PAGE_OPERATION_FAILED');
     return result;
 }
-async function action(work) {
+async function action(work, progress = 'working') {
     if (busy) return;
+    const trigger = document.activeElement;
     busy = true; syncActions();
-    $('status').dataset.state = 'busy'; $('status').textContent = t('working');
-    document.querySelector('.editor-actions').setAttribute('aria-busy', 'true');
+    status(progress);
+    document.querySelector('.document-buttons').setAttribute('aria-busy', 'true');
     closeActions();
     try { await work(); }
     catch (error) {
         if (error.name === 'AbortError') return;
-        $('status').textContent = t(error.message === 'PAGE_REVISION_CONFLICT' ? 'conflict' : 'failed') + ' (' + error.message + ')';
-        $('status').dataset.state = 'error';
+        status(error.message === 'PAGE_REVISION_CONFLICT' ? 'conflict' : 'failed', error.message);
     } finally {
-        busy = false; syncActions(); document.querySelector('.editor-actions').setAttribute('aria-busy', 'false');
-        if ($('status').dataset.state === 'busy') status(dirty ? 'unsaved' : 'loaded');
+        busy = false; syncActions(); document.querySelector('.document-buttons').setAttribute('aria-busy', 'false');
+        if ($('status').dataset.state === 'busy') { notify('idle', ''); status(dirty ? 'unsaved' : 'loaded'); }
+        requestAnimationFrame(() => {
+            if ((document.activeElement === document.body || document.activeElement.closest('dialog[data-closing]'))
+                && !lifetime.signal.aborted && trigger?.isConnected && !trigger.disabled) trigger.focus({preventScroll: true});
+        });
     }
 }
 
@@ -85,12 +119,20 @@ function closeActions() {
     menu.open = false;
 }
 
+function syncDirtyIndicator() {
+    const unsaved = dirty || !!cssEditor?.pending();
+    $('document-dirty').setAttribute('aria-hidden', String(!unsaved));
+    $('page').setAttribute('aria-describedby', unsaved ? 'document-dirty' : '');
+}
 function syncActions() {
+    syncDirtyIndicator();
     for (const button of document.querySelectorAll('.editor-actions button')) button.disabled = busy || !state;
     $('page').disabled = busy;
     $('restore').disabled = busy || !state?.previous;
+    $('restore-batch').disabled = busy || !state?.previous;
     $('save').disabled = busy || !state || needsRepair;
     $('publish').disabled = busy || !state || needsRepair;
+    $('publish-batch').disabled = busy || !state || needsRepair;
     $('preview').disabled = busy || !state || needsRepair;
     $('repair').disabled = busy;
     $('undo').disabled = !editor?.UndoManager.hasUndo();
@@ -153,25 +195,34 @@ function configureTypes(engine) {
         model: {defaults: {tagName: 'div', droppable: false, editable: false, name: t('component')},
             init() { if (!this.get('instanceId')) this.set('instanceId', crypto.randomUUID()); },
             getName() {
+                if (this.get('componentType') === 'page-editor:custom') {
+                    return catalog.customComponents?.find(entry => entry.id === this.get('configuration')?.componentId)?.name || t('custom.component');
+                }
                 const entry = componentDefinition(this.get('componentType'));
                 return entry ? label(entry.definition) : this.get('componentType') || t('component');
             }},
         view: {
+            // 子树由组件运行时拥有；布局重绘不能清空 iframe 并丢失实例状态。
+            renderChildren() {},
             init() {
                 this.generation = 0;
                 componentViews.add(this);
                 this.listenTo(this.model, 'change:configuration change:componentType change:configVersion', this.onRender);
             },
             async onRender() {
+                const entry = componentDefinition(this.model.get('componentType'));
+                const key = JSON.stringify([entry?.publication, this.model.get('componentType'),
+                    this.model.get('configVersion'), this.model.get('configuration')]);
+                if (this.renderKey === key && (this.pending || this.instance) && this.slot?.parentNode === this.el) return;
                 const generation = ++this.generation;
                 this.abort?.abort(); this.abort = new AbortController();
                 await this.instance?.destroy(); this.instance = null;
                 if (generation !== this.generation) return;
-                const entry = componentDefinition(this.model.get('componentType'));
                 if (!entry || entry.definition.version !== this.model.get('configVersion')) {
                     this.el.textContent = t('unavailable'); return;
                 }
                 const slot = this.el.ownerDocument.createElement('div'); this.el.replaceChildren(slot);
+                this.slot = slot; this.renderKey = key; this.pending = true;
                 try {
                     const instance = await mountComponent(slot, {...entry.definition, publication: entry.publication},
                         this.model.get('configuration'), {mode: 'edit', signal: this.abort.signal, instanceId: this.model.get('instanceId'),
@@ -179,10 +230,18 @@ function configureTypes(engine) {
                             onUnavailable: () => { slot.textContent = t('unavailable'); }});
                     if (generation !== this.generation) await instance.destroy(); else this.instance = instance;
                 } catch (_) { if (generation === this.generation) slot.textContent = t('unavailable'); }
+                finally { if (generation === this.generation) this.pending = false; }
             },
             removed() { this.generation++; this.abort?.abort(); this.instance?.destroy(); componentViews.delete(this); }
         }
     });
+}
+
+function bindingFor(model) {
+    let parent = model.parent();
+    while (parent && parent.get('type') !== 'page-region') parent = parent.parent();
+    return resolveBinding(componentDefinition(model.get('componentType'))?.definition,
+        parent?.get('region'), activePage().definition, model.get('target'));
 }
 
 function modelSource(model) {
@@ -193,6 +252,10 @@ function modelSource(model) {
     if (type === 'page-box') source.role = model.get('role');
     if (type === 'page-region') source.region = model.get('region');
     if (type === 'page-component') for (const key of ['componentType', 'instanceId', 'configVersion', 'configuration']) source[key] = pureValue(model.get(key));
+    if (type === 'page-component') {
+        const target = componentDefinition(model.get('componentType')) ? bindingFor(model).target : model.get('target');
+        if (target) source.target = target;
+    }
     source.components = model.components().map(modelSource);
     return source;
 }
@@ -202,7 +265,8 @@ function documentSource() {
     const styles = (project.styles || []).map(rule => ({
         selectors: rule.selectors, style: rule.style, mediaText: rule.mediaText || ''
     }));
-    return {format: 1, pageId, title: $('page-title').value, connections: pureValue(connections),
+    return {format: 1, pageId, title: $('page-title').value, connections: pureValue(connections), ...(hooks.length ? {hooks: pureValue(hooks)} : {}),
+        ...(actions.length ? {actions: pureValue(actions)} : {}),
         project: {pages: [{frames: [{component: modelSource(editor.getWrapper())}]}], styles}};
 }
 function allModels(model = editor.getWrapper()) {
@@ -230,6 +294,7 @@ function syncSelection() {
         select.append(option);
     }
     select.value = selected || '';
+    if (detailBlockId !== null) syncInsertionTarget();
     syncActions();
 }
 function changed() {
@@ -237,18 +302,20 @@ function changed() {
         dirty = JSON.stringify(documentSource()) !== savedSource;
         if (dirty) status('unsaved');
     }
-    syncSelection(); syncConnections();
+    syncSelection(); syncConnections(); refreshBinding?.(); refreshProperties?.();
 }
 
 async function properties(model) {
     const generation = ++inspectorGeneration;
+    inspectorAbort?.abort();
+    refreshBinding = undefined;
+    refreshProperties = undefined;
     await inspector?.destroy(); inspector = null;
     if (generation !== inspectorGeneration) return;
     const root = $('properties'); root.replaceChildren();
     motion?.reveal(root);
     $('style-section').hidden = !model && !cssEditor?.pending();
     $('inspector-selection').textContent = model?.getName() || t('select-first');
-    if (motion) motion.setDetails($('page-settings'), !model); else $('page-settings').open = !model;
     if (!model) return;
     if (model.get('type') === 'page-text' || model.get('type') === 'page-link') {
         field(root, t('text'), 'text', model.get('content'), value => model.set('content', value));
@@ -273,6 +340,30 @@ async function properties(model) {
     const entry = componentDefinition(model.get('componentType'));
     if (!entry) { root.textContent = t('unavailable'); return; }
     const definition = entry.definition;
+    if (definition.participation) {
+        const caption = document.createElement('label'); caption.className = 'editor-field'; caption.textContent = t('binding-target');
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', t('binding-target'));
+        select.addEventListener('change', () => model.set('target', select.value));
+        caption.append(select); root.append(caption);
+        const notice = document.createElement('p'); notice.className = 'help';
+        root.append(notice);
+        refreshBinding = () => {
+            const binding = bindingFor(model);
+            select.replaceChildren();
+            if (!binding.target) {
+                const option = document.createElement('option'); option.value = ''; option.textContent = t('binding-' + binding.status); select.append(option);
+            }
+            for (const target of binding.candidates) {
+                const option = document.createElement('option'); option.value = target.id; option.textContent = pageT(target.labelKey); select.append(option);
+            }
+            select.value = binding.target; select.disabled = binding.candidates.length < 2;
+            const target = binding.candidates.find(target => target.id === binding.target);
+            const count = target ? allModels().filter(entry => entry.get('type') === 'page-component' && bindingFor(entry).target === target.id).length : 0;
+            notice.textContent = t(count > target?.maximumParticipants ? 'binding-capacity' : 'binding-' + binding.status + '-help');
+        };
+        refreshBinding();
+    }
     if (model.get('configVersion') !== definition.version) {
         const button = document.createElement('button'); button.textContent = t('migrate');
         button.addEventListener('click', () => action(async () => {
@@ -284,12 +375,26 @@ async function properties(model) {
     }
     if (definition.propertiesModuleUrl) {
         const mount = document.createElement('div'); root.append(mount);
+        inspectorAbort = new AbortController();
+        let configuration = model.get('configuration');
         const instance = await mountComponent(mount, {...definition, publication: entry.publication},
-            model.get('configuration'), {mode: 'edit', properties: true, instanceId: model.get('instanceId'),
+            configuration, {mode: 'edit', properties: true, signal: inspectorAbort.signal, instanceId: model.get('instanceId'),
                 t: (key, fallback) => componentI18n.t(definition.namespace + ':' + key, fallback || key),
                 onChange: value => { if (generation === inspectorGeneration) model.set('configuration', value); },
                 onUnavailable: () => { mount.textContent = t('unavailable'); }});
-        if (generation !== inspectorGeneration) await instance.destroy(); else inspector = instance;
+        if (generation !== inspectorGeneration) await instance.destroy();
+        else {
+            inspector = instance;
+            refreshProperties = () => {
+                const current = model.get('configuration');
+                if (current === configuration) return;
+                configuration = current;
+                instance.update(current).catch(error => {
+                    if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed', error.message);
+                });
+            };
+            refreshProperties();
+        }
         return;
     }
     const schema = JSON.parse(definition.schema);
@@ -320,37 +425,173 @@ function field(root, caption, type, value, update) {
 }
 
 function blocks() {
+    const openGroups = new Map(editor.BlockManager.getCategories().map(category => [category.id, category.get('open')]));
     editor.BlockManager.getAll().reset();
-    editor.BlockManager.add('box', {label: t('container'), content: {type: 'page-box',
-        style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '24px', 'min-height': '80px'}}});
-    editor.BlockManager.add('text', {label: t('text'), content: {type: 'page-text'}});
-    editor.BlockManager.add('link', {label: t('link'), content: {type: 'page-link', style: {'font-size': 'inherit'}}});
-    for (const role of ['header', 'main', 'footer']) editor.BlockManager.add(role, {
+    editor.BlockManager.getCategories().reset();
+    const categories = new Map();
+    for (const category of catalog.componentCategories || []) {
+        const name = category.namespace && category.labelKey
+            ? componentI18n.t(category.namespace + ':' + category.labelKey, category.id) : category.id;
+        const description = category.descriptionKey ? componentI18n.t(category.namespace + ':' + category.descriptionKey, '') : '';
+        for (const type of category.components) categories.set(type, {id: 'plugin:' + category.id, name, description});
+    }
+    const add = (id, options, group, category = {id: group, name: t('custom.group-' + group)}) => {
+        const label = document.createElement('span'); label.textContent = options.label;
+        editor.BlockManager.add(id, {...options, detailName: options.label, detailGroup: group,
+            detailCategory: category.name, categoryDescription: category.description, label: label.innerHTML,
+            media: icon(group === 'layout' || group === 'content' ? id : 'component'), onClick: block => showBlockDetails(block.id),
+            attributes: {'data-component-block': id},
+            category: {id: category.id, label: category.name, open: openGroups.get(category.id) ?? true}});
+    };
+    add('box', {label: t('container'), content: {type: 'page-box',
+        style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '24px', 'min-height': '80px'}}}, 'layout');
+    for (const role of ['header', 'main', 'footer']) add(role, {
         label: t(role), content: {type: 'page-box', role,
             style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '16px',
                 ...(role === 'main' ? {flex: '1'} : {})}}
-    });
-    for (const entry of catalog.components) {
+    }, 'layout');
+    add('text', {label: t('text'), content: {type: 'page-text'}}, 'content');
+    add('link', {label: t('link'), content: {type: 'page-link', style: {'font-size': 'inherit'}}}, 'content');
+    const categoryOrder = new Map([...categories.keys()].map((type, index) => [type, index]));
+    for (const entry of [...catalog.components].sort((a, b) =>
+        (categoryOrder.get(a.definition.type) ?? Infinity) - (categoryOrder.get(b.definition.type) ?? Infinity))) {
         const definition = entry.definition;
-        editor.BlockManager.add(definition.type, {label: label(definition), content: {
+        if (definition.type === 'page-editor:custom') continue;
+        const owner = definition.type.split(':')[0];
+        add(definition.type, {label: label(definition), content: {
             type: 'page-component', componentType: definition.type, configVersion: definition.version,
             configuration: JSON.parse(definition.defaults)
-        }});
+        }}, 'plugins', categories.get(definition.type) || {id: 'plugin:' + owner, name: owner});
+    }
+    for (const component of catalog.customComponents || []) if (component.enabled && component.latest) {
+        add('custom:' + component.id, {label: component.name, content: {
+            type: 'page-component', componentType: 'page-editor:custom', configVersion: 1,
+            configuration: {componentId: component.id, version: component.latest, properties: {}}
+        }}, 'custom');
     }
     editor.BlockManager.render();
-    for (const [index, element] of [...$('blocks').querySelectorAll('.gjs-block')].entries()) {
-        const block = editor.BlockManager.getAll().at(index);
-        element.dataset.componentBlock = block.getId();
+    $('custom-blocks-empty').hidden = (catalog.customComponents || []).some(item => item.enabled && item.latest);
+    for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
+        const content = group.querySelector('.gjs-blocks-c');
+        const block = editor.BlockManager.get(content.querySelector('.gjs-block')?.dataset.componentBlock);
+        const kind = block?.get('detailGroup');
+        const description = kind === 'layout' || kind === 'content'
+            ? t('custom.group-' + kind + '-help') : block?.get('categoryDescription');
+        if (description) {
+            const help = document.createElement('p'); help.className = 'block-group-help';
+            help.textContent = description; content.prepend(help);
+        }
+    }
+    for (const element of $('blocks').querySelectorAll('.gjs-block')) {
+        const block = editor.BlockManager.get(element.dataset.componentBlock);
         element.tabIndex = 0; element.setAttribute('role', 'button');
+        element.setAttribute('aria-haspopup', 'dialog'); element.setAttribute('aria-controls', 'component-details');
+        element.setAttribute('aria-expanded', 'false');
         element.addEventListener('keydown', event => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault(); event.stopPropagation();
-            const selected = editor.getSelected();
-            const parent = selected?.get('droppable') ? selected : selected?.parent() || editor.getWrapper();
-            const [model] = parent.append(block.getContent(), selected && parent !== selected ? {at: selected.index() + 1} : {});
-            editor.select(model);
+            showBlockDetails(block.id);
         });
     }
+    filterBlocks();
+    if (detailBlockId !== null) showBlockDetails(detailBlockId, false);
+}
+function showBlockDetails(id, focus = true) {
+    const popup = $('component-details');
+    if (detailBlockId !== null && detailBlockId !== id) closeBlockDetails(false);
+    detailBlockId = id;
+    const block = editor.BlockManager.get(id);
+    $('component-add').disabled = !block;
+    $('component-detail-unavailable').hidden = !!block;
+    $('component-detail-edit').hidden = true;
+    if (block) {
+        const group = block.get('detailGroup'), content = block.getContent();
+        const builtin = group === 'layout' || group === 'content';
+        $('component-detail-name').textContent = block.get('detailName');
+        $('component-detail-group').textContent = block.get('detailCategory');
+        $('component-detail-description').textContent = t('details.' + (builtin ? id : group));
+        $('component-detail-version-row').hidden = builtin;
+        $('component-detail-version-label').textContent = t(group === 'custom' ? 'custom.version' : 'details.config-version');
+        $('component-detail-version').textContent = group === 'custom' ? content.configuration.version.slice(0, 12) : content.configVersion ?? '';
+        if (group === 'custom') {
+            $('component-detail-edit').href = '/page-editor/component.html?id=' + encodeURIComponent(content.configuration.componentId);
+            $('component-detail-edit').hidden = false;
+        }
+    }
+    syncInsertionTarget();
+    const anchor = detailBlockElement();
+    anchor?.setAttribute('aria-expanded', 'true');
+    if (!popup.matches(':popover-open')) popup.showPopover({source: anchor || $('block-search')});
+    positionBlockDetails();
+    if (focus) {
+        popup.querySelector('.component-detail-body').scrollTop = 0;
+        motion?.reveal(popup.querySelector('.component-detail-body'));
+        $('component-detail-name').focus({preventScroll: true});
+    }
+}
+function detailBlockElement() {
+    return $('blocks').querySelector('[data-component-block="' + CSS.escape(detailBlockId) + '"]');
+}
+function positionBlockDetails() {
+    const popup = $('component-details');
+    if (!popup.matches(':popover-open')) return;
+    const anchor = (detailBlockElement() || $('catalog')).getBoundingClientRect();
+    const gap = 8, margin = 16, width = popup.offsetWidth, height = popup.offsetHeight;
+    let left = anchor.right + gap, top = anchor.top;
+    if (left + width > innerWidth - margin) {
+        left = anchor.left - gap - width;
+        if (left < margin) {
+            left = anchor.left;
+            top = anchor.bottom + gap + height <= innerHeight - margin ? anchor.bottom + gap : anchor.top - gap - height;
+        }
+    }
+    left = Math.max(margin, Math.min(left, innerWidth - width - margin));
+    top = Math.max(margin, Math.min(top, innerHeight - height - margin));
+    popup.style.left = left + 'px'; popup.style.top = top + 'px';
+    popup.style.transformOrigin = Math.max(0, Math.min(width, anchor.x + anchor.width / 2 - left)) + 'px '
+        + Math.max(0, Math.min(height, anchor.y + anchor.height / 2 - top)) + 'px';
+}
+function closeBlockDetails(focus = true) {
+    const anchor = detailBlockElement();
+    $('component-details').hidePopover();
+    if (focus) (anchor?.getClientRects().length ? anchor : $('block-search')).focus({preventScroll: true});
+}
+function insertionTarget() {
+    const selected = editor.getSelected();
+    const parent = selected?.get('droppable') ? selected : selected?.parent() || editor.getWrapper();
+    return {selected, parent};
+}
+function syncInsertionTarget() {
+    const {selected, parent} = insertionTarget(), names = [];
+    for (let node = parent; node && node !== editor.getWrapper(); node = node.parent()) names.unshift(node.getName());
+    names.unshift(t('page'));
+    $('component-insertion-path').textContent = names.join(' › ');
+    $('component-insertion-order').textContent = selected && parent !== selected
+        ? t('details.position-after', undefined, {name: selected.getName()}) : t('details.position-end');
+}
+function insertBlock(block) {
+    const {selected, parent} = insertionTarget();
+    const [model] = parent.append(block.getContent(), selected && parent !== selected ? {at: selected.index() + 1} : {});
+    editor.select(model);
+}
+function filterBlocks() {
+    const query = $('block-search').value.trim().toLocaleLowerCase();
+    for (const content of $('blocks').querySelectorAll('.gjs-blocks-c')) motion?.settle(content);
+    if (query) editor.BlockManager.getCategories().forEach(category => category.set('open', true));
+    let count = 0;
+    for (const element of $('blocks').querySelectorAll('.gjs-block')) {
+        const category = editor.BlockManager.get(element.dataset.componentBlock)?.get('detailCategory') || '';
+        element.hidden = !(element.textContent + ' ' + category).toLocaleLowerCase().includes(query);
+        if (!element.hidden) count++;
+    }
+    for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
+        group.hidden = !group.querySelector('.gjs-block:not([hidden])');
+        const content = group.querySelector('.gjs-blocks-c'), open = group.classList.contains('gjs-open');
+        group.querySelector('.gjs-title').setAttribute('aria-expanded', String(open)); content.inert = !open;
+    }
+    $('blocks-no-match').hidden = count !== 0;
+    motion?.reveal($('blocks'));
+    motion?.reveal($('blocks-no-match'));
 }
 function syncConnections() {
     if (!editor) return;
@@ -363,7 +604,7 @@ function syncConnections() {
         const previous = $(id).value; $(id).replaceChildren();
         for (const model of models) {
             const option = document.createElement('option'); option.value = model.get('instanceId');
-            option.textContent = model.get('componentType') + ' · ' + option.value.slice(0, 8); $(id).append(option);
+            option.textContent = model.getName() + ' · ' + option.value.slice(0, 8); $(id).append(option);
         }
         if (models.some(model => model.get('instanceId') === previous)) $(id).value = previous;
     }
@@ -398,7 +639,7 @@ async function loadPage() {
     try { await api('documents/' + encodeURIComponent(pageId) + '/preview', {document: state.draft}); }
     catch (error) {
         if (!['PAGE_REQUIRED_REGION', 'PAGE_REGION_PARENT'].includes(error.message)) {
-            $('status').textContent = t('failed') + ' (' + error.message + ')'; return;
+            status('failed', error.message); return;
         }
         needsRepair = true; $('recovery').hidden = false;
         const defaults = await api('documents/' + encodeURIComponent(pageId) + '/default');
@@ -416,10 +657,24 @@ async function loadProject(source) {
         editor.Layers.setLayerData(editor.getWrapper(), {open: true});
         $('page-title').value = source.title;
         connections = pureValue(source.connections);
+        hooks = pureValue(source.hooks || []);
+        actions = pureValue(source.actions || []);
+        hooksAbort?.abort(); hooksAbort = new AbortController();
         editor.UndoManager.clear();
     } finally { loading = false; }
     canvasStyles();
     syncSelection(); syncConnections(); await properties(null);
+    if ($('hooks-section').open) await showHooks();
+}
+
+async function showHooks() {
+    if (!pageId || !hooksAbort || !activePage()) return;
+    hooksAbort.abort(); hooksAbort = new AbortController();
+    const signal = hooksAbort.signal;
+    try { await mountHooks($('hooks'), activePage().definition, hooks, value => { hooks = value; changed(); }, t, signal,
+        {actions, canvas: editor.Canvas.getDocument(), update: value => { actions = value; changed(); refreshBinding?.(); void showHooks(); }},
+        publicationLabels(catalog, label, t)); }
+    catch (error) { if (!signal.aborted) $('hooks').textContent = t('hook.unavailable'); }
 }
 
 function sidebar(name) {
@@ -463,7 +718,7 @@ async function showPreview(source, recovery = false) {
             preview = await renderPage(root, view, {mode: 'preview', signal: abort.signal, t, pageT, onUnavailable: () => status('unavailable')});
             if (!abort.signal.aborted) { $('preview-panel').classList.remove('loading'); $('preview-loading').hidden = true; }
         } catch (error) {
-            if (!abort.signal.aborted) $('preview-loading').textContent = t('failed') + ' (' + error.message + ')';
+            if (!abort.signal.aborted) $('preview-loading').textContent = errorMessage(error, t);
             throw error;
         }
     })();
@@ -485,6 +740,32 @@ async function confirmAction(key) {
     return Boolean(await window.PixivFeedback.confirm({
         message: t(key), confirmLabel: t('confirm'), cancelLabel: t('cancel')
     }));
+}
+
+async function saveDraft() {
+    const source = documentSource();
+    state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
+    savedSource = JSON.stringify(source); changed();
+}
+
+async function publishDraft(restoring, drafts = []) {
+    const path = 'documents/' + encodeURIComponent(pageId);
+    const plan = await api(path + '/prepare', {revision: state.revision, restoring, drafts});
+    notify('idle', '');
+    const confirmed = await window.PixivFeedback.confirm({message: t(restoring ? 'restore-confirm' : 'publish-confirm'),
+        sections: publicationSections(plan, t, restoring, publicationLabels(catalog, label, t)),
+        confirmLabel: t(restoring ? 'restore' : 'publish'), cancelLabel: t('cancel'), signal: lifetime.signal});
+    if (!confirmed) return;
+    status(restoring ? 'restoring' : 'publishing');
+    state = await api(path + (restoring ? '/restore' : '/publish'), {revision: state.revision, drafts,
+        decision: {revision: plan.revision, fingerprint: plan.fingerprint, approvals: plan.permissions}});
+    if (restoring) {
+        await loadProject(state.draft);
+        savedSource = state.draftSaveFailed ? '' : JSON.stringify(documentSource());
+        dirty = Boolean(state.draftSaveFailed);
+    }
+    if (state.draftSaveFailures?.some(id => id !== pageId)) status('restored-unsaved-pages', state.draftSaveFailures.map(publicationLabels(catalog, label, t).page).join(', '));
+    else status(state.draftSaveFailed ? 'restored-unsaved' : restoring ? 'restored' : 'published');
 }
 function manipulate(action) {
     const selected = editor.getSelected();
@@ -509,13 +790,16 @@ function manipulate(action) {
 }
 
 async function loadComponentTranslations(next) {
-    const namespaces = [...new Set([...next.components.map(entry => entry.definition.namespace), ...next.pages.map(page => page.definition.namespace)])];
+    const namespaces = [...new Set([...next.components.map(entry => entry.definition.namespace),
+        ...next.pages.map(page => page.definition.namespace), ...(next.componentCategories || []).map(category => category.namespace)].filter(Boolean))];
     const client = await window.PixivI18n.create({namespaces, signal: lifetime.signal});
     if (lifetime.signal.aborted) { client.dispose(); return; }
     componentI18n?.dispose(); componentI18n = client;
 }
 
 async function start() {
+    lifetime.signal.addEventListener('abort', () => hooksAbort?.abort(), {once: true});
+    $('hooks-section').addEventListener('toggle', () => { if ($('hooks-section').open) showHooks(); }, {signal: lifetime.signal});
     i18n = await window.PixivI18n.create({namespaces: ['page-editor', 'common']});
     catalog = await api('catalog');
     await loadComponentTranslations(catalog);
@@ -535,7 +819,7 @@ async function start() {
         ...(display ? {requires: {display}} : {}),
         options: values.map(value => ({id: value, label: t('value.' + value)}))});
     editor = window.grapesjs.init({
-        container: '#editor', height: '', storageManager: false, telemetry: false, cssIcons: '', allowScripts: false, nativeDnD: false,
+        container: '#editor', height: '', storageManager: false, telemetry: false, cssIcons: '', allowScripts: false, nativeDnD: true,
         canvasCss: ':where(body){min-height:100vh;margin:0;font-family:system-ui,sans-serif;color:var(--editor-text);background:var(--editor-panel)}[hidden]{display:none!important}[data-empty-region]:empty{min-height:4rem;border:1px dashed currentColor;padding:1rem}[data-empty-region]:empty:after{content:attr(data-empty-region)}',
         panels: {defaults: []}, blockManager: {appendTo: '#blocks'},
         layerManager: {appendTo: '#layers', scrollCanvas: {behavior: 'auto', block: 'nearest'}},
@@ -566,7 +850,7 @@ async function start() {
     });
     await new Promise(resolve => editor.onReady(resolve));
     motion = installEditorMotion(editor, lifetime.signal);
-    cssEditor = installCssEditor(editor, api, t, lifetime.signal, catalog.styleProperties, motion);
+    cssEditor = installCssEditor(editor, api, t, lifetime.signal, catalog.styleProperties, motion, syncDirtyIndicator);
     const canvasTheme = ({window: canvasWindow} = {}) => {
         const root = (canvasWindow?.document || editor.Canvas.getDocument())?.documentElement;
         if (!root) return;
@@ -582,6 +866,33 @@ async function start() {
     themes.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
     canvasTheme();
     blocks();
+    decorateIcons($('catalog'));
+    $('block-search').addEventListener('input', filterBlocks);
+    $('component-close').addEventListener('click', () => closeBlockDetails());
+    $('component-details').addEventListener('beforetoggle', event => {
+        $('component-details').inert = event.newState === 'closed';
+        if (event.newState !== 'closed') return;
+        detailBlockElement()?.setAttribute('aria-expanded', 'false'); detailBlockId = null;
+    });
+    window.addEventListener('resize', positionBlockDetails, {signal: lifetime.signal});
+    document.addEventListener('scroll', positionBlockDetails, {capture: true, signal: lifetime.signal});
+    // 画布事件由 GrapesJS 转发，原生浮层不会将其视为外部点击。
+    document.addEventListener('pointerdown', event => {
+        if (event.target === editor.Canvas.getFrameEl() && $('component-details').matches(':popover-open')) closeBlockDetails(false);
+    }, {signal: lifetime.signal});
+    const detailSize = new ResizeObserver(positionBlockDetails);
+    detailSize.observe($('component-details'));
+    lifetime.signal.addEventListener('abort', () => detailSize.disconnect(), {once: true});
+    $('component-add').addEventListener('click', () => {
+        const block = editor.BlockManager.get(detailBlockId);
+        if (!block) return;
+        insertBlock(block);
+        closeBlockDetails();
+    });
+    $('component-details').addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault(); event.stopPropagation(); closeBlockDetails();
+    });
     const selectLabel = document.createElement('label'); selectLabel.className = 'editor-field selection-field';
     selectLabel.textContent = t('selection');
     const selection = document.createElement('select'); selection.id = 'selection';
@@ -590,10 +901,17 @@ async function start() {
     let selectionFrame;
     editor.on('component:selected component:deselected', () => {
         inspectorGeneration++;
+        inspectorAbort?.abort();
+        refreshBinding = undefined;
+        refreshProperties = undefined;
         $('properties').replaceChildren();
         cancelAnimationFrame(selectionFrame);
         selectionFrame = requestAnimationFrame(() => {
-            syncSelection(); properties(editor.getSelected()).catch(() => status('failed'));
+            syncSelection();
+            const opening = properties(editor.getSelected()), generation = inspectorGeneration;
+            opening.catch(error => {
+                if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed', error.message);
+            });
         });
     });
     editor.on('block:drag:stop', model => { if (model) editor.select(model); });
@@ -601,7 +919,7 @@ async function start() {
         for (const model of allModels(clone)) if (model.get('type') === 'page-component') model.set('instanceId', crypto.randomUUID());
     });
     editor.on('component:create', model => {
-        model.set('draggable', parent => canMove(model, parent), {silent: true});
+        model.set('draggable', canMove, {silent: true});
     });
     editor.on('component:remove:before', (model, remove, options) => {
         if (!loading && !options.temporary && allModels(model).some(child => child.get('type') === 'page-region')) {
@@ -609,7 +927,7 @@ async function start() {
         }
     });
     editor.on('update', changed);
-    editor.on('undo redo', syncActions);
+    editor.on('undo redo', () => { syncActions(); refreshProperties?.(); });
     document.addEventListener('click', event => {
         if (!$('document-more').contains(event.target)) closeActions();
     });
@@ -645,22 +963,28 @@ async function start() {
     });
     $('save').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
-        const source = documentSource();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
-        savedSource = JSON.stringify(source); changed(); if (!dirty) status('saved');
-    }));
+        await saveDraft(); if (!dirty) status('saved');
+    }, 'saving'));
     $('publish').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
-        if (!await confirmAction('publish-confirm')) return;
-        const source = documentSource();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
-        savedSource = JSON.stringify(source); changed();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/publish', {revision: state.revision}); status('published');
+        await saveDraft(); await publishDraft(false);
     }));
     $('restore').addEventListener('click', () => action(async () => {
-        if (!await confirmAction('restore-confirm')) return;
-        state = await api('documents/' + encodeURIComponent(pageId) + '/restore', {revision: state.revision});
-        dirty = false; await loadPage(); status('restored');
+        await publishDraft(true);
+    }));
+    for (const [id, restoring] of [['publish-batch', false], ['restore-batch', true]]) $(id).addEventListener('click', () => action(async () => {
+        if (!restoring) {
+            if (!await cssEditor.ready()) { status('css-pending'); return; }
+            await saveDraft();
+        }
+        const selected = await selectPages(catalog.pages.map(entry => entry.definition), pageId, label, t, lifetime.signal, restoring);
+        if (selected === null) return;
+        const drafts = [];
+        for (const id of selected) {
+            const candidate = await api('documents/' + encodeURIComponent(id));
+            drafts.push({page: id, revision: candidate.revision});
+        }
+        await publishDraft(restoring, drafts);
     }));
     $('preview').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
@@ -681,12 +1005,15 @@ async function start() {
         connections.push({from: $('from').value, to: $('to').value, output: $('output').value, input: $('input').value}); changed();
     });
     document.addEventListener('keydown', event => {
+        if (document.querySelector('dialog[open], #component-details:popover-open')) return;
         if (event.key === 'Escape' && !$('preview-panel').hidden && !needsRepair) { event.preventDefault(); closePreview(); return; }
         if (event.key === 'Delete' && !event.target.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); manipulate('delete'); }
     });
     window.addEventListener('beforeunload', event => { if (dirty || cssEditor.pending()) { event.preventDefault(); event.returnValue = ''; } });
     window.addEventListener('pagehide', () => {
-        inspectorGeneration++; inspector?.destroy(); previewAbort?.abort(); preview?.destroy();
+        refreshBinding = undefined;
+        refreshProperties = undefined;
+        inspectorGeneration++; inspectorAbort?.abort(); inspector?.destroy(); previewAbort?.abort(); preview?.destroy();
         for (const view of componentViews) view.removed();
         lifetime.abort(); editor.destroy(); themes.disconnect(); i18n.dispose(); componentI18n?.dispose();
         cancelAnimationFrame(selectionFrame);
@@ -714,4 +1041,4 @@ async function start() {
     window.addEventListener('pagehide', () => clearInterval(discovery), {once: true});
     window.pageEditorReady = true;
 }
-start().catch(error => { $('status').textContent = t('failed') + ' (' + error.message + ')'; });
+start().catch(error => status('failed', error.message));

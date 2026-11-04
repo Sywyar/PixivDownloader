@@ -119,6 +119,12 @@ public final class RuntimeFiles {
         return dataDirectory().resolve("environment-transfers");
     }
 
+    /** 正式 Web 发布事实独立于主数据库，不能作为缓存清理。 */
+    public static Path webPublicationDirectory() { return dataDirectory().resolve("web-publications"); }
+
+    /** 首次初始化的耐久标记；发布记录丢失后禁止重新补写空状态。 */
+    public static Path webPublicationEnrollment() { return configDirectory().resolve("web-publications.enrolled"); }
+
     public static Path stateDirectory() {
         return resolveDirectory(STATE_DIR_PROPERTY, DEFAULT_STATE_DIR);
     }

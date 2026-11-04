@@ -1,19 +1,24 @@
-# PixivBatchDownloader import support
+# PixivBatchDownloader Import Support
 
-The official `pixiv-batch-downloader-import` plugin and its companion userscript automatically add new PixivBatchDownloader downloads to the local gallery: illustrations, manga, animations and novels. Configure the download directory once; subsequent downloads need no manual import. Original files are referenced in place and retained when gallery records are deleted.
+The official `pixiv-batch-downloader-import` plugin and its companion userscript register completed PixivBatchDownloader downloads (illustrations, manga, animations, and novels) into the local gallery as **read-only references** (original files are neither copied nor moved, and remain intact when gallery records are deleted), and support importing historical downloads. For full setup, limits, and history import instructions, see the [online documentation](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import).
 
-[Installation, configuration and troubleshooting](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import).
+## 1. Enable Automatic Import
 
-If no directory is configured, the first complete success report containing absolute paths brings the desktop settings and a confirmation dialog into focus. You can choose a different download root. Import starts only after **Confirm and save**, without a restart. Cancel leaves settings unchanged and the same report does not repeatedly open the dialog. You can configure the directory later in settings. Relative paths require manual root selection.
+The browser and backend must run on the same machine in solo mode (`solo`):
 
-The desktop home overview shows **Imported works**, the cumulative number of unique works successfully imported by this plugin. A multi-page manga counts as one work; an illustration and a novel with the same ID count separately. The total survives restarts and gallery deletion. Existing records, failed imports and skipped downloads do not add to it; past imports are not backfilled.
+1. Install and enable **PixivBatchDownloader import support** in Plugin Market (bundled in the full-offline package; on-demand in standard packages), then fully restart the application.
+2. Enable PixivBatchDownloader and Tampermonkey in your browser, then install the import userscript from the download page's Userscripts section (or `/api/scripts/pixiv-batch-downloader-import.user.js`).
+3. Configure the browser download root in desktop settings, or click **Save folder** in the desktop confirmation dialog after your first completed download, then refresh Pixiv.
+4. Download works with PixivBatchDownloader and verify their records in the gallery. Historical downloads can be imported via the Tampermonkey menu (**Read browser download history**) or Desktop **Tools → PixivBatchDownloader history import**.
 
-## Public SDK
+## 2. Troubleshooting and Statistics
 
-`DesktopDirectorySuggestionSource` supplies one `DesktopDirectorySuggestion` for an owner-declared, non-sensitive, unconditional `PATH_DIR` field with `HOT_RELOAD` effect. The host validates paths and saves only after desktop confirmation under the current publication. Withdrawal rejects stale confirmation. The plugin reads saved settings through its owner-bound `RuntimePathProvider`; observations alone never authorize directory access.
+- **Completed work missing from gallery**: Check **Automatic import status** in the Tampermonkey menu on Pixiv: `SOURCE_ROOT_REQUIRED` means the download root needs confirmation or configuration; `SERVER_UNAVAILABLE` means the local backend or port needs checking. Incomplete pages, missing metadata, or skipped downloads are not registered as complete works.
+- **Import statistics**: The desktop home overview displays **Imported works**, counting unique `(work_type, work_id)` items registered by this plugin in `data/pixiv-batch-downloader-import/plugin.db` across restarts and gallery deletions.
 
-`WorkFileImporter.importFiles(WorkFileImportRequest)` validates local files and commits metadata with exact file references. Trusted callers must authorize the source root. Optional work owners publish `WorkFileImportHandler`; unavailable owners fail without registering work. Calls use exact publication proxies with withdrawal and drain.
+## 3. Public SDK Contracts Used
 
-`WorkAssetService.isReadOnly` identifies external references. `WebRouteContribution.trustedWriteOrigins` declares HTTPS origins for exact ADMIN / LOCAL POST routes without ambient cookies; it does not bypass route authentication. The local collector additionally requires solo mode, loopback trust and a short-lived single-use token.
-
-`UserscriptContribution(id, classpathResource, i18nNamespace)` supports plugin-owned script translations. `DownloadObserver` and `DownloadAdmissionPolicy` provide synchronous best-effort events and fail-closed admission through `DownloadLifecycle`, currently connected to artwork execution and local import. They do not guarantee replay, crash terminal events or global ordering, and do not replace private methods or provide WebView.
+- **`DesktopDirectorySuggestionSource`**: Proposes a `HOT_RELOAD` directory candidate for the plugin's non-sensitive `PATH_DIR` setting, saved only after explicit desktop user confirmation.
+- **`WorkFileImporter` and `WorkFileImportHandler`**: Validates local files and atomically registers read-only file references (`WorkAssetService.isReadOnly` marks external assets so gallery deletion and media maintenance leave original files untouched).
+- **`WebRouteContribution.trustedWriteOrigins`**: Declares trusted HTTPS origins for `LOCAL` POST routes without ambient cookies, combined with solo mode, loopback verification, and short-lived single-use tokens (plus session IDs for browser history import).
+- **`UserscriptContribution`, `DownloadObserver`, and `DownloadAdmissionPolicy`**: Contributes plugin-owned userscript translations and synchronous best-effort observation / fail-closed admission hooks via `DownloadLifecycle`.

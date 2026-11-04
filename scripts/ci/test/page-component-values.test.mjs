@@ -4,7 +4,50 @@ import fs from 'node:fs';
 const codecs = new URL('../../../pixivdownload-plugin-api/src/main/resources/META-INF/pixivdownload/web/value-codecs.mjs', import.meta.url);
 const source = fs.readFileSync(new URL('../../../pixivdownload-app/src/main/resources/static/js/pixiv-pages.mjs', import.meta.url), 'utf8')
     .replace("'/sdk/values/value-codecs.mjs'", JSON.stringify(codecs.href));
-const {pureValue, portValue, connectionDispatcher} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const {pureValue, portValue, connectionDispatcher, createOperationTarget} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+test('实例交互拒绝跨目标和迟到证明，重置及撤销真实释放通道', () => {
+    const target = createOperationTarget('form:submit');
+    const abort = new AbortController();
+    const protocol = {id: 'proof', version: 1, stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'};
+    target.configure('r1');
+    const binding = {instanceId: 'one', policy: 'proof', operation: 'form:submit', protocol};
+    assert.throws(() => target.connect({...binding, operation: 'other:submit'}), /PAGE_INTERACTION_INVALID/);
+    const channel = target.connect(binding, abort.signal);
+    const states = [];
+    channel.onState(state => states.push(state));
+    target.challenge({token: 'attempt', revision: 'r1', challenges: {proof: 'question'}});
+    assert.deepEqual(states.at(-1), {id: 'attempt', revision: 'r1', value: 'question'});
+    assert.equal(channel.respond('old', 'answer'), false);
+    assert.equal(channel.respond('attempt', 'answer'), true);
+    assert.equal(channel.respond('attempt', 'again'), false);
+    assert.deepEqual(target.request(), {token: 'attempt', proofs: {proof: 'answer'}});
+    assert.throws(() => target.challenge({token: 'new', revision: 'old', challenges: {proof: 'question'}}), /PAGE_REVISION_CHANGED/);
+    target.configure('r2');
+    assert.equal(channel.respond('attempt', 'answer'), false);
+    assert.throws(() => target.request(), /OPERATION_VERIFICATION_REQUIRED/);
+    target.challenge({token: 'next', revision: 'r2', challenges: {proof: 'question'}});
+    abort.abort();
+    assert.equal(channel.respond('next', 'answer'), false);
+    assert.throws(() => target.request(), /OPERATION_VERIFICATION_REQUIRED/);
+    const replacement = target.connect(binding);
+    target.destroy();
+    assert.equal(replacement.respond('next', 'answer'), false);
+});
+
+test('交互证明保持实例隔离并限制累计数据', () => {
+    const first = createOperationTarget('form:first'), second = createOperationTarget('form:second');
+    const protocol = {id: 'proof', version: 1, stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'};
+    const a = first.connect({instanceId: 'same', policy: 'proof', operation: first.operation, protocol});
+    const b = second.connect({instanceId: 'same', policy: 'proof', operation: second.operation, protocol});
+    first.challenge({token: 'a', revision: '', challenges: {proof: 'question'}});
+    second.challenge({token: 'b', revision: '', challenges: {proof: 'question'}});
+    assert.equal(b.respond('a', 'answer'), false);
+    assert.equal(a.respond('a', 'answer'), true);
+    assert.throws(() => second.request(), /OPERATION_VERIFICATION_REQUIRED/);
+    assert.throws(() => first.challenge({token: 'large', revision: '', challenges: {proof: 'x'.repeat(16385)}}), /PAGE_INTERACTION_INVALID/);
+    first.destroy(); second.destroy();
+});
 
 test('页面配置保留嵌套纯值且拒绝可执行或丢失语义的数据', () => {
     const value = {items: [{label: 'entry', checked: true}], optional: null};

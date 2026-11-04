@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry.RegisteredPlugin;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
 
 @DisplayName("StaticResourceConfig 查询期静态资源映射与服务行为")
@@ -42,6 +43,16 @@ class StaticResourceConfigTest {
     @EnableWebMvc
     @Import(StaticResourceConfig.class)
     static class ServingConfig {
+
+        @Bean
+        top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest pagePublicationRequest() {
+            return org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class);
+        }
+
+        @Bean
+        PageContributionRegistry pageContributionRegistry() {
+            return org.mockito.Mockito.mock(PageContributionRegistry.class);
+        }
 
         @Bean
         StaticResourceRegistry staticResourceRegistry() {
@@ -218,6 +229,16 @@ class StaticResourceConfigTest {
     @EnableWebMvc
     @Import(StaticResourceConfig.class)
     static class ExactFileServingConfig {
+
+        @Bean
+        top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest pagePublicationRequest() {
+            return org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class);
+        }
+
+        @Bean
+        PageContributionRegistry pageContributionRegistry() {
+            return org.mockito.Mockito.mock(PageContributionRegistry.class);
+        }
 
         @Bean
         PluginRegistry pluginRegistry() {

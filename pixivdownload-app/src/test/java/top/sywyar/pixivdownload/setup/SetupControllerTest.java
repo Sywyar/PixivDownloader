@@ -33,6 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("SetupController 单元测试")
 class SetupControllerTest {
 
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path temporary;
+
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -46,15 +48,17 @@ class SetupControllerTest {
     private ProxySetupService proxySetupService;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         LocaleContextHolder.setLocale(Locale.US);
         MessageSource messageSource = TestI18nBeans.messageSource();
         AppMessages appMessages = TestI18nBeans.appMessages(messageSource);
         SetupController controller = new SetupController(
-                setupService, loginRateLimitService, multiModeConfig, proxySetupService, appMessages);
+                setupService, multiModeConfig, proxySetupService, appMessages, mock(top.sywyar.pixivdownload.setup.guest.GuestInviteService.class));
+        var locales = new top.sywyar.pixivdownload.i18n.AppLocaleResolver(top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog());
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(appMessages))
                 .setValidator(TestI18nBeans.validator(messageSource))
+                .addFilters(new LoginAdmissionFilter(loginRateLimitService, locales, appMessages))
                 .defaultRequest(get("/").header("Accept-Language", "en-US"))
                 .build();
     }
@@ -356,6 +360,9 @@ class SetupControllerTest {
                     .andExpect(jsonPath("$.code").value("error.request.validation"))
                     .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
 
+            mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of("username", "admin", "password", "x".repeat(16384)))))
+                    .andExpect(status().isPayloadTooLarge());
             verify(setupService, never()).checkLogin(any(), any());
         }
 

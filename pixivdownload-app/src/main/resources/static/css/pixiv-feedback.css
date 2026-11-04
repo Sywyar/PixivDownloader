@@ -21,6 +21,7 @@
 }
 
 .pixiv-feedback-backdrop::backdrop { background: transparent; }
+.pixiv-feedback-backdrop[inert] { pointer-events: none; }
 
 .pixiv-feedback-dialog {
     width: min(440px, 100%);
@@ -134,50 +135,64 @@ textarea.pixiv-feedback-input { resize: vertical; }
     padding: 0;
     border: 0;
     background: transparent;
-    inset: auto 18px 18px auto;
+    inset: auto max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) auto;
     overflow: visible;
     position: fixed;
-    right: var(--space-4, 16px);
-    bottom: var(--space-4, 16px);
     z-index: 10020;
     display: grid;
-    width: min(360px, calc(100vw - 32px));
-    gap: var(--space-2, 8px);
+    width: min(25rem, calc(100% - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    gap: .5rem;
     pointer-events: none;
 }
 
 .pixiv-feedback-toast {
-    padding: var(--space-3, 12px) var(--space-4, 16px);
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    padding: 1rem;
+    max-height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow: auto;
+    pointer-events: auto;
+    font: .875rem/1.5 system-ui, sans-serif;
+    overflow-wrap: anywhere;
     color: var(--text, CanvasText);
     background: var(--surface, Canvas);
     border: 1px solid var(--line, color-mix(in srgb, CanvasText 22%, transparent));
-    border-left: 4px solid var(--brand, Highlight);
-    border-radius: var(--radius-md, 8px);
+    border-radius: .875rem;
     box-shadow: var(--shadow-md, 0 8px 24px color-mix(in srgb, CanvasText 18%, transparent));
-    transition: opacity 180ms ease, transform 180ms ease;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 180ms ease, transform 180ms cubic-bezier(.2, .8, .2, 1);
 }
-
-.pixiv-feedback-toast--success {
-    border-left-color: var(--success, Highlight);
+.pixiv-feedback-toast-content { flex: 1; min-width: 0; }
+.pixiv-feedback-toast-title { margin: 0; font-weight: 650; }
+.pixiv-feedback-toast-detail { margin: .25rem 0 0; font-weight: 400; }
+.pixiv-feedback-toast-detail[hidden], .pixiv-feedback-toast-close[hidden], .pixiv-feedback-toast-countdown[hidden] { display: none; }
+.pixiv-feedback-toast-countdown { position: absolute; inset: auto .875rem 0; height: 2px; border-radius: 1px; background: var(--brand, Highlight); transform-origin: left; }
+.pixiv-feedback-toast-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.25rem; height: 1.25rem; margin-top: .0625rem; color: var(--brand, Highlight); border: 1.5px solid currentColor; border-radius: 50%; font-size: .8125rem; font-weight: 650; }
+.pixiv-feedback-toast--error .pixiv-feedback-toast-icon { color: var(--danger, Mark); }
+.pixiv-feedback-toast--warning .pixiv-feedback-toast-icon { color: var(--warning, Mark); }
+.pixiv-feedback-toast--progress .pixiv-feedback-toast-icon { border-color: var(--line, GrayText); border-top-color: var(--brand, Highlight); animation: pixiv-feedback-working 700ms linear infinite; }
+.pixiv-feedback-toast button.pixiv-feedback-toast-close { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; min-height: 2rem; margin: -.375rem -.375rem 0 0; padding: 0; border: 1px solid transparent; border-radius: .5rem; color: inherit; background: transparent; cursor: pointer; font: 1.25rem/1 system-ui, sans-serif; }
+.pixiv-feedback-toast button.pixiv-feedback-toast-close[hidden] { display: none; }
+.pixiv-feedback-toast button.pixiv-feedback-toast-close:hover { background: var(--control-bg, ButtonFace); border-color: var(--line, ButtonBorder); }
+.pixiv-feedback-toast-close:focus-visible { outline: 2px solid var(--brand, Highlight); outline-offset: 2px; }
+@keyframes pixiv-feedback-working { to { transform: rotate(360deg); } }
+@starting-style {
+    .pixiv-feedback-toast { opacity: 0; transform: translateY(8px); }
 }
-
-.pixiv-feedback-toast--warning {
-    border-left-color: var(--warning, Mark);
-}
-
-.pixiv-feedback-toast--error {
-    border-left-color: var(--danger, Mark);
-}
-
 .pixiv-feedback-toast--leaving {
     opacity: 0;
     transform: translateY(8px);
+    pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
     .pixiv-feedback-toast {
         transition: none;
     }
+    .pixiv-feedback-toast--progress .pixiv-feedback-toast-icon { animation: none; }
 }
 
 /* 分组说明与确认共用；长诊断折叠，按钮在低矮窗口仍可达。 */
@@ -190,7 +205,7 @@ textarea.pixiv-feedback-input { resize: vertical; }
 .pixiv-feedback-fields { margin: 0; font-size: .875rem; }
 .pixiv-feedback-fields > div { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: .75rem; padding: .375rem 0; }
 .pixiv-feedback-fields dt { color: var(--muted, GrayText); }
-.pixiv-feedback-fields dd { margin: 0; overflow-wrap: anywhere; }
+.pixiv-feedback-fields dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .pixiv-feedback-mono { font-family: ui-monospace, monospace; }
 .pixiv-feedback-section summary:focus-visible { outline: 2px solid var(--accent-blue, Highlight); outline-offset: 3px; }
 .pixiv-feedback-dialog--structured .pixiv-feedback-actions { position: sticky; bottom: -1.5rem; background: var(--surface, Canvas); padding-block: 1rem; margin-bottom: -1.5rem; }

@@ -710,12 +710,18 @@ test('硬编码守卫：生产代码命中、允许路径不命中', async () =>
         fs.mkdirSync(path.join(staticDir, 'js'), { recursive: true });
         fs.writeFileSync(path.join(staticDir, 'js', 'page.js'),
             'var defaultLang = "en-US";\nvar supportedLocales = ["zh-CN"];\nLocale.US\n');
+        const pluginWeb = path.join(root, 'pixivdownload-plugin-page-editor/src/main/resources/web');
+        fs.mkdirSync(path.join(pluginWeb, 'vendor/codemirror'), {recursive: true});
+        fs.writeFileSync(path.join(pluginWeb, 'vendor/codemirror/codemirror.mjs'), 'const htmlLang = ["en-US"];', 'utf8');
+        fs.writeFileSync(path.join(pluginWeb, 'editor.mjs'), 'const defaultLang = "en-US";', 'utf8');
         const catalog = catalogLib.load(root);
         const hits = guard.default.scan(root, catalog);
         const jsHits = hits.filter((h) => h.relPath.endsWith('page.js'));
         assert.equal(jsHits.length, 3);
         assert.equal(hits.some((h) => h.relPath.includes('locales.json')), false);
         assert.equal(hits.some((h) => h.relPath.includes('i18n-static')), false);
+        assert.equal(hits.some((h) => h.relPath.endsWith('codemirror.mjs')), false);
+        assert.equal(hits.filter((h) => h.relPath.endsWith('web/editor.mjs')).length, 1);
 
         const report = runCheck(root);
         assert.ok(report.issues.some((i) => i.type === 'hardcoded-locale'));

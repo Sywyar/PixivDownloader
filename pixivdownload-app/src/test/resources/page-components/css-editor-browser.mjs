@@ -5,10 +5,12 @@ export async function checkCssEditor(page, work, zoom) {
     const input = page.locator('#css-code .cm-content'), apply = page.locator('#css-apply');
     const frame = page.frameLocator('iframe.gjs-frame');
     const write = async css => {
-        await input.focus(); await input.press('ControlOrMeta+a'); await page.keyboard.insertText(css);
+        await input.click(); await input.press('ControlOrMeta+a'); await page.keyboard.insertText(css);
+        assert.equal(await input.innerText(), css, 'typing reaches the CSS editor before submitting');
     };
     const open = async () => {
         if (await page.locator('#style-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#style-toggle').click();
+        await page.waitForFunction(() => !document.getElementById('style-content').getAnimations().some(animation => animation.playState === 'running'));
         if (await page.locator('#edit-css').getAttribute('aria-expanded') !== 'true') await page.locator('#edit-css').click();
         await input.waitFor();
     };
@@ -79,13 +81,22 @@ export async function checkCssEditor(page, work, zoom) {
     await page.locator('#selection').selectOption(original);
     await write('padding: 99px;');
     const parseRoute = '**/api/page-editor/styles/parse';
-    for (const close of [() => input.press('Escape'), () => styles.click()]) {
+    const closeWithEscape = async () => {
+        await input.press('Escape');
+        // 补全查询也由 Esc 先关闭，再关闭外层编辑器。
+        if (await page.locator('#edit-css').getAttribute('aria-expanded') === 'true') await input.press('Escape');
+        await page.locator('#css-panel').waitFor({state: 'hidden'});
+    };
+    for (const close of [closeWithEscape, async () => {
+        await styles.click(); await page.locator('#style-content').waitFor({state: 'hidden'});
+    }]) {
         let held;
         const waiting = new Promise(resolve => page.route(parseRoute, route => { held = route; resolve(); }));
         await apply.click(); await waiting;
         assert.equal(await apply.isDisabled(), true);
         await close();
-        await held.abort().catch(() => {}); await page.unroute(parseRoute);
+        assert.equal(await page.locator('#css-panel').getAttribute('aria-busy'), 'false', 'closing cancels the pending validation');
+        await held.fulfill({json: {padding: '99px'}}).catch(() => {}); await page.unroute(parseRoute);
         assert.notEqual(await frame.getByText('Layout note', {exact: true}).evaluate(node => getComputedStyle(node).paddingTop), '99px');
         await open();
         assert.equal(await page.locator('#css-panel').getAttribute('aria-busy'), 'false');
@@ -163,6 +174,9 @@ async function checkMotion(page) {
         await Promise.allSettled(node.getAnimations().map(animation => animation.finished));
     });
     const details = page.locator('#page-settings');
+    if (await details.evaluate(node => node.open)) {
+        await details.locator('summary').click(); await settle(details);
+    }
     await details.locator('summary').click();
     await page.emulateMedia({reducedMotion: 'reduce'});
     assert.equal(await details.evaluate(node => node.open && node.style.overflow === ''), true, 'changing motion preference settles disclosure');

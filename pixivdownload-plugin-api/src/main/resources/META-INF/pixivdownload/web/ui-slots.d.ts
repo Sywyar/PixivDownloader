@@ -1,3 +1,4 @@
+import type {PageInteraction, PageParticipant} from './page-interaction';
 /** 普通 Web 槽位实例。业务属性、事件及 region 名称由页面的独立契约约定。 */
 export interface UiSlotContext<Properties, Events extends Record<string, unknown>> {
     readonly slotId: string;
@@ -5,6 +6,7 @@ export interface UiSlotContext<Properties, Events extends Record<string, unknown
     readonly publication: string;
     readonly properties: Readonly<Properties>;
     readonly signal: AbortSignal;
+    readonly interaction?: PageInteraction;
     readonly i18n?: {
         t(key: string, fallback?: string, values?: Record<string, unknown>): string;
         apply(root: Element): void;
@@ -33,6 +35,7 @@ export interface UiSlotDescription {
     readonly target: string;
     readonly moduleUrl: string | null;
     readonly publication: string;
+    readonly participation: PageParticipant | null;
 }
 export interface UiSlotOptions<Properties, Events extends Record<string, unknown>> {
     root?: Document | HTMLElement;
@@ -44,6 +47,8 @@ export interface UiSlotOptions<Properties, Events extends Record<string, unknown
     i18n?: () => UiSlotContext<Properties, Events>['i18n'];
     onEvent?: <Name extends keyof Events>(name: Name, value: Events[Name]) => unknown | Promise<unknown>;
     onError?: (error: Error) => void;
+    filter?: (slot: UiSlotDescription) => boolean;
+    interaction?: (slot: UiSlotDescription, signal: AbortSignal) => PageInteraction | undefined;
 }
 export interface UiSlotRuntime {
     /** 在 moduleUrl 脚本求值时注册；模块本身不执行挂载。 */

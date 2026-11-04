@@ -27,6 +27,7 @@
     "page.title": "Pixiv 一括ダウンローダー — ログイン",
     "remember": "ログイン状態を保持（30日間）",
     "validation.credentials-required": "ユーザー名とパスワードを入力してください",
-    "validation.invite-required": "招待コードを入力してください"
+    "validation.invite-required": "招待コードを入力してください",
+    "validation.verification-required": "送信する前に認証を完了してください。"
   }
 }

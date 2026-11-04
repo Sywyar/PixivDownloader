@@ -27,6 +27,7 @@
     "page.title": "Pixiv Batch Downloader - Login",
     "remember": "Keep me signed in (30 days)",
     "validation.credentials-required": "Please enter a username and password",
-    "validation.invite-required": "Please enter an invite code"
+    "validation.invite-required": "Please enter an invite code",
+    "validation.verification-required": "Complete verification before submitting."
   }
 }

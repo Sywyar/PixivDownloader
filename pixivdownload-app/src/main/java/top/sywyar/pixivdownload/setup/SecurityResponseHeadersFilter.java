@@ -17,6 +17,14 @@ import java.io.IOException;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SecurityResponseHeadersFilter extends OncePerRequestFilter {
 
+    private final top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry pages;
+    private final top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications;
+
+    public SecurityResponseHeadersFilter(top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry pages,
+            top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications) {
+        this.pages = pages; this.publications = publications;
+    }
+
     private static final String CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self';"
             + " object-src 'none'; script-src 'self'; script-src-attr 'none';"
             + " style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"
@@ -35,7 +43,34 @@ public class SecurityResponseHeadersFilter extends OncePerRequestFilter {
         String frameAncestors = "iframe".equalsIgnoreCase(request.getHeader(SEC_FETCH_DEST))
                 ? "'self'"
                 : "'none'";
-        response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY.formatted(frameAncestors));
+        String csp = CONTENT_SECURITY_POLICY.formatted(frameAncestors);
+        String path = top.sywyar.pixivdownload.common.web.SafeRequestPath.resolve(request).orElse("");
+        var matches = pages.pages().stream().filter(page -> page.definition().path().equals(path)).toList();
+        if (matches.size() == 1) {
+            try {
+                var permissions = publications.permissions(matches.get(0).definition().id(), request);
+                var directives = new java.util.LinkedHashMap<String, java.util.LinkedHashSet<String>>();
+                for (String directive : csp.split(";")) {
+                    var parts = directive.strip().split(" +");
+                    directives.put(parts[0], new java.util.LinkedHashSet<>(java.util.List.of(parts).subList(1, parts.length)));
+                }
+                for (var permission : permissions) for (var source : permission.profile().sources()) {
+                    String name = switch (source.kind()) {
+                        case SCRIPT -> "script-src"; case FRAME -> "frame-src"; case CONNECT -> "connect-src";
+                        case STYLE -> "style-src"; case IMAGE -> "img-src"; case FONT -> "font-src"; case WORKER -> "worker-src";
+                    };
+                    var values = directives.get(name);
+                    values.remove("'none'"); values.add(source.origin().equals("self") ? "'self'" : source.origin());
+                }
+                csp = directives.entrySet().stream().map(entry -> entry.getKey() + " " + String.join(" ", entry.getValue()))
+                        .collect(java.util.stream.Collectors.joining("; "));
+                response.setHeader("X-Pixiv-Page-Revision", publications.revision(request));
+            } catch (IllegalStateException unavailable) {
+                // 未知发布状态只保留安全基线；操作 Gate 独立拒绝，不推导空策略。
+                response.setHeader("X-Pixiv-Page-State", "unavailable");
+            }
+        }
+        response.setHeader("Content-Security-Policy", csp);
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Referrer-Policy", "no-referrer");
         response.setHeader("Permissions-Policy", PERMISSIONS_POLICY);

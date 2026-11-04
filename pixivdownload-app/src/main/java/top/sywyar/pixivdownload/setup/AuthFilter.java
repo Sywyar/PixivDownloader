@@ -376,7 +376,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 邀请兑换通过 GET /invite?code=...：服务端尝试发 cookie 并 302 到画廊
+        // 邀请链接仅预填兑换界面；建立访客会话必须经过受保护的 POST。
         if (path.equals("/invite")) {
             handleInviteRedeemRedirect(req, res);
             return;
@@ -700,9 +700,9 @@ public class AuthFilter extends OncePerRequestFilter {
         if (code == null) return null;
         Optional<GuestInviteSession> resolved;
         try {
-            resolved = guestInviteService.resolveByCode(code);
+            resolved = guestInviteService.resolveSession(code);
         } catch (Exception e) {
-            log.warn("Failed to resolve invite cookie: {}", e.getMessage());
+            log.warn("Failed to resolve invite session: {}", e.getClass().getSimpleName());
             return null;
         }
         if (resolved.isPresent()) return resolved.get();
@@ -724,29 +724,14 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private void handleInviteRedeemRedirect(HttpServletRequest req, HttpServletResponse res) throws IOException {
         String code = req.getParameter("code");
-        if (code == null || code.isBlank()) {
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        if (code == null || code.length() > 64 || !code.trim().toUpperCase(java.util.Locale.ROOT).matches("[A-HJ-NP-Z2-9]{24}")) {
             res.sendRedirect("/login.html");
             return;
         }
-        Optional<GuestInviteSession> session;
-        try {
-            session = guestInviteService.resolveByCode(code);
-        } catch (Exception e) {
-            log.warn("Invite redeem (GET) failed: {}", e.getMessage());
-            res.sendRedirect("/login.html?inviteError=1");
-            return;
-        }
-        if (session.isEmpty()) {
-            res.sendRedirect("/login.html?inviteError=1");
-            return;
-        }
-        ResponseCookie cookie = ResponseCookie.from(INVITE_COOKIE, session.get().code())
-                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
-        res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        // 落点经独立的 LandingRegistry 按受邀访客落点优先级解析（画廊 priority 20 优先、禁用则回退小说 30），
-        // 全部缺失回登录页提示。与导航排序解耦，且与 InviteRedeemController 同口径（避免送进会 404 的坏入口）。
-        res.sendRedirect(landingRegistry.resolve(Audience.INVITED_GUEST)
-                .orElse("/login.html?inviteError=1"));
+        // fragment 仅供浏览器预填，不再次作为 URL 查询发送给服务器或资源来源。
+        res.sendRedirect("/login.html#invite=" + code.trim().toUpperCase(java.util.Locale.ROOT));
     }
 
     private void ensureUserUuidCookie(HttpServletRequest req, HttpServletResponse res) {

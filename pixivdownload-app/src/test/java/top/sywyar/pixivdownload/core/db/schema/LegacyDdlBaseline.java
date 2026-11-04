@@ -114,6 +114,13 @@ final class LegacyDdlBaseline {
             "CREATE INDEX IF NOT EXISTS idx_artwork_collections_artwork"
                     + " ON artwork_collections(artwork_id)",
             // ── GuestInviteMapper ──────────────────────────────────────────────
+            "CREATE TABLE IF NOT EXISTS guest_invite_sessions ("
+                    + "slot INTEGER NOT NULL PRIMARY KEY,"
+                    + "token_hash TEXT NOT NULL UNIQUE,"
+                    + "invite_id INTEGER NOT NULL,"
+                    + "expires INTEGER NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_guest_invite_sessions_invite ON guest_invite_sessions(invite_id)",
+            "CREATE INDEX IF NOT EXISTS idx_guest_invite_sessions_expiry ON guest_invite_sessions(expires)",
             "CREATE TABLE IF NOT EXISTS guest_invites ("
                     + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                     + "code TEXT NOT NULL UNIQUE,"

@@ -170,14 +170,18 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
                 // 通用 UI 槽位清单：宿主页面按 target 前缀加载活动插件声明的同源渲染模块。
                 WebRouteContribution.visitorAndInvitedGuest("/api/web/ui-slots"),
-                WebRouteContribution.publicRoute("/api/web/login-verification-slots"),
+                WebRouteContribution.publicRoute("/api/web/page-slots/**"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
                 WebRouteContribution.publicRoute("/index.html"),
                 WebRouteContribution.publicRoute("/login.html"),
                 new WebRouteContribution("/api/web/page-publications/*", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                new WebRouteContribution("/api/web/page-publications/*/targets", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                WebRouteContribution.admin("/api/web/operation-hooks/**"),
+                new WebRouteContribution("/api/operation-hooks/prepare", AccessPolicy.PUBLIC, Set.of(HttpMethod.POST), false),
                 WebRouteContribution.publicRoute("/js/pixiv-pages.mjs"),
+                WebRouteContribution.publicRoute("/js/pixiv-http-hooks.mjs"),
                 WebRouteContribution.publicRoute("/sdk/values/value-codecs.mjs"),
                 WebRouteContribution.publicRoute("/intro.html"),
                 WebRouteContribution.publicRoute("/intro-canary.html"),
@@ -209,6 +213,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/vendor/fonts/**"),
                 WebRouteContribution.publicRoute("/api/auth/**"),
                 WebRouteContribution.publicRoute("/api/i18n/**"),
+                WebRouteContribution.publicRoute("/i18n-static/**"),
                 WebRouteContribution.publicRoute("/api/onboarding/**"),
                 // ── VISITOR：multi 游客可达 / solo 需会话 / 邀请访客 403 / 不入 monitor ────────────
                 // 目录兜底不覆盖更具体的文件声明。

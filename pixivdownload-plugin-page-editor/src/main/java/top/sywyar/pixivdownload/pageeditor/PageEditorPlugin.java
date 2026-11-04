@@ -16,9 +16,11 @@ public final class PageEditorPlugin extends Plugin implements PixivPluginProvide
             public PluginKind kind() { return PluginKind.FEATURE; }
             public List<I18nContribution> i18n() { return List.of(new I18nContribution("page-editor", "i18n.web.page-editor")); }
             public List<WebRouteContribution> routes() {
-                return List.of(WebRouteContribution.admin("/page-editor/**"), WebRouteContribution.admin("/api/page-editor/**"));
+                return List.of(WebRouteContribution.admin("/page-editor/**"), WebRouteContribution.admin("/api/page-editor/**"),
+                        new WebRouteContribution("/page-components/**", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false));
             }
-            public List<StaticResourceContribution> staticResources() { return List.of(new StaticResourceContribution("classpath:/web/", "/page-editor/")); }
+            public List<StaticResourceContribution> staticResources() { return List.of(new StaticResourceContribution("classpath:/web/", "/page-editor/"),
+                    new StaticResourceContribution("classpath:/components/", "/page-components/")); }
             public List<NavigationContribution> navigation() {
                 return List.of(new NavigationContribution("page-editor", Set.of("app.top"), "page-editor", "plugin.name",
                         "/page-editor/index.html", "pen", AccessPolicy.ADMIN, 100));

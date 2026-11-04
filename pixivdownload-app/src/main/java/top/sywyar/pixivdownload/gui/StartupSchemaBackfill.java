@@ -99,10 +99,10 @@ final class StartupSchemaBackfill {
         if (comparison.matches()) {
             log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.passed", target.displayName()));
         } else {
-            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
+            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summaryForLog(8)));
         }
         if (!supportsStartupAutoBackfill(comparison)) {
-            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summary(8)));
+            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summaryForLog(8)));
             DesktopUiDialogs.showMessageDialog(
                     frame,
                     MessageBundles.get("gui.launcher.dialog.schema-mismatch.no-auto-backfill.message", comparison.summary(6)),

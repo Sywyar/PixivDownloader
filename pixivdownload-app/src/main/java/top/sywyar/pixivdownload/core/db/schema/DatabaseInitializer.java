@@ -27,17 +27,25 @@ public class DatabaseInitializer {
 
     public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target) throws java.sql.SQLException {
         var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
-        prepareOffline(connection, target, CoreMigrationSchema.create(registry, true));
+        prepareOffline(connection, target, CoreMigrationSchema.create(registry, true), true);
     }
 
+    /** 工具只准备并校验声明的表，其余表不参与本次检查。 */
     public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target,
             top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws java.sql.SQLException {
+        prepareOffline(connection, target, schema, false);
+    }
+
+    private static void prepareOffline(java.sql.Connection connection, DatabaseTarget target,
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema,
+            boolean completeSchema) throws java.sql.SQLException {
         var transaction = target.beginToolTransaction(connection);
         Throwable failure = null;
         try {
             target.applySchema(connection, schema, false);
             var expected = top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport.physical(schema);
-            var comparison = DatabaseSchemaInspector.compare(connection, target, expected);
+            var comparison = completeSchema ? DatabaseSchemaInspector.compare(connection, target, expected)
+                    : DatabaseSchemaInspector.compareTables(connection, target, expected, expected.tables().keySet());
             requireCompatible(comparison);
             transaction.commit();
         } catch (java.sql.SQLException | RuntimeException | Error e) {
@@ -74,7 +82,7 @@ public class DatabaseInitializer {
                             DatabaseSchemaInspector.compare(connection, target, mergedSchema));
             if (comparison == null || !comparison.requiredStructure().matches()) {
                 throw new IllegalStateException(messages.getForLog("core.db.schema-mismatch",
-                        comparison == null ? "" : comparison.requiredStructure().summary(12)));
+                        comparison == null ? "" : comparison.requiredStructure().summaryForLog(12)));
             }
             logAdditions(comparison);
         });
@@ -83,14 +91,14 @@ public class DatabaseInitializer {
 
     private static void requireCompatible(DatabaseSchemaInspector.SchemaComparison comparison) throws java.sql.SQLException {
         if (!comparison.requiredStructure().matches()) {
-            throw new java.sql.SQLException("STORAGE_SCHEMA_MISMATCH: " + comparison.requiredStructure().summary(12), "0A000");
+            throw new java.sql.SQLException("STORAGE_SCHEMA_MISMATCH: " + comparison.requiredStructure().summaryForLog(12), "0A000");
         }
         logAdditions(comparison);
     }
 
     private static void logAdditions(DatabaseSchemaInspector.SchemaComparison comparison) {
-        if (!comparison.matches()) log.warn(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
-                "core.db.log.additional-schema-preserved", comparison.summary(12)));
+        if (!comparison.matches() && log.isWarnEnabled()) log.warn(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                "core.db.log.additional-schema-preserved", comparison.summaryForLog(12)));
     }
 
     /** 不可用不等于空库，缺席时不发布就绪事件。 */
@@ -139,7 +147,7 @@ public class DatabaseInitializer {
                     DatabaseSchemaInspector.compareTables(connection, target, schema, ownerTableNames));
             if (comparison == null || !comparison.matches()) {
                 throw new IllegalStateException("runtime owner schema does not match the physical database:\n"
-                        + (comparison == null ? "schema comparison returned no result" : comparison.summary(12)));
+                        + (comparison == null ? "schema comparison returned no result" : comparison.summaryForLog(12)));
             }
         }
         log.info(messages.getForLog("core.db.log.schema-initialized", schema.tables().size(), result.createdTables(),

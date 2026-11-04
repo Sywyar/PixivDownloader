@@ -138,6 +138,7 @@ public final class PluginRuntimePackageIndex {
         private PluginDescriptor descriptor;
         private PluginInventory contributionSnapshot;
         private final PluginArtifactSnapshot productionSnapshot;
+        private String deploymentIdentity;
 
         private Entry(
                 String packageId,
@@ -206,6 +207,19 @@ public final class PluginRuntimePackageIndex {
 
         public PluginArtifactSnapshot productionSnapshot() {
             return productionSnapshot;
+        }
+
+        /** 仅由 manager 在同步临界区读取；缓存随精确物理 generation 移除。 */
+        public Optional<String> deploymentIdentity() {
+            if (deploymentIdentity == null) {
+                deploymentIdentity = "";
+                try {
+                    deploymentIdentity = productionSnapshot == null
+                            ? top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.deploymentFingerprint(pf4jLoadPath)
+                            : top.sywyar.pixivdownload.plugin.runtime.artifact.DeploymentFingerprint.of(productionSnapshot.snapshotArtifact());
+                } catch (java.io.IOException | RuntimeException unavailable) { return Optional.empty(); }
+            }
+            return deploymentIdentity.isEmpty() ? Optional.empty() : Optional.of(deploymentIdentity);
         }
     }
 }

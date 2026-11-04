@@ -94,6 +94,26 @@ class PluginRuntimeManagerTest {
 
     private static final String PROBE_ID = "bootstrap-probe";
 
+    @Test @DisplayName("通用验证导入只接受 SDK 精确键，其它接口仍要求真实契约包")
+    void acceptsExactOperationVerificationImport() throws IOException {
+        Path plugins = tempDir.resolve("operation-import/plugins");
+        Path jar = plugins.resolve(PROBE_ID + ".jar");
+        writeProbeJar(jar, false);
+        writeConfirmedLocalProvenance(plugins, jar);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            manager.loadPlugin(jar);
+            manager.requireServiceContract(PROBE_ID, top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT);
+            assertThatThrownBy(() -> manager.requireServiceContract(PROBE_ID,
+                    new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("operation-verification-other",
+                            top.sywyar.pixivdownload.plugin.api.security.OperationVerification.class)))
+                    .isInstanceOf(PluginRuntimeOperationException.class);
+            assertThatThrownBy(() -> manager.requireServiceContract(PROBE_ID,
+                    new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("operation-verification", Runnable.class)))
+                    .isInstanceOf(PluginRuntimeOperationException.class);
+        } finally { manager.shutdown(); }
+    }
+
     @ParameterizedTest
     @CsvSource({"normal,false", "normal,true", "{app},false", "{app},true",
             "中文 空格,false", "中文 空格,true", "percent%23#hash,false", "percent%23#hash,true"})
@@ -1307,6 +1327,20 @@ class PluginRuntimeManagerTest {
             assertThat(firstPf4jPath).isDirectory();
             assertThat(secondPf4jPath).isDirectory();
 
+            long generation = firstManager.generation(PROBE_ID).orElseThrow();
+            var identity = firstManager.deploymentIdentity(PROBE_ID, generation);
+            assertThat(identity).isPresent().isEqualTo(secondManager.deploymentIdentity(PROBE_ID,
+                    secondManager.generation(PROBE_ID).orElseThrow()));
+            assertThat(firstManager.deploymentIdentity(PROBE_ID, generation + 1)).isEmpty();
+            // 改动源目录不能改变已冻结代；新的物理代必须取得新的内容身份。
+            Files.writeString(moduleRoot.resolve("target/classes/deployment.txt"), "changed", StandardCharsets.UTF_8);
+            assertThat(firstManager.deploymentIdentity(PROBE_ID, generation)).isEqualTo(identity);
+            firstManager.stopPlugin(PROBE_ID); firstManager.unloadPlugin(PROBE_ID);
+            assertThat(firstManager.deploymentIdentity(PROBE_ID, generation)).isEmpty();
+            var replacement = firstManager.loadPlugin(moduleRoot.resolve("target/classes"));
+            assertThat(firstManager.deploymentIdentity(PROBE_ID, replacement.generation())).isPresent().isNotEqualTo(identity);
+            assertThat(firstManager.deploymentIdentity(PROBE_ID, generation)).isEmpty();
+
             firstManager.shutdown();
 
             assertThat(firstSessionRoot).doesNotExist();
@@ -1914,6 +1948,7 @@ class PluginRuntimeManagerTest {
         Path plugins = tempDir.resolve("plugins-frozen-direct");
         Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
         writeProbeJar(jar, true);
+        String deployment = top.sywyar.pixivdownload.plugin.runtime.artifact.DeploymentFingerprint.of(jar);
         writeLocalProvenance(plugins, jar);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         PluginArtifactVerificationService delegate = verificationService(manager);
@@ -1935,7 +1970,9 @@ class PluginRuntimeManagerTest {
         assertThat(verifiedPath.get()).isNotEqualTo(jar.toAbsolutePath().normalize());
         assertThat(verifiedPath.get().getParent()).isEqualTo(pf4jPath.getParent());
         assertThat(Files.readString(jar, StandardCharsets.UTF_8)).isEqualTo("replaced-after-verification");
+        assertThat(manager.deploymentIdentity(PROBE_ID, loaded.generation())).contains(deployment);
         manager.shutdown();
+        assertThat(manager.deploymentIdentity(PROBE_ID, loaded.generation())).isEmpty();
     }
 
     @Test

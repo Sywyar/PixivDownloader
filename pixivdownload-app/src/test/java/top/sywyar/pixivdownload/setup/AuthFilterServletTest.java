@@ -38,6 +38,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -100,7 +101,7 @@ class AuthFilterServletTest {
         when(limits.isAllowed(anyString())).thenReturn(true);
         when(limits.isAllowedForInvite(anyString())).thenReturn(true);
         var invites = mock(GuestInviteService.class);
-        when(invites.resolveByCode("invited")).thenReturn(Optional.of(new GuestInviteSession(
+        when(invites.resolveSession("invited")).thenReturn(Optional.of(new GuestInviteSession(
                 1L, "invited", true, false, false, true, Set.of(), true, Set.of(),
                 true, Set.of(), true, Set.of())));
         routes.register("core", new CorePlugin().routes());
@@ -130,6 +131,10 @@ class AuthFilterServletTest {
 
         context = new AnnotationConfigWebApplicationContext();
         context.register(WebConfig.class, StaticResourceConfig.class);
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("pagePublications",
+                mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class)));
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("pages",
+                mock(PageContributionRegistry.class)));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("staticResources",
                 new StaticResourceRegistry(new PluginRegistry(List.of()))));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("assets", controller));
@@ -226,6 +231,11 @@ class AuthFilterServletTest {
                                 .isIn("text/javascript", "application/javascript");
                         assertThat(asset.body()).isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
                     }
+                }
+                for (String path : List.of("/i18n-static/meta.json", "/i18n-static/login.zh-CN.json")) {
+                    var fallback = request("GET", path, cookie, !setupComplete);
+                    assertThat(fallback.statusCode()).as(path).isEqualTo(200);
+                    assertThat(fallback.body()).isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
                 }
             }
         } finally {

@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator
 import top.sywyar.pixivdownload.plugin.api.web.*;
 import java.util.*;
 import java.nio.charset.StandardCharsets;
+import top.sywyar.pixivdownload.plugin.security.OperationPolicies;
 
 /** 在既有准备、发布、撤回及排空事务内装配页面贡献，不另建生命周期。 */
 @Component
@@ -29,20 +30,26 @@ public final class PageContributionAdapter implements ExternalRuntimeCapabilityA
     @Override public String capabilityName() { return PageContribution.class.getName(); }
     @Override public PreparedContribution prepare(ExternalCapabilityPreparation preparation, ConfigurableApplicationContext context) {
         var providers = context.getBeansOfType(PageContribution.class).values();
-        var sources = context.getBeansOfType(PagePublicationSource.class).values();
-        if (providers.size() > 1 || sources.size() > 1) throw new IllegalArgumentException("PAGE_PROVIDER_CONFLICT");
+        if (providers.size() > 1) throw new IllegalArgumentException("PAGE_PROVIDER_CONFLICT");
         PageContribution provider = providers.stream().findFirst().orElse(null);
         List<PageComponent> components = provider == null ? List.of() : List.copyOf(invocations.captureMetadata(
                 preparation, PageContribution.class, "page components", provider::components));
         List<EditablePage> pages = provider == null ? List.of() : List.copyOf(invocations.captureMetadata(
                 preparation, PageContribution.class, "editable pages", provider::pages));
+        var categories = new ArrayList<PageComponentCategory>(provider == null ? List.of() : invocations.captureMetadata(
+                preparation, PageContribution.class, "component categories", provider::componentCategories));
         if (components.size() + pages.size() > 128) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
+        if (categories.size() > components.size()) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
         long bytes = 0;
         for (PageComponent c : components) {
             identity(c.type(), preparation.owner().pluginId()); path(c.moduleUrl());
             if (!c.propertiesModuleUrl().isEmpty()) path(c.propertiesModuleUrl());
             if (c.version() < 1 || c.labelKey().isBlank() || c.namespace().isBlank()) throw new IllegalArgumentException("PAGE_DECLARATION_INVALID");
             ports(c.inputs()); ports(c.outputs());
+            if (c.participation() != null) {
+                OperationVerificationCapabilityAdapter.key(c.participation().policy());
+                OperationPolicies.protocol(c.participation().protocol());
+            }
             bytes += c.toString().getBytes(StandardCharsets.UTF_8).length;
             if (bytes > 1024 * 1024) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
             RemoteValues.validateConfiguration(c.schema(), c.defaults());
@@ -52,6 +59,17 @@ public final class PageContributionAdapter implements ExternalRuntimeCapabilityA
             names(page.regions().stream().map(PageRegion::id).toList());
             var regions = new HashMap<String, PageRegion>();
             page.regions().forEach(region -> regions.put(region.id(), region));
+            names(page.targets().stream().map(PageInteraction.Target::id).toList());
+            for (var target : page.targets()) {
+                identity(target.operation(), preparation.owner().pluginId());
+                if (!regions.containsKey(target.region()) || !regions.get(target.region()).container()
+                        || target.labelKey().isBlank() || target.maximumParticipants() < 1
+                        || target.maximumParticipants() > 16 || target.protocols().isEmpty()
+                        || target.protocols().size() > 16 || new HashSet<>(target.protocols()).size() != target.protocols().size())
+                    throw new IllegalArgumentException("PAGE_TARGET_INVALID");
+                OperationPolicies.schema(target.contextSchema());
+                target.protocols().forEach(OperationPolicies::protocol);
+            }
             for (PageRegion region : page.regions()) {
                 if (region.labelKey().isBlank()) throw new IllegalArgumentException("PAGE_DECLARATION_INVALID");
                 var seen = new HashSet<String>();
@@ -69,10 +87,32 @@ public final class PageContributionAdapter implements ExternalRuntimeCapabilityA
             bytes += page.toString().getBytes(StandardCharsets.UTF_8).length;
             if (bytes > 1024 * 1024) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
         }
+        var ungrouped = new LinkedHashSet<String>();
+        components.forEach(component -> ungrouped.add(component.type()));
+        var categoryIds = new HashSet<String>();
+        for (var category : categories) {
+            identity(category.id(), preparation.owner().pluginId());
+            if (!categoryIds.add(category.id()) || category.labelKey().isBlank() || category.namespace().isBlank()
+                    || category.descriptionKey() == null || category.components().isEmpty()
+                    || category.components().stream().anyMatch(type -> !ungrouped.remove(type)))
+                throw new IllegalArgumentException("PAGE_CATEGORY_INVALID");
+        }
+        if (!ungrouped.isEmpty()) {
+            var owner = preparation.owner();
+            var feature = plugins.registeredPlugins().stream().filter(plugin -> plugin.id().equals(owner.pluginId())
+                    && plugin.packageId().equals(owner.packageId()) && plugin.generation() == owner.pluginGeneration())
+                    .findFirst().orElseThrow(() -> new IllegalStateException("PAGE_OWNER_UNAVAILABLE")).plugin();
+            categories.add(invocations.captureMetadata(preparation, PageContribution.class, "component category name",
+                    () -> new PageComponentCategory(owner.pluginId(), Objects.toString(feature.displayName(), ""),
+                            Objects.toString(feature.displayNamespace(), ""), "", List.copyOf(ungrouped))));
+        }
+        for (var category : categories) {
+            bytes += category.toString().getBytes(StandardCharsets.UTF_8).length;
+            if (bytes > 1024 * 1024) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
+        }
         PageContribution proxy = provider == null ? null : invocations.prepareProxy(preparation, PageContribution.class, provider);
-        PagePublicationSource source = sources.isEmpty() ? null : invocations.prepareProxy(preparation, PagePublicationSource.class, sources.iterator().next());
         return new Prepared(preparation.owner(), new PageContributionRegistry.Entry(preparation.owner(), UUID.randomUUID().toString(),
-                components, pages, proxy, source));
+                components, pages, categories, proxy));
     }
     private static void identity(String id, String owner) {
         if (id == null || id.length() > 128 || !id.startsWith(owner + ":") || !id.matches("[a-z0-9-]+:[a-zA-Z0-9._-]+"))

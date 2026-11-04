@@ -28,6 +28,19 @@ class MetricsControllerTest {
                 if (reason == ServiceAccessException.Reason.UNAVAILABLE) return Optional.empty();
                 return Optional.of(key.type().cast((TextMetrics) request -> { throw new ServiceAccessException(reason); }));
             }
+            public <T> List<top.sywyar.pixivdownload.plugin.api.service.ServiceProvider<T>> findAll(ServiceKey<T> key) {
+                throw new AssertionError("Collection lookup is not part of this request");
+            }
+            public top.sywyar.pixivdownload.plugin.api.service.ServiceBinding bind(
+                    List<ServiceKey<?>> dependencies,
+                    java.util.function.Consumer<top.sywyar.pixivdownload.plugin.api.service.ServiceBindingScope> activate) {
+                throw new AssertionError("Binding is not part of this request");
+            }
+            public top.sywyar.pixivdownload.plugin.api.service.ServiceBinding bindAll(
+                    List<ServiceKey<?>> dependencies,
+                    java.util.function.Consumer<top.sywyar.pixivdownload.plugin.api.service.ServiceBindingScope> activate) {
+                throw new AssertionError("Collection binding is not part of this request");
+            }
         };
         LocaleBundlePolicy policy = new LocaleBundlePolicy() {
             public Locale normalize(Locale requested) { return requested; }

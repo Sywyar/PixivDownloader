@@ -18,10 +18,12 @@ record CliSetupArguments(
         String proxyPort) {
 
     private static final Set<String> COMMANDS = Set.of(
+            CliWebPublications.COMMAND,
             CliSetupCommand.CMD_SETUP,
             CliSetupCommand.CMD_CHANGE_PASSWORD,
             CliSetupCommand.CMD_RESET_PASSWORD);
     private static final Set<String> KNOWN_BOOL_FLAGS = Set.of(
+            CliWebPublications.COMMAND,
             "--no-gui",
             "--intro",
             "--pixivdownload-startup",
@@ -34,6 +36,8 @@ record CliSetupArguments(
             "--debug",
             "--trace");
     private static final Set<String> KNOWN_VALUE_FLAGS = Set.of(
+            "--publication-restore",
+            "--publication-sha256",
             CliSetupCommand.FLAG_USERNAME,
             CliSetupCommand.FLAG_PASSWORD,
             CliSetupCommand.FLAG_OLD_PASSWORD,

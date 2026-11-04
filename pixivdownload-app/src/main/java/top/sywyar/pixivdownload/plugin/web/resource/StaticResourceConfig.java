@@ -7,6 +7,7 @@ import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 
 /**
  * 插件映射按请求读取当前注册快照，核心目录提供兜底；两者共用内容版本与缓存校验。
@@ -16,8 +17,9 @@ public class StaticResourceConfig implements WebMvcConfigurer {
 
     private final StaticResourceVersioning versioning;
 
-    public StaticResourceConfig(StaticResourceRegistry staticResourceRegistry) {
-        this.versioning = new StaticResourceVersioning(staticResourceRegistry);
+    public StaticResourceConfig(StaticResourceRegistry staticResourceRegistry, PageContributionRegistry pages,
+            top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications) {
+        this.versioning = new StaticResourceVersioning(staticResourceRegistry, pages, publications);
     }
 
     @Bean

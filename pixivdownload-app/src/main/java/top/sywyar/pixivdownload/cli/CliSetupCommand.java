@@ -138,6 +138,7 @@ public final class CliSetupCommand {
         printOption(out, CMD_SETUP, "cli.help.opt.setup");
         printOption(out, CMD_CHANGE_PASSWORD, "cli.help.opt.change-password");
         printOption(out, CMD_RESET_PASSWORD, "cli.help.opt.reset-password");
+        printOption(out, CliWebPublications.COMMAND, "cli.publications.help");
         out.println();
 
         out.println(message("cli.help.section.cli-flags"));
@@ -149,6 +150,8 @@ public final class CliSetupCommand {
         printOption(out, FLAG_PROXY_ENABLED + "=true|false", "cli.help.opt.proxy-enabled");
         printOption(out, FLAG_PROXY_HOST + "=HOST", "cli.help.opt.proxy-host");
         printOption(out, FLAG_PROXY_PORT + "=PORT", "cli.help.opt.proxy-port");
+        printOption(out, "--publication-restore=FILE", "cli.publications.restore-help");
+        printOption(out, "--publication-sha256=HASH", "cli.publications.digest-help");
         out.println();
 
         out.println(message("cli.help.section.spring-override"));

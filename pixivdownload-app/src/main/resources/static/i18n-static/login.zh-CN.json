@@ -27,6 +27,7 @@
     "page.title": "Pixiv 批量下载器 — 登录",
     "remember": "保持登录状态（30 天）",
     "validation.credentials-required": "请输入用户名和密码",
-    "validation.invite-required": "请输入邀请码"
+    "validation.invite-required": "请输入邀请码",
+    "validation.verification-required": "请先完成验证码验证"
   }
 }

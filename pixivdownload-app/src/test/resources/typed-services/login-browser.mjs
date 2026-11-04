@@ -22,7 +22,7 @@ try {
     await page.locator('#neutral-proof').waitFor({state: 'visible'});
     assert.equal((await page.request.get(origin + '/api/auth/check')).status(), 200);
     assert.equal((await (await page.request.get(origin + '/api/auth/check')).json()).valid, false);
-    assert.deepEqual(Object.keys(await page.evaluate(() => window.neutralProofProperties)).sort(), ['challenges', 'verificationToken']);
+    assert.deepEqual(Object.keys(await page.evaluate(() => window.neutralProofState)).sort(), ['id', 'revision', 'value']);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     if (process.env.PAGE_SCREENSHOT) await page.screenshot({path: process.env.PAGE_SCREENSHOT, fullPage: true});
     await page.locator('#neutral-proof').focus(); await page.locator('#neutral-proof').press('Enter');
@@ -35,6 +35,6 @@ try {
 } catch (error) {
     console.error('LOGIN_BROWSER_FAILURE', {errors, violations, requests, consoleErrors,
         page: await page.evaluate(() => ({url: location.href, error: document.getElementById('error-msg')?.textContent,
-            properties: window.neutralProofProperties, buttons: document.querySelectorAll('#neutral-proof').length}))});
+            properties: window.neutralProofState, buttons: document.querySelectorAll('#neutral-proof').length}))});
     throw error;
 } finally { await browser.close(); }
