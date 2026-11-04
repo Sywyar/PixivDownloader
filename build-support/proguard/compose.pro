@@ -9,9 +9,15 @@
 -keep class com.sun.jna.* { *; }
 -keep class * extends com.sun.jna.* { *; }
 
--keep,allowoptimization class top.sywyar.pixivdownload.guicompose.** { *; }
--keepclasseswithmembernames,includedescriptorclasses class * {
-    native <methods>;
+# PF4J 反射构造入口；其余桌面实现由稳定 provider 契约的调用图保留。
+-keep,includedescriptorclasses,allowoptimization class * extends org.pf4j.Plugin {
+    public <init>(...);
+}
+-keepclassmembers,includedescriptorclasses class * {
+    @com.fasterxml.jackson.annotation.JsonCreator <init>(...);
+    @com.fasterxml.jackson.annotation.JsonCreator <methods>;
+    @com.fasterxml.jackson.annotation.JsonProperty <fields>;
+    @com.fasterxml.jackson.annotation.JsonProperty <methods>;
 }
 -keepclassmembers class kotlinx.coroutines.DefaultExecutor {
     void shutdownForTests(long);

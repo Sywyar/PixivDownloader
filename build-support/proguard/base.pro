@@ -6,7 +6,8 @@
 -dontnote jdk.internal.jimage.**
 -dontnote jdk.internal.jrtfs.**
 
--keep,allowoptimization public class * {
+# 只把实际声明 main 的类作为入口，不能保留所有 public 类。
+-keepclasseswithmembers,allowoptimization public class * {
     public static void main(java.lang.String[]);
 }
 
