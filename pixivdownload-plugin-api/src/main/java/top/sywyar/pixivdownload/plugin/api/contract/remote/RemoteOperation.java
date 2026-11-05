@@ -8,10 +8,10 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.SOURCE)
 public @interface RemoteOperation {
-    /** @return 不含通配符或变量的绝对 API 路径 */
+    /** {@return 不含通配符或变量的绝对 API 路径} */
     String path();
-    /** @return 当前支持 POST，读取操作也使用 JSON 请求体 */
+    /** {@return 当前支持 POST，读取操作也使用 JSON 请求体} */
     HttpMethod method();
-    /** @return 当前支持 ADMIN；鉴权由宿主在执行前完成 */
+    /** {@return 当前支持 ADMIN；鉴权由宿主在执行前完成} */
     AccessPolicy access();
 }

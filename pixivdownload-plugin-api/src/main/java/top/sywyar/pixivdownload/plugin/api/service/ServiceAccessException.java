@@ -36,7 +36,7 @@ public final class ServiceAccessException extends RuntimeException {
         this.reason = reason;
     }
 
-    /** @return 可据以选择降级或错误显示的稳定原因 */
+    /** {@return 可据以选择降级或错误显示的稳定原因} */
     public Reason reason() {
         return reason;
     }

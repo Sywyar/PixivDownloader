@@ -4,6 +4,7 @@ package top.sywyar.pixivdownload.plugin.api.database.migration;
 @FunctionalInterface
 public interface MigrationControl {
     /**
+     * 检查取消并记录当前迁移进度。
      * @param table 当前表，准备与关闭阶段为空字符串
      * @param rows 当前表已处理行数
      * @throws Exception 取消或持久进度写入失败；provider 必须停止并释放资源

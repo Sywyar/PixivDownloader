@@ -20,12 +20,14 @@ public final class PluginCredentialException extends RuntimeException {
     /** 稳定错误分类，不保留原异常。 */
     private final Reason reason;
 
-    /** @param reason 失败分类 */
+    /** 创建仅包含稳定分类的凭据错误。
+     * @param reason 失败分类
+     */
     public PluginCredentialException(Reason reason) {
         super("PLUGIN_CREDENTIAL_" + reason.name());
         this.reason = reason;
     }
 
-    /** @return 稳定失败分类 */
+    /** {@return 稳定失败分类} */
     public Reason reason() { return reason; }
 }

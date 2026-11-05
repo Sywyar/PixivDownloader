@@ -4,7 +4,13 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Set;
 
-/** 备份路径必须全新；主库与私库使用相同合同，owner 由调用方绑定的连接目标决定。 */
+/**
+ * 备份路径必须全新；主库与私库使用相同合同，owner 由调用方绑定的连接目标决定。
+ * @param schema 完整的中性结构
+ * @param backup 全新的备份路径
+ * @param rebuildObjects 显式可再生对象名
+ * @param storageMigrations 源结构事务需应用或核验的业务转换
+ */
 public record MigrationRequest(MigrationSchema schema, Path backup, Set<String> rebuildObjects,
         java.util.List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration> storageMigrations) {
     /**

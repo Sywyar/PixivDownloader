@@ -18,6 +18,7 @@ public interface ServiceBindingScope {
     <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key);
 
     /**
+     * 取得本轮固定的必需服务，失效后拒绝调用。
      * @param key 此轮声明的服务依赖
      * @param <T> 服务类型
      * @return 绑定本轮精确 publication 的受控代理

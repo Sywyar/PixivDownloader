@@ -50,7 +50,13 @@ public interface DatabaseConnectionTarget {
     java.util.Map<String, top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.TableSpec>
             readSchema(Connection connection) throws SQLException;
 
-    /** 幂等结构应用的实际变化；跳过的列使用 table.column 标识。 */
+    /**
+     * 幂等结构应用的实际变化；跳过的列使用 table.column 标识。
+     * @param createdTables 实际新建的表数
+     * @param addedColumns 实际补齐的列数
+     * @param createdIndexes 实际新建的索引数
+     * @param skippedColumns 非严格模式下无法安全补齐的 table.column 清单
+     */
     record SchemaApplyResult(int createdTables, int addedColumns, int createdIndexes, java.util.List<String> skippedColumns) {
         /**
          * 固定未能安全补齐的列清单。

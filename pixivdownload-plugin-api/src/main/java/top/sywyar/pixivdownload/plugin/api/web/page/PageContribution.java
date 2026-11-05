@@ -7,14 +7,14 @@ import java.util.List;
  * 配置校验和迁移归贡献者，不执行真实业务写操作；异常表示拒绝，不能解释为成功或改投替代者。
  */
 public interface PageContribution {
-    /** @return 此 owner 的全部组件 */
+    /** {@return 此 owner 的全部组件} */
     default List<PageComponent> components() { return List.of(); }
     /**
      * 每个组件至多属于一个分类；未列出的组件使用插件显示名称分类。
      * @return 有序分类及其组件成员；默认不声明分类
      */
     default List<PageComponentCategory> componentCategories() { return List.of(); }
-    /** @return 此 owner 的可编辑页面 */
+    /** {@return 此 owner 的可编辑页面} */
     default List<EditablePage> pages() { return List.of(); }
     /**
      * 在生成 Schema 校验之后执行额外业务校验，无额外约束时实现可直接返回。

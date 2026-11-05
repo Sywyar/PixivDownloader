@@ -6,7 +6,11 @@ import java.util.Objects;
 
 /** 有类型的操作词汇；标识符和值均不能包含可执行 SQL。 */
 public sealed interface Expression {
-    /** 声明列；table 对应查询中的表名或显式别名。 */
+    /**
+     * 声明列；table 对应查询中的表名或显式别名。
+     * @param table 当前作用域中已声明的表或引用别名
+     * @param name 符合标识符规则的逻辑名称
+     */
     record Column(String table, String name) implements Expression {
         /**
          * 校验表引用与列名。
@@ -15,7 +19,10 @@ public sealed interface Expression {
          */
         public Column { MigrationSchema.identifier(table); MigrationSchema.identifier(name); }
     }
-    /** 冲突更新中的传入值，与既有行区分。 */
+    /**
+     * 冲突更新中的传入值，与既有行区分。
+     * @param name 符合标识符规则的逻辑名称
+     */
     record Incoming(String name) implements Expression {
         /**
          * 校验传入列名。
@@ -23,7 +30,10 @@ public sealed interface Expression {
          */
         public Incoming { MigrationSchema.identifier(name); }
     }
-    /** 支持 NULL、文本、二进制、64 位整数和有限双精度数；小整数无损提升。 */
+    /**
+     * 支持 NULL、文本、二进制、64 位整数和有限双精度数；小整数无损提升。
+     * @param value 待固定的值
+     */
     record Value(Object value) implements Expression {
         /**
          * 固定受支持的值，复制二进制并无损提升小整数。
@@ -41,7 +51,11 @@ public sealed interface Expression {
          */
         @Override public Object value() { return value instanceof byte[] bytes ? bytes.clone() : value; }
     }
-    /** 操作语义跨提供者一致；不支持的操作在写入前拒绝。 */
+    /**
+     * 操作语义跨提供者一致；不支持的操作在写入前拒绝。
+     * @param operator 具有固定语义的操作
+     * @param arguments 按操作约定排序的参数
+     */
     record Call(Operator operator, List<Expression> arguments) implements Expression {
         /**
          * 固定参数并校验操作数数量。
@@ -63,7 +77,10 @@ public sealed interface Expression {
             if (!valid) throw new IllegalArgumentException("STORAGE_EXPRESSION_INVALID");
         }
     }
-    /** 关联存在性检查仍限制在当前受管存储声明中。 */
+    /**
+     * 关联存在性检查仍限制在当前受管存储声明中。
+     * @param query 受当前声明范围限制的查询
+     */
     record Exists(Query query) implements Expression {
         /**
          * 固定存在性子查询。
@@ -71,7 +88,10 @@ public sealed interface Expression {
          */
         public Exists { Objects.requireNonNull(query); }
     }
-    /** 标量子查询仅取一行一列；无行时为 NULL，调用方负责声明稳定排序。 */
+    /**
+     * 标量子查询仅取一行一列；无行时为 NULL，调用方负责声明稳定排序。
+     * @param query 受当前声明范围限制的查询
+     */
     record Scalar(Query query) implements Expression {
         /**
          * 校验子查询只投影一列且最多取一行。
@@ -82,7 +102,12 @@ public sealed interface Expression {
             if (query.select().size() != 1 || query.limit() != 1) throw new IllegalArgumentException("STORAGE_SCALAR_INVALID");
         }
     }
-    /** 按条件选择两个同类型表达式之一。 */
+    /**
+     * 按条件选择两个同类型表达式之一。
+     * @param condition 布尔条件表达式
+     * @param whenTrue 条件成立时的值
+     * @param whenFalse 条件不成立时的值
+     */
     record Conditional(Expression condition, Expression whenTrue, Expression whenFalse) implements Expression {
         /**
          * 拒绝缺失的条件或分支表达式。

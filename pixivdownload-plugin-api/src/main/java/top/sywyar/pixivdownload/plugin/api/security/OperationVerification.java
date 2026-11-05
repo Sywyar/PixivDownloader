@@ -43,13 +43,19 @@ public interface OperationVerification extends top.sywyar.pixivdownload.plugin.a
     /** {@return 稳定策略键，至多 96 字符的小写短横线标识；不是插件 id} */
     String policyId();
 
-    /** @return 无副作用的当前策略计划；规则或资源变化必须改变 revision 并重新发布 */
+    /** {@return 无副作用的当前策略计划；规则或资源变化必须改变 revision 并重新发布} */
     Policy policy();
 
-    /** @return 凭据的验证代际；轮换只使旧挑战失效，不能改变已批准规则或权限 */
+    /** {@return 凭据的验证代际；轮换只使旧挑战失效，不能改变已批准规则或权限} */
     String generation();
 
-    /** contextSchema 为空表示不读取业务上下文，provider 此时只收到空 JSON 对象。 */
+    /**
+     * contextSchema 为空表示不读取业务上下文，provider 此时只收到空 JSON 对象。
+     * @param revision 策略修订；变化后须重新发布
+     * @param contextSchema 上下文合同；空值表示不读取业务上下文
+     * @param protocol 挑战交互协议
+     * @param resources 策略需要的资源声明
+     */
     record Policy(String revision, String contextSchema, PageInteraction protocol, List<PageResourceProfile> resources) { }
 
     /**

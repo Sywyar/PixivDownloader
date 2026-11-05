@@ -143,7 +143,7 @@ public interface DesktopUiToolHost {
         throw new UnsupportedOperationException("Background backfill is not supported by this host");
     }
 
-    /** @return 最近一次回填的不可变快照；读取不启动任务、不访问网络 */
+    /** {@return 最近一次回填的不可变快照；读取不启动任务、不访问网络} */
     default Optional<BackfillTask> backfillTask() {
         return Optional.empty();
     }
@@ -215,7 +215,7 @@ public interface DesktopUiToolHost {
                         boolean automatic, boolean dryRun, long startedAtEpochMs, long finishedAtEpochMs,
                         int processed, Integer total, int changed, int remaining, int unavailable,
                         String workType, Long workId, BackfillSummary summary, String logFileName) {
-        /** @return 是否仍在执行或停止清理中 */
+        /** {@return 是否仍在执行或停止清理中} */
         public boolean active() { return state == BackfillState.RUNNING || state == BackfillState.STOPPING; }
     }
 

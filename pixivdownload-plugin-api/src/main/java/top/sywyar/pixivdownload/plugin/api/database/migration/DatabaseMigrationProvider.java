@@ -61,6 +61,7 @@ public interface DatabaseMigrationProvider {
     void verifyImported(DatabaseConnectionTarget target, MigrationSnapshot snapshot, MigrationControl control) throws Exception;
 
     /**
+     * 迁移端点的业务对象与可重建对象检查结果。
      * @param empty 端点没有业务对象
      * @param rebuildObjects 源端需明确确认重建的辅助对象名
      */

@@ -13,6 +13,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
 public @interface OperationEndpoint {
-    /** @return owner 命名空间中的 operation 身份；多个 endpoint 可以共享 */
+    /** {@return owner 命名空间中的 operation 身份；多个 endpoint 可以共享} */
     String operation();
 }

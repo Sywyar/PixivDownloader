@@ -12,13 +12,21 @@ public final class ScheduleManagementException extends RuntimeException {
         CONFLICT
     }
 
-    /** @serial 与界面语言无关的失败分类。 */
+    /** 与界面语言无关的失败分类。
+     * @serial 稳定拒绝类别。
+     */
     private final Code code;
-    /** @serial 由宿主消息 owner 解析的本地化键。 */
+    /** 由宿主消息 owner 解析的本地化键。
+     * @serial 消息资源键。
+     */
     private final String messageCode;
-    /** @serial 缺失翻译时使用的安全说明。 */
+    /** 缺失翻译时使用的安全说明。
+     * @serial 不含敏感信息的回退文案。
+     */
     private final String defaultMessage;
-    /** @serial 不含凭据的本地化参数。 */
+    /** 不含凭据的本地化参数。
+     * @serial 本地化文案的参数数组。
+     */
     private final Object[] messageArgs;
 
     /**
@@ -47,12 +55,12 @@ public final class ScheduleManagementException extends RuntimeException {
         return new ScheduleManagementException(Code.INVALID, messageCode, defaultMessage, args);
     }
 
-    /** @return 稳定的拒绝类别 */
+    /** {@return 稳定的拒绝类别} */
     public Code code() { return code; }
-    /** @return 本地化消息键 */
+    /** {@return 本地化消息键} */
     public String messageCode() { return messageCode; }
-    /** @return 缺少翻译时的安全文案，可为空 */
+    /** {@return 缺少翻译时的安全文案，可为空} */
     public String defaultMessage() { return defaultMessage; }
-    /** @return 非敏感文案参数的数组副本 */
+    /** {@return 非敏感文案参数的数组副本} */
     public Object[] messageArgs() { return messageArgs.clone(); }
 }

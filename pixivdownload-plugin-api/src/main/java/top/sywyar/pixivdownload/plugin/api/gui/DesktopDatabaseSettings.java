@@ -100,6 +100,7 @@ public interface DesktopDatabaseSettings {
     CheckResult check(Map<String, String> updates) throws IOException;
 
     /**
+     * 读取当前连接状态与已保存配置的启动目标。
      * @return 运行目标与按真实启动优先级解析的下次启动目标；无后端时 activeTarget 为空
      * @throws IOException 无法读取配置
      */
@@ -207,6 +208,7 @@ public interface DesktopDatabaseSettings {
     }
 
     /**
+     * 连接检查的安全结果与可展示诊断。
      * @param outcome 检查结果
      * @param target 不含用户名、密码和 URL 参数的目标说明
      * @param sqlState 受控 SQLSTATE 或诊断码，使用 failureMessageKey 转换为用户文案
@@ -214,6 +216,7 @@ public interface DesktopDatabaseSettings {
     record CheckResult(Outcome outcome, String target, String sqlState) {}
 
     /**
+     * 当前运行连接与下次启动配置的状态快照。
      * @param activeTarget 当前运行连接池的目标说明，后端停止时为空
      * @param nextTarget 已保存配置按启动优先级解析的目标说明，非法时为空
      * @param overriddenKeys 被更高优先级配置覆盖的键名，不含值

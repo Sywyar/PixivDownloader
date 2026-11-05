@@ -14,13 +14,15 @@ public final class PluginResourceException extends IllegalStateException {
     /** 稳定原因码，不保留插件异常引用。 */
     private final Reason reason;
 
-    /** @param reason 失败原因 */
+    /** 创建仅包含稳定分类的资源错误。
+     * @param reason 失败原因
+     */
     public PluginResourceException(Reason reason) {
         super("PLUGIN_RESOURCE_" + java.util.Objects.requireNonNull(reason, "reason").name());
         this.reason = reason;
     }
 
-    /** @return 稳定失败原因 */
+    /** {@return 稳定失败原因} */
     public Reason reason() {
         return reason;
     }

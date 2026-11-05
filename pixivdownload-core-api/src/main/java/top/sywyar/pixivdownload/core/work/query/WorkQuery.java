@@ -424,7 +424,7 @@ public record WorkQuery(
             return this;
         }
 
-        /** @return 构建的查询 */
+        /** {@return 构建的查询} */
         public WorkQuery build() {
             return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai,
                     formats, collectionIds, tagIds, excludedTagIds, optionalTagIds,

@@ -9,17 +9,28 @@ import java.util.Map;
  * 此入口不重试命令，也不代替 owner 的身份、权限、CSRF 与限流检查。
  */
 public interface OperationGuard extends top.sywyar.pixivdownload.plugin.api.operation.OperationTargets {
-    /** 仅在调用方本地执行的同步动作，不是跨插件服务参数。 */
+    /** 仅在调用方本地执行的同步动作，不是跨插件服务参数。
+     * @param <T> 本地业务返回类型
+     */
     @FunctionalInterface
     interface Action<T> {
         /**
+         * 同步执行业务动作一次。
          * @return 业务结果；IO 失败不触发自动重试
          * @throws IOException 业务动作失败
          */
         T run() throws IOException;
     }
 
-    /** 一次操作的结果；业务值只在 APPROVED 时存在，不跨 provider 传递。 */
+    /**
+     * 一次操作的结果；业务值只在 APPROVED 时存在，不跨 provider 传递。
+     * @param status 操作结论
+     * @param value 本地业务结果，仅通过时存在
+     * @param token 一次挑战身份，未产生挑战时为空
+     * @param revision 正式发布身份
+     * @param challenges 按策略键索引的公开挑战
+     * @param <T> 本地业务返回类型
+     */
     record Result<T>(Status status, T value, String token, String revision, Map<String, String> challenges) {
         /**
          * 复制公开挑战快照，调用方不能改变已有结果。

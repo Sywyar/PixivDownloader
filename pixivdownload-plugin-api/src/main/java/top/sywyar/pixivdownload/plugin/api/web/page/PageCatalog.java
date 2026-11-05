@@ -7,11 +7,11 @@ import java.util.List;
  * 缺席组件不出现在快照中；校验固定 publication，撤回或换代明确失败。不得把 publication 持久化为业务配置。
  */
 public interface PageCatalog {
-    /** @return 所有活动组件的纯值快照 */
+    /** {@return 所有活动组件的纯值快照} */
     List<AvailableComponent> components();
-    /** @return 活动贡献的组件分类，包含宿主按插件名称补齐的默认分类；撤回后自然缺席 */
+    /** {@return 活动贡献的组件分类，包含宿主按插件名称补齐的默认分类；撤回后自然缺席} */
     default List<PageComponentCategory> componentCategories() { return List.of(); }
-    /** @return 所有活动页面 */
+    /** {@return 所有活动页面} */
     List<AvailablePage> pages();
     /**
      * 校验指定 publication 的当前版本配置。

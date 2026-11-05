@@ -127,7 +127,12 @@ public interface DatabaseSession extends AutoCloseable {
      */
     int delete(String table, Expression where) throws SQLException;
 
-    /** IGNORE 的空键表示任意唯一键；UPDATE 必须指定已声明的唯一键。 */
+    /**
+     * IGNORE 的空键表示任意唯一键；UPDATE 必须指定已声明的唯一键。
+     * @param mode 冲突处理方式
+     * @param keys 冲突目标唯一键；忽略模式下可为空
+     * @param changes 按列名组织的更新表达式
+     */
     record Conflict(Mode mode, List<String> keys, Map<String, Expression> changes) {
         /**
          * 固定冲突规则；更新必须指定唯一键和非空变更。
@@ -163,7 +168,9 @@ public interface DatabaseSession extends AutoCloseable {
         /** 对指定唯一键命中的既有行应用更新表达式。 */
         UPDATE
     }
-    /** 回调在同一连接上执行，抛出异常时回滚全部写入。 */
+    /** 回调在同一连接上执行，抛出异常时回滚全部写入。
+     * @param <T> 同步回调的结果类型
+     */
     @FunctionalInterface interface Work<T> {
         /**
          * 在受管会话内同步执行操作。

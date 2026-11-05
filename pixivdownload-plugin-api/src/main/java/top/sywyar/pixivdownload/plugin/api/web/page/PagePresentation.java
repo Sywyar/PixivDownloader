@@ -11,7 +11,7 @@ public final class PagePresentation {
             "width", "max-width", "min-width", "min-height", "font-size", "font-weight", "line-height", "text-align", "color",
             "background-color", "border", "border-color", "border-width", "border-style", "border-radius", "box-shadow", "grid-template-columns", "flex", "order");
 
-    /** @return 允许编辑的 CSS 属性，按名称排序 */
+    /** {@return 允许编辑的 CSS 属性，按名称排序} */
     public static java.util.List<String> properties() { return PROPERTIES.stream().sorted().toList(); }
 
     /**

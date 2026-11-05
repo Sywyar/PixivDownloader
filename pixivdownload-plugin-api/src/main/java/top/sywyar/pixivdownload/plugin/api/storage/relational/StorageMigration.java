@@ -11,6 +11,9 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
  * 有序且不可变的业务转换，在结构事务内仅执行一次。
  * 回调只能使用传入会话，不访问文件、网络、child Bean 或产生外部副作用。
  * 已发布 ID 与其含义保持稳定，缺失或重排历史均拒绝。
+ *
+ * @param id 发布后不可更改含义的转换身份
+ * @param conversion 无外部副作用的同步业务转换
  */
 public record StorageMigration(String id, DatabaseSession.Work<Void> conversion) {
     /**

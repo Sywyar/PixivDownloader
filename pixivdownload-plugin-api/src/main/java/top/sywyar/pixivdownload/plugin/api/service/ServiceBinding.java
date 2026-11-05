@@ -25,7 +25,7 @@ public interface ServiceBinding extends AutoCloseable {
         CLOSED
     }
 
-    /** @return 当前状态；ACTIVE 也不免除每次调用的 publication 检查 */
+    /** {@return 当前状态；ACTIVE 也不免除每次调用的 publication 检查} */
     State state();
 
     /**

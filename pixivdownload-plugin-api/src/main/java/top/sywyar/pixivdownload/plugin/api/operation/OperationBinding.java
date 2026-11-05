@@ -4,6 +4,16 @@ package top.sywyar.pixivdownload.plugin.api.operation;
  * 待批准的 Hook 绑定；页面或插件不能自报 provider owner。
  * operation 与 endpoint 二选一，前置一律为必要 gate，后置一律为辅助观察。
  * order 只在同一阶段排序，同序按稳定绑定身份排序。
+ *
+ * @param id 绑定身份
+ * @param hook 注册回调身份
+ * @param operation 接口组身份，与 endpoint 二选一
+ * @param endpoint 单接口身份
+ * @param phase 回调时机
+ * @param order 同阶段内顺序
+ * @param completion HTTP 完成结果筛选
+ * @param configuration 由定义 schema 校验的纯值 JSON
+ * @param fields 独立批准的有界字段白名单
  */
 public record OperationBinding(String id, String hook, String operation, String endpoint,
         OperationHook.Phase phase, int order, OperationHook.Completion completion, String configuration,
@@ -36,7 +46,12 @@ public record OperationBinding(String id, String hook, String operation, String 
             OperationHook.Phase phase, int order, OperationHook.Completion completion, String configuration) {
         this(id, hook, operation, endpoint, phase, order, completion, configuration, java.util.List.of());
     }
-    /** 单独批准的字段白名单；JSON 路径为 JSON Pointer，查询路径为参数名。只传纯量或纯量数组。 */
+    /**
+     * 单独批准的字段白名单；JSON 路径为 JSON Pointer，查询路径为参数名。只传纯量或纯量数组。
+     * @param source 字段来源
+     * @param path JSON Pointer 或查询参数名
+     * @param name 回调接收的字段名
+     */
     public record Field(Source source, String path, String name) { }
     /** 正文访问须单独批准；不提供 Cookie、凭据或任意对象来源。 */
     public enum Source {
