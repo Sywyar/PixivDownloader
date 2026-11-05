@@ -224,7 +224,7 @@
     const historyText = {
     "zh": [
         "读取浏览器下载历史",
-        "直接读取此浏览器中的 PixivBatchDownloader 下载历史，无需导出文件。先在本机插件设置中保存原文件目录；读取期间请暂停下载并保留此页。使用当前 Pixiv 登录状态，Cookie 不发送到本机。",
+        "读取此浏览器中的 PixivBatchDownloader 下载历史，检查后导入本地画廊，无需导出文件。",
         "读取并检查",
         "开始导入",
         "取消导入",
@@ -251,11 +251,33 @@
         "已登记",
         "原文件不可用或页记录不完整",
         "路径或记录冲突",
-        "检查明细（显示 {shown} / {total} 部作品）"
+        "作品明细（显示 {shown} / {total} 部）",
+        "作品处理进度",
+        "数据与隐私",
+        "已导入",
+        "已跳过",
+        "失败",
+        "等待导入",
+        "未处理",
+        "结果待确认",
+        "已处理 {done} / {total} 部作品",
+        "历史记录",
+        "作品",
+        "缺失或冲突",
+        "导入完成",
+        "其他问题",
+        "部分作品未完成导入或需要处理，请展开明细查看原因。",
+        "作品",
+        "小说",
+        "读取期间请暂停下载，并保持此页打开。",
+        "请保持此页打开，勿移动原文件或更改下载根目录。",
+        "导入期间请保持此页打开，勿移动原文件。",
+        "仅使用当前浏览器的 Pixiv 登录状态，Cookie 不会发送到本机软件。原文件保持不变。",
+        "正在结束当前操作，请保持此页打开。"
     ],
     "zh-Hant": [
         "讀取瀏覽器下載歷史",
-        "直接讀取此瀏覽器中的 PixivBatchDownloader 下載歷史，無需匯出檔案。先在本機外掛設定中儲存原始檔案目錄；讀取期間請暫停下載並保留此頁。使用目前 Pixiv 登入狀態，Cookie 不會傳送到本機。",
+        "讀取此瀏覽器中的 PixivBatchDownloader 下載歷史，檢查後匯入本機圖庫，無需匯出檔案。",
         "讀取並檢查",
         "開始匯入",
         "取消匯入",
@@ -282,11 +304,33 @@
         "已登記",
         "原始檔案無法使用或頁面記錄不完整",
         "路徑或記錄衝突",
-        "檢查明細（顯示 {shown} / {total} 部作品）"
+        "作品明細（顯示 {shown} / {total} 部）",
+        "作品處理進度",
+        "資料與隱私",
+        "已匯入",
+        "已略過",
+        "失敗",
+        "等待匯入",
+        "未處理",
+        "結果待確認",
+        "已處理 {done} / {total} 部作品",
+        "歷史記錄",
+        "作品",
+        "缺失或衝突",
+        "匯入完成",
+        "其他問題",
+        "部分作品未完成匯入或需要處理，請展開明細查看原因。",
+        "作品",
+        "小說",
+        "讀取期間請暫停下載，並保持此頁開啟。",
+        "請保持此頁開啟，勿移動原始檔案或變更下載根目錄。",
+        "匯入期間請保持此頁開啟，勿移動原始檔案。",
+        "僅使用目前瀏覽器的 Pixiv 登入狀態，Cookie 不會傳送到本機軟體。原始檔案保持不變。",
+        "正在結束目前的操作，請保持此頁開啟。"
     ],
     "en": [
         "Read browser download history",
-        "Read PixivBatchDownloader history from this browser without exporting a file. First save the original files folder in the local plugin settings. Pause downloads and keep this page open while reading. Your Pixiv sign-in stays in this browser; cookies are not sent to the local server.",
+        "Read PixivBatchDownloader history from this browser, check it and import works into the local gallery. No file export is needed.",
         "Read and check",
         "Start import",
         "Cancel import",
@@ -313,11 +357,33 @@
         "Already registered",
         "Original files unavailable or pages incomplete",
         "Path or record conflict",
-        "Check details (showing {shown} / {total} works)"
+        "Work details (showing {shown} / {total})",
+        "Work processing progress",
+        "Data and privacy",
+        "Imported",
+        "Skipped",
+        "Failed",
+        "Waiting to import",
+        "Not processed",
+        "Result unconfirmed",
+        "Processed {done} / {total} works",
+        "History records",
+        "Works",
+        "Missing or conflicting",
+        "Import complete",
+        "Other issues",
+        "Some works could not be imported or need attention. Expand the details to see why.",
+        "Artwork",
+        "Novel",
+        "Pause downloads and keep this page open while reading.",
+        "Keep this page open. Do not move the original files or change the download root folder.",
+        "Keep this page open during import. Do not move the original files.",
+        "Your current Pixiv sign-in is used only in this browser. Cookies are not sent to the local app. Original files remain unchanged.",
+        "Finishing the current operation. Keep this page open."
     ],
     "ja": [
         "ブラウザーのダウンロード履歴を読み込む",
-        "このブラウザーの PixivBatchDownloader 履歴を直接読み込みます。ファイルの出力は不要です。先にローカルプラグインの設定で元ファイルのフォルダーを保存してください。読み込み中はダウンロードを一時停止し、このページを開いたままにしてください。Pixiv のログイン状態はブラウザー内で使用し、Cookie はローカルサーバーに送りません。",
+        "このブラウザーの PixivBatchDownloader の履歴を読み込み、確認後にローカルギャラリーへインポートします。ファイルの書き出しは不要です。",
         "読み込んで確認",
         "インポート開始",
         "インポートをキャンセル",
@@ -344,11 +410,33 @@
         "登録済み",
         "元ファイルを利用できないか、ページ記録が不完全",
         "パスまたは記録の競合",
-        "確認の詳細（{total} 作品中 {shown} 作品を表示）"
+        "作品の詳細（{total} 作品中 {shown} 作品を表示）",
+        "作品の処理状況",
+        "データとプライバシー",
+        "インポート済み",
+        "スキップ済み",
+        "失敗",
+        "インポート待ち",
+        "未処理",
+        "結果未確認",
+        "{total} 作品中 {done} 作品を処理済み",
+        "履歴の記録",
+        "作品",
+        "不足または競合",
+        "インポート完了",
+        "その他の問題",
+        "インポートできなかった作品や確認が必要な作品があります。詳細を開いて原因を確認してください。",
+        "作品",
+        "小説",
+        "読み込み中はダウンロードを一時停止し、このページを開いたままにしてください。",
+        "このページを開いたまま、元ファイルの移動やダウンロードのルートフォルダーの変更はしないでください。",
+        "インポート中はこのページを開いたままにし、元ファイルを移動しないでください。",
+        "現在の Pixiv ログイン状態はブラウザー内でのみ使用します。Cookie はローカルアプリに送信しません。元ファイルは変更されません。",
+        "現在の操作を終了しています。このページを開いたままお待ちください。"
     ],
     "ko": [
         "브라우저 다운로드 기록 읽기",
-        "파일을 내보내지 않고 이 브라우저의 PixivBatchDownloader 기록을 직접 읽습니다. 먼저 로컬 플러그인 설정에 원본 파일 폴더를 저장하세요. 읽는 동안 다운로드를 일시 중지하고 이 페이지를 열어 두세요. Pixiv 로그인 상태는 브라우저 안에서 사용하며 쿠키는 로컬 서버로 보내지 않습니다.",
+        "이 브라우저의 PixivBatchDownloader 기록을 읽고 확인한 뒤 로컬 갤러리로 가져옵니다. 파일을 내보낼 필요가 없습니다.",
         "읽고 확인",
         "가져오기 시작",
         "가져오기 취소",
@@ -375,7 +463,29 @@
         "이미 등록됨",
         "원본 파일을 사용할 수 없거나 페이지 기록이 불완전함",
         "경로 또는 기록 충돌",
-        "확인 세부 내용 (작품 {total}개 중 {shown}개 표시)"
+        "작품 세부 내용 (작품 {total}개 중 {shown}개 표시)",
+        "작품 처리 진행률",
+        "데이터 및 개인정보",
+        "가져옴",
+        "건너뜀",
+        "실패",
+        "가져오기 대기",
+        "미처리",
+        "결과 미확인",
+        "작품 {total}개 중 {done}개 처리",
+        "기록",
+        "작품",
+        "누락 또는 충돌",
+        "가져오기 완료",
+        "기타 문제",
+        "일부 작품을 가져오지 못했거나 확인이 필요합니다. 세부 내용을 펼쳐 원인을 확인하세요.",
+        "작품",
+        "소설",
+        "기록을 읽는 동안 다운로드를 일시 중지하고 이 페이지를 열어 두세요.",
+        "이 페이지를 열어 두세요. 원본 파일을 이동하거나 다운로드 루트 폴더를 변경하지 마세요.",
+        "가져오는 동안 이 페이지를 열어 두고 원본 파일을 이동하지 마세요.",
+        "현재 Pixiv 로그인 상태는 브라우저 안에서만 사용합니다. 쿠키는 로컬 앱으로 보내지 않으며 원본 파일도 변경하지 않습니다.",
+        "현재 작업을 마무리하고 있습니다. 이 페이지를 열어 두세요."
     ]
 }[language];
     let historyWindow = null;
@@ -539,10 +649,12 @@
         operation.request?.cancel(); operation.fetch?.abort(); operation.wake?.(); operation.abortRead?.();
         current.start.disabled = true; current.cancel.disabled = true;
         current.progress.textContent = historyText[13];
+        current.guidance('CANCELLING');
         try {
             if (!operation.session) {
                 if (operation.creating) throw new Error(historyText[17]);
                 current.progress.textContent = historyText[15];
+                current.guidance('CANCELLED');
                 return true;
             }
             const cancellation = {base: operation.base, session: operation.session};
@@ -554,7 +666,7 @@
             if (historyWindow === current) current.render(view);
             return historyTerminal(view.phase);
         } catch (_) {
-            if (historyWindow === current) current.progress.textContent = historyText[17];
+            if (historyWindow === current) { current.progress.textContent = historyText[17]; current.guidance('FAILED'); }
             return false;
         }
         finally {
@@ -566,29 +678,134 @@
         if (historyWindow) { historyWindow.dialog.focus(); return; }
         const host = document.createElement('div'), shadow = host.attachShadow({mode: 'closed'});
         const style = document.createElement('style');
-        style.textContent = 'dialog{font:16px/1.6 system-ui,sans-serif;color:CanvasText;background:Canvas;border:1px solid GrayText;border-radius:12px;padding:24px;width:600px;max-width:calc(100vw - 48px);max-height:85vh;box-sizing:border-box}dialog[open]{display:flex;flex-direction:column}h2,footer{flex-shrink:0}dialog::backdrop{background:#0007}h2{font-size:1.3em;margin:0 0 12px}.body{min-height:0;max-height:55vh;overflow:auto}p,pre{white-space:pre-wrap;overflow-wrap:anywhere}pre{font:inherit}input{max-width:100%}footer{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}button{font:inherit;padding:6px 14px;cursor:pointer}button:disabled{cursor:default}';
+        style.textContent = `
+            dialog{--line:color-mix(in srgb,CanvasText 18%,Canvas);--muted:color-mix(in srgb,CanvasText 72%,Canvas);
+                --success:light-dark(#216e39,#85dd9f);--warning:light-dark(#9c4321,#ffbd95);--caution:light-dark(#755800,#ffdf80);
+                font:1rem/1.5 system-ui,sans-serif;color:CanvasText;background:Canvas;border:1px solid var(--line);
+                border-radius:1rem;padding:1.5rem;width:40rem;max-width:calc(100vw - 2rem);max-height:calc(100dvh - 2rem);box-sizing:border-box}
+            dialog[open]{display:flex;flex-direction:column;gap:1rem}dialog::backdrop{background:#0007}
+            [hidden]{display:none!important}h2,footer,.status{flex-shrink:0}
+            h2{font-size:1.25rem;line-height:1.3;letter-spacing:-.02em;margin:0}
+            p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+            .status{display:flex;align-items:center;gap:1rem}.status p{min-width:0;font-weight:600}
+            .ring,.badge{flex:0 0 4rem;width:4rem;height:4rem;display:grid;place-items:center;border-radius:50%}
+            .ring span{width:3.4rem;height:3.4rem;display:grid;place-items:center;border-radius:50%;background:Canvas;font-weight:600;font-variant-numeric:tabular-nums}
+            .badge{font-size:2rem;border:2px solid currentColor;box-sizing:border-box}
+            .success{color:var(--success)}.warning{color:var(--warning)}
+            .body{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+            .metrics{display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;margin:0 0 1rem}
+            .metrics div{min-width:5rem}.metrics dt{color:var(--muted);font-size:.85rem}.metrics dd{margin:0;font-size:1.25rem;font-weight:600;font-variant-numeric:tabular-nums}
+            details{border-top:1px solid var(--line)}summary{cursor:pointer;padding:.75rem .2rem;font-weight:600;overflow-wrap:anywhere}
+            details p{color:var(--muted);padding:0 .2rem 1rem}.notice,.intro,.caution{margin-bottom:1rem}
+            .notice strong{display:block;color:var(--caution);margin-bottom:.5rem}
+            .intro{color:var(--muted)}.caution{color:var(--caution);border-left:3px solid currentColor;padding-left:.75rem;font-weight:600}
+            ul{list-style:none;padding:0;margin:0}li{display:flex;justify-content:space-between;align-items:baseline;gap:.4rem 1rem;flex-wrap:wrap;padding:.65rem .2rem;border-top:1px solid var(--line);font-size:.9rem}
+            .work{font-variant-numeric:tabular-nums}.result{color:var(--muted)}.result[data-state="IMPORTED"]{color:var(--success)}
+            .result[data-state="FAILED"]{color:var(--warning)}.reason{flex-basis:100%;color:var(--warning)}
+            footer{display:flex;justify-content:flex-end;gap:.65rem;flex-wrap:wrap}
+            button{font:inherit;font-weight:600;min-height:max(44px,2.75rem);padding:.5rem 1rem;border:1px solid var(--line);border-radius:.6rem;background:Canvas;color:CanvasText;cursor:pointer}
+            button.primary{background:Highlight;color:HighlightText;border-color:Highlight}
+            button:disabled{opacity:.5;cursor:default}button:not(:disabled):hover{filter:brightness(.95)}
+            button:not(:disabled):active{opacity:.75}button:focus-visible,summary:focus-visible{outline:2px solid Highlight;outline-offset:-2px}
+            @media(max-height:32rem){dialog{padding:1rem;gap:.65rem}.ring,.badge{flex-basis:3rem;width:3rem;height:3rem}.ring span{width:2.5rem;height:2.5rem;font-size:.8rem}}
+            @media(max-width:30rem){dialog{padding:1rem}footer button{flex:1;padding-inline:.6rem}}
+            @media(forced-colors:active){.ring,.badge{outline:2px solid CanvasText}.success,.warning,.reason,.result,.caution,.notice strong{color:CanvasText}}
+        `;
         shadow.append(style);
         const dialog = document.createElement('dialog'); shadow.append(dialog); document.body.append(host);
         const add = (parent, tag, text) => { const node = document.createElement(tag); if (text) node.textContent = text; parent.append(node); return node; };
         const heading = add(dialog, 'h2', historyText[0]); heading.id = 'history-title'; dialog.setAttribute('aria-labelledby', heading.id);
-        const body = add(dialog, 'div'); body.className = 'body'; add(body, 'p', historyText[1]);
-        const progress = add(body, 'p'); progress.setAttribute('role', 'status'); progress.setAttribute('aria-live', 'polite');
-        const details = add(body, 'pre');
+        const status = add(dialog, 'div'); status.className = 'status';
+        const ring = add(status, 'div'); ring.className = 'ring'; ring.hidden = true;
+        ring.setAttribute('role', 'progressbar'); ring.setAttribute('aria-label', historyText[29]);
+        ring.setAttribute('aria-valuemin', '0'); ring.setAttribute('aria-valuemax', '100');
+        const percentage = add(ring, 'span'); percentage.setAttribute('aria-hidden', 'true');
+        const badge = add(status, 'div'); badge.className = 'badge'; badge.hidden = true; badge.setAttribute('aria-hidden', 'true');
+        const progress = add(status, 'p', historyText[11]); progress.setAttribute('role', 'status'); progress.setAttribute('aria-live', 'polite');
+        const body = add(dialog, 'div'); body.className = 'body';
+        const metrics = add(body, 'dl'); metrics.className = 'metrics'; metrics.hidden = true;
+        const counts = Array.from({length: 5}, () => { const group = add(metrics, 'div'); return {group, label: add(group, 'dt'), value: add(group, 'dd')}; });
+        const notice = add(body, 'div'); notice.className = 'notice'; notice.hidden = true; notice.setAttribute('aria-live', 'polite');
+        const noticeReason = add(notice, 'strong'), noticeAction = add(notice, 'p');
+        const showNotice = message => {
+            const [reason, ...actions] = (message || '').split('\n');
+            noticeReason.textContent = reason; noticeAction.textContent = actions.join('\n');
+            noticeAction.hidden = !noticeAction.textContent; notice.hidden = !message;
+        };
+        const intro = add(body, 'p', historyText[1]); intro.className = 'intro';
+        const caution = add(body, 'p'); caution.className = 'caution'; caution.setAttribute('aria-live', 'polite');
+        const help = add(body, 'details'); add(help, 'summary', historyText[30]); add(help, 'p', historyText[49]);
+        const guidance = phase => {
+            intro.hidden = help.hidden = phase !== 'IDLE';
+            const key = {IDLE: 46, UPLOADING: 46, INSPECTING: 47, READY: 47, RUNNING: 48, CANCELLING: 50}[phase];
+            caution.hidden = key === undefined; caution.textContent = key === undefined ? '' : historyText[key];
+        };
+        guidance('IDLE');
+        const details = add(body, 'details'); details.hidden = true;
+        const summary = add(details, 'summary');
+        const list = add(details, 'ul'), rows = new Map();
+        const problems = add(body, 'details'); problems.hidden = true; add(problems, 'summary', historyText[42]);
+        const problemText = add(problems, 'p');
         const footer = add(dialog, 'footer');
         const check = add(footer, 'button', historyText[2]), start = add(footer, 'button', historyText[3]), cancel = add(footer, 'button', historyText[5]);
         start.disabled = true;
-        const current = {dialog, start, cancel, progress, operation: null, render(view) {
+        check.className = 'primary';
+        const current = {dialog, start, cancel, progress, guidance, operation: null, render(view) {
             const phases = {UPLOADING: 7, INSPECTING: 8, READY: 11, RUNNING: 12, CANCELLING: 13, COMPLETED: 14, CANCELLED: 15, FAILED: 16};
             const p = view.preview;
             const empty = view.phase === 'READY' && p?.candidates === 0;
-            progress.textContent = empty ? historyText[22] + (p.unavailable ? `\n${historyText[23]}` : '')
-                : `${historyText[phases[view.phase] ?? 16]}\n${historyText[10]}: ${view.processed} / ${view.total} / ${view.imported} / ${view.skipped} / ${view.failed}`;
+            guidance(empty ? 'DONE' : view.phase);
+            const terminal = historyTerminal(view.phase), executing = view.phase !== 'READY' && (view.total > 0 && view.phase !== 'INSPECTING');
+            ring.hidden = !['RUNNING', 'CANCELLING'].includes(view.phase)
+                || !Number.isFinite(view.total) || view.total <= 0 || !Number.isFinite(view.processed);
+            if (!ring.hidden) {
+                const percent = Math.floor(100 * Math.min(Math.max(view.processed, 0), view.total) / view.total);
+                percentage.textContent = `${percent}%`;
+                ring.style.background = `conic-gradient(Highlight ${percent}%, GrayText 0)`;
+                ring.setAttribute('aria-valuenow', String(percent));
+                ring.setAttribute('aria-valuetext', `${view.processed} / ${view.total}`);
+            }
+            const successful = view.phase === 'COMPLETED' && !view.failed && !view.error && !view.problems?.length;
+            badge.hidden = !terminal;
+            badge.className = 'badge ' + (successful ? 'success' : 'warning');
+            badge.textContent = successful ? '✓' : view.phase === 'CANCELLED' ? '−' : '!';
+            progress.textContent = empty ? historyText[22]
+                : successful ? historyText[41] : historyText[phases[view.phase] ?? 16];
+            if (executing) progress.textContent += '\n' + historyText[37].replace('{done}', view.processed).replace('{total}', view.total);
+            const metricLabels = executing ? [31, 32, 33] : [38, 39, 24, 25, 40];
+            const values = executing ? [view.imported, view.skipped, view.failed] : p ? [p.records, p.works, p.candidates, p.skipped, p.unavailable] : [];
+            metrics.hidden = !values.length;
+            counts.forEach((count, index) => {
+                count.group.hidden = index >= values.length;
+                if (!count.group.hidden) { count.label.textContent = historyText[metricLabels[index]]; count.value.textContent = String(values[index]); }
+            });
+            showNotice(view.error || (empty && p.unavailable ? historyText[23] : view.failed || view.problems?.length ? historyText[43] : ''));
             const dispositions = {CANDIDATE: 24, ALREADY_PRESENT: 25, MISSING_FILES: 26, CONFLICT: 27};
-            details.textContent = (p ? `${historyText[9]}: ${p.records} / ${p.works} / ${p.candidates} / ${p.skipped} / ${p.unavailable}\n` : '')
-                + (p?.samples?.length ? '\n' + historyText[28].replace('{shown}', p.samples.length).replace('{total}', p.works)
-                    + p.samples.map(item => `\n${item.workKey}: ${historyText[dispositions[item.disposition]] ?? item.disposition}`).join('') + '\n' : '')
-                + (view.error || '') + (view.problems || []).map(item => `\n${item.work}: ${item.error}`).join('');
+            const states = {WAITING: terminal ? 35 : 34, RUNNING: 12, IMPORTED: 31, SKIPPED: 32, FAILED: 33};
+            const results = new Map((view.results || []).map(item => [item.workKey, item]));
+            details.hidden = !p?.samples?.length;
+            summary.textContent = historyText[28].replace('{shown}', p?.samples?.length || 0).replace('{total}', p?.works || 0);
+            for (const item of p?.samples || []) {
+                let row = rows.get(item.workKey);
+                if (!row) {
+                    const node = add(list, 'li'); node.setAttribute('data-work', item.workKey);
+                    const name = add(node, 'span', historyText[item.workKey.startsWith('novel:') ? 45 : 44] + ' ' + item.workKey.split(':')[1]); name.className = 'work';
+                    const result = add(node, 'span'); result.className = 'result';
+                    const reason = add(node, 'p'); reason.className = 'reason';
+                    row = {node, result, reason}; rows.set(item.workKey, row);
+                }
+                const result = results.get(item.workKey);
+                row.result.textContent = result ? historyText[states[result.state] ?? 36]
+                    : historyText[executing && item.disposition === 'CANDIDATE' ? 36 : dispositions[item.disposition] ?? 36];
+                row.result.setAttribute('data-state', result?.state || item.disposition);
+                row.reason.textContent = result?.error || ''; row.reason.hidden = !row.reason.textContent;
+            }
+            const otherProblems = (view.problems || []).filter(item => !results.get(item.work)?.error);
+            problems.hidden = !otherProblems.length;
+            problemText.textContent = otherProblems.map(item => [item.work, item.error].filter(Boolean).join(': ')).join('\n');
             start.disabled = view.phase !== 'READY' || !p?.candidates || current.operation.startRequested;
+            check.hidden = executing; start.hidden = executing; cancel.className = terminal ? 'primary' : '';
+            start.className = !start.disabled ? 'primary' : ''; check.className = !check.disabled ? 'primary' : '';
         }};
         historyWindow = current;
         const close = () => {
@@ -603,6 +820,9 @@
         check.addEventListener('click', async () => {
             const operation = {base: '', session: '', request: null, done: false, cancelled: false, startRequested: false};
             current.operation = operation;
+            ring.hidden = true; badge.hidden = true; metrics.hidden = true; details.hidden = true; problems.hidden = true; notice.hidden = true;
+            list.replaceChildren(); rows.clear();
+            details.open = false; body.scrollTop = 0; guidance('UPLOADING');
             check.disabled = true; cancel.textContent = historyText[4];
             try {
                 operation.base = server();
@@ -629,10 +849,20 @@
                 if (!operation.cancelled) {
                     if (operation.session || !error.rejected && operation.base) await cancelHistory();
                     else operation.done = true;
-                    if (historyWindow === current) progress.textContent = `${historyText[error.rejected || !operation.base ? 16 : 17]}\n${error.message}`;
+                    if (historyWindow === current) {
+                        progress.textContent = historyText[16];
+                        guidance('FAILED');
+                        showNotice((error.rejected || !operation.base ? '' : historyText[17] + '\n') + error.message);
+                        ring.hidden = true;
+                        badge.hidden = false; badge.className = 'badge warning'; badge.textContent = '!';
+                    }
                 }
             } finally {
-                if (operation.done && historyWindow === current) { start.disabled = true; cancel.textContent = historyText[5]; }
+                if (operation.done && historyWindow === current) {
+                    start.disabled = true; start.hidden = true; check.hidden = check.disabled;
+                    check.className = check.disabled ? '' : 'primary';
+                    cancel.textContent = historyText[5]; cancel.className = check.disabled ? 'primary' : '';
+                }
             }
         });
         dialog.showModal();

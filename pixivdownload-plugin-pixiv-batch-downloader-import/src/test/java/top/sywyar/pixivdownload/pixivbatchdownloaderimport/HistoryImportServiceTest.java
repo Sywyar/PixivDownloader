@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("历史导入执行与取消")
 class HistoryImportServiceTest {
+    private final ImportLogCapture logs = new ImportLogCapture();
+    @AfterEach void closeLogs() { logs.close(); }
     @TempDir(factory = HistoryTestDirectory.class) Path temporary;
     private final Set<String> present = ConcurrentHashMap.newKeySet();
     private final List<WorkFileImportRequest> imported = new CopyOnWriteArrayList<>();
@@ -49,7 +51,7 @@ class HistoryImportServiceTest {
         return new HistoryImportService(request -> {
             imported.add(request);
             return present.add(request.workType() + ":" + request.workId());
-        }, queries, client, tasks, statistics, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")));
+        }, queries, client, tasks, statistics, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")), logs.diagnostics);
     }
     private Request request(String records) throws Exception {
         Path root = Files.createDirectories(temporary.resolve("作品"));
@@ -63,6 +65,41 @@ class HistoryImportServiceTest {
             while (service.status().active()) Thread.sleep(10);
         });
     }
+
+    @Test @DisplayName("预览缺失明细有界，汇总保留完整数量且不输出原路径")
+    void boundsMissingFileLogs() throws Exception {
+        var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));
+        String records = java.util.stream.IntStream.rangeClosed(1, 120)
+                .mapToObj(id -> "{\"id\":\"" + id + "_p0\",\"n\":\"private-name.png\"}")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        try (var service = service((uri, cookie) -> { throw new AssertionError("unexpected network"); }, statistics)) {
+            var preview = service.inspect(request(records)).valueOrThrow();
+            assertEquals(120, preview.unavailable());
+            assertEquals(0, preview.candidates());
+            assertEquals(100, logs.messages().stream().filter(line -> line.contains("MISSING_FILES")).count());
+            assertTrue(logs.messages().stream().anyMatch(line -> line.contains("unavailable=120")));
+            assertTrue(logs.messages().stream().noneMatch(line -> line.contains("private-name") || line.contains(preview.token())));
+        }
+    }
+
+    @Test @DisplayName("元数据异常记录错误位置和作品，异常消息与凭据不进入日志")
+    void recordsSanitizedUnexpectedFailure() throws Exception {
+        var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));
+        try (var service = service((uri, cookie) -> {
+            throw new IllegalStateException("secret-cookie\nforged-log", new RuntimeException("secret-response"));
+        }, statistics)) {
+            var preview = service.inspect(request("[{\"id\":\"42_p0\",\"n\":\"a.png\"}]")).valueOrThrow();
+            service.start(preview.token(), "secret-cookie").valueOrThrow();
+            await(service);
+            assertEquals(1, service.status().failed());
+            assertTrue(logs.events.stream().anyMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR
+                    && event.getFormattedMessage().contains("stage=metadata")
+                    && event.getFormattedMessage().contains("artwork:42")
+                    && event.getFormattedMessage().contains("IllegalStateException")));
+            assertTrue(logs.messages().stream().noneMatch(line -> line.contains("secret-") || line.contains("forged-log")));
+            assertTrue(logs.events.stream().allMatch(event -> event.getThrowableProxy() == null));
+        }
+    }
     @Test @DisplayName("预览不联网或入库；开始获取元数据并登记，重复导入跳过")
     void inspectStartAndRepeat() throws Exception {
         var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));
@@ -73,16 +110,26 @@ class HistoryImportServiceTest {
         }, statistics)) {
             var preview = service.inspect(request).valueOrThrow();
             assertEquals(1, preview.candidates()); assertEquals(0, network.get()); assertTrue(imported.isEmpty());
+            assertEquals("WAITING", service.progress().results().get(0).state());
             assertNotNull(service.start("wrong", "").error());
             service.start(preview.token(), "temporary-cookie").valueOrThrow();
             await(service);
             assertEquals(Phase.COMPLETED, service.status().phase());
             assertEquals(1, service.status().imported());
+            assertEquals("IMPORTED", service.progress().results().get(0).state());
+            assertEquals("artwork:42", service.progress().results().get(0).workKey());
+            assertTrue(logs.messages().stream().anyMatch(line -> line.contains("phase=COMPLETED")
+                    && line.contains("imported=1") && line.contains("failed=0")));
+            assertTrue(logs.messages().stream().noneMatch(line -> line.contains("temporary-cookie") || line.contains(preview.token())));
+            int entries = logs.events.size();
+            for (int i = 0; i < 20; i++) service.status();
+            assertEquals(entries, logs.events.size());
             assertEquals("作品", imported.get(0).title());
             assertEquals(List.of(Path.of(request.sourceRoot()).resolve("a.png")), imported.get(0).pageFiles());
             assertEquals("source", Files.readString(imported.get(0).pageFiles().get(0)));
             assertNotNull(service.start(preview.token(), "").error());
             assertEquals(1, service.inspect(request).valueOrThrow().skipped());
+            assertTrue(service.progress().results().isEmpty());
             assertEquals(1, network.get());
             assertEquals("1", statistics.snapshot().cards().get(0).primaryValue().fallback());
         }
@@ -99,6 +146,11 @@ class HistoryImportServiceTest {
             assertEquals(1, service.status().imported());
             assertEquals("正文", imported.get(0).novelContent());
             assertEquals("NOVEL", imported.get(0).workType().name());
+            var outcomes = service.progress().results().stream().collect(java.util.stream.Collectors.toMap(
+                    HistoryImportService.WorkResult::workKey, value -> value));
+            assertEquals("IMPORTED", outcomes.get("novel:42").state());
+            assertEquals("FAILED", outcomes.get("artwork:42").state());
+            assertEquals("history.error.incomplete", outcomes.get("artwork:42").error().key());
         }
     }
     @Test @DisplayName("取消等待中的元数据请求，实际退出前保持活动且禁止下一任务")
@@ -118,12 +170,15 @@ class HistoryImportServiceTest {
         }, statistics)) {
             service.start(service.inspect(request).valueOrThrow().token(), "").valueOrThrow();
             assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertEquals("RUNNING", service.progress().results().get(0).state());
             service.cancel();
             assertEquals(Phase.CANCELLING, service.status().phase());
             assertNotNull(service.inspect(request).error());
             release.countDown();
             await(service);
             assertEquals(Phase.CANCELLED, service.status().phase());
+            assertEquals("WAITING", service.progress().results().get(0).state());
+            assertTrue(logs.messages().stream().anyMatch(line -> line.contains("phase=CANCELLED")));
             assertTrue(imported.isEmpty());
         } finally { release.countDown(); }
     }
@@ -156,6 +211,8 @@ class HistoryImportServiceTest {
             assertEquals(1, service.status().failed());
             assertEquals(1, network.get());
             assertTrue(imported.isEmpty());
+            assertTrue(logs.messages().stream().anyMatch(line -> line.contains("http=429") && line.contains("stage=metadata")));
+            assertTrue(logs.messages().stream().anyMatch(line -> line.contains("phase=FAILED") && line.contains("failed=1")));
         }
     }
     @Test @DisplayName("候选暂存被截断时明确失败，不把未处理记录报为完成")
@@ -193,9 +250,33 @@ class HistoryImportServiceTest {
             assertEquals(1, service.status().processed());
             assertEquals(1, imported.size());
             assertEquals("history.error.statistics", service.status().problems().get(0).reason().key());
+            assertEquals("IMPORTED", service.progress().results().get(0).state());
+            assertEquals("history.error.statistics", service.progress().results().get(0).error().key());
             statisticsFailure.set(null);
             statistics.flushPending();
             assertEquals("1", statistics.snapshot().cards().get(0).primaryValue().fallback());
+        }
+    }
+
+    @Test @DisplayName("逐项结果只保留预览样本，执行时已登记的作品准确显示跳过")
+    void boundsResultsAndReportsConcurrentRegistration() throws Exception {
+        var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));
+        String records = java.util.stream.IntStream.rangeClosed(1, 120)
+                .mapToObj(id -> "{\"id\":\"" + id + "_p0\",\"n\":\"a.png\"}")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        try (var service = service((uri, cookie) -> { throw new AssertionError("unexpected network"); }, statistics)) {
+            var preview = service.inspect(request(records)).valueOrThrow();
+            assertEquals(120, preview.candidates());
+            assertEquals(preview.samples().size(), service.progress().results().size());
+            java.util.stream.IntStream.rangeClosed(1, 120).forEach(id -> present.add("ARTWORK:" + id));
+            service.start(preview.token(), "").valueOrThrow();
+            await(service);
+            var progress = service.progress();
+            assertEquals(120, progress.status().skipped());
+            assertEquals(100, progress.results().size());
+            assertTrue(progress.results().stream().allMatch(item -> item.state().equals("SKIPPED")));
+            assertEquals(preview.samples().stream().map(Item::workKey).toList(),
+                    progress.results().stream().map(HistoryImportService.WorkResult::workKey).toList());
         }
     }
 

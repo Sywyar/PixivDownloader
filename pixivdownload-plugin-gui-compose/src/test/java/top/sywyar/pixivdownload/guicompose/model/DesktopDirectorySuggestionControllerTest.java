@@ -17,6 +17,7 @@ class DesktopDirectorySuggestionControllerTest {
         return DesktopUiHost.GuiValue.of(Map.of("directories", List.of(Map.of(
                 "owner", Map.of("pluginId", "sample", "packageId", "sample", "generation", 2L, "publication", 3L),
                 "suggestion", Map.of("suggestionId", "first", "configurationKey", "sample.source-root", "directory", "C:/downloads"),
+                "help", Map.of("namespace", "fixture", "key", "root.help", "fallback", "Choose the download root.", "arguments", List.of()),
                 "displayName", Map.of("namespace", "", "key", "", "fallback", "Sample", "arguments", List.of())))));
     }
 
@@ -30,6 +31,11 @@ class DesktopDirectorySuggestionControllerTest {
         }))) {
             model.directorySuggestions.refresh(snapshot());
             assertTrue(model.isDialogOpen("directory-suggestion"));
+            var guidance = descendants(model.snapshot().document().dialogs().get(0).content())
+                    .filter(node -> node instanceof DesktopUiNode.Text text && text.id().endsWith(".guidance"))
+                    .map(DesktopUiNode.Text.class::cast).findFirst().orElseThrow();
+            assertEquals(DesktopUiNode.TextStyle.BODY, guidance.style());
+            assertEquals("root.help", guidance.text().key());
             assertTrue(requests.isEmpty());
             synchronized (model) {
                 model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
@@ -69,5 +75,10 @@ class DesktopDirectorySuggestionControllerTest {
             model.directorySuggestions.refresh(DesktopUiHost.GuiValue.of(Map.of("directories", List.of())));
             assertFalse(model.isDialogOpen("directory-suggestion"));
         }
+    }
+
+    private static java.util.stream.Stream<DesktopUiNode> descendants(DesktopUiNode node) {
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of(node),
+                node.childNodes().stream().flatMap(DesktopDirectorySuggestionControllerTest::descendants));
     }
 }

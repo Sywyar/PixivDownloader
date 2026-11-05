@@ -22,11 +22,22 @@ class PluginDirectorySuggestionTest {
     private static final String KEY = "sample.source-root";
 
     private PluginDirectorySuggestion source(DesktopDirectorySuggestionSource provider) {
-        return new PluginDirectorySuggestion("sample", provider, temporary.resolve("config.properties"),
+        return new PluginDirectorySuggestion("sample", "sample", provider, temporary.resolve("config.properties"),
                 List.of(new GuiConfigFieldContribution(KEY, "sample", "label", "", GuiConfigFieldType.PATH_DIR,
                         "", 0, false, GuiConfigEffect.HOT_RELOAD)));
     }
     private DesktopDirectorySuggestion value(String path) { return new DesktopDirectorySuggestion("candidate", KEY, path); }
+
+    @Test @DisplayName("候选目录复用字段帮助文案及其命名空间，无帮助时不生成提示")
+    void helpUsesConfigurationFieldMetadata() {
+        var source = new PluginDirectorySuggestion("sample", "sample-text", () -> Optional.of(value(temporary.toString())),
+                temporary.resolve("config.properties"), List.of(
+                new GuiConfigFieldContribution(KEY, "sample", "label", "root.help", GuiConfigFieldType.PATH_DIR,
+                        "", 0, false, GuiConfigEffect.HOT_RELOAD)));
+        assertEquals(DesktopUiText.plugin("sample-text", "root.help", ""), source.help(KEY));
+        assertNull(source.help("other.source-root"));
+        assertNull(source(() -> Optional.empty()).help(KEY));
+    }
 
     @Test @DisplayName("展示和取消不写配置，允许改选且不覆盖已有目录")
     void explicitConfirmationIsTheOnlyWrite() throws Exception {

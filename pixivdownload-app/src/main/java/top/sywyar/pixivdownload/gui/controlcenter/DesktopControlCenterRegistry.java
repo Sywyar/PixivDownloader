@@ -194,9 +194,9 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             }
             Owner owner = Owner.from(entry.owner);
             Materialized materialized = entry.materialized;
-            DesktopDirectorySuggestion directory = entry.directory;
+            OwnedDirectorySuggestion directory = entry.directory;
             if (directory != null && !entry.directoryObservedAt.isBefore(clock.instant().minus(STALE_AFTER))) {
-                directories.add(new OwnedDirectorySuggestion(owner, directory, entry.displayName));
+                directories.add(directory);
             }
             materialized.cards.forEach(card -> cards.add(new OwnedDashboardCard(owner, card)));
             materialized.runningTasks.forEach(task -> tasks.add(new OwnedRunningTask(owner, task)));
@@ -232,10 +232,14 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             List<DesktopDashboardCardContribution> cards = current.cards;
             List<DesktopRunningTaskContribution> runningTasks = current.runningTasks;
             DesktopAutomationSnapshot automation = current.automation;
-            DesktopDirectorySuggestion directory = null;
+            OwnedDirectorySuggestion directory = null;
             if (entry.directories != null) {
                 try {
-                    directory = entry.directories.suggestion().orElse(null);
+                    var suggestion = entry.directories.suggestion().orElse(null);
+                    if (suggestion != null) {
+                        directory = new OwnedDirectorySuggestion(Owner.from(entry.owner), suggestion, entry.displayName,
+                                entry.directories.help(suggestion.configurationKey()));
+                    }
                     entry.directoryFailureReported.set(false);
                 } catch (Throwable failure) {
                     rethrowFatal(failure);
@@ -526,7 +530,8 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         }
     }
 
-    public record OwnedDirectorySuggestion(Owner owner, DesktopDirectorySuggestion suggestion, DesktopUiText displayName) {}
+    public record OwnedDirectorySuggestion(Owner owner, DesktopDirectorySuggestion suggestion,
+                                           DesktopUiText displayName, DesktopUiText help) {}
 
     private static final class OwnerEntry {
         private final ExternalCapabilityOwner owner;
@@ -535,7 +540,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         private final DirectorySuggestionCapability directories;
         private final DesktopUiText displayName;
         private final AtomicBoolean directoryFailureReported = new AtomicBoolean();
-        private volatile DesktopDirectorySuggestion directory;
+        private volatile OwnedDirectorySuggestion directory;
         private volatile Instant directoryObservedAt = Instant.EPOCH;
         private final AtomicBoolean inFlight = new AtomicBoolean();
         private final AtomicBoolean dashboardFailureReported = new AtomicBoolean();

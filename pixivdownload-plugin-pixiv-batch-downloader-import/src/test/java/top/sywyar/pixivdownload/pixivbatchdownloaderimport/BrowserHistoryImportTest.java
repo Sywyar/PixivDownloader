@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("浏览器历史文件导入")
 class BrowserHistoryImportTest {
+    private final ImportLogCapture logs = new ImportLogCapture();
     @TempDir(factory = HistoryTestDirectory.class) Path temporary;
     private final List<WorkFileImportRequest> imported = new CopyOnWriteArrayList<>();
     private final Set<String> present = ConcurrentHashMap.newKeySet();
@@ -53,14 +54,17 @@ class BrowserHistoryImportTest {
         };
         history = new BrowserHistoryImport(value -> {
             imported.add(value); return present.add(value.workType() + ":" + value.workId());
-        }, queries, statistics, tasks, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")));
+        }, queries, statistics, tasks, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")), logs.diagnostics);
         directory = new PixivBatchDownloaderImportDirectory(temporary.resolve("settings.properties"));
         Files.writeString(temporary.resolve("settings.properties"), PixivBatchDownloaderImportDirectory.KEY + "=" + root.toString().replace("\\", "/"));
         controller = new PixivBatchDownloaderImportController(value -> { throw new AssertionError("not a live observation"); },
-                (namespace, locale, key) -> Optional.of("localized " + key), directory, () -> "solo", statistics, history);
+                (namespace, locale, key) -> Optional.of("localized " + key), directory, () -> "solo", statistics, history, logs.diagnostics);
     }
 
-    @AfterEach void close() { history.close(); registered.forEach(PluginRuntimeTask::cancel); }
+    @AfterEach void close() {
+        try { history.close(); registered.forEach(PluginRuntimeTask::cancel); }
+        finally { logs.close(); }
+    }
 
     @Test @DisplayName("多分片预览无副作用，浏览器元数据匹配后登记原文件，重复检查跳过")
     void importsShards() throws Exception {
@@ -78,6 +82,22 @@ class BrowserHistoryImportTest {
         assertThrows(OperationException.class, () -> history.reply(id, pending.id(), 200, metadata("42", 2)));
         var done = await(id, view -> view.phase().equals("COMPLETED"));
         assertEquals(1, done.status().imported());
+        assertEquals("artwork:42", done.results().get(0).workKey());
+        assertEquals("IMPORTED", done.results().get(0).state());
+        var headers = new HashMap<>(Map.of("Host", "localhost:6999", "X-Pixiv-Collector", "1",
+                "Origin", "https://www.pixiv.net", "X-History-Session", id));
+        headers.put("X-Import-Token", token(headers));
+        var response = controller.history(http("{}", headers, Map.of("action", "status"), "127.0.0.1"));
+        assertEquals(200, response.getStatusCode().value());
+        var result = ((PixivBatchDownloaderImportController.HistoryResponse) response.getBody()).results().get(0);
+        assertEquals("artwork:42", result.workKey());
+        assertEquals("IMPORTED", result.state());
+        assertNull(result.error());
+        assertTrue(logs.messages().stream().noneMatch(line -> line.contains(id) || line.contains(pending.id())));
+        assertTrue(logs.messages().stream().anyMatch(line -> line.contains("phase=COMPLETED") && line.contains("imported=1")));
+        int count = logs.events.size();
+        for (int i = 0; i < 20; i++) history.status(id);
+        assertEquals(count, logs.events.size());
         assertEquals(List.of(root.resolve("0.png"), root.resolve("1.png")), imported.get(0).pageFiles());
         assertEquals("original zero", Files.readString(root.resolve("0.png")));
         assertEquals("original one", Files.readString(root.resolve("1.png")));
@@ -122,7 +142,7 @@ class BrowserHistoryImportTest {
 
     @Test @DisplayName("文件预算、精确偏移、会话身份和配置根约束上传与启动")
     void boundsAndRoot() throws Exception {
-        assertThrows(OperationException.class, () -> history.create(""));
+        assertEquals("history.error.root", assertThrows(OperationException.class, () -> history.create("")).text().key());
         String id = history.create(root.toString()).session();
         assertThrows(OperationException.class, () -> history.create(root.toString()));
         assertThrows(OperationException.class, () -> history.inspect(id));
@@ -134,7 +154,9 @@ class BrowserHistoryImportTest {
         assertThrows(OperationException.class, () -> history.upload(id, 0, 0, new byte[]{'['}));
         history.upload(id, 0, 1, new byte[]{']'});
         history.inspect(id); await(id, view -> view.phase().equals("READY"));
-        assertThrows(OperationException.class, () -> history.start(id, temporary.toString()));
+        assertEquals("history.error.root", assertThrows(OperationException.class, () -> history.start(id, "")).text().key());
+        assertEquals("history.error.root-changed",
+                assertThrows(OperationException.class, () -> history.start(id, temporary.toString())).text().key());
         assertTrue(imported.isEmpty());
     }
 

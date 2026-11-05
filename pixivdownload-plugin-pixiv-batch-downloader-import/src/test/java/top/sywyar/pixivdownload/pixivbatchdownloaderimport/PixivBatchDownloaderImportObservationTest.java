@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("自动采集接收、配置与本机认证")
 class PixivBatchDownloaderImportObservationTest {
+    private final ImportLogCapture logs = new ImportLogCapture();
+    @org.junit.jupiter.api.AfterEach void closeLogs() { logs.close(); }
     @org.junit.jupiter.api.io.TempDir Path temporary;
 
     private PixivBatchDownloaderImportDirectory directory(String initial) throws java.io.IOException {
@@ -72,7 +74,7 @@ class PixivBatchDownloaderImportObservationTest {
             if (value.workId() == 99) throw new java.io.IOException("unavailable");
             if (value.workId() == 84) return false;
             return written.add(value.workType() + ":" + value.workId());
-        }, (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null);
+        }, (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null, logs.diagnostics);
 
         // 插画与小说可使用相同数值 ID；漫画页数不构成新的作品身份。
         for (int type : List.of(0, 0, 3))
@@ -97,7 +99,7 @@ class PixivBatchDownloaderImportObservationTest {
         var statistics = new PixivBatchDownloaderImportStatistics(source);
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var controller = new PixivBatchDownloaderImportController(value -> calls.incrementAndGet() == 1,
-                (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null);
+                (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null, logs.diagnostics);
         try (var connection = ((javax.sql.DataSource) source).getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("CREATE TRIGGER unavailable BEFORE INSERT ON imported_works BEGIN SELECT RAISE(ABORT, 'unavailable'); END");
             assertEquals(503, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
@@ -187,7 +189,7 @@ class PixivBatchDownloaderImportObservationTest {
     void protectsLocalBridge() throws Exception {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var controller = new PixivBatchDownloaderImportController(value -> { calls.incrementAndGet(); return true; },
-                (namespace, locale, key) -> Optional.of("localized"), directory(ROOT.toString()), () -> "solo", statistics(), null);
+                (namespace, locale, key) -> Optional.of("localized"), directory(ROOT.toString()), () -> "solo", statistics(), null, logs.diagnostics);
         assertEquals(401, controller.importWork(http(input(0).toString(), null, "127.0.0.1")).getStatusCode().value());
         assertEquals(403, controller.token(http("", null, "192.0.2.1")).getStatusCode().value());
         String token = token(controller);
@@ -198,10 +200,10 @@ class PixivBatchDownloaderImportObservationTest {
         assertEquals(413, controller.importWork(http(" ".repeat(12*1024*1024+1), token(controller), "127.0.0.1")).getStatusCode().value());
         assertEquals(1, calls.get());
         java.nio.file.Files.delete(temporary.resolve("settings.properties"));
-        var disabled = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(""), ()->"solo", statistics(), null);
+        var disabled = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(""), ()->"solo", statistics(), null, logs.diagnostics);
         assertEquals(200, disabled.token(http("",null,"127.0.0.1")).getStatusCode().value());
         assertEquals(503, disabled.importWork(http(input(0).toString(), token(disabled), "127.0.0.1")).getStatusCode().value());
-        var multi = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(ROOT.toString()), ()->"multi", statistics(), null);
+        var multi = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(ROOT.toString()), ()->"multi", statistics(), null, logs.diagnostics);
         assertEquals(403, multi.token(http("",null,"127.0.0.1")).getStatusCode().value());
     }
 
@@ -212,7 +214,7 @@ class PixivBatchDownloaderImportObservationTest {
         var controller = new PixivBatchDownloaderImportController(value -> {
             assertEquals(temporary, value.sourceRoot());
             calls.incrementAndGet(); return true;
-        }, (ns,l,k) -> Optional.empty(), directory, () -> "solo", statistics(), null);
+        }, (ns,l,k) -> Optional.empty(), directory, () -> "solo", statistics(), null, logs.diagnostics);
         var observation = input(0);
         assertEquals(503, controller.importWork(http(observation.toString(), token(controller), "127.0.0.1")).getStatusCode().value());
         assertTrue(directory.directorySuggestion().isEmpty());
@@ -235,6 +237,41 @@ class PixivBatchDownloaderImportObservationTest {
     }
     private String token(PixivBatchDownloaderImportController controller) {
         return (String)((Map<?,?>)controller.token(http("",null,"127.0.0.1")).getBody()).get("token");
+    }
+
+    @Test @DisplayName("自动导入日志合并连续同类失败，恢复后记录结果且不泄漏请求或令牌")
+    void logsAutomaticFailuresAndRecovery() throws Exception {
+        var failing = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var controller = new PixivBatchDownloaderImportController(value -> {
+            if (failing.get()) throw new java.io.IOException("secret-cookie\nforged-log");
+            return false;
+        }, (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics(), null, logs.diagnostics);
+        String token = token(controller);
+        assertEquals(503, controller.importWork(http(input(0).toString(), token, "127.0.0.1")).getStatusCode().value());
+        assertEquals(503, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
+        assertEquals(1, logs.events.size());
+        assertEquals(ch.qos.logback.classic.Level.WARN, logs.events.get(0).getLevel());
+        assertTrue(logs.messages().get(0).contains("IMPORT_FILE_UNAVAILABLE"));
+        assertTrue(logs.messages().get(0).contains("automatic/register"));
+        failing.set(false);
+        assertEquals(200, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
+        assertTrue(logs.messages().stream().anyMatch(line -> line.contains("ALREADY_RECORDED")));
+        failing.set(true);
+        assertEquals(503, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
+        assertEquals(2, logs.messages().stream().filter(line -> line.contains("IMPORT_FILE_UNAVAILABLE")).count());
+        assertTrue(logs.messages().stream().noneMatch(line -> line.contains(token) || line.contains("secret-") || line.contains("forged-log")));
+        assertTrue(logs.events.stream().allMatch(event -> event.getThrowableProxy() == null));
+    }
+
+    @Test @DisplayName("文件诊断保留已知错误码，无消息异常也可安全记录")
+    void logsKnownFileReason() {
+        logs.diagnostics.failure(org.slf4j.event.Level.WARN, "register", "-", "ARTWORK:42",
+                "IMPORT_FILE_UNAVAILABLE", new java.io.IOException("INVALID_SOURCE_ROOT"));
+        logs.diagnostics.failure(org.slf4j.event.Level.ERROR, "register", "-", "ARTWORK:42",
+                "IMPORT_FAILED", new IllegalStateException());
+        assertTrue(logs.messages().get(0).contains("reason=INVALID_SOURCE_ROOT"));
+        assertTrue(logs.messages().get(1).contains("IllegalStateException"));
+        assertTrue(logs.events.stream().allMatch(event -> event.getThrowableProxy() == null));
     }
     private jakarta.servlet.http.HttpServletRequest http(String body, String token, String remote) {
         byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);

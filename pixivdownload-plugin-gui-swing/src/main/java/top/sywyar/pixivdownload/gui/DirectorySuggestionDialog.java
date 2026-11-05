@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
+import top.sywyar.pixivdownload.gui.panel.ScrollablePagePanel;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -10,7 +11,7 @@ import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.Map;
 
-/** The Swing provider owns directory confirmation and focus; persistence stays with the host. */
+/** Swing 管理目录确认窗口与焦点，保存仍由宿主负责。 */
 public final class DirectorySuggestionDialog {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DirectorySuggestionDialog.class);
     private final JComponent parent;
@@ -53,8 +54,12 @@ public final class DirectorySuggestionDialog {
         var name = value.path("displayName");
         String pluginName = SwingHost.context().resolveText(new DesktopUiText(name.path("namespace").asText(),
                 name.path("key").asText(), name.path("fallback").asText(), List.of()));
-        JLabel help = paragraph(pluginName + "\n\n" + SwingHost.host().message("gui.directory-suggestion.help") + "\n" + SwingHost.host().message("gui.directory-suggestion.readonly"));
-        body.add(help, BorderLayout.NORTH);
+        var form = new ScrollablePagePanel();
+        form.setLayout(new BorderLayout(0, 12));
+        JLabel source = paragraph(pluginName);
+        Color secondary = UIManager.getColor("Label.infoForeground");
+        if (secondary != null) source.setForeground(secondary);
+        form.add(source, BorderLayout.NORTH);
         JTextField path = new JTextField(value.path("suggestion").path("directory").asText(), 36);
         path.getAccessibleContext().setAccessibleName(SwingHost.host().message("gui.directory-suggestion.directory"));
         JPanel field = new JPanel(new BorderLayout(8, 8));
@@ -70,10 +75,40 @@ public final class DirectorySuggestionDialog {
             if (chooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) path.setText(chooser.getSelectedFile().getAbsolutePath());
         });
         field.add(browse, BorderLayout.EAST);
-        body.add(field, BorderLayout.CENTER);
+        form.add(field, BorderLayout.CENTER);
+        JPanel explanation = new JPanel(new BorderLayout(0, 12));
+        JLabel rule = paragraph(SwingHost.host().message("gui.directory-suggestion.rule"));
+        rule.setName("directory-suggestion.rule");
+        Color error = UIManager.getColor("Component.error.focusedBorderColor");
+        rule.setForeground(error != null ? error : new Color(190, 45, 45));
+        explanation.add(rule, BorderLayout.NORTH);
+        var guidance = value.path("help");
+        if (guidance.isObject()) {
+            JLabel details = paragraph(SwingHost.context().resolveText(new DesktopUiText(
+                    guidance.path("namespace").asText(), guidance.path("key").asText(),
+                    guidance.path("fallback").asText(), List.of())));
+            details.setName("directory-suggestion.guidance");
+            if (secondary != null) details.setForeground(secondary);
+            details.setVisible(false);
+            var disclosure = new JToggleButton(SwingHost.host().message("gui.directory-suggestion.details"));
+            disclosure.setName("directory-suggestion.details");
+            disclosure.setHorizontalAlignment(SwingConstants.LEADING);
+            disclosure.setContentAreaFilled(false);
+            disclosure.addActionListener(event -> {
+                details.setVisible(disclosure.isSelected());
+                packWithinScreen(dialog);
+            });
+            var more = new JPanel(new BorderLayout(0, 8));
+            more.add(disclosure, BorderLayout.NORTH);
+            more.add(details, BorderLayout.CENTER);
+            explanation.add(more, BorderLayout.CENTER);
+        }
+        form.add(explanation, BorderLayout.SOUTH);
+        JScrollPane scroll = new JScrollPane(form);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        body.add(scroll, BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout(0, 8));
-        JLabel notice = paragraph("");
-        notice.setVisible(false);
+        JLabel notice = paragraph(SwingHost.host().message("gui.directory-suggestion.readonly"));
         footer.add(notice, BorderLayout.NORTH);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         JButton cancel = new JButton(SwingHost.host().message("desktop.ui.action.cancel"));
@@ -91,6 +126,7 @@ public final class DirectorySuggestionDialog {
             String selected = path.getText().trim();
             JDialog requestedDialog = dialog;
             saving = true;
+            confirm.setText(SwingHost.host().message("gui.directory-suggestion.saving"));
             confirm.setEnabled(false); cancel.setEnabled(false); browse.setEnabled(false); path.setEnabled(false);
             notice.setVisible(false);
             new SwingWorker<DesktopUiHost.GuiResponse, Void>() {
@@ -112,8 +148,10 @@ public final class DirectorySuggestionDialog {
                         log.debug("Directory confirmation request failed", failure.getCause());
                     }
                     confirm.setEnabled(true); cancel.setEnabled(true); browse.setEnabled(true); path.setEnabled(true);
+                    confirm.setText(SwingHost.host().message("gui.directory-suggestion.confirm"));
+                    notice.setForeground(rule.getForeground());
                     notice.setText(paragraphHtml(SwingHost.host().message("gui.directory-suggestion.failed"))); notice.setVisible(true);
-                    dialog.pack();
+                    dialog.revalidate();
                 }
             }.execute();
         });
@@ -127,9 +165,16 @@ public final class DirectorySuggestionDialog {
             @Override public void windowClosing(WindowEvent event) { dismiss.run(); }
             @Override public void windowOpened(WindowEvent event) { path.requestFocusInWindow(); }
         });
-        dialog.pack();
+        packWithinScreen(dialog);
         dialog.setLocationRelativeTo(window);
         dialog.setVisible(true);
+    }
+
+    private static void packWithinScreen(JDialog dialog) {
+        dialog.pack();
+        Rectangle bounds = dialog.getGraphicsConfiguration().getBounds();
+        dialog.setSize(Math.min(dialog.getWidth(), bounds.width * 4 / 5),
+                Math.min(dialog.getHeight(), Math.max(320, bounds.height * 4 / 5)));
     }
 
     private static DesktopUiHost.GuiResponse send(DesktopUiHost.GuiValue value, String directory, boolean dismiss) {

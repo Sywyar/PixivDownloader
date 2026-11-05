@@ -873,8 +873,11 @@ internal fun DocumentDialog(
         ) {
             val targetSize = dialogWindowSize(dialog, DpSize(maxWidth, maxHeight))
             val editor = (dialog.content() as? DesktopUiNode.Surface)?.content() as? DesktopUiNode.RepositoryEditor
+            val directory = if (dialog.id() == "directory-suggestion")
+                (dialog.content() as? DesktopUiNode.Surface)?.content() as? DesktopUiNode.Dock else null
+            val fitContent = editor != null || directory != null
             CupertinoSurface(
-                modifier = (if (editor != null) Modifier.width(targetSize.width).heightIn(max = targetSize.height)
+                modifier = (if (fitContent) Modifier.width(targetSize.width).heightIn(max = targetSize.height)
                     else Modifier.size(targetSize))
                     .border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium)
                     .semantics { paneTitle = title },
@@ -895,7 +898,9 @@ internal fun DocumentDialog(
                             }
                         }
                     }
-                    ComposeDesktopUiNodeRenderer.Render(
+                    if (directory != null) top.sywyar.pixivdownload.guicompose.settings.DirectorySuggestionContent(
+                        directory, text, emit, Modifier.fillMaxWidth().weight(1f, fill = false),
+                    ) else ComposeDesktopUiNodeRenderer.Render(
                         root = editor ?: dialog.content(),
                         textResolver = text,
                         eventSink = emit,

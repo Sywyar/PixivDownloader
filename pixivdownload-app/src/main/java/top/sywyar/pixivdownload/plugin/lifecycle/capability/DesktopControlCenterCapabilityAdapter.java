@@ -71,7 +71,7 @@ public final class DesktopControlCenterCapabilityAdapter implements ExternalRunt
             var feature = registered.plugin();
             var fields = feature.guiConfigContributions().stream().flatMap(value -> value.fields().stream()).toList();
             directories = invocations.prepareProxy(preparation, DirectorySuggestionCapability.class,
-                    new PluginDirectorySuggestion(owner.pluginId(), sources.values().iterator().next(),
+                    new PluginDirectorySuggestion(owner.pluginId(), feature.displayNamespace(), sources.values().iterator().next(),
                             RuntimeFiles.resolvePluginConfigPath(owner.pluginId(), "properties"), fields));
             displayName = new DesktopUiText(feature.displayNamespace(), feature.displayName(), "", List.of());
         }

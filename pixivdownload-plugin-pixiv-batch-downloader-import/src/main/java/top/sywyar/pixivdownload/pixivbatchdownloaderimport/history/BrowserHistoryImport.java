@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImporter;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.pixivbatchdownloaderimport.PixivBatchDownloaderImportStatistics;
+import top.sywyar.pixivdownload.pixivbatchdownloaderimport.ImportDiagnostics;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 
@@ -16,6 +17,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 import static top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.*;
+import static org.slf4j.event.Level.*;
 
 /** 浏览器只上传记录和单次元数据响应；文件根目录始终取本机已保存的配置。 */
 public final class BrowserHistoryImport implements AutoCloseable {
@@ -27,6 +29,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
     private final PixivBatchDownloaderImportStatistics statistics;
     private final PluginRuntimeTaskRegistrar tasks;
     private final Path cache;
+    private final ImportDiagnostics diagnostics;
     private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, task -> {
         Thread thread = new Thread(task, "pixiv-browser-history");
         thread.setDaemon(true);
@@ -37,7 +40,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
 
     /** 只包含浏览器可读取的状态，不返回本机路径或来源站点凭证。 */
     public record View(String session, String phase, Preview preview, Status status,
-                       MetadataRequest metadata, DesktopUiText error) {}
+                       MetadataRequest metadata, DesktopUiText error, List<HistoryImportService.WorkResult> results) {}
     public record MetadataRequest(String id, String kind, String workId) {}
 
     private final class Session {
@@ -58,14 +61,15 @@ public final class BrowserHistoryImport implements AutoCloseable {
         Session(Path upload, Path root) {
             this.upload = upload; this.root = root;
             service = new HistoryImportService(importer, works, (uri, ignored) -> metadata(this, uri),
-                    tasks, statistics, cache.resolve("plans"));
+                    tasks, statistics, cache.resolve("plans"), diagnostics);
         }
         boolean active() { return inspecting || service.status().active(); }
     }
 
     public BrowserHistoryImport(WorkFileImporter importer, WorkQueryService works,
                                 PixivBatchDownloaderImportStatistics statistics,
-                                PluginRuntimeTaskRegistrar tasks, Path cache) {
+                                PluginRuntimeTaskRegistrar tasks, Path cache, ImportDiagnostics diagnostics) {
+        this.diagnostics = diagnostics;
         this.importer = importer; this.works = works; this.statistics = statistics;
         this.tasks = tasks; this.cache = cache.toAbsolutePath().normalize();
         executor.setRemoveOnCancelPolicy(true);
@@ -84,6 +88,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
         HistoryRecords.plain(cache, true);
         Path upload = Files.createTempDirectory(cache, "upload-");
         session = new Session(upload, root);
+        diagnostics.event(INFO, "log.browser.create", session.service.diagnosticId());
         return view(session);
     }
 
@@ -109,6 +114,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
         Session value = require(id);
         if (!"UPLOADING".equals(view(value).phase()) || value.receivedBytes == 0) reject("input");
         value.inspecting = true;
+        diagnostics.event(INFO, "log.browser.uploaded", value.service.diagnosticId(), value.receivedBytes);
         top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask task;
         try { task = tasks.registerOneShot(() -> inspect(value)); }
         catch (RuntimeException failure) { value.inspecting = false; value.error = text("unavailable"); throw failure; }
@@ -141,7 +147,8 @@ public final class BrowserHistoryImport implements AutoCloseable {
     public synchronized View start(String id, String configuredRoot) {
         Session value = require(id);
         if (!"READY".equals(view(value).phase())) reject("stale");
-        if (!value.root.toString().equals(Path.of(configuredRoot).normalize().toString())) reject("root");
+        if (configuredRoot == null || configuredRoot.isBlank()) reject("root");
+        if (!value.root.toString().equals(Path.of(configuredRoot).normalize().toString())) reject("root-changed");
         var result = value.service.start(value.preview.token(), "");
         if (result.error() != null) value.error = result.error();
         return view(value);
@@ -173,7 +180,11 @@ public final class BrowserHistoryImport implements AutoCloseable {
         }
         try { return response.get(90, TimeUnit.SECONDS); }
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw transport(); }
-        catch (TimeoutException timeout) { throw transport(); }
+        catch (TimeoutException timeout) {
+            diagnostics.failure(WARN, "browser/metadata-wait", value.service.diagnosticId(), "-",
+                    "METADATA_REPLY_TIMEOUT", timeout);
+            throw transport();
+        }
         catch (ExecutionException failure) {
             if (failure.getCause() instanceof PixivAjaxException pixiv) throw pixiv;
             throw transport();
@@ -191,6 +202,8 @@ public final class BrowserHistoryImport implements AutoCloseable {
     }
 
     private void cancel(Session value) {
+        if (!value.cancelled && !terminal(value))
+            diagnostics.event(INFO, "log.browser.cancel", value.service.diagnosticId(), view(value).phase());
         value.cancelled = true;
         if (value.inspector != null) value.inspector.interrupt();
         value.service.cancel();
@@ -208,11 +221,12 @@ public final class BrowserHistoryImport implements AutoCloseable {
     }
 
     private View view(Session value) {
-        Status status = value.service.status();
+        var progress = value.service.progress();
+        Status status = progress.status();
         String phase = value.cancelled ? (value.active() ? "CANCELLING" : "CANCELLED")
                 : value.inspecting ? "INSPECTING" : value.error != null ? "FAILED"
                 : status.phase() == Phase.IDLE ? "UPLOADING" : status.phase().name();
-        return new View(value.id, phase, value.preview, status, value.metadata, value.error);
+        return new View(value.id, phase, value.preview, status, value.metadata, value.error, progress.results());
     }
 
     private boolean terminal(Session value) {
@@ -221,6 +235,8 @@ public final class BrowserHistoryImport implements AutoCloseable {
 
     private synchronized void expire() {
         if (session == null || System.nanoTime() - session.touched < IDLE_NANOS) return;
+        if (!session.cancelled && !terminal(session))
+            diagnostics.event(WARN, "log.browser.expired", session.service.diagnosticId(), view(session).phase());
         cancel(session);
         if (!session.active()) { dispose(session); session = null; }
     }
@@ -233,7 +249,11 @@ public final class BrowserHistoryImport implements AutoCloseable {
                 for (Path entry : entries) { HistoryRecords.plain(entry, false); Files.delete(entry); }
             }
             Files.delete(value.upload);
-        } catch (IOException failure) { value.error = text("input"); }
+        } catch (IOException failure) {
+            if (value.error == null || !value.error.key().equals("history.error.input"))
+                diagnostics.failure(WARN, "upload-cleanup", value.service.diagnosticId(), "-", "history.error.input", failure);
+            value.error = text("input");
+        }
     }
 
     private void dispose(Session value) { value.service.close(); cleanupUpload(value); }

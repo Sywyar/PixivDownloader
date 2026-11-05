@@ -7,8 +7,9 @@ const source = fs.readFileSync(path.join(__dirname, '../../main/resources/usersc
 const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); };
 
 class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.disabled = false; this.textContent = ''; this.files = []; }
+    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.disabled = false; this.textContent = ''; this.files = []; this.style = {}; }
     append(...nodes) { this.children.push(...nodes); }
+    replaceChildren(...nodes) { this.children = nodes; }
     attachShadow() { this.shadow = new Element('shadow'); return this.shadow; }
     setAttribute(name, value) { this[name] = value; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
@@ -58,7 +59,8 @@ function browser(options = {}) {
     const view = () => ({session: 'job', phase, total: 1, processed: phase === 'COMPLETED' ? 1 : 0,
         imported: phase === 'COMPLETED' ? 1 : 0, skipped: 0, failed: 0, problems: [],
         preview: ['READY', 'RUNNING', 'COMPLETED'].includes(phase) ? (options.preview ?? {records: 2, works: 1, candidates: 1, skipped: 0, unavailable: 0}) : null,
-        metadata: phase === 'RUNNING' ? {id: 'metadata-1', kind: 'illust', workId: '42'} : null});
+        metadata: phase === 'RUNNING' ? {id: 'metadata-1', kind: 'illust', workId: '42'} : null,
+        ...options.execution?.[phase]});
     const context = vm.createContext({indexedDB: database.indexedDB, IDBKeyRange: {lowerBound: after => ({after})}, URL, URLSearchParams, TextEncoder, Blob, AbortController, navigator: {language: 'en-US'},
         crypto: {randomUUID: () => 'tab'}, document: {body, createElement: tag => new Element(tag)},
         window: {location: {origin: 'https://www.pixiv.net'}, addEventListener: (name, fn) => events[name] = fn},
@@ -87,7 +89,7 @@ function browser(options = {}) {
                     return {abort: () => options.onabort()};
                 }
                 if (action === 'create' && rejectCreate) {
-                    options.onload({status: 409, finalUrl: options.url, responseText: JSON.stringify({error: 'Save the original files folder first.'})});
+                    options.onload({status: 409, finalUrl: options.url, responseText: JSON.stringify({error: 'Directory unavailable\nChoose another folder.'})});
                     return {abort: () => options.onabort()};
                 }
                 if (action === 'inspect') phase = 'READY';
@@ -110,6 +112,70 @@ function browser(options = {}) {
         tick: async () => { const entry = [...timers.entries()].find(([, timer]) => timer.ms === 1000); timers.delete(entry[0]); entry[1].fn(); await flush(); }};
 }
 const actions = b => b.calls.filter(call => call.method === 'POST').map(call => new URL(call.url).searchParams.get('action'));
+const statusText = b => b.body.all('p').find(node => node.role === 'status').textContent;
+
+test('进度圆环使用处理数，终态切换结果标记，预览不伪造百分比', async () => {
+    const b = browser({execution: {
+        RUNNING: {total: 3, processed: 2, imported: 1, failed: 1},
+        COMPLETED: {total: 3, processed: 3, imported: 2, failed: 1}
+    }});
+    const ring = b.body.all('div').find(node => node.role === 'progressbar');
+    assert.equal(ring.hidden, true);
+    b.deferFetch();
+    const done = b.buttons[0].click(); await flush();
+    assert.equal(ring.hidden, true);
+    b.buttons[1].click(); await flush();
+    assert.equal(ring.hidden, false);
+    assert.equal(ring['aria-valuenow'], '66');
+    assert.equal(ring['aria-valuetext'], '2 / 3');
+    assert.equal(ring.all('span')[0].textContent, '66%');
+    b.releaseFetch(); await flush(); await done;
+    assert.equal(ring.hidden, true);
+    assert.match(statusText(b), /3 \/ 3/);
+    assert.deepEqual(b.body.all('dd').slice(0, 3).map(node => node.textContent), ['2', '0', '1']);
+});
+
+test('明细默认收起，导入结果逐项更新且保留展开状态和节点', async () => {
+    const samples = ['42', '43', '44', '45', '46'].map(id => ({workKey: 'artwork:' + id, files: 1, disposition: 'CANDIDATE'}));
+    const b = browser({preview: {records: 5, works: 5, candidates: 5, skipped: 0, unavailable: 0, samples},
+        execution: {
+            RUNNING: {total: 5, results: samples.map(item => ({workKey: item.workKey, state: 'WAITING'}))},
+            COMPLETED: {total: 5, processed: 5, imported: 3, skipped: 1, failed: 1, results: samples.map((item, index) => ({
+                workKey: item.workKey, state: ['IMPORTED', 'SKIPPED', 'FAILED', 'IMPORTED', 'IMPORTED'][index],
+                error: index === 2 ? 'File validation failed' : index === 3 ? 'Statistics unavailable' : null
+            }))}
+        }});
+    b.deferFetch();
+    const done = b.buttons[0].click(); await flush();
+    const details = b.body.all('details')[1], rows = b.body.all('li');
+    assert.equal(details.open, false);
+    details.open = true;
+    b.buttons[1].click(); await flush();
+    assert.equal(b.buttons[0].hidden, true);
+    assert.equal(b.buttons[1].hidden, true);
+    b.releaseFetch(); await flush(); await done;
+    assert.equal(details.open, true);
+    assert.deepEqual(b.body.all('li'), rows);
+    assert.deepEqual(rows.map(row => row.all('span')[1]['data-state']), ['IMPORTED', 'SKIPPED', 'FAILED', 'IMPORTED', 'IMPORTED']);
+    assert.equal(rows[2].all('p')[0].textContent, 'File validation failed');
+    assert.equal(rows[3].all('p')[0].textContent, 'Statistics unavailable');
+    assert.equal(b.body.all('div').find(node => node.className === 'notice').hidden, false);
+    assert.equal(b.buttons[2].className, 'primary');
+});
+
+test('取消后的待处理作品不显示为成功，未知结果也不猜测登记状态', async () => {
+    const preview = {records: 1, works: 1, candidates: 1, skipped: 0, unavailable: 0,
+        samples: [{workKey: 'artwork:42', files: 1, disposition: 'CANDIDATE'}]};
+    const b = browser({preview, execution: {CANCELLED: {preview, results: [{workKey: 'artwork:42', state: 'WAITING'}]}}});
+    b.deferFetch();
+    const done = b.buttons[0].click(); await flush(); b.buttons[1].click(); await flush();
+    const row = b.body.all('li')[0];
+    assert.equal(row.all('span')[1]['data-state'], 'CANDIDATE');
+    b.buttons[2].click(); await flush(); await done;
+    assert.equal(row.all('span')[1]['data-state'], 'WAITING');
+    assert.equal(b.body.all('div').find(node => node.className === 'badge warning').hidden, false);
+    assert.equal(b.fetches[0].options.signal.aborted, true);
+});
 
 test('无候选预览显示逐作品原因，释放会话并允许重新检查', async () => {
     const options = {preview: {records: 10, works: 8, candidates: 0, skipped: 1, unavailable: 7,
@@ -128,12 +194,11 @@ test('无候选预览显示逐作品原因，释放会话并允许重新检查',
     assert.deepEqual(actions(b), ['create', 'upload', 'upload', 'inspect', 'cancel']);
     assert.equal(b.fetches.length, 0);
     assert.deepEqual([...b.timers], idleTimers);
-    const details = b.body.all('pre')[0].textContent;
-    assert.match(details, /artwork:42: Already registered/);
-    assert.match(details, /artwork:43: Original files unavailable or pages incomplete/);
-    assert.match(details, /artwork:44: Path or record conflict/);
-    assert.match(details, /3 \/ 8/);
-    assert.match(b.body.all('p').at(-1).textContent, /Check complete/);
+    const details = b.body.all('li');
+    assert.deepEqual(details.map(row => row['data-work']), ['artwork:42', 'artwork:43', 'artwork:44']);
+    assert.deepEqual(details.map(row => row.all('span')[1]['data-state']), ['ALREADY_PRESENT', 'MISSING_FILES', 'CONFLICT']);
+    assert.ok(b.body.all('summary').some(node => node.textContent.includes('3 / 8')));
+    assert.match(statusText(b), /Check complete/);
     options.preview = {records: 2, works: 1, candidates: 1, skipped: 0, unavailable: 0, samples: []};
     const retry = b.buttons[0].click(); await flush();
     assert.equal(b.buttons[1].disabled, false);
@@ -165,7 +230,7 @@ test('无候选会话释放失败时保留未确认提示，不能直接重试',
     assert.equal(actions(b).at(-1), 'cancel');
     assert.equal(b.buttons[0].disabled, true);
     assert.equal(b.buttons[1].disabled, true);
-    assert.match(b.body.all('p').at(-1).textContent, /unconfirmed/);
+    assert.match(statusText(b), /unconfirmed/);
     assert.deepEqual([...b.timers], idleTimers);
 });
 
@@ -235,7 +300,7 @@ test('直接只读扫描浏览器历史，确认前不请求元数据，登录 C
     const reply = b.calls.find(call => new URL(call.url).searchParams.get('action') === 'reply');
     assert.equal(new URL(reply.url).searchParams.get('request'), 'metadata-1');
     assert.match(await reply.data.text(), /"id":"42"/);
-    assert.match(b.body.all('p').at(-1).textContent, /Processing finished/);
+    assert.match(statusText(b), /Import complete/);
     assert.equal(b.buttons[2].textContent, 'Close');
 });
 
@@ -248,7 +313,7 @@ test('取消浏览器元数据等待后不发送迟到响应，后端确认后�
     b.buttons[2].click(); await flush(); await done;
     assert.equal(b.fetches[0].options.signal.aborted, true);
     assert.ok(actions(b).includes('cancel')); assert.ok(!actions(b).includes('reply'));
-    assert.match(b.body.all('p').at(-1).textContent, /Cancelled/);
+    assert.match(statusText(b), /Cancelled/);
     b.releaseFetch(); await flush(); assert.ok(!actions(b).includes('reply'));
 });
 
@@ -282,7 +347,7 @@ for (const declared of [true, false]) {
         const reply = b.calls.find(call => new URL(call.url).searchParams.get('action') === 'reply');
         assert.equal(new URL(reply.url).searchParams.get('status'), '0');
         assert.equal(reply.data.size, 0);
-        assert.match(b.body.all('p').at(-1).textContent, /Import incomplete/);
+        assert.match(statusText(b), /Import incomplete/);
         assert.ok(b.calls.every(call => call.redirect === 'error'));
     });
 }
@@ -292,10 +357,41 @@ test('本机明确拒绝创建时显示设置提示，不误报为未知结果�
 
     await b.buttons[0].click();
     assert.deepEqual(actions(b), ['create']);
-    const message = b.body.all('p').at(-1).textContent;
-    assert.match(message, /Save the original files folder first/);
-    assert.doesNotMatch(message, /unconfirmed/);
+    const notice = b.body.all('div').find(node => node.className === 'notice');
+    assert.equal(notice.all('strong')[0].textContent, 'Directory unavailable');
+    assert.equal(notice.all('p')[0].textContent, 'Choose another folder.');
+    assert.equal(b.body.all('p').find(node => node.className === 'intro').hidden, true);
+    assert.equal(b.body.all('p').find(node => node.className === 'caution').hidden, true);
+    assert.equal(b.body.all('details')[0].hidden, true);
     assert.equal(b.buttons[2].textContent, 'Close');
+});
+
+test('引导随读取检查导入阶段更新，结束后仅保留结果', async () => {
+    const b = browser(); await flush(); b.deferFetch();
+    const intro = b.body.all('p').find(node => node.className === 'intro');
+    const caution = b.body.all('p').find(node => node.className === 'caution');
+    const help = b.body.all('details')[0];
+    assert.equal(intro.hidden, false);
+    assert.equal(caution.hidden, false);
+    assert.equal(help.hidden, false);
+    assert.notEqual(help.open, true);
+    const initialWarning = caution.textContent;
+    const done = b.buttons[0].click();
+    assert.equal(intro.hidden, true);
+    assert.equal(help.hidden, true);
+    assert.equal(caution.textContent, initialWarning);
+    await flush();
+    const readyWarning = caution.textContent;
+    assert.notEqual(readyWarning, initialWarning);
+    assert.equal(caution.hidden, false);
+    b.buttons[1].click(); await flush();
+    assert.notEqual(caution.textContent, readyWarning);
+    assert.ok(caution.textContent);
+    b.releaseFetch(); await flush(); await done;
+    assert.equal(intro.hidden, true);
+    assert.equal(help.hidden, true);
+    assert.equal(caution.hidden, true);
+    assert.equal(caution.textContent, '');
 });
 
 for (const options of [{absent: true}, {missingStore: true}, {badKey: true}, {rows: [{id: '42_p0', n: 'x', unexpected: 'field'}]}]) {
