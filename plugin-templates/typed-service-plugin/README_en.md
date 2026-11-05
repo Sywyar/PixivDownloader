@@ -13,7 +13,7 @@ This multi-module example demonstrates how to define a cross-plugin typed servic
 
 ## 1. Build and Install
 
-Requires JDK 17+, Maven, and `sdk-tools.jar` from the matching SDK development package:
+Requires JDK 25+, Maven, and `sdk-tools.jar` from the matching SDK development package:
 
 ```sh
 mvn verify "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"

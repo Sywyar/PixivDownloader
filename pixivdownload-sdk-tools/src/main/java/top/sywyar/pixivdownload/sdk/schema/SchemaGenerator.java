@@ -53,7 +53,7 @@ public final class SchemaGenerator {
         var processor = new ValueSchemaProcessor();
         try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8)) {
             var task = compiler.getTask(null, manager, diagnostics,
-                    List.of("--release", "17", "-proc:only", "-encoding", "UTF-8", "-classpath", classpath),
+                    List.of("--release", "25", "-proc:only", "-encoding", "UTF-8", "-classpath", classpath),
                     null, manager.getJavaFileObjectsFromPaths(sources));
             task.setProcessors(List.of(processor));
             if (!task.call()) {

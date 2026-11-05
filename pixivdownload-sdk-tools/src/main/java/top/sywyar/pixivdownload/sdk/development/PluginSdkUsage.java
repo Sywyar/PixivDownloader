@@ -126,7 +126,7 @@ public final class PluginSdkUsage {
                         String[] parts = name.split("/", 4);
                         try { version = Integer.parseInt(parts[2]); }
                         catch (NumberFormatException invalid) { throw new IOException("SDK_SCAN_INVALID_VERSION", invalid); }
-                        if (version < 9 || version > 17) continue;
+                        if (version < 9 || version > Runtime.version().feature()) continue;
                     }
                     ClassReader reader = new ClassReader(bytes);
                     if (variants.computeIfAbsent(reader.getClassName(), ignored -> new HashMap<>())

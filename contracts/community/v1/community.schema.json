@@ -550,7 +550,10 @@
           "enum": [
             "maven-java17-v1",
             "gradle-java17-v1",
-            "sbt-java17-v1"
+            "sbt-java17-v1",
+            "maven-java25-v1",
+            "gradle-java25-v1",
+            "sbt-java25-v1"
           ]
         },
         "projectDir": {

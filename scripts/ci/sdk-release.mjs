@@ -44,7 +44,7 @@ export function createProjectManifest(identity, sourceSha, minimumVerifiedHostRe
         sourceCommitSha: sourceSha,
         minimumVerifiedHostRelease: minimumVerifiedHostRelease || null,
         verifiedHostSourceSha: minimumVerifiedHostRelease ? sourceSha : null,
-        javaVersion: 17,
+        javaVersion: 25,
         developmentRuntime,
         mavenCoordinates: SDK_ARTIFACTS.map(([artifactId, packaging]) => ({
             groupId: SDK_GROUP_ID,

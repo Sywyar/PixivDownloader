@@ -69,7 +69,9 @@ for (const flat of [false, true]) test(`源码候选${flat ? '直接展开' : '�
     const hash = data => crypto.createHash('sha256').update(data).digest('hex');
     const directory = path.join(root, flat ? 'candidates' : 'candidates/source-candidate-1-project'); fs.mkdirSync(directory, { recursive: true });
     const candidate = { schemaVersion: 1, repositoryId: '1234', repository: 'owner/source', sourceCommit: 'a'.repeat(40), runId: '5678', runAttempt: 1,
-        pluginId: 'example', version: '7.8.9-rc.12', buildProfile: { id: 'maven-java17-v1', projectDir: '.', artifactPath: 'target/plugin.jar' },
+        pluginId: 'example', version: '7.8.9-rc.12', buildProfile: {
+            id: `maven-java${JSON.parse(fs.readFileSync(new URL('../../../contracts/community/v1/bundle-manifest.json', import.meta.url))).toolchain.java}-v1`,
+            projectDir: '.', artifactPath: 'target/plugin.jar' },
         artifact: { file: 'pixivdownload-plugin-example-7.8.9-rc.12.jar', size: bytes.length, sha256: hash(bytes) } };
     fs.writeFileSync(path.join(directory, 'source-candidate.json'), JSON.stringify(candidate));
     fs.writeFileSync(path.join(directory, candidate.artifact.file), bytes);

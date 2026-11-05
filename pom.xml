@@ -49,7 +49,7 @@
         <module>pixivdownload-common</module>
         <!-- 随 SDK ZIP 交付的独立开发工具，不属于公开编译坐标或宿主 classpath。 -->
         <module>pixivdownload-sdk-tools</module>
-        <!-- 宿主 owned 插件供应链验签模块，Spring-free / PF4J-free / app-free / plugin-runtime-free，纯 JDK 17 -->
+        <!-- 宿主 owned 插件供应链验签模块，Spring-free / PF4J-free / app-free / plugin-runtime-free，纯 JDK -->
         <module>pixivdownload-plugin-signature</module>
         <!-- 最小 PF4J 执行内核与隔离 worker；独立可执行产物只携带协议、稳定契约和 PF4J，不继承 app classpath。 -->
         <module>pixivdownload-plugin-worker</module>
@@ -102,7 +102,8 @@
         <url>https://github.com/Sywyar/PixivDownloader/issues</url>
     </issueManagement>
     <properties>
-        <java.version>17</java.version>
+        <java.version>25</java.version>
+        <junit-jupiter.version>6.1.3</junit-jupiter.version>
         <app.release.version>${project.version}</app.release.version>
         <app.build.channel>local</app.build.channel>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->

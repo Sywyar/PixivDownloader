@@ -129,7 +129,7 @@ public final class RemoteAdapterGenerator {
         var diagnostics = new DiagnosticCollector<JavaFileObject>();
         try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8)) {
             var task = compiler.getTask(null, manager, diagnostics,
-                    List.of("--release", "17", "-proc:none", "-encoding", "UTF-8", "-classpath", classpath,
+                    List.of("--release", "25", "-proc:none", "-encoding", "UTF-8", "-classpath", classpath,
                             "-d", classes.toString()), null, manager.getJavaFileObjectsFromPaths(sources));
             if (!task.call()) throw new IOException("SDK_REMOTE_ADAPTER_COMPILE");
         }

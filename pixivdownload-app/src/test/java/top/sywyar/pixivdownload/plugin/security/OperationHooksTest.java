@@ -150,7 +150,7 @@ class OperationHooksTest {
         }
         var classes = java.nio.file.Files.createDirectory(root.resolve("form-classes"));
         assertThat(javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, "-encoding", "UTF-8", "-parameters",
-                "--release", "17", "-classpath", classpath, "-d", classes.toString(), source.toString())).isZero();
+                "--release", Integer.toString(Runtime.version().feature()), "-classpath", classpath, "-d", classes.toString(), source.toString())).isZero();
         java.nio.file.Files.writeString(classes.resolve("plugin.properties"), """
                 plugin.id=operation-form
                 plugin.version=0.0.1

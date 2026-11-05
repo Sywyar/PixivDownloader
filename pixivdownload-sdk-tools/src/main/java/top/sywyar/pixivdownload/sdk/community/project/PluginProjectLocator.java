@@ -59,11 +59,11 @@ public final class PluginProjectLocator {
                 Path project = CommunityPaths.resolve(root, projectDir, true, true);
                 PluginProjectMarker.validate(project);
                 var profiles = new ArrayList<String>();
-                if (modelFile(project, "pom.xml")) profiles.add("maven-java17-v1");
+                if (modelFile(project, "pom.xml")) profiles.add("maven-java25-v1");
                 if (modelFile(project, "build.gradle") || modelFile(project, "build.gradle.kts")) {
-                    profiles.add("gradle-java17-v1");
+                    profiles.add("gradle-java25-v1");
                 }
-                if (modelFile(project, "build.sbt")) profiles.add("sbt-java17-v1");
+                if (modelFile(project, "build.sbt")) profiles.add("sbt-java25-v1");
                 projects.add(new Project(projectDir, profiles));
             }
             if (record.size() != 0) throw new IOException("truncated Git output");

@@ -21,4 +21,9 @@ public record SdkConsumer(PixivFeaturePlugin feature, DownloadSettings settings,
                           WorkFileImporter importer, DownloadLifecycle downloads,
                           DownloadObserver observer, DownloadAdmissionPolicy admission) {
     public static final String SDK_VERSION = SdkVersion.VERSION;
+
+    public static String scopedSdkVersion() {
+        var version = ScopedValue.<String>newInstance();
+        return ScopedValue.where(version, SdkVersion.VERSION).call(version::get);
+    }
 }

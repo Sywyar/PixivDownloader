@@ -53,7 +53,7 @@ class SchemaGeneratorTest {
             assertThatThrownBy(() -> check(schema, input)).hasMessageContaining("SDK_SCHEMA_DATA_INVALID");
         }
         Path classes = Files.createDirectories(project.resolve("compiled"));
-        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", "17", "-proc:none",
+        int exit = ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", Integer.toString(Runtime.version().feature()), "-proc:none",
                 "-classpath", classpath(), "-d", classes.toString(),
                 project.resolve("src/main/java/unknown/contract/Request.java").toString());
         assertThat(exit).isZero();

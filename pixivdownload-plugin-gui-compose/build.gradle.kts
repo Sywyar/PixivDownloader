@@ -204,8 +204,11 @@ val ideCoreApiClasses = layout.projectDirectory.dir("../pixivdownload-core-api/t
 val ideSdkInfoClasses = layout.projectDirectory.dir("../pixivdownload-sdk-info/target/classes")
 val sdkClasspath = if (mavenClasspathReady) mavenClasspath else files(idePluginApiClasses, ideCoreApiClasses, ideSdkInfoClasses)
 val proguardVersion = providers.gradleProperty("proguardVersion").get()
+val parentPom = providers.fileContents(layout.projectDirectory.file("../pom.xml")).asText.get()
+val javaRelease = Regex("""<java\.version>\s*([0-9]+)\s*</java\.version>""")
+    .find(parentPom)?.groupValues?.get(1)?.toInt()
+    ?: error("Missing java.version in the Maven parent POM")
 val idePf4jVersion = if (mavenClasspathReady) null else {
-    val parentPom = providers.fileContents(layout.projectDirectory.file("../pom.xml")).asText.get()
     Regex("""<pf4j\.version>\s*([^<\s]+)\s*</pf4j\.version>""")
         .find(parentPom)?.groupValues?.get(1)
         ?: error("Missing pf4j.version in the Maven parent POM")
@@ -214,8 +217,8 @@ val idePf4jVersion = if (mavenClasspathReady) null else {
 kotlin {
     jvmToolchain(JavaVersion.current().majorVersion.toInt())
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
-        freeCompilerArgs.add("-Xjdk-release=17")
+        jvmTarget.set(JvmTarget.fromTarget(javaRelease.toString()))
+        freeCompilerArgs.add("-Xjdk-release=$javaRelease")
         val configuredLanguageVersion = providers.gradleProperty("kotlinLanguageVersion")
             .map(KotlinVersion::fromVersion)
         languageVersion.set(configuredLanguageVersion)
@@ -224,7 +227,7 @@ kotlin {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(17)
+    options.release.set(javaRelease)
 }
 
 configurations.configureEach {

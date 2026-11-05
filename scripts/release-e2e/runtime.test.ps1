@@ -359,7 +359,7 @@ try {
     $agentClasses = Join-Path $agentRoot 'classes'
     $startupProbe = Join-Path $agentRoot 'probe'
     New-Item -ItemType Directory -Path $agentClasses, $startupProbe | Out-Null
-    & javac --release 17 -encoding UTF-8 -d $agentClasses `
+    & javac --release 25 -encoding UTF-8 -d $agentClasses `
         (Join-Path $PSScriptRoot 'ReleaseProbeAgent.java') `
         (Join-Path $PSScriptRoot 'fixtures/AccessibleLabelsProbe.java') `
         (Join-Path $PSScriptRoot 'fixtures/DelayedLauncher.java')

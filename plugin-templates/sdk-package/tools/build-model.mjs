@@ -23,11 +23,11 @@ const scalaString = text => `new String(Array[Byte](${[...Buffer.from(text, 'utf
 
 // SDK 候选构建和社区容器重建共用模型命令及解析。
 export function modelArguments(profileId, file, gradleScript) {
-    if (profileId === 'maven-java17-v1') {
+    if (profileId === 'maven-java25-v1') {
         return ['-N', 'org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom', `-Doutput=${file}`];
-    } else if (profileId === 'gradle-java17-v1') {
+    } else if (profileId === 'gradle-java25-v1') {
         return ['--init-script', gradleScript, 'pixivCommunityModel'];
-    } else if (profileId === 'sbt-java17-v1') {
+    } else if (profileId === 'sbt-java25-v1') {
         const separator = scalaString('\n');
         const command = 'set commands += Command.command(' + scalaString('pixivCommunityModel') + ') { s => '
             + 'val e=Project.extract(s); val lines=Seq(e.get(version),e.get(Compile / packageBin / artifactPath).getAbsolutePath,e.get(Compile / classDirectory).getAbsolutePath) ++ '
@@ -39,12 +39,12 @@ export function modelArguments(profileId, file, gradleScript) {
 }
 
 export function readModel(sdk, profileId, output, file) {
-    if (profileId === 'maven-java17-v1') return sdk.invoke({ command: 'maven-model', file });
+    if (profileId === 'maven-java25-v1') return sdk.invoke({ command: 'maven-model', file });
     const lines = output.split(/\r?\n/u).filter(line => line.startsWith('PIXIV_COMMUNITY_MODEL='));
     if (lines.length !== 1) throw new Error('BUILD_MODEL_AMBIGUOUS');
     const value = lines[0].slice('PIXIV_COMMUNITY_MODEL='.length);
-    if (profileId === 'gradle-java17-v1') return JSON.parse(value);
-    if (profileId !== 'sbt-java17-v1') throw new Error('BUILD_PROFILE_UNSUPPORTED');
+    if (profileId === 'gradle-java25-v1') return JSON.parse(value);
+    if (profileId !== 'sbt-java25-v1') throw new Error('BUILD_PROFILE_UNSUPPORTED');
     const [version, artifact, classes, ...dependencies] = Buffer.from(value, 'base64').toString('utf8').split('\n');
     return { version, artifacts: [artifact], classDirectories: [classes], dependencies: dependencies.map(line => {
         const [group, name, version, scope] = line.split('\t'); return { group, name, version, scope };
@@ -54,18 +54,18 @@ export function readModel(sdk, profileId, output, file) {
 export function queryModel(sdk, selection, profileId, run = runBuild) {
     const project = selection.project;
     const commands = {
-        'maven-java17-v1': ['mvnw', 'mvnw.cmd', 'mvn', 'mvn.cmd'],
-        'gradle-java17-v1': ['gradlew', 'gradlew.bat'],
-        'sbt-java17-v1': ['sbtw', 'sbtw.cmd', 'sbt', 'sbt.bat'],
+        'maven-java25-v1': ['mvnw', 'mvnw.cmd', 'mvn', 'mvn.cmd'],
+        'gradle-java25-v1': ['gradlew', 'gradlew.bat'],
+        'sbt-java25-v1': ['sbtw', 'sbtw.cmd', 'sbt', 'sbt.bat'],
     }[profileId];
     if (!commands) throw new Error('BUILD_PROFILE_UNSUPPORTED');
     const platform = process.platform === 'win32' ? 1 : 0;
     let executable = path.join(project, commands[platform]);
-    if (!fs.existsSync(executable) && profileId === 'maven-java17-v1' && selection.wrapperRoot) executable = path.join(selection.wrapperRoot, commands[platform]);
+    if (!fs.existsSync(executable) && profileId === 'maven-java25-v1' && selection.wrapperRoot) executable = path.join(selection.wrapperRoot, commands[platform]);
     if (!fs.existsSync(executable) && commands[platform + 2]) executable = commands[platform + 2];
     const file = path.join(sdk.workspace, 'effective-pom.xml');
-    const options = profileId === 'maven-java17-v1' ? ['-B', '-ntp']
-        : profileId === 'gradle-java17-v1' ? ['--no-daemon', '--console=plain', '--no-configuration-cache'] : [];
+    const options = profileId === 'maven-java25-v1' ? ['-B', '-ntp']
+        : profileId === 'gradle-java25-v1' ? ['--no-daemon', '--console=plain', '--no-configuration-cache'] : [];
     const args = [...options, ...modelArguments(profileId, file, path.join(root, 'tools/community-model.gradle'))];
     const model = readModel(sdk, profileId, run(executable, args, project), file);
     if (typeof model.version !== 'string' || !model.version || !Array.isArray(model.artifacts) || !model.artifacts.length) {

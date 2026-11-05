@@ -13,7 +13,6 @@
     <description>隔离插件进程使用的最小 PF4J 执行内核、IPC 协议与可执行 worker。</description>
 
     <properties>
-        <java.version>17</java.version>
         <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
     </properties>
 

@@ -1213,7 +1213,7 @@ class CoreApiOwnershipGuardTest {
                 null,
                 null,
                 diagnostics,
-                List.of("-proc:none", "--release", "17"),
+                List.of("-proc:none", "--release", Integer.toString(Runtime.version().feature())),
                 null,
                 sourceFiles);
         List<CompilationUnitTree> units = new ArrayList<>();

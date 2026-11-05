@@ -36,17 +36,18 @@ class PluginProjectLocatorTest {
         git("add", ".");
         assertThat(PluginProjectLocator.discover(root)).extracting(PluginProjectLocator.Project::projectDir)
                 .containsExactly(".", "examples/download-type-plugin", "examples/gradle-plugin", "examples/sbt-plugin");
-        assertThatThrownBy(() -> PluginProjectLocator.select(root, null, "maven-java17-v1", null, List.of("output/plugin.jar")))
+        String profileId = "maven-java" + System.getProperty("sdk.test.java-version") + "-v1";
+        assertThatThrownBy(() -> PluginProjectLocator.select(root, null, profileId, null, List.of("output/plugin.jar")))
                 .isInstanceOf(ContractException.class);
         for (var project : PluginProjectLocator.discover(root)) {
             var result = PluginProjectLocator.select(root, project.projectDir(), project.profiles().get(0), null, List.of("output/plugin.jar"));
             assertThat(result.artifact()).isEqualTo(root.resolve(project.projectDir()).normalize().resolve("output/plugin.jar"));
         }
-        assertThatThrownBy(() -> PluginProjectLocator.select(root, ".", "maven-java17-v1", null,
+        assertThatThrownBy(() -> PluginProjectLocator.select(root, ".", profileId, null,
                 List.of("output/plugin.jar", "output/another.jar"))).isInstanceOf(ContractException.class);
-        assertThatThrownBy(() -> PluginProjectLocator.select(root, ".", "maven-java17-v1", "other.jar",
+        assertThatThrownBy(() -> PluginProjectLocator.select(root, ".", profileId, "other.jar",
                 List.of("output/plugin.jar"))).isInstanceOf(ContractException.class);
-        assertThat(PluginProjectLocator.select(root, ".", "maven-java17-v1", "output/plugin.jar",
+        assertThat(PluginProjectLocator.select(root, ".", profileId, "output/plugin.jar",
                 List.of("output/plugin.jar", "output/another.jar")).artifact()).endsWith(Path.of("output/plugin.jar"));
     }
 

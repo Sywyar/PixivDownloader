@@ -12,10 +12,6 @@
     <name>PixivDownloader Plugin Runtime</name>
     <description>插件框架的 Spring 耦合启用运行时（ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties）：各功能插件模块编译期依赖之，供主程序与插件共享。</description>
 
-    <properties>
-        <java.version>17</java.version>
-    </properties>
-
     <!--
       依赖边界（由 PluginRuntimeDependencyGuardTest 守护）：本模块承载插件框架的 Spring 耦合启用运行时
       （ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties 三件套）与 PF4J 外置插件

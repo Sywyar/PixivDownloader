@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.testsupport;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.DosFileAttributes;
 import java.util.Locale;
 
 /** 资源关闭后清理测试目录；Windows 延迟删除或临时条目消退时有限等待。 */
@@ -12,7 +13,6 @@ public final class TestDirectoryCleanup {
     private TestDirectoryCleanup() {}
 
     public static void delete(Path root) throws IOException {
-        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return;
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -24,6 +24,14 @@ public final class TestDirectoryCleanup {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                // 与 JUnit 一致，清除测试普通文件的只读属性；不改 ACL 或链接目标。
+                if (WINDOWS && attrs.isRegularFile() && attrs instanceof DosFileAttributes dos && dos.isReadOnly()) {
+                    try {
+                        Files.setAttribute(file, "dos:readonly", false, LinkOption.NOFOLLOW_LINKS);
+                    } catch (NoSuchFileException disappeared) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                }
                 deleteFile(file);
                 return FileVisitResult.CONTINUE;
             }

@@ -34,7 +34,7 @@ final class ValueSchemaProcessor extends AbstractProcessor {
     Map<String, ObjectNode> remotes() { return remotes; }
 
     @Override public Set<String> getSupportedAnnotationTypes() { return Set.of(ANNOTATION, RemoteService.class.getName(), RemoteOperation.class.getName()); }
-    @Override public SourceVersion getSupportedSourceVersion() { return SourceVersion.RELEASE_17; }
+    @Override public SourceVersion getSupportedSourceVersion() { return SourceVersion.RELEASE_25; }
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {

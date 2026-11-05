@@ -6,7 +6,7 @@ This standalone Maven project demonstrates how to contribute a custom download t
 
 ## 1. Build and Run
 
-1. Install JDK 17+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
+1. Install JDK 25+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
 2. Run `mvn clean verify` in this directory and confirm `target/example-download-plugin-0.1.0.jar` is generated.
 3. Install the JAR via Plugin Management in a compatible host, complete the administrator trust confirmation, and perform a full process restart.
 4. Sign in as administrator, test the example download type in the download workbench, and open `/example-download-gallery.html`.

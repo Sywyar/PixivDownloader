@@ -13,7 +13,7 @@
 
 ## 1. 构建与安装
 
-需 JDK 17+、Maven 与匹配的 SDK 开发包 `sdk-tools.jar`：
+需 JDK 25+、Maven 与匹配的 SDK 开发包 `sdk-tools.jar`：
 
 ```sh
 mvn verify "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"

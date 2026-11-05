@@ -39,7 +39,7 @@ public final class ContractEvolution {
             if ((previous.access & kind) != (current.access & kind)
                     || (current.access & Opcodes.ACC_FINAL) != 0 && (previous.access & Opcodes.ACC_FINAL) == 0
                     || (current.access & Opcodes.ACC_ABSTRACT) != 0 && (previous.access & Opcodes.ACC_ABSTRACT) == 0
-                    || current.version > Opcodes.V17
+                    || current.version > Runtime.version().feature() + 44
                     || !new HashSet<>(current.parents).equals(new HashSet<>(previous.parents))
                     || !current.permitted.equals(previous.permitted)) {
                 add(changes, "TYPE_HIERARCHY_OR_KIND_CHANGED", name, ""); binaryBreak = sourceBreak = true;

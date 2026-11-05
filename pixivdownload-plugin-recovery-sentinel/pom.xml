@@ -14,10 +14,6 @@
         只暴露一个空载功能插件。用于在真实外置插件加载链路上验证「核心策略把某外置插件声明为必选、而该插件缺失或被禁用」时核心进入恢复模式。
         打包为 thin 外置插件 jar（根含 plugin.properties），放入 plugins/ 由运行时加载；不进主程序 boot jar、不依赖主程序 app。</description>
 
-    <properties>
-        <java.version>17</java.version>
-    </properties>
-
     <!--
       依赖边界（由 RecoverySentinelModuleDependencyGuardTest 守护）：本模块只承载最小外置插件本体
       （RecoverySentinelPf4jPlugin + RecoverySentinelPlugin + 根部 plugin.properties），编译期只依赖跨插件契约
@@ -45,6 +41,12 @@
         </dependency>
 
         <!-- 模块自测（形态守卫 + 边界守卫），test 作用域，不外泄到主程序运行期类路径 -->
+        <dependency>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
+            <artifactId>pixivdownload-sdk-info</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
