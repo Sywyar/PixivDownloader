@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guicompose
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
@@ -187,6 +188,14 @@ class GuiComposePluginTest {
                             DesktopUiHost.WindowStateSnapshot(1280, 800, true),
                         )
                         BorderlessTitleBarScaffold(windowState) {}
+                        // 原生事件与 Compose 状态更新各自完成，任一顺序都要重新核对两者。
+                        LaunchedEffect(windowState.placement) {
+                            if (window.extendedState == Frame.MAXIMIZED_BOTH &&
+                                windowState.placement == WindowPlacement.Maximized
+                            ) {
+                                maximized.countDown()
+                            }
+                        }
                         DisposableEffect(window) {
                             val listener = WindowStateListener {
                                 if (window.extendedState == Frame.MAXIMIZED_BOTH &&
