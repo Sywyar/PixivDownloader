@@ -1,5 +1,9 @@
 name: Cache build dependencies
 description: Reuse third-party Maven dependencies and input-validated Gradle build outputs
+inputs:
+  gradle:
+    description: Restore and save Gradle state for jobs that use Gradle
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -15,6 +19,7 @@ runs:
         restore-keys: |
           maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-
     - name: Cache Gradle dependencies and build outputs
+      if: inputs.gradle == 'true'
       uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       with:
         cache-read-only: false

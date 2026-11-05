@@ -7,12 +7,21 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inspectSdkVersion } from '../sdk-version.mjs';
 
-import { assertSdkResolution, stageSdkArtifacts, verifyTypedServiceArtifacts } from '../sdk-consumer.mjs';
+import { assertSdkResolution, stageSdkArtifacts, verifyConsumer, verifyTypedServiceArtifacts } from '../sdk-consumer.mjs';
 import { createHash } from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const VERSION = inspectSdkVersion(ROOT).version;
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
+
+test('消费者未知分组与互斥模式在访问工程前拒绝', () => {
+    assert.throws(() => verifyConsumer({ scope: 'unknown' }), /unsupported consumer scope/u);
+    for (const scope of ['templates', 'incremental']) {
+        assert.throws(() => verifyConsumer({ scope, typedServiceOnly: true }), /cannot be combined/u);
+    }
+    assert.throws(() => execFileSync(process.execPath, [path.join(ROOT, 'scripts/ci/sdk-consumer.mjs'), '--scope'],
+        { encoding: 'utf8', stdio: 'pipe' }), error => error.status === 1 && /missing consumer scope/u.test(error.stderr));
+});
 
 test('独立服务产物必须携带原 API 字节，消费与提供包不得重复契约或宿主类', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-typed-artifacts-'));
