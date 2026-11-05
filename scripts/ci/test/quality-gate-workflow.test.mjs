@@ -318,6 +318,30 @@ test('Java tests and ProGuard run independently and both gate the required Java 
     }
 });
 
+test('宿主测试与交付运行时一致，SDK 保留最低 Java 消费者并准备 ProGuard 模块', () => {
+    const javaSetup = steps => steps.find(step => step.uses?.startsWith('actions/setup-java@')).with;
+    const jobs = load('.github/workflows/quality-gate.yml').jobs;
+    const runtime = javaSetup(load('.github/actions/package-windows-installer/action.yml').runs.steps);
+    const minimum = fs.readFileSync(path.join(ROOT, 'pom.xml'), 'utf8').match(/<java.version>(\d+)<\/java.version>/u)[1];
+    assert.ok(Number(runtime['java-version']) >= Number(minimum));
+    for (const job of ['java-app-tests', 'java-library-tests', 'sdk-build', 'sdk-services', 'sdk-pages',
+        'release-artifacts', 'windows-runtime-tests']) {
+        assert.equal(javaSetup(jobs[job].steps)['java-version'], runtime['java-version'], job);
+        assert.equal(javaSetup(jobs[job].steps)['check-latest'], true, job);
+    }
+    assert.equal(javaSetup(jobs['sdk-consumers'].steps)['java-version'], minimum);
+    assert.equal(javaSetup(load('.github/actions/test-release-artifacts/action.yml').runs.steps)['java-version'], minimum);
+    const production = javaSetup(load('.github/actions/build-release-java/action.yml').runs.steps);
+    assert.equal(production['java-version'], runtime['java-version']);
+    for (const setup of [production, javaSetup(jobs['sdk-build'].steps), javaSetup(jobs['release-artifacts'].steps)]) {
+        assert.equal(setup['java-package'], 'jdk+jmods');
+        assert.equal(setup['verify-signature'], true);
+    }
+    const container = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+        .match(/^FROM eclipse-temurin:(\d+)-jre$/mu)[1];
+    assert.equal(container, runtime['java-version']);
+});
+
 test('SDK 消费者矩阵执行对应入口，未知分组和工具失败阻断验收', () => {
     const step = load('.github/actions/verify-sdk-consumers/action.yml').runs.steps[0];
     const invoke = (scope, failure = '') => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', `

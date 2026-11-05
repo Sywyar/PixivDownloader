@@ -212,9 +212,10 @@ val idePf4jVersion = if (mavenClasspathReady) null else {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(JavaVersion.current().majorVersion.toInt())
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xjdk-release=17")
         val configuredLanguageVersion = providers.gradleProperty("kotlinLanguageVersion")
             .map(KotlinVersion::fromVersion)
         languageVersion.set(configuredLanguageVersion)
@@ -222,8 +223,8 @@ kotlin {
     }
 }
 
-java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
 }
 
 configurations.configureEach {

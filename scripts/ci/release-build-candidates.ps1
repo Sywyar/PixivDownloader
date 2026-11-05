@@ -64,14 +64,14 @@ if ($Mode -eq 'Export') {
         }
     }
     $manifest = @{schemaVersion=1; sourceSha=$SourceSha; runId=$RunId; attempt=$Attempt;
-        build='java17-verify-official-surveys-proguard'; modules=$modules; files=$files}
+        build='release17-verify-official-surveys-proguard'; modules=$modules; files=$files}
     [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 } else {
     $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
     if ($manifest.schemaVersion -ne 1 -or $manifest.sourceSha -cne $SourceSha -or
         $manifest.runId -cne $RunId -or $manifest.attempt -notmatch '^[1-9][0-9]*$' -or
         [long]$manifest.attempt -gt [long]$Attempt -or
-        $manifest.build -cne 'java17-verify-official-surveys-proguard' -or
+        $manifest.build -cne 'release17-verify-official-surveys-proguard' -or
         ($manifest.modules -join ',') -cne ($modules -join ',')) { throw 'Candidate provenance mismatch.' }
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($file in $manifest.files) {

@@ -8,7 +8,7 @@
 # sidecars so PluginRuntimeManager can verify them before PF4J loads them.
 # The canonical default-installed plugin set is copied from the signed distribution as-is;
 # only required download-workbench is enforced below.
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:25-jre
 
 ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader
 

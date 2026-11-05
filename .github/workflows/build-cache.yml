@@ -35,7 +35,8 @@ jobs:
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           verify-signature: true
-          java-version: '17'
+          java-version: '25'
+          check-latest: true
           distribution: temurin
       - uses: ./.github/actions/setup-build-cache
       - name: Resolve third-party Maven dependencies

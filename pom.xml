@@ -117,7 +117,7 @@
         <layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>
         <multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>
         <powershell.executable>pwsh</powershell.executable>
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.16</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
         <postgresql.version>42.7.13</postgresql.version>

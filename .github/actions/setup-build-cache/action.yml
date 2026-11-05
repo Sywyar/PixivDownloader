@@ -11,9 +11,9 @@ runs:
           !~/.m2/repository/io/github/sywyar/pixivdownloader/**
           !~/.m2/repository/top/sywyar/lovepopup/**
           ~/.m2/wrapper
-        key: maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-${{ hashFiles('**/pom.xml', '.mvn/**') }}
+        key: maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml', '.mvn/**') }}
         restore-keys: |
-          maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-
+          maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-
     - name: Cache Gradle dependencies and build outputs
       uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       with:
