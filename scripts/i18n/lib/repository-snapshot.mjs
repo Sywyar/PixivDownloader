@@ -301,7 +301,7 @@ function parseLsFilesLine(line) {
     return { mode: meta[0], sha: meta[1], name: line.slice(tab + 1) };
 }
 
-function walkDir(root, relPrefix, results) {
+function* walkDir(root, relPrefix) {
     let entries;
     try {
         entries = fs.readdirSync(relPrefix ? path.join(root, ...relPrefix.split('/')) : root, { withFileTypes: true });
@@ -311,9 +311,9 @@ function walkDir(root, relPrefix, results) {
     for (const entry of entries) {
         const rel = relPrefix ? relPrefix + '/' + entry.name : entry.name;
         if (entry.isDirectory()) {
-            walkDir(root, rel, results);
+            yield* walkDir(root, rel);
         } else {
-            results.push(rel);
+            yield rel;
         }
     }
 }
@@ -395,9 +395,7 @@ function verifyBlobEntry(outputDir, rel, expectedSha, expectedMode) {
  */
 function verifyMaterializedTree(repoRoot, ref, outputDir, paths) {
     const expected = collectExpected(repoRoot, ref, paths);
-    const actual = [];
-    walkDir(outputDir, '', actual);
-    for (const rel of actual) {
+    for (const rel of walkDir(outputDir, '')) {
         if (!expected.has(rel)) {
             throw new Error('snapshot verification: extra file not in the requested paths: ' + rel);
         }
@@ -426,9 +424,7 @@ function verifyMaterializedIndex(repoRoot, outputDir, paths) {
             expected.set(entry.name, entry);
         }
     }
-    const actual = [];
-    walkDir(outputDir, '', actual);
-    for (const rel of actual) {
+    for (const rel of walkDir(outputDir, '')) {
         if (!expected.has(rel)) {
             throw new Error('snapshot verification: extra file not in the requested paths: ' + rel);
         }

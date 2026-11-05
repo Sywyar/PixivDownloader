@@ -239,7 +239,7 @@ test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
     ]);
     assert.equal(sequential.runs.steps[0].with.source_sha, '${{ inputs.source_sha }}');
     const sequentialCommands = executionSteps({ steps: sequential.runs.steps }).map(step => step.run || '').join('\n');
-    for (const command of ['sdk-legacy-plugin.mjs', 'sdk-typed-services.mjs', 'page-editor-acceptance.mjs']) {
+    for (const command of ['sdk-legacy-plugin.mjs', 'sdk-typed-services.mjs', 'page-editor-acceptance.mjs', 'page-bfcache-acceptance.mjs']) {
         assert.ok(sequentialCommands.includes(command), `protected predecessor still executes ${command}`);
     }
     const steps = load('.github/actions/build-sdk/action.yml').runs.steps;
@@ -279,7 +279,7 @@ test('Java tests and ProGuard run independently and both gate the required Java 
     }
     const required = ancestors(jobs, 'java-tests');
     for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u),
-        'sdk-consumers', 'sdk-services', 'sdk-pages', 'windows-runtime-tests']) {
+        'sdk-consumers', 'sdk-services', 'sdk-pages', 'page-bfcache', 'windows-runtime-tests']) {
         assert.ok(required.has(id), `java-tests must require ${id}`);
     }
     for (const id of ['sdk-consumers', 'sdk-services', 'sdk-pages']) {
@@ -289,6 +289,9 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.equal(restore?.with?.sha256, '${{ needs.sdk-build.outputs.verification_sha256 }}');
     }
     assert.equal(jobs['windows-runtime-tests'].needs, undefined);
+    assert.equal(jobs['page-bfcache'].needs, undefined);
+    assert.ok(executionSteps(jobs['page-bfcache']).some(step => /node scripts\/ci\/page-bfcache-acceptance\.mjs/u.test(step.run || '')));
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'scripts/ci/page-editor-acceptance.mjs'), 'utf8'), /page-bfcache-acceptance\.mjs/u);
     for (const id of required) {
         assert.equal(jobs[id].if, undefined, `${id} must preserve dependency success`);
         assert.ok(Number.isInteger(jobs[id]['timeout-minutes']) && jobs[id]['timeout-minutes'] > 0);

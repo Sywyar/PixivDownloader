@@ -37,7 +37,6 @@ function run(command, args, cwd = repo) {
     const result = spawnSync(command, args, {cwd, stdio: 'inherit', windowsHide: true});
     assert.equal(result.status, 0, command + ' failed: ' + (result.error?.message || result.status));
 }
-run(process.execPath, [path.join(repo, 'scripts/ci/page-bfcache-acceptance.mjs')]);
 copy(artifact('pixivdownload-app'), path.join(destination, 'host.jar'));
 copy(artifact('pixivdownload-sdk-tools'), path.join(destination, 'sdk-tools.jar'));
 for (const module of ['pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api']) {

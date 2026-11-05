@@ -35,6 +35,10 @@ runs:
           target/sdk-staged-consumer/project/examples/typed-service-plugin "${sqlite[0]}" "${workbench[0]}" \
           target/sdk-typed-services
 
+    - name: Verify browser history restoration
+      shell: bash
+      run: node scripts/ci/page-bfcache-acceptance.mjs
+
     - name: Verify page editor and ordinary plugin slots with a frozen host
       shell: bash
       run: node scripts/ci/page-editor-acceptance.mjs target/sdk-page-editor-acceptance

@@ -314,9 +314,10 @@ val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
     group = "build"
     description = "Shrinks and optimizes the Compose plugin artifact without obfuscation."
     dependsOn(proguardInputJar, verifyMavenClasspath)
-    inputs.file(proguardInputJar.flatMap(Jar::getArchiveFile))
-    inputs.files(configurations.runtimeClasspath, mavenClasspath)
-    inputs.files(baseProguardRules, composeProguardRules)
+    // ProGuardTask 已按内容声明 JAR、JDK 库和规则；不要重复添加含绝对路径的输入。
+    inputs.property("operatingSystem", System.getProperty("os.name"))
+    inputs.property("architecture", System.getProperty("os.arch"))
+    inputs.property("javaRuntime", System.getProperty("java.runtime.version"))
     outputs.dir(proguardRawDirectory)
     configuration(baseProguardRules.asFile)
     configuration(composeProguardRules.asFile)

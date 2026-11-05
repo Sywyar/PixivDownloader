@@ -101,12 +101,12 @@ test('页面恢复比较接受无序端点集合，仍拒绝成员、字段及�
                 for (const field of ['routes', 'paths', 'methods', 'alternatives']) target[field].reverse();
         }
         if (change) change(after.configuration.requirements[0]);
-        let current = JSON.stringify({file: 'before.json', digest: 'valid'}), invocations = 0;
+        let current = JSON.stringify({file: 'before.json', digest: 'valid'}), invocations = 0, recovery = false;
         const stop = new Error('External acceptance boundary reached');
         const context = vm.createContext({path, fileURLToPath, parseArgs, createHash, assert,
             process: {...process, argv: [process.execPath, entry, path.join(root, 'target/page-recovery-fixture')]},
             console: {log() {}}, fs: {existsSync: () => false, mkdirSync() {}, copyFileSync() {}, appendFileSync() {},
-                readdirSync: () => ['before.json'],
+                readdirSync: () => { if (!recovery) throw stop; return ['before.json']; },
                 writeFileSync(file, value) { if (file.endsWith('current.json')) current = value; },
                 readFileSync(file) {
                     if (file.endsWith('current.json')) return current;
@@ -122,6 +122,7 @@ test('页面恢复比较接受无序端点集合，仍拒绝成员、字段及�
                 return {status: 0, stdout: current.includes('corrupt') ? 'unavailable' : 'Current publication:', stderr: ''};
             }});
         assert.throws(() => vm.runInContext(source, context), error => error === stop);
+        recovery = true;
         const recover = () => vm.runInContext('verifyRecoveryCli()', context);
         if (change) assert.throws(recover, /recovery preserves standalone Hook bindings/);
         else { recover(); assert.equal(invocations, 5); }

@@ -1,5 +1,5 @@
 name: Cache build dependencies
-description: Reuse third-party Maven dependencies and Gradle state without restoring project artifacts
+description: Reuse third-party Maven dependencies and input-validated Gradle build outputs
 runs:
   using: composite
   steps:
@@ -14,12 +14,10 @@ runs:
         key: maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-${{ hashFiles('**/pom.xml', '.mvn/**') }}
         restore-keys: |
           maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-
-    - name: Cache Gradle dependencies and compiled build scripts
+    - name: Cache Gradle dependencies and build outputs
       uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       with:
         cache-read-only: false
-        # 不恢复测试任务输出；配置缓存仅在同一 job 内复用，无需向 PR 注入密钥。
-        gradle-home-cache-excludes: |
-          caches/build-cache-*
+        # Test task 禁止输出缓存；配置缓存仅在同一 job 内复用，无需向 PR 注入密钥。
         dependency-graph: disabled
         build-scan-publish: false

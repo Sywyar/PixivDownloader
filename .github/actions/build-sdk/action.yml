@@ -68,7 +68,7 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        mvn -B -ntp -pl pixivdownload-app,pixivdownload-official-plugins,pixivdownload-sdk-tools -am verify \
+        mvn -B -ntp -T 2 -pl pixivdownload-app,pixivdownload-official-plugins,pixivdownload-sdk-tools -am verify \
           -DskipTests "-Dpixivdownload.source.sha=$SOURCE_SHA"
 
     - name: Verify complete candidate runtime with ephemeral custom signatures

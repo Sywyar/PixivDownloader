@@ -194,6 +194,36 @@ test('snapshot：output = 仓库根 / .git / 祖先目录 / 文件系统根 → 
     }
 });
 
+test('snapshot：tree / index 发现额外文件后不再遍历后续目录', (t) => {
+    const root = makeGitRepo();
+    const head = git(['rev-parse', 'HEAD'], root).stdout.trim();
+    const output = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-snap-extra-'));
+    const later = path.join(output, 'later');
+    fs.writeFileSync(path.join(output, 'extra'), 'unexpected', 'utf8');
+    fs.mkdirSync(later);
+    const readdir = fs.readdirSync;
+    let visitedLater = false;
+    const spy = t.mock.method(fs, 'readdirSync', (directory, options) => {
+        if (directory === later) visitedLater = true;
+        const entries = readdir(directory, options);
+        return directory === output ? entries.sort((a, b) => a.name.localeCompare(b.name)) : entries;
+    });
+    try {
+        for (const verify of [
+            () => snapshot.verifyMaterializedTree(root, head, output, GATE_PATHS),
+            () => snapshot.verifyMaterializedIndex(root, output, GATE_PATHS),
+        ]) {
+            visitedLater = false;
+            assert.throws(verify, /extra file.*extra/);
+            assert.equal(visitedLater, false, '拒绝后必须立即停止扫描');
+        }
+    } finally {
+        spy.mock.restore();
+        cleanRepo(root);
+        fs.rmSync(output, { recursive: true, force: true });
+    }
+});
+
 test('snapshot：output 自身 / 任意上级组件为 symlink → 写入前 fail closed；失败无残留', () => {
     const root = makeGitRepo();
     const head = git(['rev-parse', 'HEAD'], root).stdout.trim();
