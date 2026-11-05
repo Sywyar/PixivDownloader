@@ -44,11 +44,12 @@ test('SDK 冻结归档向独立消费者交接签名工具，缺失时构建失�
     }
 });
 
-test('页面验收的冻结产物参数保留默认、发布恢复及验证码入口', () => {
+test('页面验收的冻结产物参数保留完整、分组、发布恢复及验证码入口', () => {
     const entry = path.join(root, 'scripts/ci/page-editor-acceptance.mjs');
     const source = fs.readFileSync(entry, 'utf8').replace(/^import .*;\r?$/gm, '')
         .replaceAll('import.meta.url', JSON.stringify(pathToFileURL(entry).href));
-    for (const mode of [[], ['--publication-recovery'], ['fixture-captcha.jar']]) {
+    for (const mode of [[], ['--publication-recovery'], ['fixture-captcha.jar'],
+        ...['all', 'operations', 'components', 'custom'].map(group => ['--group', group])]) {
         for (const inputs of [[], ['--frozen-inputs', path.join(root, 'target/frozen-inputs')]]) {
             const copied = [], launched = [], stop = new Error('Java acceptance boundary reached');
             const plugins = ['page-editor', 'database-sqlite', 'download-workbench', 'ai', 'tts'];
@@ -73,9 +74,22 @@ test('页面验收的冻结产物参数保留默认、发布恢复及验证码�
             assert.equal(copied[0][0], inputs.length ? path.join(inputs[1], 'host.jar')
                 : path.join(root, 'pixivdownload-app/target/PixivDownload-fixture-boot.jar'));
             assert.equal(launched.at(-1), mode[0] === '--publication-recovery' ? 'publication-recovery'
-                : mode.length ? 'captcha' : path.join(root, 'pixivdownload-app/src/test/resources/page-components/browser.mjs'));
+                : mode[0] === '--group' ? mode[1] : mode.length ? 'captcha'
+                    : path.join(root, 'pixivdownload-app/src/test/resources/page-components/browser.mjs'));
             assert.equal(copied.some(([from]) => from === path.resolve('fixture-captcha.jar')), mode[0] === 'fixture-captcha.jar');
         }
+    }
+});
+
+test('页面验收拒绝未知分组与冲突模式且不创建工作目录', () => {
+    const entry = path.join(root, 'scripts/ci/page-editor-acceptance.mjs');
+    const directory = path.join(root, 'target/page-invalid-group-' + process.pid);
+    for (const args of [['--group', 'missing'], ['--group', ''], ['--group', 'custom', '--publication-recovery'],
+        ['--group', 'operations', 'fixture-captcha.jar']]) {
+        const result = spawnSync(process.execPath, [entry, directory, ...args], {encoding: 'utf8'});
+        assert.notEqual(result.status, 0);
+        assert.match(result.stderr, /Unknown page acceptance group|cannot be combined/);
+        assert.equal(fs.existsSync(directory), false);
     }
 });
 

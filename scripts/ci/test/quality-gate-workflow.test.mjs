@@ -308,6 +308,18 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.equal(restore?.with?.sha256, '${{ needs.sdk-build.outputs.verification_sha256 }}');
     }
     assert.equal(jobs['windows-runtime-tests'].needs, undefined);
+    assert.deepEqual(jobs['sdk-pages'].strategy.matrix.group, ['operations', 'components', 'custom']);
+    assert.equal(jobs['sdk-pages'].strategy['fail-fast'], false);
+    const pageStep = jobs['sdk-pages'].steps.find(step => /page-editor-acceptance\.mjs/u.test(step.run || ''));
+    assert.equal(pageStep.env.ACCEPTANCE_GROUP, '${{ matrix.group }}');
+    for (const group of jobs['sdk-pages'].strategy.matrix.group) {
+        const received = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+            `node() { printf '%s\\n' "$@"; }\n${pageStep.run}`], {
+            cwd: ROOT, encoding: 'utf8', env: {...process.env, ACCEPTANCE_GROUP: group},
+        }).trim().split('\n');
+        assert.equal(received.at(-2), '--group');
+        assert.equal(received.at(-1), group);
+    }
     assert.equal(jobs['page-bfcache'].needs, undefined);
     assert.ok(executionSteps(jobs['page-bfcache']).some(step => /node scripts\/ci\/page-bfcache-acceptance\.mjs/u.test(step.run || '')));
     assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'scripts/ci/page-editor-acceptance.mjs'), 'utf8'), /page-bfcache-acceptance\.mjs/u);

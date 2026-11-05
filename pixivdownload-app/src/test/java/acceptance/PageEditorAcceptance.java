@@ -32,6 +32,9 @@ public final class PageEditorAcceptance {
 
     public static void main(String[] args) throws Exception {
         Utf8ConsoleStreams.install();
+        String group = args.length > 2 ? args[2] : "all";
+        check(Set.of("all", "operations", "components", "custom", "captcha", "publication-recovery").contains(group),
+                "known acceptance group");
         Path fixed = Path.of(args[0]); root = fixed.resolve("runtime"); Files.createDirectory(root);
         Path plugins = root.resolve("plugins"); Files.createDirectory(plugins);
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, root.resolve("config").toString());
@@ -81,6 +84,21 @@ public final class PageEditorAcceptance {
                 browser(args[1], origin, cookie, "publication-recovery", fixed);
                 return;
             }
+            if (group.equals("operations")) {
+                OperationFormsAcceptance.verify(context, origin, cookie,
+                        Path.of(args[1]).resolveSibling("operation-browser.mjs").toString(), fixed);
+                installChecklist(context.getBean(ExternalPluginLifecycleCoordinator.class), fixed);
+                OperationFormsAcceptance.verifyPresentationWithdrawal(context, origin, cookie);
+                OperationFormsAcceptance.verifyAccessForms(context, origin, cookie,
+                        Path.of(args[1]).resolveSibling("access-browser.mjs").toString(), fixed);
+                System.out.println("PAGE_EDITOR_GROUP_OPERATIONS_PASSED");
+                return;
+            }
+            if (group.equals("custom")) {
+                verifyCustomComponents(context, origin, cookie, args[1], fixed);
+                System.out.println("PAGE_EDITOR_GROUP_CUSTOM_PASSED");
+                return;
+            }
             var aiStatus = request(origin, "/api/admin/ai/status", null, cookie);
             check(aiStatus.statusCode() == 200 && JSON.readTree(aiStatus.body()).path("configured").asBoolean(),
                     "isolated AI fixture configured without external requests");
@@ -98,7 +116,7 @@ public final class PageEditorAcceptance {
                     .POST(HttpRequest.BodyPublishers.ofString(declarations)).build();
             check(HttpClient.newHttpClient().send(crossSite, HttpResponse.BodyHandlers.ofString()).statusCode() == 403, "CSS validation enforces CSRF");
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "no publication");
-            OperationFormsAcceptance.verify(context, origin, cookie,
+            if (group.equals("all")) OperationFormsAcceptance.verify(context, origin, cookie,
                     Path.of(args[1]).resolveSibling("operation-browser.mjs").toString(), fixed);
             browser(args[1], origin, cookie, "unchanged", fixed);
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "unchanged publication uses owner default");
@@ -119,18 +137,14 @@ public final class PageEditorAcceptance {
             var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
             Process live = startBrowser(args[1], origin, cookie, "live", fixed);
             awaitFile(fixed.resolve("live-ready"), live);
-            Path sample = fixed.resolve("fixture/page-checklist.jar");
-            var pending = coordinator.installOrUpdate(sample, false, origin(sample, false, null));
-            check(pending.installResult().outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED, "independent plugin needs trust");
-            var active = coordinator.installOrUpdate(sample, false, origin(sample, false, pending.installResult().trustRequirement().artifactSha256()));
-            check(active.activated(), "independent plugin activated: " + active);
+            installChecklist(coordinator, fixed);
             check(fixtureComponents(catalog).size() == 1, "component discovered");
             awaitFile(fixed.resolve("live-discovered"), live);
             coordinator.stop("page-checklist");
             awaitFile(fixed.resolve("live-withdrawn"), live);
             coordinator.start("page-checklist");
             check(live.waitFor() == 0, "live discovery and withdrawal");
-            OperationFormsAcceptance.verifyPresentationWithdrawal(context, origin, cookie);
+            if (group.equals("all")) OperationFormsAcceptance.verifyPresentationWithdrawal(context, origin, cookie);
             Process slots = startBrowser(Path.of(args[1]).resolveSibling("ui-slot-browser.mjs").toString(), origin, cookie, "slots", fixed);
             awaitFile(fixed.resolve("slots-ready"), slots);
             coordinator.stop("page-checklist");
@@ -210,21 +224,37 @@ public final class PageEditorAcceptance {
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 200, "editor absence retains the formal publication");
             browser(args[1], origin, cookie, "restored", fixed);
             coordinator.start("page-editor");
-            browser(args[1], origin, cookie, "custom", fixed);
-            coordinator.stop("page-editor");
-            coordinator.start("page-editor");
-            browser(args[1], origin, cookie, "custom-restarted", fixed);
-            var store = context.getBean(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.class);
-            var published = store.snapshot();
-            coordinator.stop("page-editor");
-            check(store.snapshot().equals(published), "editor withdrawal preserves the complete formal state");
-            check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "withdrawn custom component refuses presentation");
-            browser(args[1], origin, cookie, "default", fixed);
-            coordinator.start("page-editor");
-            browser(args[1], origin, cookie, "publication-recovery", fixed);
-            OperationFormsAcceptance.verifyAccessForms(context, origin, cookie, Path.of(args[1]).resolveSibling("access-browser.mjs").toString(), fixed);
-            System.out.println("PAGE_EDITOR_SIGNED_INSTALL_HTTP_BROWSER_LIFECYCLE_PASSED");
+            if (group.equals("all")) {
+                verifyCustomComponents(context, origin, cookie, args[1], fixed);
+                OperationFormsAcceptance.verifyAccessForms(context, origin, cookie, Path.of(args[1]).resolveSibling("access-browser.mjs").toString(), fixed);
+                System.out.println("PAGE_EDITOR_SIGNED_INSTALL_HTTP_BROWSER_LIFECYCLE_PASSED");
+            } else System.out.println("PAGE_EDITOR_GROUP_COMPONENTS_PASSED");
         }
+    }
+
+    private static void installChecklist(ExternalPluginLifecycleCoordinator coordinator, Path fixed) throws Exception {
+        Path sample = fixed.resolve("fixture/page-checklist.jar");
+        var pending = coordinator.installOrUpdate(sample, false, origin(sample, false, null));
+        check(pending.installResult().outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED, "independent plugin needs trust");
+        var active = coordinator.installOrUpdate(sample, false, origin(sample, false, pending.installResult().trustRequirement().artifactSha256()));
+        check(active.activated(), "independent plugin activated: " + active);
+    }
+
+    private static void verifyCustomComponents(ConfigurableApplicationContext context, String origin, String cookie,
+                                               String browser, Path fixed) throws Exception {
+        var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
+        browser(browser, origin, cookie, "custom", fixed);
+        coordinator.stop("page-editor");
+        coordinator.start("page-editor");
+        browser(browser, origin, cookie, "custom-restarted", fixed);
+        var store = context.getBean(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.class);
+        var published = store.snapshot();
+        coordinator.stop("page-editor");
+        check(store.snapshot().equals(published), "editor withdrawal preserves the complete formal state");
+        check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "withdrawn custom component refuses presentation");
+        browser(browser, origin, cookie, "default", fixed);
+        coordinator.start("page-editor");
+        browser(browser, origin, cookie, "publication-recovery", fixed);
     }
 
     private static List<PageCatalog.AvailableComponent> fixtureComponents(PageCatalog catalog) {

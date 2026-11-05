@@ -10,9 +10,12 @@ import assert from 'node:assert/strict';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const destination = path.resolve(process.argv[2] || path.join(repo, 'target/page-editor-acceptance'));
 const {values, positionals} = parseArgs({args: process.argv.slice(3), allowPositionals: true, options: {
-    'publication-recovery': {type: 'boolean'}, 'frozen-inputs': {type: 'string'},
+    'publication-recovery': {type: 'boolean'}, 'frozen-inputs': {type: 'string'}, 'group': {type: 'string'},
 }});
-const phase = values['publication-recovery'] ? 'publication-recovery' : null;
+assert.ok(values.group === undefined || ['all', 'operations', 'components', 'custom'].includes(values.group), 'Unknown page acceptance group');
+assert.ok(positionals.length <= 1 && !(values.group && (values['publication-recovery'] || positionals.length)),
+    'Page acceptance group cannot be combined with a separate acceptance mode');
+const phase = values['publication-recovery'] ? 'publication-recovery' : values.group;
 const captcha = positionals[0] && !phase ? path.resolve(positionals[0]) : null;
 const frozenInputs = values['frozen-inputs'] ? path.resolve(values['frozen-inputs']) : undefined;
 assert.ok(destination.startsWith(path.join(repo, 'target') + path.sep) && !fs.existsSync(destination), 'Use a new target directory');
