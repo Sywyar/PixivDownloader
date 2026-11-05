@@ -135,15 +135,16 @@ class PluginArtifactMaterializerTest {
     void rejectsImplicitDirectoriesBeyondWorkspaceEntryBudget() throws IOException {
         Path plugins = Files.createDirectory(tempDir.resolve("entry-budget-plugins"));
         Path artifact = plugins.resolve("probe.zip");
-        int implicitDirectoryCount = 5_000;
+        int fileEntryCount = 1_000;
+        int directoriesPerFile = 25;
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageFixtures.PLUGIN_PROPERTIES, PluginPackageFixtures.bytes(
                 PluginPackageFixtures.pluginProperties(
                         "probe", "1.0.0", "1.0", "com.example.Probe")));
         entries.put("classes/", new byte[0]);
-        int fileEntryCount = PluginPackageLimits.DEFAULT_MAX_ENTRIES - entries.size();
+        // 用隐式目录越过物化预算，避免为同一边界同步写入数万个文件。
         for (int index = 0; index < fileEntryCount; index++) {
-            entries.put("classes/group-" + index % implicitDirectoryCount + "/Marker-" + index + ".class",
+            entries.put("classes/group-" + index + "/" + "d/".repeat(directoriesPerFile - 1) + "Marker.class",
                     new byte[]{1});
         }
         PluginPackageFixtures.writeZip(artifact, entries);
@@ -158,14 +159,14 @@ class PluginArtifactMaterializerTest {
         Path loadPath = workspace.resolve("load");
 
         try {
-            assertThat(usage.entryCount()).isEqualTo(PluginPackageLimits.DEFAULT_MAX_ENTRIES);
+            assertThat(usage.entryCount()).isEqualTo(fileEntryCount + 2).isLessThan(limits.maxEntries());
             assertThatThrownBy(() -> new PluginArtifactMaterializer(layout).materialize(
                     snapshot, inspection, PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact())))
                     .isInstanceOf(PluginRuntimeOperationException.class)
                     .hasRootCauseMessage("plugin artifact load tree exceeds the supported entry count");
             try (var paths = Files.walk(loadPath)) {
                 assertThat(paths.count())
-                        .isEqualTo((long) usage.entryCount() + implicitDirectoryCount + 1L);
+                        .isEqualTo((long) usage.entryCount() + (long) fileEntryCount * directoriesPerFile + 1L);
             }
         } finally {
             deleteTree(workspace);

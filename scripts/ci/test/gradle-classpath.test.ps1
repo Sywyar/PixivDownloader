@@ -26,6 +26,25 @@ function Invoke-Verification {
     Write-Host "Gradle classpath check $script:invocation passed: $Expected"
 }
 
+function Write-LibraryFixture {
+    param([string]$Library, [string]$ClassBytes, [string]$Pom)
+    [IO.File]::Delete($Library)
+    $archive = [IO.Compression.ZipFile]::Open($Library, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $entries = [ordered]@{
+            'example/Marker.class' = $ClassBytes
+            'META-INF/maven/example/sdk/Preserved.class' = $ClassBytes
+            'META-INF/services/example.Service' = 'example.Marker'
+            'META-INF/MANIFEST.MF' = "Manifest-Version: 1.0`r`nMulti-Release: true`r`n"
+            'META-INF/maven/example/sdk/pom.xml' = $Pom
+        }
+        foreach ($entry in $entries.GetEnumerator()) {
+            $writer = [IO.StreamWriter]::new($archive.CreateEntry($entry.Key).Open(), $utf8)
+            try { $writer.Write($entry.Value) } finally { $writer.Dispose() }
+        }
+    } finally { $archive.Dispose() }
+}
+
 Push-Location $module
 try {
     Invoke-Verification help $true 'BUILD SUCCESSFUL'
@@ -44,6 +63,33 @@ try {
     Remove-Item -LiteralPath $marker -Force
     Invoke-Verification proguardMarker $true 'Configuration cache entry reused'
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { throw 'ProGuard marker was not regenerated' }
+
+    $library = Join-Path $fixture 'probe.jar'
+    $normalized = Join-Path $module 'target/proguard/library/0/probe.jar'
+    [IO.File]::WriteAllText($manifest, $library, $utf8)
+    Write-LibraryFixture $library 'class-one' '<source>first</source>'
+    Invoke-Verification normalizeProguardLibrary0 $true 'BUILD SUCCESSFUL'
+    $firstHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $normalized).Hash
+    $archive = [IO.Compression.ZipFile]::OpenRead($normalized)
+    try {
+        foreach ($name in @('example/Marker.class', 'META-INF/maven/example/sdk/Preserved.class',
+                'META-INF/services/example.Service', 'META-INF/MANIFEST.MF')) {
+            if ($null -eq $archive.GetEntry($name)) { throw "Library content lost: $name" }
+        }
+        if ($null -ne $archive.GetEntry('META-INF/maven/example/sdk/pom.xml')) {
+            throw 'Maven metadata reached the library pool'
+        }
+    } finally { $archive.Dispose() }
+    Write-LibraryFixture $library 'class-one' '<source>second</source>'
+    Invoke-Verification normalizeProguardLibrary0 $true 'BUILD SUCCESSFUL'
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $normalized).Hash -ne $firstHash) {
+        throw 'Maven source identity changed the normalized library'
+    }
+    Write-LibraryFixture $library 'class-two' '<source>second</source>'
+    Invoke-Verification normalizeProguardLibrary0 $true 'BUILD SUCCESSFUL'
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $normalized).Hash -eq $firstHash) {
+        throw 'Changed class bytes reused the old normalized library'
+    }
 } finally {
     Pop-Location
     Remove-Item -LiteralPath $fixture -Recurse -Force

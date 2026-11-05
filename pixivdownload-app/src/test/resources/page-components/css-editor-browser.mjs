@@ -177,8 +177,18 @@ async function checkMotion(page) {
     if (await details.evaluate(node => node.open)) {
         await details.locator('summary').click(); await settle(details);
     }
-    await details.locator('summary').click();
+    await details.locator('summary').evaluate(summary => {
+        summary.click();
+        const animation = summary.parentElement.getAnimations()[0];
+        if (!animation) throw new Error('disclosure motion must start before changing preference');
+        // 暂停自然结束，只允许偏好变更事件完成本次过渡。
+        animation.pause();
+    });
     await page.emulateMedia({reducedMotion: 'reduce'});
+    await page.waitForFunction(() => {
+        const node = document.getElementById('page-settings');
+        return node.open && node.style.overflow === '' && node.getAnimations().length === 0;
+    });
     assert.equal(await details.evaluate(node => node.open && node.style.overflow === ''), true, 'changing motion preference settles disclosure');
     await page.emulateMedia({reducedMotion: 'no-preference'});
     await details.locator('summary').click(); await details.locator('summary').click();

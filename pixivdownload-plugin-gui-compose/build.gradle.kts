@@ -11,6 +11,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.WriteProperties
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
@@ -310,10 +311,28 @@ val proguardRuntimeJars = configurations.runtimeClasspath.map { runtimeClasspath
 val proguardRuntimeOutputs = proguardRuntimeJars.map { files ->
     files.map { proguardRawLibraries.resolve(it.name) }
 }
+val proguardLibraries = files()
+mavenClasspath.files.sortedBy(File::getAbsolutePath).forEachIndexed { index, library ->
+    if (library.extension.equals("jar", ignoreCase = true)) {
+        val normalized = tasks.register<Zip>("normalizeProguardLibrary$index") {
+            // library pool 不读取 Maven 发布元数据；源码身份变化不应使相同类重新优化。
+            from(zipTree(library)) { exclude("META-INF/maven/**/pom.xml", "META-INF/maven/**/pom.properties") }
+            archiveFileName.set(library.name)
+            destinationDirectory.set(mavenBuildDirectory.resolve("proguard/library/$index"))
+            duplicatesStrategy = DuplicatesStrategy.FAIL
+            isPreserveFileTimestamps = false
+            isReproducibleFileOrder = true
+        }
+        proguardLibraries.from(normalized.flatMap { it.archiveFile })
+    } else {
+        proguardLibraries.from(library)
+    }
+}
 val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
     group = "build"
     description = "Shrinks and optimizes the Compose plugin artifact without obfuscation."
     dependsOn(proguardInputJar, verifyMavenClasspath)
+    dependsOn(proguardLibraries)
     // ProGuardTask 已按内容声明 JAR、JDK 库和规则；不要重复添加含绝对路径的输入。
     inputs.property("operatingSystem", System.getProperty("os.name"))
     inputs.property("architecture", System.getProperty("os.arch"))
@@ -331,7 +350,7 @@ val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
         injars(runtimeJar)
         outjars(proguardRawLibraries.resolve(runtimeJar.name))
     }
-    mavenClasspath.files.sortedBy(File::getAbsolutePath).forEach(::libraryjars)
+    libraryjars(proguardLibraries)
     File(System.getProperty("java.home"), "jmods").listFiles()
         .orEmpty()
         .filter { it.isFile && it.extension.equals("jmod", ignoreCase = true) }

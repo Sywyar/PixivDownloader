@@ -266,19 +266,30 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.equal(matches.length, 1, `one execution owner for ${pattern}`);
         return matches[0];
     };
-    const tests = owner(/\bmvn\b[^\n]*\btest\b[^\n]*-Duser\.language=/u);
+    const tests = Object.keys(jobs).filter(id => executionSteps(jobs[id]).some(step =>
+        /\bmvn\b[^\n]*\btest\b[^\n]*-Duser\.language=/u.test(step.run || '')));
+    assert.deepEqual(tests.sort(), ['java-app-tests', 'java-library-tests']);
+    const appCommand = executionSteps(jobs['java-app-tests']).find(step => /\bmvn\b.*\btest\b/u.test(step.run || '')).run;
+    const libraryCommand = executionSteps(jobs['java-library-tests']).find(step => /\bmvn\b.*\btest\b/u.test(step.run || '')).run;
+    assert.match(appCommand, /-pl pixivdownload-app -am test/u);
+    assert.match(libraryCommand, /-pl '!pixivdownload-app' test/u);
+    for (const command of [appCommand, libraryCommand]) {
+        assert.match(command, /-DforkCount=1(?:\s|$)/u);
+        assert.doesNotMatch(command, /-D(?:test=|skipTests|maven\.test\.skip|surefire\.(?:includes|excludes))/u);
+    }
     const build = owner(/\bmvn\b[^\n]*\b(?:verify|install)\b[^\n]*-Pofficial-surveys/u);
-    assert.notEqual(tests, build);
-    assert.equal(ancestors(jobs, tests).has(build), false);
-    assert.equal(ancestors(jobs, build).has(tests), false);
     const sdk = owner(/sdk-contract\.mjs/u);
-    assert.notEqual(sdk, tests);
-    for (const [a, b] of [[tests, sdk], [build, sdk]]) {
+    for (const testJob of tests) {
+        assert.notEqual(testJob, build);
+        assert.notEqual(testJob, sdk);
+        assert.equal(jobs[testJob].needs, undefined);
+    }
+    for (const [a, b] of [...tests.flatMap(id => [[id, sdk], [id, build]]), [build, sdk]]) {
         assert.equal(ancestors(jobs, a).has(b), false);
         assert.equal(ancestors(jobs, b).has(a), false);
     }
     const required = ancestors(jobs, 'java-tests');
-    for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u),
+    for (const id of [...tests, 'java-unit-tests', build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u),
         'sdk-consumers', 'sdk-services', 'sdk-pages', 'page-bfcache', 'windows-runtime-tests']) {
         assert.ok(required.has(id), `java-tests must require ${id}`);
     }

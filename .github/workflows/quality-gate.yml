@@ -45,6 +45,13 @@ jobs:
         run: echo "Java tests, SDK contract and release artifact verification succeeded."
 
   java-unit-tests:
+    needs: [java-app-tests, java-library-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "Application and library tests succeeded."
+
+  java-app-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -71,7 +78,33 @@ jobs:
       - name: Run Java tests
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: mvn -B -ntp -T 2 test -DforkCount=2 -Dexec.skip=true -Duser.language=en -Duser.country=US
+        run: mvn -B -ntp -T 2 -pl pixivdownload-app -am test -DforkCount=1 -Dexec.skip=true -Duser.language=en -Duser.country=US
+
+  java-library-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          verify-signature: true
+          java-version: '17'
+          distribution: temurin
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+      - uses: ./.github/actions/setup-build-cache
+      - name: Compile external plugin test fixtures
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -ntp -T 2 -pl pixivdownload-official-plugins -am compile -Dexec.skip=true
+      - name: Run library and plugin tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -ntp -T 2 -pl '!pixivdownload-app' test -DforkCount=1 -Dexec.skip=true -Duser.language=en -Duser.country=US
 
   sdk-build:
     runs-on: ubuntu-latest
