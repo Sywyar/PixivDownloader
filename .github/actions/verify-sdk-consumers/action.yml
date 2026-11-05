@@ -2,7 +2,7 @@ name: Verify SDK consumers
 description: Validate isolated consumers and both plugin modes against the frozen SDK
 inputs:
   scope:
-    description: Consumer group (all, templates, douyin or build-tools)
+    description: Consumer group (all, templates or build-tools)
     required: false
     default: all
 runs:
@@ -16,12 +16,12 @@ runs:
       run: |
         set -euo pipefail
         case "$CONSUMER_SCOPE" in
-          all|templates|douyin|build-tools) ;;
+          all|templates|build-tools) ;;
           *) echo "Unsupported consumer scope: $CONSUMER_SCOPE" >&2; exit 1 ;;
         esac
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
         if [ "$CONSUMER_SCOPE" != build-tools ]; then
-          node scripts/ci/sdk-consumer.mjs --repo-root . --scope "$CONSUMER_SCOPE" \
+          node scripts/ci/sdk-consumer.mjs --repo-root . \
             --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
             --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
         fi

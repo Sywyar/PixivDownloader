@@ -78,7 +78,7 @@ jobs:
       - name: Run Java tests
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: mvn -B -ntp -T 2 -pl pixivdownload-app -am test -DforkCount=1 -Dexec.skip=true -Duser.language=en -Duser.country=US
+        run: mvn -B -ntp -T 2 -pl pixivdownload-app -am test -DforkCount=2 -Dexec.skip=true -Duser.language=en -Duser.country=US
 
   java-library-tests:
     runs-on: ubuntu-latest
@@ -224,7 +224,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scope: [templates, douyin, build-tools]
+        scope: [templates, build-tools]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
