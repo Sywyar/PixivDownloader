@@ -1,5 +1,10 @@
 name: Verify SDK consumers
 description: Validate isolated consumers and both plugin modes against the frozen SDK
+inputs:
+  scope:
+    description: Consumer group (all, templates, douyin or build-tools)
+    required: false
+    default: all
 runs:
   using: composite
   steps:
@@ -7,17 +12,27 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        CONSUMER_SCOPE: ${{ inputs.scope }}
       run: |
         set -euo pipefail
+        case "$CONSUMER_SCOPE" in
+          all|templates|douyin|build-tools) ;;
+          *) echo "Unsupported consumer scope: $CONSUMER_SCOPE" >&2; exit 1 ;;
+        esac
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
-        node scripts/ci/sdk-consumer.mjs --repo-root . \
-          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
-          --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
-        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging \
-          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
-          --sbt-launcher target/sbt-launch.jar
+        if [ "$CONSUMER_SCOPE" != build-tools ]; then
+          node scripts/ci/sdk-consumer.mjs --repo-root . --scope "$CONSUMER_SCOPE" \
+            --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+            --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
+        fi
+        if [ "$CONSUMER_SCOPE" = all ] || [ "$CONSUMER_SCOPE" = build-tools ]; then
+          node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging \
+            --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+            --sbt-launcher target/sbt-launch.jar
+        fi
 
     - name: Run both SDK plugin modes with the fixed complete host
+      if: inputs.scope == 'all' || inputs.scope == 'templates'
       shell: pwsh
       run: |
         $release = Get-Content -Raw -Encoding UTF8 target/sdk-release/sdk-release.json | ConvertFrom-Json

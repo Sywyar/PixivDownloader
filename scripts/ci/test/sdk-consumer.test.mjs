@@ -15,6 +15,27 @@ const VERSION = inspectSdkVersion(ROOT).version;
 const PLUGIN_VERSION = '9.8.7-test.5';
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
 
+test('消费者分组拒绝未知值和冲突模式，且不修改工作目录', () => {
+    const work = fs.mkdtempSync(path.join(ROOT, 'target', 'sdk-scope-'));
+    const marker = path.join(work, 'keep.txt');
+    fs.writeFileSync(marker, 'unchanged', 'utf8');
+    try {
+        for (const options of [{ scope: 'unknown' }, { scope: '' }, { scope: 'templates', typedServiceOnly: true }]) {
+            assert.throws(() => verifyConsumer({ repoRoot: ROOT, workDirectory: work, ...options }), /consumer scope/u);
+            assert.equal(fs.readFileSync(marker, 'utf8'), 'unchanged');
+        }
+        for (const args of [['--scope', 'unknown'], ['--scope']]) {
+            const command = spawnSync(process.execPath, [path.join(ROOT, 'scripts/ci/sdk-consumer.mjs'),
+                '--repo-root', ROOT, '--sdk-zip', 'missing.zip', '--sdk-repository', 'missing',
+                '--work-dir', work, ...args], { encoding: 'utf8' });
+            assert.equal(command.status, 1);
+            assert.match(command.stderr, /consumer scope/u);
+        }
+    } finally {
+        fs.rmSync(work, { recursive: true, force: true });
+    }
+});
+
 test('独立服务产物必须携带原 API 字节，消费与提供包不得重复契约或宿主类', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-typed-artifacts-'));
     const pack = (module, entries) => {

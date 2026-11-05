@@ -310,8 +310,43 @@ test('Java tests and ProGuard run independently and both gate the required Java 
     }
 });
 
+test('SDK 消费者矩阵执行对应入口，未知分组和工具失败阻断验收', () => {
+    const step = load('.github/actions/verify-sdk-consumers/action.yml').runs.steps[0];
+    const invoke = (scope, failure = '') => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', `
+        node() {
+          case "$1" in
+            scripts/ci/sdk-version.mjs) printf '{"version":"fixture"}';;
+            -pe) cat >/dev/null; printf fixture;;
+            *) printf '%s\\n' "$*"; if [ "$1" = "$FAIL_COMMAND" ]; then return 7; fi;;
+          esac
+        }
+        ${step.run}
+    `], { encoding: 'utf8', env: { ...process.env, CONSUMER_SCOPE: scope, FAIL_COMMAND: failure } });
+    for (const scope of ['all', 'templates', 'douyin', 'build-tools']) {
+        const commands = invoke(scope).trim().split('\n');
+        assert.equal(commands.length, scope === 'all' ? 2 : 1);
+        assert.equal(commands.some(command => command.startsWith('scripts/ci/sdk-consumer.mjs ')), scope !== 'build-tools');
+        assert.equal(commands.some(command => command.startsWith('scripts/ci/sdk-build-tools.mjs ')), ['all', 'build-tools'].includes(scope));
+        if (scope !== 'build-tools') assert.ok(commands[0].includes(`--scope ${scope} `));
+        assert.throws(() => invoke(scope, scope === 'build-tools' ? 'scripts/ci/sdk-build-tools.mjs' : 'scripts/ci/sdk-consumer.mjs'),
+            error => error.status === 7);
+    }
+    assert.throws(() => invoke('unknown'), error => error.status === 1);
+});
+
 test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构建产物', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
+    assert.deepEqual(jobs['sdk-consumers'].strategy, {
+        'fail-fast': false, matrix: { scope: ['templates', 'douyin', 'build-tools'] },
+    });
+    const consumers = jobs['sdk-consumers'].steps.find(step => step.uses === './.github/actions/verify-sdk-consumers');
+    assert.equal(consumers.with.scope, '${{ matrix.scope }}');
+    const consumerAction = load('.github/actions/verify-sdk-consumers/action.yml');
+    assert.equal(consumerAction.inputs.scope.default, 'all');
+    const runtimeStep = consumerAction.runs.steps.find(step => /sdk-runtime-consumer\.ps1/u.test(step.run || ''));
+    for (const scope of ['all', 'templates', 'douyin', 'build-tools']) {
+        assert.equal(vm.runInNewContext(runtimeStep.if, { inputs: { scope } }), ['all', 'templates'].includes(scope));
+    }
     const artifacts = executionSteps(jobs['release-artifacts']);
     const build = artifacts.findIndex(step => /mvn.*(?:verify|install).*-Pofficial-surveys/u.test(step.run || ''));
     const compose = artifacts.findIndex(step => /gradlew(?:\.bat)?.*mavenTest/u.test(step.run || ''));

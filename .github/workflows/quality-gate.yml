@@ -221,6 +221,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: sdk-build
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [templates, douyin, build-tools]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -241,6 +245,8 @@ jobs:
           artifact_id: ${{ needs.sdk-build.outputs.verification_id }}
           sha256: ${{ needs.sdk-build.outputs.verification_sha256 }}
       - uses: ./.github/actions/verify-sdk-consumers
+        with:
+          scope: ${{ matrix.scope }}
 
   sdk-services:
     runs-on: ubuntu-latest
