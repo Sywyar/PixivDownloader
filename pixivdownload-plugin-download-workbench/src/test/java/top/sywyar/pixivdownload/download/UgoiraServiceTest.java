@@ -431,6 +431,8 @@ class UgoiraServiceTest {
         }
         request.setUgoiraFormats("zip");
         assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
+        assertThat(Files.readAllBytes(tempDir.resolve("limited.zip"))).isEqualTo(archive);
     }
 
     @Test
