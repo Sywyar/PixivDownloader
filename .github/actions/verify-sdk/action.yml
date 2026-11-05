@@ -11,6 +11,8 @@ runs:
       with:
         source_sha: ${{ inputs.source_sha }}
     - uses: ./.github/actions/verify-sdk-consumers
+      with:
+        source_sha: ${{ inputs.source_sha }}
 
     - name: Prepare pinned browser and original published plugin fixtures
       shell: bash

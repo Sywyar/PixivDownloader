@@ -238,13 +238,16 @@ test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
         './.github/actions/build-sdk', './.github/actions/verify-sdk-consumers',
     ]);
     assert.equal(sequential.runs.steps[0].with.source_sha, '${{ inputs.source_sha }}');
+    assert.equal(sequential.runs.steps[1].with.source_sha, '${{ inputs.source_sha }}');
     const sequentialCommands = executionSteps({ steps: sequential.runs.steps }).map(step => step.run || '').join('\n');
     for (const command of ['sdk-legacy-plugin.mjs', 'sdk-typed-services.mjs', 'page-editor-acceptance.mjs', 'page-bfcache-acceptance.mjs']) {
         assert.ok(sequentialCommands.includes(command), `protected predecessor still executes ${command}`);
     }
     const steps = load('.github/actions/build-sdk/action.yml').runs.steps;
     const stage = steps.find(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
-    const templates = steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
+    const consumerAction = load('.github/actions/verify-sdk-consumers/action.yml');
+    assert.equal(consumerAction.inputs.source_sha.required, true);
+    const templates = consumerAction.runs.steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
     assert.equal(stage.env.SOURCE_SHA, '${{ inputs.source_sha }}');
     assert.equal(templates.env.SOURCE_SHA, stage.env.SOURCE_SHA);
     const sourceSha = 'a'.repeat(40);
@@ -257,6 +260,10 @@ test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
     assert.ok(received.includes('verify'));
     assert.ok(received.some(argument => argument.startsWith('-Dpixivdownload.sdk.tools=')));
     assert.ok(!received.includes('-pl'), '所有模板及 SDK 模块都参与构建');
+    assert.throws(() => execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+        `mvn() { return 17; }\nnode() { echo unexpected-node-call; }\n${templates.run}`], {
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, SOURCE_SHA: sourceSha, GITHUB_WORKSPACE: ROOT },
+    }), error => error.status === 17 && !error.stdout.includes('unexpected-node-call'));
 });
 
 test('Java tests and ProGuard run independently and both gate the required Java result', () => {
@@ -341,6 +348,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     });
     const consumers = jobs['sdk-consumers'].steps.find(step => step.uses === './.github/actions/verify-sdk-consumers');
     assert.equal(consumers.with.scope, '${{ matrix.scope }}');
+    assert.equal(consumers.with.source_sha, '${{ github.sha }}');
     const consumerAction = load('.github/actions/verify-sdk-consumers/action.yml');
     assert.equal(consumerAction.inputs.scope.default, 'all');
     const runtimeStep = consumerAction.runs.steps.find(step => /sdk-runtime-consumer\.ps1/u.test(step.run || ''));
@@ -365,16 +373,24 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
             'WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete']);
     const sources = executionSteps(jobs['sdk-build']);
     const stage = sources.findIndex(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
-    const templates = sources.findIndex(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
+    const templates = consumerAction.runs.steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
+    const fixture = consumerAction.runs.steps.find(step => /node scripts\/ci\/sdk-build-tools\.mjs/u.test(step.run || '')
+        && !step.run.includes('--sdk-zip'));
+    for (const scope of ['all', 'templates', 'build-tools']) {
+        for (const step of [templates, fixture]) {
+            assert.equal(vm.runInNewContext(step.if, { inputs: { scope } }), ['all', 'build-tools'].includes(scope));
+            assert.equal(step['continue-on-error'], undefined);
+        }
+    }
     const consumer = executionSteps(jobs['sdk-consumers']).find(step => /node scripts\/ci\/sdk-consumer\.mjs/u.test(step.run || ''));
     const contract = sources.findIndex(step => /sdk-contract\.mjs/u.test(step.run || ''));
-    assert.ok(stage >= 0 && templates > stage && consumer && contract > stage);
+    assert.ok(stage >= 0 && templates && consumer && contract > stage);
     assert.ok(ancestors(jobs, 'sdk-consumers').has('sdk-build'));
-    assert.doesNotMatch(sources[templates].run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
-    assert.match(sources[templates].run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin", process.argv\[1\]\)/u);
-    assert.match(sources[templates].run, /node scripts\/ci\/sdk-remote.mjs/u);
+    assert.doesNotMatch(templates.run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
+    assert.match(templates.run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin", process.argv\[1\]\)/u);
+    assert.match(templates.run, /node scripts\/ci\/sdk-remote.mjs/u);
     assert.ok(executionSteps(jobs['sdk-services']).some(step => /node scripts\/ci\/sdk-typed-services.mjs/u.test(step.run || '')));
-    assert.doesNotMatch(sources[templates].run, /-pl\s/u);
+    assert.doesNotMatch(templates.run, /-pl\s/u);
     assert.ok(sources.some(step => /node scripts\/ci\/sdk-release\.mjs/u.test(step.run || '')));
     const scripts = Object.values(jobs).flatMap(executionSteps)
         .filter(step => /check-powershell\.ps1/u.test(step.run || ''));

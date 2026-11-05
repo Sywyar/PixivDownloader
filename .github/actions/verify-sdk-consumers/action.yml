@@ -1,6 +1,9 @@
 name: Verify SDK consumers
 description: Validate isolated consumers and both plugin modes against the frozen SDK
 inputs:
+  source_sha:
+    description: Exact source commit recorded in the SDK artifacts
+    required: true
   scope:
     description: Consumer group (all, templates or build-tools)
     required: false
@@ -40,3 +43,22 @@ runs:
           -WorkDirectory target/sdk-host-consumer `
           -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file) `
           -TestRepositoryConfig build/sdk-development-runtime/ci-repository.yaml
+
+    - name: Verify standalone plugin templates
+      if: inputs.scope == 'all' || inputs.scope == 'build-tools'
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        tools="$GITHUB_WORKSPACE/target/sdk-tools.jar"
+        mvn -B -ntp -f plugin-templates/pom.xml verify "-Dpixivdownload.source.sha=$SOURCE_SHA" \
+          "-Dpixivdownload.sdk.tools=$tools"
+        node --input-type=module -e 'import { verifyTypedServiceArtifacts } from "./scripts/ci/sdk-consumer.mjs"; verifyTypedServiceArtifacts("plugin-templates/typed-service-plugin", process.argv[1]);' "$tools"
+        node scripts/ci/sdk-remote.mjs plugin-templates/typed-service-plugin
+
+    - name: Verify single SDK dependency across build tools
+      if: inputs.scope == 'all' || inputs.scope == 'build-tools'
+      shell: bash
+      run: |
+        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-launcher target/sbt-launch.jar

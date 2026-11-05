@@ -246,6 +246,7 @@ jobs:
           sha256: ${{ needs.sdk-build.outputs.verification_sha256 }}
       - uses: ./.github/actions/verify-sdk-consumers
         with:
+          source_sha: ${{ github.sha }}
           scope: ${{ matrix.scope }}
 
   sdk-services:
