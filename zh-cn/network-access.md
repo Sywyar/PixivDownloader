@@ -15,6 +15,8 @@
   - SMTP 使用 `mail` 插件自有连接与可选 SOCKS 代理；PostgreSQL JDBC 直连目标数据库服务器，不走 HTTP 代理。
   - 浏览器同源 API、介绍页 Google Fonts、浏览器端 Web Speech API、验证码前端控件、PostHog 与油猴脚本由浏览器直接发起，不经过 Java 后端代理。
 
+插件使用宿主管理的 HTTP 客户端时，传输层不因限流、服务不可用或连接错误自动重发请求。需要重试的功能自行控制次数与等待，具体策略见对应功能说明。
+
 ## 核心宿主与默认请求
 
 - **同源认证与国际化**：登录页通过同源 `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` 检查会话与提交认证（回跳地址仅接受同源站内路径）。前端页面通过 `/api/i18n/meta`、`/api/i18n/messages/{namespace}` 与同源 `i18n-static/` 加载词典（单次超时 10 秒，缺失词典最多重试 3 轮：1.5、5、15 秒），不连接外部翻译服务。
@@ -70,7 +72,9 @@ AI 插件使用 OpenAI 兼容协议：连接测试、小说翻译和多角色分
 | 阿里云百炼 / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`、`https://api.siliconflow.cn/v1` |
 | Ollama（本机） | `http://localhost:11434/v1` | LM Studio（本机） | `http://localhost:1234/v1` |
 
-`translation` 插件在启动手动或自动翻译时调用所选引擎：AI 复用上表配置；有道请求 `https://openapi.youdao.com/api`（发送文本、应用 ID 与本地计算的 v3 签名，不直接发送应用密钥）；LibreTranslate 请求管理员配置的 `{libretranslate-url}/translate`（可选 `api_key`）。有道与 LibreTranslate 连接超时 30 秒、读取超时 120 秒，单次最多 1,000 Unicode 字符、响应上限 1 MiB，由 `translation.use-proxy` 控制是否走应用代理。
+`translation` 插件在手动或自动翻译时调用所选引擎。AI 复用上表配置；有道单条请求 `https://openapi.youdao.com/api`，批量请求 `https://openapi.youdao.com/v2/api`，发送文本、应用 ID 与本地计算的 v3 签名，不直接发送应用密钥。LibreTranslate 向管理员配置的 `{libretranslate-url}/translate` 发送 JSON，含单条或数组文本及可选 `api_key`。两个引擎分别配置 `translation.<引擎>.use-proxy` 与 `read-timeout-seconds`（默认关闭代理、读取 120 秒）；连接超时为 30 秒。字符、批量、并发、发送间隔和限流重试参数见[小说与朗读](/zh-cn/novel)。响应读取预算取 1 MiB 与本批实际输入码点数乘 16 字节的较大值，最大 16,000,000 字节，超限拒绝。仅明确限流时有限重试，超时等其他错误不自动重放。
+
+选择 LibreTranslate 后，打开翻译弹窗或重新加载语言时，`translation` 插件会向同一配置地址的 `/languages` 发送 GET 请求，读取目标语言，不发送正文或 API 密钥。查询沿用上述代理、超时和 1 MiB 响应限制；不打开弹窗或切换引擎即可避免此查询。有道选项使用内置官方语种表，无额外查询。
 
 ### `tts`、`push` 与 `mail` 插件
 

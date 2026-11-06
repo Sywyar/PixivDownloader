@@ -15,6 +15,8 @@
   - SMTP は `mail` プラグイン独自の接続と任意の SOCKS プロキシを使います。PostgreSQL JDBC は対象データベースサーバーに直接接続し、HTTP プロキシを経由しません。
   - ブラウザーの同一オリジン API、紹介ページの Google Fonts、ブラウザー側 Web Speech API、CAPTCHA のフロントエンドウィジェット、PostHog、ユーザースクリプトはブラウザーから直接通信し、Java バックエンドのプロキシを経由しません。
 
+ホスト管理の HTTP クライアントを使うプラグインでは、転送層がレート制限、サービス停止、接続エラーによる自動再送を行うことはありません。再試行が必要な機能が回数と待機時間を管理します。具体的な方針は各機能の説明を参照してください。
+
 ## コアホストとデフォルトのリクエスト
 
 - **同一オリジンの認証と国際化**：ログインページは `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` でセッション確認と認証送信を行います。戻り先は同一オリジン内のパスだけを受け付けます。フロントエンドは `/api/i18n/meta`、`/api/i18n/messages/{namespace}`、同一オリジンの `i18n-static/` から辞書を読み込みます。1 回のタイムアウトは 10 秒で、不足する辞書は最大 3 回、1.5、5、15 秒後に再試行します。外部の翻訳サービスには接続しません。
@@ -70,7 +72,9 @@ AI プラグインは OpenAI 互換プロトコルを使います。接続テス
 | Alibaba Cloud Bailian / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`、`https://api.siliconflow.cn/v1` |
 | Ollama（ローカル） | `http://localhost:11434/v1` | LM Studio（ローカル） | `http://localhost:1234/v1` |
 
-`translation` プラグインは手動・自動翻訳の開始時に選択したエンジンを呼び出します。AI は上表の設定を使います。有道は `https://openapi.youdao.com/api` にテキスト、アプリケーション ID、ローカル計算の v3 署名を送り、アプリケーション秘密キーそのものは送りません。LibreTranslate は管理者設定の `{libretranslate-url}/translate` に接続し、任意の `api_key` を付けます。有道と LibreTranslate は接続タイムアウト 30 秒、読み取りタイムアウト 120 秒、1 回最大 1,000 Unicode 文字、応答上限 1 MiB で、`translation.use-proxy` によりアプリケーションのプロキシを使うか選びます。
+`translation` は手動・自動翻訳で選択中のエンジンを呼び出します。AI は上表の設定を再利用します。有道は単一テキストを `https://openapi.youdao.com/api`、バッチを `https://openapi.youdao.com/v2/api` に送り、本文・アプリ ID・ローカル計算した v3 署名を渡します。アプリ秘密キーは直接送りません。LibreTranslate は管理者指定の `{libretranslate-url}/translate` に、テキストまたは配列と任意の `api_key` を JSON で送信します。各エンジンの `translation.<engine>.use-proxy` と `read-timeout-seconds` を個別に設定します（既定はプロキシ無効、読み取り 120 秒）。接続タイムアウトは 30 秒です。文字数・バッチ数・同時数・間隔・再試行の設定は[小説と読み上げ](/ja/novel)を参照してください。応答上限は 1 MiB と実際のバッチ入力コードポイント数 × 16 バイトの大きい方で、最大 16,000,000 バイトです。超過は拒否します。明示的な頻度制限のみ有限回再試行し、タイムアウトなどは自動再送しません。
+
+LibreTranslate の選択中に翻訳ダイアログを開くか言語を再読み込みすると、`translation` プラグインが設定先の `/languages` に GET リクエストを送り、翻訳先言語を取得します。本文や API キーは送らず、上記のプロキシ、タイムアウト、応答上限 1 MiB を使います。ダイアログを開かないか、他のエンジンを選べば照会しません。有道は同梱した公式の語種表を使い、追加の通信はしません。
 
 ### `tts`、`push`、`mail` プラグイン
 

@@ -15,6 +15,8 @@
   - SMTP는 `mail` 플러그인의 자체 연결과 선택적 SOCKS 프록시를 사용합니다. PostgreSQL JDBC는 대상 데이터베이스 서버에 직접 연결하며 HTTP 프록시를 사용하지 않습니다.
   - 브라우저 동일 출처 API, 소개 페이지의 Google Fonts, 브라우저 Web Speech API, CAPTCHA 프런트엔드 위젯, PostHog와 사용자 스크립트는 브라우저가 직접 요청하며 Java 백엔드 프록시를 거치지 않습니다.
 
+플러그인이 호스트에서 관리하는 HTTP 클라이언트를 사용할 때 전송 계층은 속도 제한, 서비스 오류 또는 연결 오류가 발생해도 요청을 자동으로 재전송하지 않습니다. 재시도가 필요한 기능이 횟수와 대기 시간을 직접 관리하며, 구체적인 정책은 각 기능 설명에 나와 있습니다.
+
 ## 코어 호스트 및 기본 요청
 
 - **동일 출처 인증 및 국제화**: 로그인 페이지는 동일 출처 `/api/auth/check`, `/api/auth/login`, `/api/auth/invite-redeem`으로 세션을 확인하고 인증을 제출합니다. 복귀 주소는 동일 출처의 사이트 내부 경로만 허용합니다. 프런트엔드 페이지는 `/api/i18n/meta`, `/api/i18n/messages/{namespace}`와 동일 출처 `i18n-static/`에서 사전을 로드합니다. 요청당 시간 제한은 10초이며 누락된 사전은 1.5, 5, 15초 간격으로 최대 3회 재시도합니다. 외부 번역 서비스에 연결하지 않습니다.
@@ -70,7 +72,9 @@ AI 플러그인은 OpenAI 호환 프로토콜을 사용합니다. 연결 테스�
 | Alibaba Cloud Model Studio / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`, `https://api.siliconflow.cn/v1` |
 | Ollama(로컬) | `http://localhost:11434/v1` | LM Studio(로컬) | `http://localhost:1234/v1` |
 
-`translation` 플러그인은 수동 또는 자동 번역을 시작할 때 선택한 엔진을 호출합니다. AI는 위 설정을 재사용합니다. Youdao는 `https://openapi.youdao.com/api`에 텍스트, 애플리케이션 ID와 로컬에서 계산한 v3 서명을 보내며 애플리케이션 비밀 키를 직접 보내지 않습니다. LibreTranslate는 관리자가 설정한 `{libretranslate-url}/translate`를 요청하며 선택적으로 `api_key`를 사용합니다. Youdao와 LibreTranslate의 연결 시간 제한은 30초, 읽기는 120초입니다. 요청당 최대 1,000 Unicode 문자, 응답 최대 1 MiB이며 `translation.use-proxy`로 애플리케이션 프록시 사용 여부를 제어합니다.
+`translation`은 수동·자동 번역 시 선택한 엔진을 호출합니다. AI는 위 설정을 재사용합니다. Youdao는 단일 텍스트를 `https://openapi.youdao.com/api`, 배치를 `https://openapi.youdao.com/v2/api`로 보내며 텍스트·앱 ID·로컬에서 계산한 v3 서명을 전송합니다. 앱 비밀 키는 직접 보내지 않습니다. LibreTranslate는 관리자가 설정한 `{libretranslate-url}/translate`로 텍스트 또는 배열과 선택적 `api_key`를 JSON으로 전송합니다. 엔진별 `translation.<engine>.use-proxy`와 `read-timeout-seconds`를 설정합니다(기본값: 프록시 꺼짐, 읽기 120초). 연결 제한 시간은 30초입니다. 문자·배치·동시 요청·간격·재시도 설정은 [소설과 낭독](/ko/novel)을 참조하세요. 응답 읽기는 1 MiB와 실제 배치 입력 코드 포인트 수 × 16바이트 중 큰 값으로 제한하며 최대 16,000,000바이트입니다. 초과 응답은 거부합니다. 명시적인 호출 제한만 유한 횟수로 재시도하고 시간 초과 등은 자동 재전송하지 않습니다.
+
+LibreTranslate를 선택한 상태에서 번역 대화상자를 열거나 언어를 다시 불러오면 `translation` 플러그인이 설정한 서비스의 `/languages`에 GET 요청을 보내 대상 언어를 가져옵니다. 본문이나 API 키는 보내지 않으며 위의 프록시, 시간 제한 및 1 MiB 응답 제한을 사용합니다. 대화상자를 열지 않거나 다른 엔진을 선택하면 이 조회를 하지 않습니다. Youdao는 포함된 공식 언어 표를 사용하며 추가 요청을 하지 않습니다.
 
 ### `tts`, `push` 및 `mail` 플러그인
 

@@ -15,6 +15,8 @@ This page describes the destinations each feature connects to, data sent, proxy 
   - SMTP uses the `mail` plugin's own connection and optional SOCKS proxy. PostgreSQL JDBC connects directly to the target database server, without the HTTP proxy.
   - Same-origin browser APIs, Google Fonts on the introduction page, browser Web Speech API, frontend CAPTCHA widgets, PostHog and userscripts are requested directly by the browser, outside the Java backend proxy.
 
+Host-managed plugin HTTP clients do not automatically replay requests after rate limits, service failures or connection errors. Features that retry control their own attempt counts and delays, as described in their respective sections.
+
 ## Core host and default requests
 
 - **Same-origin authentication and internationalization**: the login page checks sessions and submits authentication through same-origin `/api/auth/check`, `/api/auth/login` and `/api/auth/invite-redeem` (return destinations accept only same-origin internal paths). Frontend pages load dictionaries through `/api/i18n/meta`, `/api/i18n/messages/{namespace}` and same-origin `i18n-static/` (10-second timeout per request; missing dictionaries retry up to 3 rounds at 1.5, 5 and 15 seconds). They do not connect to external translation services.
@@ -70,7 +72,9 @@ The AI plugin uses the OpenAI-compatible protocol. Connection tests, novel trans
 | Alibaba Cloud Bailian / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`, `https://api.siliconflow.cn/v1` |
 | Ollama (local) | `http://localhost:11434/v1` | LM Studio (local) | `http://localhost:1234/v1` |
 
-The `translation` plugin invokes the selected engine when manual or automatic translation starts. AI reuses the configuration above. Youdao requests `https://openapi.youdao.com/api` (sends text, application ID and a locally calculated v3 signature, not the application secret directly). LibreTranslate requests the administrator-configured `{libretranslate-url}/translate` (optional `api_key`). Youdao and LibreTranslate use a 30-second connection timeout, 120-second read timeout, at most 1,000 Unicode characters per request and a 1 MiB response limit. `translation.use-proxy` controls use of the application proxy.
+The `translation` plugin invokes the selected engine for manual or automatic translation. AI reuses the configuration above. Youdao sends a single text to `https://openapi.youdao.com/api` and batches to `https://openapi.youdao.com/v2/api`, with text, application ID and a locally calculated v3 signature, not the application secret. LibreTranslate receives JSON with a text or text array and optional `api_key` at the administrator-configured `{libretranslate-url}/translate`. Each engine has its own `translation.<engine>.use-proxy` and `read-timeout-seconds` (defaults: proxy off, read timeout 120 seconds); the connection timeout is 30 seconds. See [Novels and reading aloud](/en/novel) for character, batch, concurrency, pacing and rate-limit retry settings. Response reads are bounded by the larger of 1 MiB and 16 bytes per actual input code point in the batch, up to 16,000,000 bytes; oversized responses are rejected. Only explicit rate limits receive bounded retries; timeouts and other errors are not replayed automatically.
+
+With LibreTranslate selected, opening the translation dialog or reloading languages makes the `translation` plugin send GET `/languages` to the same configured service. It sends no novel text or API key and uses the proxy, timeouts and 1 MiB response limit above. Leave the dialog closed or select another engine to avoid this query. Youdao options use the bundled official language table without an extra request.
 
 ### `tts`, `push` and `mail` plugins
 

@@ -15,6 +15,8 @@
   - SMTP 使用 `mail` 外掛自有連線與選用 SOCKS 代理；PostgreSQL JDBC 直接連線至目標資料庫伺服器，不經 HTTP 代理。
   - 瀏覽器同源 API、介紹頁 Google Fonts、瀏覽器端 Web Speech API、驗證碼前端控制項、PostHog 與使用者腳本由瀏覽器直接發起，不經 Java 後端代理。
 
+外掛使用宿主管理的 HTTP 用戶端時，傳輸層不因限流、服務不可用或連線錯誤自動重送請求。需要重試的功能自行控制次數與等待，具體策略見對應功能說明。
+
 ## 核心宿主與預設請求
 
 - **同源驗證與國際化**：登入頁透過同源 `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` 檢查工作階段與提交驗證（返回位址僅接受同源站內路徑）。前端頁面透過 `/api/i18n/meta`、`/api/i18n/messages/{namespace}` 與同源 `i18n-static/` 載入字典（單次逾時 10 秒，缺少字典時最多重試 3 輪：1.5、5、15 秒），不連線至外部翻譯服務。
@@ -70,7 +72,9 @@ AI 外掛使用 OpenAI 相容協定：連線測試、小說翻譯和多角色分
 | 阿里雲百煉 / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`、`https://api.siliconflow.cn/v1` |
 | Ollama（本機） | `http://localhost:11434/v1` | LM Studio（本機） | `http://localhost:1234/v1` |
 
-`translation` 外掛在啟動手動或自動翻譯時，會呼叫所選引擎：AI 使用上表設定；有道請求 `https://openapi.youdao.com/api`（傳送文字、應用程式 ID 與本地計算的 v3 簽章，不直接傳送應用程式金鑰）；LibreTranslate 請求管理員設定的 `{libretranslate-url}/translate`（選用 `api_key`）。有道與 LibreTranslate 連線逾時 30 秒、讀取逾時 120 秒，單次最多 1,000 個 Unicode 字元、回應上限 1 MiB，由 `translation.use-proxy` 控制是否使用應用程式代理。
+`translation` 外掛在手動或自動翻譯時呼叫所選引擎。AI 沿用上表設定；有道單條請求 `https://openapi.youdao.com/api`，批次請求 `https://openapi.youdao.com/v2/api`，傳送文本、應用 ID 與本機計算的 v3 簽章，不直接傳送應用密鑰。LibreTranslate 向管理員設定的 `{libretranslate-url}/translate` 傳送 JSON，含單條或陣列文本及選用 `api_key`。兩個引擎分別設定 `translation.<engine>.use-proxy` 與 `read-timeout-seconds`（預設關閉代理、讀取 120 秒）；連線逾時為 30 秒。字元、批次、並行、傳送間隔和限流重試參數見[小說與朗讀](/zh-hant/novel)。回應讀取預算取 1 MiB 與本批實際輸入碼點數乘 16 位元組的較大值，最大 16,000,000 位元組，超限拒絕。僅明確限流時有限重試，逾時等其他錯誤不自動重送。
+
+選擇 LibreTranslate 後，開啟翻譯對話框或重新載入語言時，`translation` 外掛會向同一設定地址的 `/languages` 傳送 GET 請求，讀取目標語言，不傳送正文或 API 金鑰。查詢沿用上述代理、逾時和 1 MiB 回應限制；不開啟對話框或切換引擎即可避免此查詢。有道選項使用內建官方語種表，無額外查詢。
 
 ### `tts`、`push` 與 `mail` 外掛
 
