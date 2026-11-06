@@ -795,7 +795,7 @@ public class GuiLauncher {
             List<DesktopUiPluginSource> sources
     ) {
         if (sources == null || sources.isEmpty()) return List.of();
-        return sources.stream().map(source -> {
+        var snapshots = sources.stream().map(source -> {
             var plugin = source.plugin();
             try {
                 return new DesktopUiPluginSnapshot(
@@ -822,6 +822,25 @@ public class GuiLauncher {
                 return null;
             }
         }).filter(Objects::nonNull).toList();
+        var capabilities = snapshots.stream().flatMap(plugin -> plugin.configContributions().stream())
+                .flatMap(config -> config.capabilities().stream()).collect(java.util.stream.Collectors.toSet());
+        return snapshots.stream().map(plugin -> {
+            if (plugin.configContributions().stream().allMatch(config -> config.optionRequirements().isEmpty())) return plugin;
+            return new DesktopUiPluginSnapshot(
+                    plugin.id(),
+                    plugin.builtIn(),
+                    plugin.packageId(),
+                    plugin.generation(),
+                    plugin.desktopUiProvider(),
+                    plugin.displayNamespace(),
+                    plugin.displayNameKey(),
+                    plugin.themes(),
+                    plugin.configContributions().stream().map(config -> config.resolveOptions(capabilities)).toList(),
+                    plugin.onboardingSteps(),
+                    plugin.routes(),
+                    plugin.navigation()
+            );
+        }).toList();
     }
 
     static Supplier<List<DesktopUiPluginSource>> memoizedDesktopUiSources(

@@ -168,12 +168,16 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NovelTranslationService novelTranslationService(AiChatClient aiChatClient,
-                                                           NovelDatabase novelDatabase,
-                                                           NovelGlossaryService glossaryService,
-                                                           @Qualifier("novelPluginMessages") MessageResolver messages,
-                                                           top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
-        return new NovelTranslationService(aiChatClient, novelDatabase, glossaryService, messages, database);
+    public NovelTranslationService novelTranslationService(top.sywyar.pixivdownload.plugin.api.service.PluginServices services) {
+        return new NovelTranslationService(services);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.novel.translation.NovelTranslationDocumentAccess novelTranslationDocuments(
+            NovelDatabase novels, NovelGlossaryService glossary, NovelMergeService merges,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database, PluginMainDatabase mainDatabase) {
+        return new top.sywyar.pixivdownload.novel.translation.NovelTranslationDocumentAccess(novels, glossary, merges, database,
+                new top.sywyar.pixivdownload.novel.translation.TranslationPublications(mainDatabase, novels));
     }
 
     @Bean
@@ -184,16 +188,8 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NovelAutoTranslateService novelAutoTranslateService(
-            NovelTranslationService translationService,
-            NovelGlossaryService glossaryService,
-            NovelMergeService mergeService,
-            AiChatClient aiChatClient,
-            @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
-            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
-            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
-        return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker, database);
+    public NovelAutoTranslateService novelAutoTranslateService(top.sywyar.pixivdownload.plugin.api.service.PluginServices services) {
+        return new NovelAutoTranslateService(services);
     }
 
     @Bean

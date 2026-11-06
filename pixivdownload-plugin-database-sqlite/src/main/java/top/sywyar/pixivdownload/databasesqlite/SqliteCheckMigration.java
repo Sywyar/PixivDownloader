@@ -34,6 +34,11 @@ final class SqliteCheckMigration {
                 Map.of(table.name(), new PhysicalDatabaseSchema.TableSpec(
                         table.name(), found.columns(), found.indexes().stream().filter(i -> i.origin() == origin).toList())));
 
+        rebuild(connection, table);
+    }
+
+    static void rebuild(Connection connection, TableSpec table) throws SQLException {
+        if (connection.getAutoCommit()) throw unsupported();
         // 外键 DROP 行为可能级联；不通过关闭完整性检查来重建被引用的表。
         try (var sql = connection.createStatement(); var tables = sql.executeQuery("PRAGMA table_list")) {
             while (tables.next()) {

@@ -47,7 +47,8 @@ final class NovelSqliteTestSchema {
                     lang_code TEXT NOT NULL,
                     raw_content TEXT NOT NULL,
                     created_time INTEGER NOT NULL,
-                    PRIMARY KEY (novel_id, lang_code)
+                    engine TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (novel_id, lang_code, engine)
                 )
                 """);
         jdbc.execute("""

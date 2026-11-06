@@ -16,6 +16,18 @@
     <dependencies>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-translation</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-novel-translation-contract</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-captcha</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>

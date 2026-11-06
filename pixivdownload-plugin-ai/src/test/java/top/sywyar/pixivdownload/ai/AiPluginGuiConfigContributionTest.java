@@ -32,6 +32,8 @@ class AiPluginGuiConfigContributionTest {
     @Test
     @DisplayName("静态配置与路由声明可复用且调用方不能修改")
     void reusesImmutableDeclarations() {
+        assertThat(plugin.guiConfigContributions().stream().flatMap(config -> config.capabilities().stream()))
+                .contains("ai.chat.configuration");
         assertThat(plugin.guiConfigContributions()).isSameAs(plugin.guiConfigContributions());
         assertThat(plugin.routes()).isSameAs(plugin.routes());
         org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,

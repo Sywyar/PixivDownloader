@@ -49,6 +49,10 @@ public class NovelGlossaryService {
         return novelMapper.findGlossaryEntries(glossaryId);
     }
 
+    public List<NovelGlossaryEntry> entries(long glossaryId, int offset, int limit) {
+        return novelMapper.findGlossaryEntries(glossaryId, offset, limit);
+    }
+
     public boolean exists(long id) {
         return novelMapper.countGlossaryById(id) > 0;
     }

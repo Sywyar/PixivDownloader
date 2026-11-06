@@ -24,19 +24,32 @@
 </head>
 <body class="layout-flow">
 <div class="layout-sticky topbar" data-layout-height="--layout-header-height">
-    <a class="btn layout-touch" id="backToGalleryLink" href="/pixiv-novel-gallery.html?view=all"
-       data-i18n="button.back">返回画廊</a>
+    <a class="btn layout-touch reader-back" id="backToGalleryLink" href="/pixiv-novel-gallery.html?view=all" data-i18n-title="button.back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+        <span class="reader-back-label" data-i18n="button.back">返回画廊</span>
+    </a>
+    <span id="contentLangAnchor"></span>
     <div class="topbar-actions">
-        <span id="langSwitcherAnchor"></span>
-        <span id="contentLangAnchor"></span>
         <span class="topbar-slot"><template data-qt-slot="novel-detail-tts"></template></span>
-        <span class="topbar-slot"><template data-qt-slot="novel-detail-ai-translate"></template></span>
+        <span class="topbar-slot"><template data-qt-slot="novel-detail-translate"></template></span>
         <button class="heart-btn layout-touch" id="heartBtn" type="button" style="display:none">
-            <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            <span id="heartLabel" data-i18n="button.favorite">收藏</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <span id="heartLabel" class="reader-sr-only" data-i18n="button.favorite">收藏</span>
         </button>
-        <a class="btn layout-touch" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
-        <button class="btn btn-danger layout-touch" id="deleteNovelBtn" type="button" style="display:none" data-i18n="button.delete" data-i18n-title="button.delete">删除</button>
+        <details class="reader-more" id="readerMore">
+            <summary class="btn layout-touch reader-more-trigger" data-i18n-title="toolbar.more">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                <span class="reader-sr-only" data-i18n="toolbar.more">更多操作</span>
+            </summary>
+            <div class="reader-more-panel">
+                <div class="reader-display-row"><span data-i18n="toolbar.interface-language">界面语言</span><span id="langSwitcherAnchor"></span></div>
+                <div class="reader-display-row"><span data-i18n="toolbar.appearance">外观</span><span id="themeSwitcherAnchor"></span></div>
+                <div class="reader-more-links">
+                    <a class="btn layout-touch" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-reader-action data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
+                    <button class="btn layout-touch reader-delete" id="deleteNovelBtn" type="button" style="display:none" data-reader-action data-i18n="button.delete">删除</button>
+                </div>
+            </div>
+        </details>
     </div>
 </div>
 

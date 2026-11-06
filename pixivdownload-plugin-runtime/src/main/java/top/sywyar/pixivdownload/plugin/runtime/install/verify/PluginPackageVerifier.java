@@ -156,22 +156,8 @@ public final class PluginPackageVerifier {
                 String nestedLabel = archiveLabel.isEmpty() ? entryName : archiveLabel + "!/" + entryName;
                 if (nestedKind != null) {
                     scanArchive(measuredInput, limits, budget, nestedKind, nestedLabel);
-                } else if (entryName.equalsIgnoreCase("META-INF/INDEX.LIST")) {
-                    if (archiveKind != NestedArchiveKind.PRIVATE_LIBRARY
-                            || !selfContainedIndex(measuredInput.readNBytes(64 * 1024 + 1), archiveLabel))
-                        budget.implicitClassPaths.add(archiveLabel);
-                } else if (entryName.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
-                    // 无法完整证明的清单只禁止加入共享契约类空间，不改变旧独立插件的准入。
-                    byte[] manifest = measuredInput.readNBytes(64 * 1024 + 1);
-                    try {
-                        if (manifest.length > 64 * 1024 || new java.util.jar.Manifest(
-                                new java.io.ByteArrayInputStream(manifest)).getMainAttributes()
-                                .getValue(java.util.jar.Attributes.Name.CLASS_PATH) != null) {
-                            budget.implicitClassPaths.add(archiveLabel);
-                        }
-                    } catch (IOException invalidManifest) {
-                        budget.implicitClassPaths.add(archiveLabel);
-                    }
+                } else {
+                    recordManifest(budget, archiveLabel, entryName, measuredInput, archiveKind);
                 }
                 // 子 ZIP 可能在中央目录前停止；读完外层条目才能计量尾随字节并验证 CRC。
                 while (measuredInput.read(buffer) != -1) {
@@ -201,6 +187,66 @@ public final class PluginPackageVerifier {
                     || !line.matches("[A-Za-z0-9_$./-]+")) return false;
         }
         return true;
+    }
+
+    /** 对已经冻结的开发目录复用归档计量，保留独立契约的摘要和类来源校验。 */
+    public static PluginClassSpace developmentClassSpace(Path directory, PluginPackageLimits limits) {
+        ScanBudget budget = new ScanBudget();
+        Set<String> names = new HashSet<>();
+        byte[] buffer = new byte[8192];
+        try (var paths = Files.walk(directory)) {
+            var iterator = paths.iterator();
+            while (iterator.hasNext()) {
+                Path path = iterator.next();
+                if (path.equals(directory)) continue;
+                var attributes = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class,
+                        java.nio.file.LinkOption.NOFOLLOW_LINKS);
+                if (attributes.isSymbolicLink() || (!attributes.isDirectory() && !attributes.isRegularFile())) {
+                    throw new PluginPackageException(PluginPackageException.Reason.UNSAFE,
+                            "development snapshot contains a non-regular entry");
+                }
+                if (++budget.entryCount > limits.maxEntries()) throw tooLarge("too many development entries");
+                String name = ZipSafety.requireUniqueEntryName(directory.relativize(path).toString()
+                        .replace('\\', '/'), names, limits);
+                if (attributes.isDirectory()) continue;
+                recordClass(budget, "", name);
+                NestedArchiveKind kind = nestedArchiveKind(name, true, true);
+                if (kind != null) ZipSafety.assertNoSpecialFileEntries(path);
+                try (InputStream file = Files.newInputStream(path)) {
+                    var measured = new EntryInputStream(file, limits, budget, name, kind != null);
+                    MessageDigest digest = kind == null ? null : sha256();
+                    InputStream input = digest == null ? measured : new DigestInputStream(measured, digest);
+                    if (kind != null) scanArchive(input, limits, budget, kind, name);
+                    else recordManifest(budget, "", name.startsWith("classes/") ? name.substring(8) : name, input, NestedArchiveKind.TOP_LEVEL);
+                    while (input.read(buffer) != -1) { }
+                    if (digest != null) budget.digests.put(name, HexFormat.of().formatHex(digest.digest()));
+                }
+            }
+        } catch (IOException failure) {
+            throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
+                    "failed to inspect development snapshot", failure);
+        }
+        return new PluginClassSpace(budget.packages, budget.digests, budget.multiRelease, budget.implicitClassPaths);
+    }
+
+    private static void recordManifest(ScanBudget budget, String archive, String name, InputStream input, NestedArchiveKind kind)
+            throws IOException {
+        if (name.equalsIgnoreCase("META-INF/INDEX.LIST")) {
+            if (kind != NestedArchiveKind.PRIVATE_LIBRARY
+                    || !selfContainedIndex(input.readNBytes(64 * 1024 + 1), archive))
+                budget.implicitClassPaths.add(archive);
+        } else if (name.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
+            byte[] manifest = input.readNBytes(64 * 1024 + 1);
+            try {
+                if (manifest.length > 64 * 1024 || new java.util.jar.Manifest(
+                        new java.io.ByteArrayInputStream(manifest)).getMainAttributes()
+                        .getValue(java.util.jar.Attributes.Name.CLASS_PATH) != null) {
+                    budget.implicitClassPaths.add(archive);
+                }
+            } catch (IOException invalidManifest) {
+                budget.implicitClassPaths.add(archive);
+            }
+        }
     }
 
     private static void requireNoHostControlledClass(String entryName) {

@@ -25,9 +25,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
-import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,8 +70,7 @@ public class AiPlugin implements PixivFeaturePlugin {
     private static final List<WebRouteContribution> ROUTES = List.of(
         WebRouteContribution.gui("/api/gui/ai-test"),
         WebRouteContribution.gui("/api/gui/ai-models"),
-        WebRouteContribution.admin("/api/admin/ai/**"),
-        WebRouteContribution.visitorAndInvitedGuest("/pixiv-ai/**"));
+        WebRouteContribution.admin("/api/admin/ai/**"));
 
     @Override
     public List<WebRouteContribution> routes() {
@@ -81,26 +78,9 @@ public class AiPlugin implements PixivFeaturePlugin {
     }
 
     @Override
-    public List<StaticResourceContribution> staticResources() {
-        return List.of(new StaticResourceContribution("classpath:/static/pixiv-ai/", "/pixiv-ai/"));
-    }
-
-    @Override
-    public List<WebUiSlotContribution> uiSlots() {
-        return List.of(
-                new WebUiSlotContribution(ID + ".novel-detail-translate", "novel-detail-ai-translate",
-                        "/pixiv-ai/novel-detail-ai-translate-slot.js", 20),
-                new WebUiSlotContribution(ID + ".series-detail-translate", "series-detail-ai-translate",
-                        "/pixiv-ai/series-detail-ai-translate-slot.js", 20),
-                new WebUiSlotContribution(ID + ".download-novel-translate-settings",
-                        "settings-card", "/pixiv-ai/download-novel-ai-settings-slot.js", 20, Map.of(), ID));
-    }
-
-    @Override
     public List<I18nContribution> i18n() {
         return List.of(
-                new I18nContribution(ID, "i18n.web.ai", 10),
-                new I18nContribution("translate", "i18n.web.translate", 13));
+                new I18nContribution(ID, "i18n.web.ai", 10));
     }
 
     private static final List<GuiConfigContribution> GUI_CONFIG_CONTRIBUTIONS = createGuiConfigContributions();
@@ -120,7 +100,9 @@ public class AiPlugin implements PixivFeaturePlugin {
         return List.of(new GuiConfigContribution(
                 List.of(),
                 fields,
-                List.of(aiSection(fields))));
+                List.of(aiSection(fields)),
+                java.util.Set.of("ai.chat.configuration"),
+                List.of()));
     }
 
     private static GuiConfigSectionContribution aiSection(List<GuiConfigFieldContribution> fields) {

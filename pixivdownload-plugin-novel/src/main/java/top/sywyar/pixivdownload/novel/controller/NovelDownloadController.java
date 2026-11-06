@@ -372,7 +372,9 @@ public class NovelDownloadController {
     public ResponseEntity<MergeResponse> mergeSeries(
             @PathVariable long seriesId,
             @RequestParam(required = false) String format,
-            @RequestParam(required = false) String lang) throws IOException {
+            @RequestParam(required = false) String lang,
+            @RequestParam(required = false) String variant) throws IOException {
+        lang = variant == null ? lang : variant;
         NovelDownloadService.NovelFormat fmt = mergeFormat(format);
         NovelMergeService.MergeResult result = merge(seriesId, fmt, lang);
         return ResponseEntity.ok(new MergeResponse(
@@ -389,7 +391,9 @@ public class NovelDownloadController {
             @PathVariable long seriesId,
             @RequestParam(required = false) String format,
             @RequestParam(required = false) String lang,
+            @RequestParam(required = false) String variant,
             WorkVisibilityScope visibilityScope) throws IOException {
+        lang = variant == null ? lang : variant;
         Set<Long> filter = resolveGuestNovelSeriesFilter(visibilityScope);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
@@ -416,6 +420,13 @@ public class NovelDownloadController {
         return ResponseEntity.ok().headers(headers).body(body);
     }
 
+    @ExceptionHandler(top.sywyar.pixivdownload.plugin.api.service.ServiceAccessException.class)
+    public ResponseEntity<ApiErrorResponse> translationUnavailable(
+            top.sywyar.pixivdownload.plugin.api.service.ServiceAccessException failure) {
+        return ResponseEntity.status(503).body(ApiErrorResponse.of(failure.reason().name(),
+                messages.get("novel.translate.unavailable")));
+    }
+
     @PostMapping("/novel/{novelId}/translate")
     public ResponseEntity<?> translateNovel(@PathVariable long novelId,
                                              @RequestBody TranslateRequest request) {
@@ -432,12 +443,11 @@ public class NovelDownloadController {
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
                     "novel.translate.no-scope", messages.get("novel.translate.no-scope")));
         }
-        NovelTranslationService.Result result = novelTranslationService.translateChapter(
+        var result = novelTranslationService.translateChapter(
                 novelId, request.targetLanguage(), segmentSize, overwrite,
                 request.langHint(), request.glossaryId(),
                 translateBody, translateTitle, translateDescription);
-        return ResponseEntity.ok(new TranslateResponse(
-                result.status().name(), result.langCode(), result.message(), result.truncated()));
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/novel/translate-lang-probe")
@@ -463,16 +473,16 @@ public class NovelDownloadController {
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
                     "novel.translate.no-scope", messages.get("novel.translate.no-scope")));
         }
-        String langCode = novelTranslationService.translateSeriesTitle(
+        var result = novelTranslationService.translateSeriesTitle(
                 seriesId, request.targetLanguage(), request.langHint(), request.glossaryId(),
                 translateTitle, translateDescription);
-        if (langCode == null || langCode.isBlank()) {
-            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null, null));
+        if (result.variantKey() == null) {
+            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null, null, null));
         }
-        String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
-        String translatedDescription = novelDatabase.getSeriesDescriptionTranslation(seriesId, langCode);
+        String translated = novelDatabase.getSeriesTitleTranslation(seriesId, result.variantKey());
+        String translatedDescription = novelDatabase.getSeriesDescriptionTranslation(seriesId, result.variantKey());
         return ResponseEntity.ok(new TranslateSeriesTitleResponse(
-                langCode, translated, translatedDescription, null));
+                result.langCode(), translated, translatedDescription, null, result.variantKey()));
     }
 
     @GetMapping("/novel/series/{seriesId}/novel-ids")
@@ -577,8 +587,6 @@ public class NovelDownloadController {
                                    Boolean translateBody, Boolean translateTitle,
                                    Boolean translateDescription) {}
 
-    public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
-
     public record TranslateLangProbeRequest(String targetLanguage) {}
 
     public record TranslateLangProbeResponse(String code, boolean valid) {}
@@ -587,7 +595,7 @@ public class NovelDownloadController {
                                               Boolean translateTitle, Boolean translateDescription) {}
 
     public record TranslateSeriesTitleResponse(String langCode, String title,
-                                               String description, String message) {}
+                                               String description, String message, String variantKey) {}
 
     public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 }

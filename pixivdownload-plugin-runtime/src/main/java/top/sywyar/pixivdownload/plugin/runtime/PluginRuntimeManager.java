@@ -394,8 +394,7 @@ public class PluginRuntimeManager {
                             throw new IllegalStateException("prepared plugin artifact disappeared from load plan: "
                                     + candidate.artifactPath());
                         }
-                        loaded = loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                                developmentCacheSession.sessionRoot(), materialized.descriptor(), null);
+                        loaded = loadPreparedDevelopmentPlugin(materialized, developmentCacheSession.sessionRoot());
                     }
                     initializePlugin(loaded.packageId());
                 } catch (RuntimeException e) {
@@ -476,8 +475,18 @@ public class PluginRuntimeManager {
                 ensureDevelopmentCacheSession(discovery.cacheRoot());
         PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized =
                 PluginDevelopmentArtifacts.materialize(artifact, session);
-        return loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
-                session.sessionRoot(), materialized.descriptor(), null);
+        return loadPreparedDevelopmentPlugin(materialized, session.sessionRoot());
+    }
+
+    private LoadedPluginPackage loadPreparedDevelopmentPlugin(
+            PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized, Path sessionRoot) {
+        var space = PluginPackageVerifier.developmentClassSpace(materialized.pf4jLoadPath(), PluginPackageLimits.defaults());
+        PluginClassSpaceVerifier.contractPackages(space, materialized.descriptor());
+        requireCompatibleClassSpace(materialized.descriptor(), space);
+        var loaded = loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
+                sessionRoot, materialized.descriptor(), null);
+        classSpaces.put(loaded.packageId(), space);
+        return loaded;
     }
 
     private List<PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin> prepareDevelopmentArtifacts(
@@ -1406,16 +1415,7 @@ public class PluginRuntimeManager {
                     "plugin package already loaded: " + prepared.inspection().descriptor().id());
         }
         PluginDescriptor incoming = prepared.inspection().descriptor();
-        for (Entry existing : packageIndex.entries()) {
-            if (incoming.contract() != null || existing.descriptor().contract() != null) {
-                var existingSpace = classSpaces.get(existing.packageId());
-                if (existingSpace == null) {
-                    throw new PluginRuntimeOperationException("contract class space requires verified packaged dependencies");
-                }
-                PluginClassSpaceVerifier.requireCompatible(prepared.inspection().classSpace(), incoming,
-                        existing.descriptor(), existingSpace);
-            }
-        }
+        requireCompatibleClassSpace(incoming, prepared.inspection().classSpace());
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized = materializer.materialize(
                 prepared.snapshot(), prepared.inspection(), prepared.verifiedSha256());
         PluginArtifactSnapshot ownedSnapshot = prepared.detachSnapshot();
@@ -1436,6 +1436,18 @@ public class PluginRuntimeManager {
         }
         classSpaces.put(incoming.id(), prepared.inspection().classSpace());
         return loaded;
+    }
+
+    private void requireCompatibleClassSpace(PluginDescriptor incoming, PluginClassSpace space) {
+        for (Entry existing : packageIndex.entries()) {
+            if (incoming.contract() != null || existing.descriptor().contract() != null) {
+                var existingSpace = classSpaces.get(existing.packageId());
+                if (existingSpace == null) {
+                    throw new PluginRuntimeOperationException("contract class space requires verified dependencies");
+                }
+                PluginClassSpaceVerifier.requireCompatible(space, incoming, existing.descriptor(), existingSpace);
+            }
+        }
     }
 
     /** 只允许 required 契约依赖提供接口类型，校验实际 Class 来源而非仅相信编译期 provided。 */

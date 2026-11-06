@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
@@ -151,10 +152,12 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用 novel 不影响其它核心 Bean 与核心 schema")
+    @DisplayName("禁用 novel 保留已安装插件的 schema 且不影响其它核心 Bean")
     void coreUnaffected() {
+        var expectedTables = new HashSet<>(DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema().tables().keySet());
+        expectedTables.add("novel_translation_publications");
         assertThat(databaseSchemaRegistry.mergedSchema().tables().keySet())
-                .isEqualTo(DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema().tables().keySet())
+                .isEqualTo(expectedTables)
                 .contains("novels");
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
                 .contains("core", "plugin-market")
@@ -177,6 +180,9 @@ class NovelPluginDisabledContextTest {
             Path jar = PLUGINS_DIR.resolve("novel-plugin.jar");
             zipDirectoryAsJar(classes, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
+            Path contract = PLUGINS_DIR.resolve("novel-translation-contract.jar");
+            zipDirectoryAsJar(Path.of(System.getProperty("novel-translation-contract.plugin.classes")), contract);
+            PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, contract);
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

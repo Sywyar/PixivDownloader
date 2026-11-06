@@ -76,6 +76,29 @@ class DatabaseInitializerTest {
     }
 
     @Test
+    @DisplayName("旧小说与系列译文升级后完整保留为未知引擎，同语言新引擎可分别保存")
+    void upgradesTranslationKeysWithoutChangingExistingContent() {
+        var ds = newDataSource();
+        try {
+            var jdbc = new JdbcTemplate(ds);
+            jdbc.execute("CREATE TABLE novel_translations(novel_id INTEGER NOT NULL,lang_code TEXT NOT NULL,raw_content TEXT NOT NULL,title TEXT,description TEXT,created_time INTEGER NOT NULL,PRIMARY KEY(novel_id,lang_code))");
+            jdbc.execute("CREATE TABLE novel_series_title_translations(series_id INTEGER NOT NULL,lang_code TEXT NOT NULL,title TEXT NOT NULL,description TEXT,created_time INTEGER NOT NULL,PRIMARY KEY(series_id,lang_code))");
+            jdbc.execute("INSERT INTO novel_translations VALUES(7,'en','old-body','old-title','old-description',123)");
+            jdbc.execute("INSERT INTO novel_series_title_translations VALUES(9,'en','old-series','old-description',123)");
+            newInitializer(ds).initialize();
+            newInitializer(ds).initialize();
+            assertThat(jdbc.queryForMap("SELECT * FROM novel_translations")).containsEntry("engine", "unknown")
+                    .containsEntry("raw_content", "old-body").containsEntry("title", "old-title").containsEntry("created_time", 123);
+            assertThat(jdbc.queryForMap("SELECT * FROM novel_series_title_translations")).containsEntry("engine", "unknown")
+                    .containsEntry("title", "old-series").containsEntry("description", "old-description");
+            jdbc.execute("INSERT INTO novel_translations VALUES(7,'en','new-body','new-title',NULL,456,'youdao')");
+            jdbc.execute("INSERT INTO novel_series_title_translations VALUES(9,'en','new-series',NULL,456,'youdao')");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM novel_translations", Integer.class)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM novel_series_title_translations", Integer.class)).isEqualTo(2);
+        } finally { ds.destroy(); }
+    }
+
+    @Test
     @DisplayName("旧插画和小说记录补列后保留 180 字符命名规则")
     void existingRowsKeepOriginalFilenameLength() {
         SingleConnectionDataSource ds = newDataSource();

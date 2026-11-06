@@ -37,6 +37,28 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 @DisplayName("OpenAI 兼容聊天与模型列表")
 class OpenAiCompatibleAiClientTest {
 
+    @Test @DisplayName("绑定配置允许更换凭据，但模型改变后在请求前拒绝继续")
+    void boundConfigurationRejectsChangedModel() throws Exception {
+        var config = new AiConfig();
+        config.setEnabled(true); config.setBaseUrl("https://example.test/v1");
+        config.setModel("fixture-model"); config.setApiKey("fixture-old-key");
+        var direct = new RestTemplate();
+        var server = MockRestServiceServer.bindTo(direct).build();
+        var client = new OpenAiCompatibleAiClient(config, mock(MessageResolver.class), direct, direct);
+        String fingerprint = client.configurationFingerprint().orElseThrow();
+        config.setApiKey("fixture-new-key");
+        assertThat(client.configurationFingerprint()).contains(fingerprint);
+        server.expect(requestTo("https://example.test/v1/chat/completions"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer fixture-new-key"))
+                .andRespond(withSuccess("{\"choices\":[{\"message\":{\"content\":\"OK\"}}]}", MediaType.APPLICATION_JSON));
+        assertThat(client.chatBound(fingerprint, "test", new ConnectivityProbeRequest().toMessages(),
+                AiChatOptions.defaults()).content()).isEqualTo("OK");
+        config.setModel("fixture-different-model");
+        assertThatThrownBy(() -> client.chatBound(fingerprint, "test", new ConnectivityProbeRequest().toMessages(),
+                AiChatOptions.defaults())).isInstanceOf(AiClientException.class);
+        server.verify();
+    }
+
     @Test
     @DisplayName("AI 关闭时连接测试使用临时密钥，业务调用仍被拒绝")
     void disabledAiAllowsExplicitProbeOnly() throws Exception {

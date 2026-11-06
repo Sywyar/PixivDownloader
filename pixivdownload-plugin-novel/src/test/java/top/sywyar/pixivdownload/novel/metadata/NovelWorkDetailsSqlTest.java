@@ -51,7 +51,8 @@ class NovelWorkDetailsSqlTest {
                 CREATE TABLE novel_translations (
                     novel_id INTEGER NOT NULL,
                     lang_code TEXT NOT NULL,
-                    PRIMARY KEY (novel_id, lang_code)
+                    engine TEXT NOT NULL DEFAULT 'unknown',
+                    PRIMARY KEY (novel_id, lang_code, engine)
                 )
                 """);
         mapper = top.sywyar.pixivdownload.novel.db.NovelMapperTestFixture.mapper(dataSource);

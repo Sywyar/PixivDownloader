@@ -104,6 +104,37 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
         return deliver(callType, aiConfig.toClientSettings(), messages, options);
     }
 
+    @Override
+    public java.util.Optional<String> configurationFingerprint() {
+        return isConfigured() ? java.util.Optional.of(fingerprint(aiConfig.toClientSettings()))
+                : java.util.Optional.empty();
+    }
+
+    @Override
+    public AiChatResult chatBound(String expectedFingerprint, String callType,
+                                 List<AiChatMessage> messages, AiChatOptions options) throws AiClientException {
+        if (!aiConfig.isEnabled()) throw new AiClientException("AI_UNAVAILABLE");
+        AiClientSettings settings = aiConfig.toClientSettings();
+        if (!fingerprint(settings).equals(expectedFingerprint)) throw new AiClientException("AI_CONFIG_CHANGED");
+        return deliver(callType, settings, messages, options);
+    }
+
+    private static String fingerprint(AiClientSettings settings) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            // 凭据轮换不改变结果配置，也不把凭据摘要保存在任务中。
+            for (String value : java.util.List.of("openai-compatible-v1",
+                    String.valueOf(settings.baseUrl()), String.valueOf(settings.model()))) {
+                byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.length).array());
+                digest.update(bytes);
+            }
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
     /**
      * GUI 连通性测试：使用调用方传入的临时设置（不读取 {@link AiConfig}、不检查总开关），失败抛
      * {@link AiClientException} 让 GUI 显示失败原因。失败摘要绝不含 API Key。

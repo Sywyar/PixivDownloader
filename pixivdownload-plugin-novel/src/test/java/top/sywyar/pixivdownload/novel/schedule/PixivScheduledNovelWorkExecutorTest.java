@@ -354,9 +354,8 @@ class PixivScheduledNovelWorkExecutorTest {
                         ? completeSeriesResponse()
                         : completeNovelResponse());
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
-        when(novelAutoTranslateService.submit(
-                123L, 42L, "english", 35, true, "html"))
-                .thenThrow(new IllegalStateException("private submission failure"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("private submission failure"))
+                .when(novelAutoTranslateService).submit(123L, 42L, "english", 35, true, "html");
         when(novelAutoTranslateService.getStatus(123L)).thenReturn(
                 new NovelAutoTranslateService.StatusView(
                         "DONE", 99L, 0, "en", true, false, "old run"));

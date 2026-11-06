@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>top.sywyar.lovepopup</groupId><artifactId>pixivdownload-parent</artifactId><version>1.0.0</version></parent>
+    <artifactId>pixivdownload-novel-translation-api</artifactId>
+    <name>PixivDownloader Novel Translation Contract API</name>
+    <description>小说内容所有者与可选翻译服务之间的纯 Java 契约。</description>
+    <build><plugins><plugin><artifactId>maven-jar-plugin</artifactId><executions>
+        <execution><id>default-jar</id><phase>process-classes</phase><goals><goal>jar</goal></goals></execution>
+    </executions></plugin></plugins></build>
+</project>

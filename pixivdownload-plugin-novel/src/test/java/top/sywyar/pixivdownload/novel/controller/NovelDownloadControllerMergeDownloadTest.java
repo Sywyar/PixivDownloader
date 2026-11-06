@@ -93,7 +93,7 @@ class NovelDownloadControllerMergeDownloadTest {
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 3));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    42L, format, null, WorkVisibilityScope.unrestricted());
+                    42L, format, null, null, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
             assertThat(resp.getBody()).isEqualTo(payload);
@@ -107,7 +107,7 @@ class NovelDownloadControllerMergeDownloadTest {
             assertThat(disposition.chars().allMatch(c -> c >= 0x20 && c <= 0x7e)).isTrue();
             assertThat(headers.getCacheControl()).isEqualTo("no-store");
 
-            var merged = controller().mergeSeries(42L, format, " \t ");
+            var merged = controller().mergeSeries(42L, format, " \t ", null);
             assertThat(merged.getStatusCode().value()).isEqualTo(200);
             assertThat(merged.getBody()).isEqualTo(new NovelDownloadController.MergeResponse(
                     true, "ok", tmp.toString(), 3, expected.ext()));
@@ -143,10 +143,10 @@ class NovelDownloadControllerMergeDownloadTest {
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    7L, "epub", " zh-CN ", WorkVisibilityScope.unrestricted());
+                    7L, "epub", " zh-CN ", null, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
-            assertThat(controller().mergeSeries(7L, "epub", " zh-CN ").getBody())
+            assertThat(controller().mergeSeries(7L, "epub", " zh-CN ", null).getBody())
                     .isEqualTo(new NovelDownloadController.MergeResponse(true, "ok", tmp.toString(), 1, "epub"));
             verify(novelMergeService, times(2)).mergeVariant(
                     eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
@@ -165,7 +165,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 .thenReturn(new NovelMergeService.MergeResult(false, "no-chapters", null, 0));
 
         ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                9L, null, null, WorkVisibilityScope.unrestricted());
+                9L, null, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         assertThat(resp.getBody()).isNull();
@@ -180,7 +180,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
         ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                11L, null, null, WorkVisibilityScope.unrestricted());
+                11L, null, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verifyNoInteractions(novelDatabase);
@@ -194,7 +194,7 @@ class NovelDownloadControllerMergeDownloadTest {
         WorkVisibilityScope scope = WorkVisibilityScope.restricted(restriction, restriction);
         when(novelGalleryService.visibleSeriesIds(restriction)).thenReturn(Set.of(8L));
 
-        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, scope);
+        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, null, scope);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verify(novelGalleryService).visibleSeriesIds(restriction);

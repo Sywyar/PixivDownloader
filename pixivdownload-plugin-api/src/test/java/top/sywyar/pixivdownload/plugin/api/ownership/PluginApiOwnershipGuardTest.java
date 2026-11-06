@@ -180,7 +180,7 @@ class PluginApiOwnershipGuardTest {
                     "GuiConfigActionResultOperator", "GuiConfigActionResultRule", "GuiConfigActionResultSource",
                     "GuiConfigActionResultSummary", "GuiConfigCondition", "GuiConfigConditionOperator",
                     "GuiConfigContribution", "GuiConfigEffect", "GuiConfigFieldContribution", "GuiConfigFieldLayoutContribution",
-                    "GuiConfigFieldType", "GuiConfigGroupContribution", "GuiConfigGroups",
+                    "GuiConfigFieldType", "GuiConfigGroupContribution", "GuiConfigGroups", "GuiConfigOptionRequirement",
                     "GuiConfigPresetContribution", "GuiConfigPresetMatchMode", "GuiConfigSectionContribution",
                     "GuiConfigSectionLayout", "GuiConfigSectionNoticeContribution",
                     "GuiConfigSectionNoticeStyle", "GuiOnboardingStepContribution", "GuiThemeAppearance",

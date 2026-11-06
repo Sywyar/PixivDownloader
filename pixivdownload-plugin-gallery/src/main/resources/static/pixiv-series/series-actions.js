@@ -17,17 +17,17 @@
         btn.style.display = isNovelMode() ? '' : 'none';
     }
 
-    // 章节卡片链接：选定内容语言时附带 ?lang，使点开的小说详情页默认显示该语言译文。
+    // 章节链接保留选中的译文身份，确保详情页沿用同一语言与引擎。
     function novelChapterHref(novelId) {
         let href = `/pixiv-novel.html?id=${novelId}`;
-        if (activeContentLang) href += `&lang=${encodeURIComponent(activeContentLang)}`;
+        if (activeContentLang) href += `&variant=${encodeURIComponent(activeContentLang)}`;
         return href;
     }
 
-    // 内容显示语言（独立于界面语言）：?lang 优先，其次全局记忆，且都需存在于本系列已有译文中。
+    // 内容选择优先使用 variant，兼容旧 lang 链接；其次使用已有译文中的全局记忆。
     function resolveInitialContentLang(langs) {
         const params = new URLSearchParams(location.search);
-        const urlLang = params.get('lang');
+        const urlLang = params.get('variant') || params.get('lang');
         if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
         try {
             const stored = localStorage.getItem('pixiv.contentLang');
@@ -63,7 +63,7 @@
     async function fetchSeriesTitleForLang(lang) {
         if (!lang || !state.seriesId) return;
         if (Object.prototype.hasOwnProperty.call(seriesTitleByLang, lang)) return;
-        const data = await api(`/api/gallery/novel/series/${state.seriesId}?lang=${encodeURIComponent(lang)}`);
+        const data = await api(`/api/gallery/novel/series/${state.seriesId}?variant=${encodeURIComponent(lang)}`);
         seriesTitleByLang[lang] = (data && data.translatedTitle) ? data.translatedTitle : '';
         seriesDescriptionByLang[lang] = (data && data.translatedDescription) ? data.translatedDescription : '';
     }
@@ -74,7 +74,7 @@
         if (!lang || !Array.isArray(items) || !items.length) return;
         const ids = items.map(it => it && it.novelId).filter(id => id != null);
         if (!ids.length) return;
-        const url = `/api/gallery/novel/translated-titles?lang=${encodeURIComponent(lang)}`
+        const url = `/api/gallery/novel/translated-titles?variant=${encodeURIComponent(lang)}`
             + `&ids=${encodeURIComponent(ids.join(','))}`;
         const data = await api(url);
         const titles = (data && data.titles) || {};
@@ -136,7 +136,7 @@
         try {
             const params = new URLSearchParams();
             params.set('format', 'epub');
-            if (lang) params.set('lang', lang);
+            if (lang) params.set('variant', lang);
             const url = `/api/novel/series/${state.seriesId}/merged?${params.toString()}`;
             const res = await fetch(url, {credentials: 'same-origin'});
             if (res.status === 401) {
@@ -215,7 +215,8 @@
 
         const options = [{value: '', label: t('merge.lang-original', '原文')}];
         (seriesTranslatedLangs || []).forEach(code => {
-            if (code) options.push({value: code, label: code});
+            if (code) options.push({value: code, label: window.PixivContentLang
+                ? PixivContentLang.label(code, pageI18n) : code});
         });
         langList.innerHTML = options.map((o, i) => (
             '<label class="pt-radio">'

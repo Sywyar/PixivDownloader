@@ -31,6 +31,7 @@ function updateHeart() {
     document.getElementById('heartLabel').textContent = liked
         ? pageI18n.t('button.favorite-active', '已收藏 ({count})', { count: collectionState.membership.size })
         : pageI18n.t('button.favorite', '收藏');
+    btn.title = document.getElementById('heartLabel').textContent;
 }
 
 function iconHtml(c) {

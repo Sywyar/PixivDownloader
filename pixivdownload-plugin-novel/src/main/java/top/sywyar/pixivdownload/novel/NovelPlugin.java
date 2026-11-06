@@ -33,7 +33,23 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return List.of(new top.sywyar.pixivdownload.novel.narration.NarrationVoiceTransfer());
     }
 
+    @Override
+    public List<top.sywyar.pixivdownload.plugin.api.service.ServiceKey<?>> serviceImports() {
+        return List.of(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.KEY);
+    }
+    @Override
+    public List<top.sywyar.pixivdownload.plugin.api.service.ServiceExport<?>> serviceExports() {
+        return List.of(new top.sywyar.pixivdownload.plugin.api.service.ServiceExport<>(
+                new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>(
+                        top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.CONTRACT_ID,
+                        top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.class), "novelTranslationDocuments"));
+    }
+
     public static final String ID = "novel";
+
+    @Override public List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> schema() {
+        return List.of(top.sywyar.pixivdownload.novel.translation.TranslationPublications.schema());
+    }
 
     @Override
     public List<String> sharedMainStorage() {
@@ -193,11 +209,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
         executionConcurrencyField(
                 NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
                 "gui.config.field.download.novel-max-concurrent",
-                100),
-        executionConcurrencyField(
-                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY,
-                "gui.config.field.download.novel-translate-max-concurrent",
-                110))));
+                100))));
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {

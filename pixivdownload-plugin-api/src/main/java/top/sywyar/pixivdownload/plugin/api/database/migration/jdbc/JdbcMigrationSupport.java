@@ -57,6 +57,37 @@ public final class JdbcMigrationSupport {
         }
     }
     /**
+     * 判断物理表是否命中 owner 声明的旧联合主键；其它结构仍须由调用方精确核验。
+     * @param table 当前声明
+     * @param actual 物理表，不存在时为空
+     * @return 是否需要扩展主键
+     */
+    public static boolean primaryKeyUpgrade(TableSpec table, PhysicalDatabaseSchema.TableSpec actual) {
+        return actual != null && !table.previousPrimaryKey().isEmpty()
+                && actual.columns().stream().filter(c -> c.primaryKeyPosition() > 0)
+                .sorted(Comparator.comparingInt(PhysicalDatabaseSchema.ColumnSpec::primaryKeyPosition))
+                .map(PhysicalDatabaseSchema.ColumnSpec::name).toList().equals(table.previousPrimaryKey());
+    }
+    /**
+     * 新列已安全补齐后的旧主键结构，用于重建前的精确核验。
+     * @param table 带旧主键声明的目标表
+     * @return 只改变主键位置的旧结构
+     */
+    public static TableSpec previousPrimaryKeyTable(TableSpec table) {
+        if (table.previousPrimaryKey().isEmpty()) throw failure("SCHEMA_MISMATCH");
+        return new TableSpec(table.name(), table.columns().stream().map(c -> new ColumnSpec(
+                c.name(), c.type(), c.notNull(), c.defaultValue(), table.previousPrimaryKey().indexOf(c.name()) + 1,
+                c.autoIncrement())).toList(), table.indexes(), table.checkExpression(), table.check());
+    }
+    /**
+     * 单表的中性物理比较模型。
+     * @param table 表声明
+     * @return 物理比较模型
+     */
+    public static PhysicalDatabaseSchema.DatabaseSchema physical(TableSpec table) {
+        return physical(new MigrationSchema(MigrationSnapshot.FORMAT_VERSION, List.of(table), List.of(), List.of()));
+    }
+    /**
      * 将中性表声明作为单份结构贡献。
      * @param schema 中性结构
      * @return 结构贡献

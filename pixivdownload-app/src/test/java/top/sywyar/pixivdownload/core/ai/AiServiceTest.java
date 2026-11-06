@@ -18,6 +18,27 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("AI 可选插件门面")
 class AiServiceTest {
+    @Test
+    @DisplayName("恢复校验转发配置身份，已绑定调用不转接替代能力")
+    void bindsExactClientAndChecksConfiguration() throws Exception {
+        AiChatClient previous = mock(AiChatClient.class), replacement = mock(AiChatClient.class);
+        when(previous.configurationFingerprint()).thenReturn(java.util.Optional.of("original"));
+        var registry = new AiChatClientRegistry();
+        registry.registerPrepared("fixture", 1, List.of(previous));
+        var service = new AiService(registry);
+        var bound = service.bind().orElseThrow();
+        assertThat(service.configurationFingerprint()).contains("original");
+        registry.unregisterPrepared("fixture", 1);
+        when(previous.chatBound(anyString(), anyString(), anyList(), any()))
+                .thenThrow(new ExternalCapabilityUnavailableException("withdrawn"));
+        registry.registerPrepared("fixture", 2, List.of(replacement));
+        assertThatThrownBy(() -> bound.chatBound("original", "translation", List.of(), null))
+                .isInstanceOf(ExternalCapabilityUnavailableException.class);
+        org.mockito.Mockito.verifyNoInteractions(replacement);
+        registry.unregisterPrepared("fixture", 2);
+        assertThat(service.bind()).isEmpty();
+        assertThat(service.configurationFingerprint()).isEmpty();
+    }
 
     @Test
     @DisplayName("能力撤回后配置探测按未配置降级")

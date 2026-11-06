@@ -35,7 +35,7 @@ function updateAuthButtons() { renderAuthButton(); }
 function updateAdminPackButton() { updateButtonsState(); }
 function syncSettings() { saveSettings(); }
 function getSearchFiltersFromUI() { return normalizeSearchFilters(extraFilters); }
-function defaultNovelTranslateLang() { return bt('ai:batch.translate-lang-default', 'english'); }
+function defaultNovelTranslateLang() { return bt('translate:batch.translate-lang-default', 'english'); }
 
 function altQueueTypes() {
     return window.PixivBatch && window.PixivBatch.queueTypes;

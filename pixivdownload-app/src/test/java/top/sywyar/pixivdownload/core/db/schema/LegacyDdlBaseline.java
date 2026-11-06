@@ -237,14 +237,16 @@ final class LegacyDdlBaseline {
                     + "title TEXT DEFAULT NULL,"
                     + "description TEXT DEFAULT NULL,"
                     + "created_time INTEGER NOT NULL,"
-                    + "PRIMARY KEY (novel_id, lang_code))",
+                    + "engine TEXT NOT NULL DEFAULT 'unknown',"
+                    + "PRIMARY KEY (novel_id, lang_code, engine))",
             "CREATE TABLE IF NOT EXISTS novel_series_title_translations ("
                     + "series_id INTEGER NOT NULL,"
                     + "lang_code TEXT NOT NULL,"
                     + "title TEXT NOT NULL,"
                     + "description TEXT DEFAULT NULL,"
                     + "created_time INTEGER NOT NULL,"
-                    + "PRIMARY KEY (series_id, lang_code))",
+                    + "engine TEXT NOT NULL DEFAULT 'unknown',"
+                    + "PRIMARY KEY (series_id, lang_code, engine))",
             "CREATE TABLE IF NOT EXISTS novel_glossaries ("
                     + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                     + "name TEXT NOT NULL,"

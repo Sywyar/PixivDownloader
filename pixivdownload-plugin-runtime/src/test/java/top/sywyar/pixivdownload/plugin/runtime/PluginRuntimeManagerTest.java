@@ -2502,6 +2502,59 @@ class PluginRuntimeManagerTest {
         }
     }
 
+    @Test
+    @DisplayName("开发插件共享独立契约，拒绝宿主副本并在重新加载后保留准入")
+    void developmentServicesUseExactContractClassSpace() throws Exception {
+        Path project = tempDir.resolve("contract-development");
+        for (String id : List.of("value-contract", "consumer")) {
+            Path module = project.resolve(id);
+            Path classes = module.resolve("target/classes");
+            Files.createDirectories(classes);
+            writeDependencyOrderProbeJar(classes.resolve("lib/probe.jar"), id, List.of());
+            String descriptor = PluginPackageFixtures.pluginProperties(id, PROBE_VERSION, null,
+                    DependencyOrderProbePlugin.class.getName()) + "pixiv.lifecycle-policy=process-restart\n";
+            if (id.equals("value-contract")) {
+                Path library = classes.resolve("lib/api.jar");
+                Files.createDirectories(library.getParent());
+                try (var zip = new ZipOutputStream(Files.newOutputStream(library))) {
+                    addClassEntry(zip, contractprobe.LoadOrderContract.class, "");
+                }
+                descriptor += "pixiv.contract-api=lib/api.jar\npixiv.contract-sha256="
+                        + PluginPackageIntegrity.sha256Hex(library) + "\n";
+            } else {
+                descriptor += "plugin.dependencies=value-contract@" + PROBE_VERSION + "\n";
+            }
+            Files.writeString(classes.resolve("plugin.properties"), descriptor, StandardCharsets.UTF_8);
+            Files.createDirectories(module.resolve("src/main/resources"));
+            Files.writeString(module.resolve("src/main/resources/plugin.properties"), descriptor, StandardCharsets.UTF_8);
+        }
+        String enabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String root = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        var manager = new PluginRuntimeManager(project.resolve("plugins"));
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, project.toString());
+            assertThat(manager.start().failures()).isEmpty();
+            var loader = manager.pluginManagerForTest().orElseThrow().getPluginClassLoader("consumer");
+            Class<?> api = loader.loadClass("contractprobe.LoadOrderContract");
+            var key = new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("value-contract", api);
+            manager.requireServiceContract("consumer", key);
+            assertThat(api).isNotSameAs(contractprobe.LoadOrderContract.class);
+            assertThatThrownBy(() -> manager.requireServiceContract("consumer",
+                    new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("value-contract",
+                            contractprobe.LoadOrderContract.class)))
+                    .hasMessageContaining("exact required contract class source");
+            manager.unloadPlugin("consumer");
+            manager.loadPlugin(project.resolve("consumer/target/classes"));
+            manager.startPlugin("consumer");
+            manager.requireServiceContract("consumer", key);
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, enabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, root);
+        }
+    }
+
     private static void writeDependencyOrderProbeJar(Path jar, String pluginId,
                                                      List<PluginDependencyRef> dependencies) throws IOException {
         writeDependencyOrderProbeJar(jar, pluginId, PROBE_VERSION, dependencies);

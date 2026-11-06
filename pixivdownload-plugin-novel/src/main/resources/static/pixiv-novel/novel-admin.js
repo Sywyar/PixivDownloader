@@ -12,10 +12,12 @@ async function setupAdminMode() {
 
 function openDeleteNovelModal() {
     document.getElementById('modalDeleteNovel').classList.add('open');
+    document.getElementById('deleteNovelCancel').focus();
 }
 
 function closeDeleteNovelModal() {
     document.getElementById('modalDeleteNovel').classList.remove('open');
+    document.querySelector('#readerMore summary').focus();
 }
 
 async function confirmDeleteNovel() {

@@ -65,6 +65,8 @@ final class ApacheOutboundHttpClientFactory implements OutboundHttpClientFactory
                 .build();
         OutboundHttpProxyResolver proxyResolver = new OutboundHttpProxyResolver(proxyConfig);
         var builder = HttpClients.custom()
+                // 调用方持有重试预算与幂等语义，传输层必须原样返回限流等失败。
+                .disableAutomaticRetries()
                 .setConnectionManager(connectionManager)
                 .setDefaultRequestConfig(requestConfig)
                 .setRoutePlanner(new ProfileRoutePlanner(profile.route(), proxyResolver));

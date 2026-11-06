@@ -1,9 +1,9 @@
 'use strict';
 async function loadSeriesNav() {
     try {
-        // 透传当前内容语言：后端按 lang 替换上一章 / 下一章标题与系列名为译后版本，缺失时回退原文。
+        // 导航沿用当前译文的语言与引擎，缺失的标题回退原文。
         const url = `/api/gallery/novel/${encodeURIComponent(novelId)}/series`
-            + (activeContentLang ? `?lang=${encodeURIComponent(activeContentLang)}` : '');
+            + (activeContentLang ? `?variant=${encodeURIComponent(activeContentLang)}` : '');
         const r = await fetch(url);
         if (!r.ok) return;
         const nav = await r.json();
@@ -32,8 +32,9 @@ function renderSeriesNavSet(nav, ids) {
     if (!wrap || !prev || !next || !index) return;
 
     wrap.style.display = 'grid';
+    const variantQuery = activeContentLang ? `&variant=${encodeURIComponent(activeContentLang)}` : '';
     if (nav.prev) {
-        prev.href = `/pixiv-novel.html?id=${nav.prev.novelId}`;
+        prev.href = `/pixiv-novel.html?id=${nav.prev.novelId}${variantQuery}`;
         prev.classList.remove('disabled-look');
         prev.textContent = pageI18n.t('series.prev', null, { order: nav.prev.seriesOrder, title: nav.prev.title });
     } else {
@@ -41,7 +42,7 @@ function renderSeriesNavSet(nav, ids) {
         prev.textContent = pageI18n.t('series.prev', null, { order: '-', title: '' });
     }
     if (nav.next) {
-        next.href = `/pixiv-novel.html?id=${nav.next.novelId}`;
+        next.href = `/pixiv-novel.html?id=${nav.next.novelId}${variantQuery}`;
         next.classList.remove('disabled-look');
         next.textContent = pageI18n.t('series.next', null, { order: nav.next.seriesOrder, title: nav.next.title });
     } else {
@@ -55,6 +56,7 @@ function renderSeriesNavSet(nav, ids) {
     });
     if (nav.seriesTitle) indexParams.set('seriesTitle', nav.seriesTitle);
     if (nav.currentOrder != null) indexParams.set('order', String(nav.currentOrder));
+    if (activeContentLang) indexParams.set('variant', activeContentLang);
     index.href = `/pixiv-series.html?${indexParams.toString()}`;
     index.removeAttribute('target');
     index.removeAttribute('rel');

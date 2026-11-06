@@ -444,6 +444,8 @@
                         <multi-mode-decision-survey.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-multi-mode-decision-survey/target/classes</multi-mode-decision-survey.plugin.classes>
                         <gallery.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery/target/classes</gallery.plugin.classes>
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>
+                        <novel-translation-contract.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel-translation-contract/target/classes</novel-translation-contract.plugin.classes>
+                        <translation.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-translation/target/classes</translation.plugin.classes>
                         <gui-swing.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/classes</gui-swing.plugin.classes>
                         <gui-swing.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/pixivdownload-plugin-gui-swing-${project.version}.jar</gui-swing.plugin.jar>
                         <gui-compose.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/classes</gui-compose.plugin.classes>

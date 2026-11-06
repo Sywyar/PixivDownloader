@@ -53,6 +53,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("宿主 Apache 出站 HTTP 实现")
 class ApacheOutboundHttpClientFactoryTest {
 
+    @Test
+    @DisplayName("限流与服务不可用原样返回，POST 和 GET 都不隐式重放")
+    void doesNotReplayRateLimitsOrServiceFailures() {
+        for (int status : List.of(429, 503)) {
+            var hits = new AtomicInteger();
+            String path = "/failure-" + status;
+            server.createContext(path, exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                hits.incrementAndGet();
+                exchange.getResponseHeaders().add("Retry-After", "1");
+                respond(exchange, status, new byte[0]);
+            });
+            try (var client = factory().open(profile(OutboundHttpRedirectPolicy.NEVER, OutboundHttpCookiePolicy.DISABLED))) {
+                for (String method : List.of("POST", "GET")) {
+                    assertThat(client.exchange(new OutboundHttpRequest(baseUri.resolve(path), method, Map.of(), new byte[0]))
+                            .statusCode()).isEqualTo(status);
+                }
+            }
+            assertThat(hits).hasValue(2);
+        }
+    }
+
     private HttpServer server;
     private URI baseUri;
     private final AtomicReference<String> rawQuery = new AtomicReference<>();

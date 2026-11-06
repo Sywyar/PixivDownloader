@@ -371,6 +371,8 @@ class DistributionPackagingBoundaryTest {
         assertThat(host.getResource("static/pixiv-tts/pixiv-tts.css"))
                 .as("tts 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("static/pixiv-ai/pixiv-translate.js"))
+                .as("AI 插件的旧翻译资源不得泄漏到宿主").isNull();
+        assertThat(host.getResource("static/pixiv-translation/pixiv-translate.js"))
                 .as("ai 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/tts.properties"))
                 .as("tts i18n 资源不应在 boot jar 内").isNull();

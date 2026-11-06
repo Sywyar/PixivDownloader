@@ -222,7 +222,9 @@ public class NovelGalleryController {
     public ResponseEntity<NovelSeriesNavResponse> seriesNav(
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
+            @RequestParam(required = false) String variant,
             WorkVisibilityScope visibilityScope) {
+        lang = variant == null ? lang : variant;
         workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
         if (n == null) {
@@ -291,13 +293,15 @@ public class NovelGalleryController {
     /**
      * 本地小说正文（原始 Pixiv markup，来自 {@code novels.raw_content}）。
      * 详情页据此在不访问 Pixiv 的前提下渲染正文；本地不存在该小说时 404。
-     * 传入 {@code lang} 时返回该语言的 AI 译文（缺失则回退原文），供详情页内容语言切换使用。
+     * 传入 {@code variant} 时返回该语言与引擎的译文（缺失则回退原文）；{@code lang} 兼容旧译文链接。
      */
     @GetMapping("/novel/{novelId}/content")
     public ResponseEntity<NovelContentResponse> getNovelContent(
             @PathVariable long novelId,
             @RequestParam(required = false) String lang,
+            @RequestParam(required = false) String variant,
             WorkVisibilityScope visibilityScope) {
+        lang = variant == null ? lang : variant;
         workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, novelId);
         NovelRecord rec = novelDatabase.getNovel(novelId);
         if (rec == null) {
@@ -324,14 +328,15 @@ public class NovelGalleryController {
     }
 
     /**
-     * 给定一批小说 ID 与目标语言，批量返回各小说在该语言下已存在的译文标题。
-     * 这是展示页读取能力；AI 翻译动作本身留在 novel-core 的 {@code /api/novel/**} 端点。
+     * 给定一批小说 ID 与译文身份，批量返回同一语言与引擎下已存在的译文标题。
      */
     @GetMapping("/novel/translated-titles")
     public ResponseEntity<TranslatedTitlesResponse> translatedTitles(
-            @RequestParam String lang,
+            @RequestParam(required = false) String lang,
+            @RequestParam(required = false) String variant,
             @RequestParam(required = false) String ids,
             WorkVisibilityScope visibilityScope) {
+        lang = variant == null ? lang : variant;
         if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
             return ResponseEntity.ok(new TranslatedTitlesResponse(Map.of()));
         }
@@ -390,7 +395,9 @@ public class NovelGalleryController {
     @GetMapping("/novel/series/{seriesId}")
     public ResponseEntity<NovelSeriesDetailResponse> getSeries(@PathVariable long seriesId,
                                                                @RequestParam(required = false) String lang,
+                                                               @RequestParam(required = false) String variant,
                                                                WorkVisibilityScope visibilityScope) {
+        lang = variant == null ? lang : variant;
         Set<Long> filter = resolveGuestNovelSeriesFilter(visibilityScope);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();

@@ -12,7 +12,7 @@ async function loadAll() {
             window.PixivUiSlots?.update('novel-detail-', novelSlotProperties());
         }
     });
-    PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
+    PixivTheme.mount({ mountPoint: document.getElementById('themeSwitcherAnchor') });
     if (!novelId) {
         document.getElementById('loading').textContent = pageI18n.t('status.missing-id');
         return;
@@ -93,7 +93,7 @@ function rerenderDynamic() {
     const d = rerenderPayload.data;
     renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
     renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.uploadTime });
-    renderDescription(d.description);
+    applyDescriptionForLang(rerenderPayload.translation);
     renderTags(d.tags || []);
     if (cachedSeriesNav) {
         renderSeriesNav(cachedSeriesNav);
@@ -125,9 +125,9 @@ async function renderLocal(view) {
     await loadContent(activeContentLang);
 }
 
-// 内容显示语言（独立于界面语言）：?lang 参数优先，其次全局记忆的内容语言，且都必须存在于本作品已有译文中。
+// 内容选择优先使用 variant，兼容旧 lang 链接；选择必须存在于本作品已有译文中。
 function resolveInitialContentLang(langs) {
-    const urlLang = params.get('lang');
+    const urlLang = params.get('variant') || params.get('lang');
     if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
     try {
         const stored = localStorage.getItem('pixiv.contentLang');
@@ -140,10 +140,11 @@ function mountContentLangSwitcher() {
     window.PixivUiSlots?.update('novel-detail-', novelSlotProperties());
 }
 
-// 切换内容语言：带 ?lang 参数整页重载，使正文与听书都在该语言下重新初始化（界面语言不受影响）。
+// 切换译文后重新初始化正文和听书；variant 独立于界面语言参数 lang。
 function switchContentLang(lang) {
     const p = new URLSearchParams(location.search);
-    if (lang) p.set('lang', lang); else p.delete('lang');
+    p.delete('lang');
+    if (lang) p.set('variant', lang); else p.delete('variant');
     location.search = p.toString();
 }
 
@@ -151,11 +152,14 @@ function switchContentLang(lang) {
 async function loadContent(lang) {
     const localIds = new Set((novelView && novelView.embeddedImageIds) || []);
     const url = `/api/gallery/novel/${encodeURIComponent(novelId)}/content`
-        + (lang ? `?lang=${encodeURIComponent(lang)}` : '');
+        + (lang ? `?variant=${encodeURIComponent(lang)}` : '');
     try {
         const r = await fetch(url);
         if (r.ok) {
             const data = await r.json();
+            if (rerenderPayload) rerenderPayload.translation = {
+                translated: data.translated, translatedDescription: data.translatedDescription
+            };
             renderContent(data.content || '', buildImageResolver({ local: localIds, hideMissing: true }));
             applyTitleForLang(data);
             applyDescriptionForLang(data);

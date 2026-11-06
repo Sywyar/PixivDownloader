@@ -142,6 +142,7 @@ class NovelPluginContributionTest {
                 "novel.translate.missing-language",
                 "novel.translate.no-scope",
                 "novel.translate.unparseable",
+                "novel.translate.unavailable",
                 "narration.error.missing-novel",
                 "narration.error.invalid-voice",
                 "narration.error.invalid-line",
@@ -183,8 +184,7 @@ class NovelPluginContributionTest {
         assertThat(contribution.fields())
                 .extracting(field -> field.key())
                 .containsExactly(
-                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
-                        NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY);
+                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY);
         assertThat(contribution.fields()).allSatisfy(field -> {
             assertThat(field.groupId()).isEqualTo(GuiConfigGroups.DOWNLOAD);
             assertThat(field.i18nNamespace()).isEqualTo(NovelPlugin.ID);

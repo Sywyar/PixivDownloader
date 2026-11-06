@@ -638,11 +638,11 @@
         downloadRows.push([bt('novel:batch.format-label', '小说格式'), format(download.novelFormat)]);
         downloadRows.push([bt('novel:batch.merge-label', '系列下载完成后生成合订本'), boolLabel(!!download.novelMerge)]);
         downloadRows.push([bt('novel:batch.merge-format-label', '合订本格式'), format(download.novelMergeFormat)]);
-        downloadRows.push([bt('ai:batch.auto-translate-label', '新下载小说自动翻译'), boolLabel(!!download.novelAutoTranslate)]);
+        downloadRows.push([bt('translate:batch.auto-translate-label', '新下载小说自动翻译'), boolLabel(!!download.novelAutoTranslate)]);
         if (download.novelAutoTranslate) {
-            downloadRows.push([bt('ai:batch.translate-lang-label', '目标语言:'),
+            downloadRows.push([bt('translate:batch.translate-lang-label', '目标语言:'),
                 valueOrUnset(download.novelTranslateLanguage)]);
-            downloadRows.push([bt('ai:batch.translate-seg-label', '分段字数:'),
+            downloadRows.push([bt('translate:batch.translate-seg-label', '分段字数:'),
                 Number.isFinite(download.novelTranslateSegmentSize) && download.novelTranslateSegmentSize > 0
                     ? String(download.novelTranslateSegmentSize)
                     : bt('batch:schedule.snapshot.value.whole-chapter', '整章一次性')]);

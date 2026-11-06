@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>top.sywyar.lovepopup</groupId>
+        <artifactId>pixivdownload-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pixivdownload-plugin-novel-translation-contract</artifactId>
+    <name>PixivDownloader Novel Translation Contract</name>
+    <description>Shared pure-value contract for novel content and translation services.</description>
+
+    <properties>
+        <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
+        <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-novel-translation-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.sywyar.pixivdownloader</groupId>
+            <artifactId>pixivdownload-plugin-api</artifactId>
+            <version>${pixivdownload.sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pf4j</groupId>
+            <artifactId>pf4j</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-dependency-plugin</artifactId><version>3.8.1</version>
+            <executions><execution><id>original-api</id><phase>process-classes</phase><goals><goal>copy</goal></goals><configuration>
+                <artifactItems><artifactItem><groupId>top.sywyar.lovepopup</groupId><artifactId>pixivdownload-novel-translation-api</artifactId><version>${project.version}</version><type>jar</type><outputDirectory>${project.build.outputDirectory}/lib</outputDirectory><destFileName>pixivdownload-novel-translation-api.jar</destFileName></artifactItem></artifactItems>
+            </configuration></execution></executions>
+        </plugin>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.1.0</version>
+            <executions><execution><id>bind-api-bytes</id><phase>process-classes</phase><goals><goal>run</goal></goals><configuration><target>
+                <copy file="${project.basedir}/src/main/resources/plugin.properties" tofile="${project.build.outputDirectory}/plugin.properties" overwrite="true"/>
+                <checksum file="${project.build.outputDirectory}/lib/pixivdownload-novel-translation-api.jar" algorithm="SHA-256" property="contract.sha256"/>
+                <echo file="${project.build.outputDirectory}/plugin.properties" append="true" encoding="UTF-8">${line.separator}pixiv.contract-sha256=${contract.sha256}${line.separator}</echo>
+            </target></configuration></execution></executions>
+        </plugin>
+    </plugins></build>
+</project>
