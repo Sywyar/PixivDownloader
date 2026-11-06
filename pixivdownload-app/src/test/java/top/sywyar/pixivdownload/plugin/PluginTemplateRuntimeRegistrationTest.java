@@ -283,7 +283,7 @@ class PluginTemplateRuntimeRegistrationTest {
         List<String> arguments = new ArrayList<>(List.of(
                 "-encoding", "UTF-8",
                 "-parameters",
-                "--release", "17",
+                "--release", Integer.toString(Runtime.version().feature()),
                 "-classpath", System.getProperty(
                         "surefire.test.class.path", System.getProperty("java.class.path")),
                 "-d", output.toString()));

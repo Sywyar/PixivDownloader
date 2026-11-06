@@ -288,12 +288,12 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           verify-signature: true
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
           cache: maven
 
       - name: Download platform archives

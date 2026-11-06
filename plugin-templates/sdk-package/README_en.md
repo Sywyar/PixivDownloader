@@ -6,7 +6,7 @@ The extracted root is a standalone Maven plugin project (sources in `src/`) for 
 
 ## 1. Quick Start: Run and Debug
 
-Install JDK 17+ and Node.js (`java` and `node` on `PATH`; on Linux / macOS without `unzip`, the Wrapper extracts archives via JDK `jar`). Importing the project into an IDE only resolves dependencies; running an explicit Run / Debug configuration compiles the plugin, downloads the pinned runtime bundle on demand into `~/.cache/pixivdownloader-sdk/`, and starts an isolated host (runtime data under `.dev/`):
+Install JDK 25+ and Node.js (`java` and `node` on `PATH`; on Linux / macOS without `unzip`, the Wrapper extracts archives via JDK `jar`). Importing the project into an IDE only resolves dependencies; running an explicit Run / Debug configuration compiles the plugin, downloads the pinned runtime bundle on demand into `~/.cache/pixivdownloader-sdk/`, and starts an isolated host (runtime data under `.dev/`):
 
 | IDE | Import | Run | Debug |
 | --- | --- | --- | --- |
@@ -85,7 +85,7 @@ The same declaration resumes after re-enabling the plugin; changes require appro
 
 The SDK package includes an initialized Git tree with `.pixivdownloader-plugin-project` and `.github/workflows/candidate.yml`:
 
-1. Add your `LICENSE` and Git remote, push to your public GitHub repository's default branch, and wait for all `Plugin candidate` jobs to pass (to select a subproject or build profile, configure `projectDir` and `profileId`—`maven-java17-v1`, `gradle-java17-v1`, or `sbt-java17-v1`—in `tools/candidate-projects.json`).
+1. Add your `LICENSE` and Git remote, push to your public GitHub repository's default branch, and wait for all `Plugin candidate` jobs to pass. To select a subproject or build profile, configure `projectDir` and `profileId` in `tools/candidate-projects.json`; supported profiles are `maven-java25-v1`, `gradle-java25-v1`, and `sbt-java25-v1`.
 2. Follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management) to run the PowerShell wizard, verify metadata and licenses, and optionally attach a `README`, links, and versioned release notes extracted from `CHANGELOG.md` (`## [vX.Y.Z]`).
 
 ## 5. Licensing

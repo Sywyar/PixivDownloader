@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     container:
-      image: eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34
+      image: eclipse-temurin@sha256:95e350ad1eb738f943e141640f7e3d797e483359a3b33c3864255bfd1ad71f8a
       options: --cpus=2 --memory=6g --pids-limit=512
     outputs:
       matrix: ${{ steps.projects.outputs.matrix }}
@@ -41,7 +41,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.projects.outputs.matrix) }}
     container:
-      image: eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34
+      image: eclipse-temurin@sha256:95e350ad1eb738f943e141640f7e3d797e483359a3b33c3864255bfd1ad71f8a
       options: --cpus=2 --memory=6g --pids-limit=512
     steps:
       - name: Install build prerequisites
@@ -123,7 +123,7 @@ jobs:
                   || c.runAttempt !== Number(process.env.GITHUB_RUN_ATTEMPT)
                   || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(c.pluginId)
                   || !/^[A-Za-z0-9._+-]+$/.test(c.version)
-                  || !['maven-java17-v1','gradle-java17-v1','sbt-java17-v1'].includes(c.buildProfile?.id)) throw new Error('CANDIDATE_METADATA_INVALID');
+                  || !['maven-java25-v1','gradle-java25-v1','sbt-java25-v1'].includes(c.buildProfile?.id)) throw new Error('CANDIDATE_METADATA_INVALID');
               const file = c.artifact?.file;
               if (typeof file !== 'string' || !['jar','zip'].some(ext => file === `pixivdownload-plugin-${c.pluginId}-${c.version}.${ext}`)
                   || !Number.isSafeInteger(c.artifact.size) || c.artifact.size < 1 || c.artifact.size > maximum

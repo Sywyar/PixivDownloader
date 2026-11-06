@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.io.InputStream;
 import java.util.Properties;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * recovery-sentinel 外置 PF4J 插件包的形态守卫：证明本模块作为外置插件 jar 时，
  * <ul>
- *   <li>jar 根部含 PF4J 描述符 {@code plugin.properties}（id=recovery-sentinel、合法 semver 版本、requires=1.0、
+ *   <li>jar 根部含 PF4J 描述符 {@code plugin.properties}（id=recovery-sentinel、合法 semver 版本、与当前 SDK 兼容的 requires、
  *       plugin.class 指向 {@link RecoverySentinelPf4jPlugin}）；</li>
  *   <li>{@link RecoverySentinelPf4jPlugin} 继承 {@code org.pf4j.Plugin} 并实现入口契约 {@link PixivPluginProvider}；</li>
  *   <li>{@link PixivPluginProvider#featurePlugin()} 暴露最小功能插件 {@link RecoverySentinelPlugin}
@@ -44,7 +45,10 @@ class RecoverySentinelPf4jPluginTest {
         assertThat(properties.getProperty("plugin.version"))
                 .as("plugin.version 必须是合法 semver（至少 major.minor.patch）")
                 .matches("\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?");
-        assertThat(properties.getProperty("plugin.requires")).isEqualTo("1.0");
+        String requirement = properties.getProperty("plugin.requires");
+        assertThat(requirement).matches("\\d+\\.\\d+");
+        String[] version = requirement.split("\\.");
+        assertThat(SdkVersion.isCompatibleWith(Integer.parseInt(version[0]), Integer.parseInt(version[1]))).isTrue();
         assertThat(properties.getProperty("plugin.class"))
                 .isEqualTo("top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin");
     }

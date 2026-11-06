@@ -78,14 +78,44 @@ class ContractEvolutionTest {
         assertThat(ContractEvolution.compare(baseline, baseline).sourceCompatibility()).isEqualTo("NO_STRUCTURAL_CHANGE");
     }
 
+    @Test @DisplayName("旧字节码实现可在当前 JDK 契约上调用原方法与新的默认方法")
+    void legacyImplementationLinksToCurrentRuntimeContract() throws Exception {
+        // 固定 Java 17 代表已交付的旧插件，不能随开发基线重编译。
+        Path baseline = contract("legacy-api", "int ping();");
+        Path implementation = compile("legacy-plugin", "Legacy",
+                "public class Legacy implements Api { public int ping(){return 7;} }", baseline);
+        byte[] original = Files.readAllBytes(implementation);
+        Path candidate = compile("current-api", "Api", """
+                public interface Api {
+                  int ping();
+                  default int scopedPing() {
+                    var value = ScopedValue.<Integer>newInstance();
+                    return ScopedValue.where(value, ping()).call(value::get);
+                  }
+                }
+                """, null, System.getProperty("sdk.test.java-version"));
+        assertThat(ContractEvolution.compare(baseline, candidate).binaryLinkage()).isEqualTo("NO_DETECTED_BREAK");
+        try (var loader = new URLClassLoader(new URL[]{candidate.toUri().toURL(), implementation.toUri().toURL()},
+                ClassLoader.getPlatformClassLoader())) {
+            Object plugin = loader.loadClass("fixture.Legacy").getConstructor().newInstance();
+            Class<?> api = loader.loadClass("fixture.Api");
+            assertThat(api.getMethod("ping").invoke(plugin)).isEqualTo(7);
+            assertThat(api.getMethod("scopedPing").invoke(plugin)).isEqualTo(7);
+        }
+        assertThat(Files.readAllBytes(implementation)).isEqualTo(original);
+    }
+
     private Path contract(String folder, String methods) throws Exception {
         return compile(folder, "Api", "public interface Api {" + methods + "}", null);
     }
     private Path compile(String folder, String name, String body, Path dependency) throws Exception {
+        return compile(folder, name, body, dependency, "17");
+    }
+    private Path compile(String folder, String name, String body, Path dependency, String release) throws Exception {
         Path directory = Files.createDirectories(temporary.resolve(folder));
         Path source = directory.resolve(name + ".java"), classes = Files.createDirectories(directory.resolve("classes"));
         Files.writeString(source, "package fixture;\n" + body, StandardCharsets.UTF_8);
-        var args = new ArrayList<>(List.of("--release", "17", "-proc:none", "-encoding", "UTF-8", "-d", classes.toString()));
+        var args = new ArrayList<>(List.of("--release", release, "-proc:none", "-encoding", "UTF-8", "-d", classes.toString()));
         if (dependency != null) args.addAll(List.of("-cp", dependency.toString()));
         args.add(source.toString());
         if (ToolProvider.getSystemJavaCompiler().run(null, new ByteArrayOutputStream(), new ByteArrayOutputStream(), args.toArray(String[]::new)) != 0)

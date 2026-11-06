@@ -56,7 +56,7 @@ record SdkRuntimeLock(String sdkVersion, String releaseId, String sourceCommitSh
     static SdkRuntimeLock read(Path project) throws IOException {
         JsonNode metadata = readJson(project.resolve("sdk-project.json"));
         if (!metadata.path("schemaVersion").isInt() || metadata.path("schemaVersion").intValue() != 3
-                || !metadata.path("javaVersion").isInt() || metadata.path("javaVersion").intValue() != 17) {
+                || !metadata.path("javaVersion").isInt() || metadata.path("javaVersion").intValue() != 25) {
             throw new IOException("SDK_UNSUPPORTED_PROJECT");
         }
         String version = requiredText(metadata, "sdkVersion");

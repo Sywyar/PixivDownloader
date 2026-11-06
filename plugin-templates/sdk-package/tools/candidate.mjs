@@ -26,12 +26,12 @@ const git = (...args) => execFileSync('git', ['--no-optional-locks', '-C', root,
 
 export function buildCommand(project, profile, offline = false, sbtLauncher) {
     const win = process.platform === 'win32';
-    if (profile === 'maven-java17-v1') {
+    if (profile === 'maven-java25-v1') {
         const wrapper = win ? 'mvnw.cmd' : 'mvnw';
         return [path.join(fs.existsSync(path.join(project, wrapper)) ? project : root, wrapper), ['-B', '-ntp', ...(offline ? ['-o'] : []), 'clean', 'verify']];
     }
-    if (profile === 'gradle-java17-v1') return [path.join(project, win ? 'gradlew.bat' : 'gradlew'), ['--no-daemon', '--console=plain', ...(offline ? ['--offline'] : []), 'clean', 'build']];
-    if (profile === 'sbt-java17-v1') return ['java', ['-jar', sbtLauncher, ...(offline ? ['set offline := true'] : []), 'clean', 'test', 'package']];
+    if (profile === 'gradle-java25-v1') return [path.join(project, win ? 'gradlew.bat' : 'gradlew'), ['--no-daemon', '--console=plain', ...(offline ? ['--offline'] : []), 'clean', 'build']];
+    if (profile === 'sbt-java25-v1') return ['java', ['-jar', sbtLauncher, ...(offline ? ['set offline := true'] : []), 'clean', 'test', 'package']];
     throw new Error('BUILD_PROFILE_UNSUPPORTED');
 }
 
@@ -75,7 +75,7 @@ export async function candidate(command, selection, env = process.env) {
         if (commit !== env.GITHUB_SHA || git('status', '--porcelain=v1')) throw new Error('SOURCE_COMMIT_REQUIRED');
         const project = invoke({ command: 'path', root, path: selection.projectDir, allowRoot: true, mustExist: true }).path;
         let sbtLauncher;
-        if (selection.profileId === 'sbt-java17-v1') {
+        if (selection.profileId === 'sbt-java25-v1') {
             const properties = fs.readFileSync(path.join(project, 'project/build.properties'), 'utf8');
             const version = /^sbt\.version=([0-9]+\.[0-9]+\.[0-9]+)$/mu.exec(properties)?.[1];
             const expected = /^sbt\.launcher\.sha256=([a-f0-9]{64})$/mu.exec(properties)?.[1];

@@ -143,7 +143,7 @@ class RemoteGenerationTest {
         Path project = source(declarations.toString()); generate(project);
         Path classes = project.resolve("target/classes");
         String classpath = classes + java.io.File.pathSeparator + System.getProperty("java.class.path");
-        assertThat(ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", "17", "-proc:none",
+        assertThat(ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", Integer.toString(Runtime.version().feature()), "-proc:none",
                 "-encoding", "UTF-8", "-cp", classpath, "-d", classes.toString(),
                 project.resolve("src/main/java/unknown/RemoteProbe.java").toString())).isZero();
         Path consumer = temporary.resolve("consumer"); Files.createDirectories(consumer);
@@ -204,7 +204,7 @@ class RemoteGenerationTest {
         generate(project);
         Path classes = project.resolve("target/classes");
         String classpath = classes + java.io.File.pathSeparator + System.getProperty("java.class.path");
-        var arguments = new ArrayList<>(List.of("--release", "17", "-proc:none", "-encoding", "UTF-8",
+        var arguments = new ArrayList<>(List.of("--release", Integer.toString(Runtime.version().feature()), "-proc:none", "-encoding", "UTF-8",
                 "-cp", classpath, "-d", classes.toString()));
         sources.forEach(source -> arguments.add(source.toString()));
         assertThat(ToolProvider.getSystemJavaCompiler().run(null, null, null, arguments.toArray(String[]::new))).isZero();

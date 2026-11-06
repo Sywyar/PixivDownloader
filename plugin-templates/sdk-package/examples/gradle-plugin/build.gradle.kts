@@ -7,7 +7,7 @@ repositories { mavenCentral() }
 dependencies {
     compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SDK_VERSION@")
 }
-java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
+java { toolchain { languageVersion.set(JavaLanguageVersion.of(25)) } }
 tasks.withType<JavaCompile>().configureEach { options.encoding = "UTF-8" }
 tasks.jar {
     isPreserveFileTimestamps = false

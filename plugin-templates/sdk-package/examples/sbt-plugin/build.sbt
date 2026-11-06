@@ -5,7 +5,7 @@ organization := "com.example.pixivdownload"
 version := "0.1.0"
 autoScalaLibrary := false
 crossPaths := false
-Compile / javacOptions ++= Seq("--release", "17", "-encoding", "UTF-8", "-g")
+Compile / javacOptions ++= Seq("--release", "25", "-encoding", "UTF-8", "-g")
 libraryDependencies += "io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "@SDK_VERSION@" % Provided
 
 lazy val checkJavaScript = taskKey[Unit]("检查插件 JavaScript")

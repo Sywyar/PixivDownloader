@@ -228,7 +228,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scope: [templates, build-tools]
+        scope: [templates, incremental, build-tools]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -245,6 +245,8 @@ jobs:
           node-version: '24'
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: ./.github/actions/setup-build-cache
+        with:
+          gradle: ${{ matrix.scope == 'build-tools' }}
       - uses: ./.github/actions/restore-sdk-verification
         with:
           artifact_id: ${{ needs.sdk-build.outputs.verification_id }}
@@ -274,6 +276,8 @@ jobs:
           node-version: '24'
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: ./.github/actions/setup-build-cache
+        with:
+          gradle: 'false'
       - uses: ./.github/actions/restore-sdk-verification
         with:
           artifact_id: ${{ needs.sdk-build.outputs.verification_id }}

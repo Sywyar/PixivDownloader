@@ -9,6 +9,11 @@ on:
       - '**/*.gradle.kts'
       - '**/gradle.properties'
       - '**/gradle-wrapper.properties'
+      - 'pixivdownload-sdk-info/src/main/**'
+      - 'pixivdownload-plugin-api/src/main/**'
+      - 'pixivdownload-core-api/src/main/**'
+      - 'pixivdownload-plugin-gui-compose/src/**'
+      - 'build-support/proguard/**'
       - '.github/actions/setup-build-cache/**'
       - '.github/workflows/build-cache.yml'
 
@@ -38,11 +43,11 @@ jobs:
           java-version: '25'
           check-latest: true
           distribution: temurin
+          java-package: jdk+jmods
       - uses: ./.github/actions/setup-build-cache
       - name: Resolve third-party Maven dependencies
         shell: bash
         run: mvn -B -ntp dependency:go-offline -DexcludeReactor=true -DexcludeGroupIds=io.github.sywyar.pixivdownloader,top.sywyar.lovepopup
-      - name: Resolve Compose dependencies
+      - name: Warm Compose compilation and ProGuard outputs
         shell: bash
-        working-directory: pixivdownload-plugin-gui-compose
-        run: ./gradlew --daemon warmBuildDependencies
+        run: mvn -B -ntp -pl pixivdownload-plugin-gui-compose -am verify -DskipTests -Dmaven.javadoc.skip=true -Dmaven.source.skip=true -Dgradle.daemon.argument=--daemon

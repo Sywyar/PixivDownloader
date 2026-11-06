@@ -6,7 +6,7 @@
 
 ## 1. 快速运行与调试
 
-安装 JDK 17+ 与 Node.js（确保 `java`、`node` 在 `PATH` 中；Linux / macOS 若无 `unzip`，Wrapper 会使用 JDK `jar` 解压）。IDE 导入工程仅解析依赖，执行显式 Run / Debug 才会编译当前插件、按需下载固定运行包（缓存于 `~/.cache/pixivdownloader-sdk/`）并启动隔离宿主（数据保存在工程 `.dev/`）：
+安装 JDK 25+ 与 Node.js（确保 `java`、`node` 在 `PATH` 中；Linux / macOS 若无 `unzip`，Wrapper 会使用 JDK `jar` 解压）。IDE 导入工程仅解析依赖，执行显式 Run / Debug 才会编译当前插件、按需下载固定运行包（缓存于 `~/.cache/pixivdownloader-sdk/`）并启动隔离宿主（数据保存在工程 `.dev/`）：
 
 | IDE | 导入方式 | 运行 | 调试 |
 | --- | --- | --- | --- |
@@ -85,7 +85,7 @@ Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@
 
 开发包自带初始 Git 树（含 `.pixivdownloader-plugin-project` 与 `.github/workflows/candidate.yml`）：
 
-1. 配置你自己的 `LICENSE` 与 Git 远端，推送到公开 GitHub 仓库默认分支，等待 `Plugin candidate` 工作流全部通过（若需指定子工程或构建工具，可在 `tools/candidate-projects.json` 配置 `projectDir` 与 `profileId`：`maven-java17-v1` / `gradle-java17-v1` / `sbt-java17-v1`）。
+1. 配置你自己的 `LICENSE` 与 Git 远端，推送到公开 GitHub 仓库默认分支，等待 `Plugin candidate` 工作流全部通过（若需指定子工程或构建工具，可在 `tools/candidate-projects.json` 配置 `projectDir` 与 `profileId`：`maven-java25-v1` / `gradle-java25-v1` / `sbt-java25-v1`）。
 2. 按[社区插件仓库投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README.md#投稿与版本管理)运行 PowerShell 投稿向导，核对版本、能力声明、许可证并可选附加 `README`、外链与按 `## [v版本]` 提取的 `CHANGELOG.md` 更新说明。
 
 ## 5. 许可证

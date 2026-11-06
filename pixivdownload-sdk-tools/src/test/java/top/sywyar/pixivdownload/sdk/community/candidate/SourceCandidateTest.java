@@ -25,7 +25,7 @@ class SourceCandidateTest {
         assertThat(init.waitFor()).isZero();
         Path source = root.resolve("Probe.java");
         Files.writeString(source, "package sample; public class Probe { static { if (true) throw new Error(\"MUST_NOT_LOAD\"); } }", StandardCharsets.UTF_8);
-        assertThat(javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", "17", "-d", root.toString(), source.toString())).isZero();
+        assertThat(javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, "--release", System.getProperty("sdk.test.java-version"), "-d", root.toString(), source.toString())).isZero();
         byte[] code = Files.readAllBytes(root.resolve("sample/Probe.class"));
         for (String tool : List.of("maven", "gradle", "sbt")) {
             Path project = Files.createDirectory(root.resolve(tool));
@@ -39,15 +39,16 @@ class SourceCandidateTest {
                 jar.write("plugin.id=sample\nplugin.version=7.8.9-rc.12\nplugin.class=sample.Probe\npixiv.execution-mode=host-process-full-trust\n".getBytes(StandardCharsets.UTF_8));
                 jar.closeEntry(); jar.putNextEntry(new JarEntry("sample/Probe.class")); jar.write(code); jar.closeEntry();
             }
-            var profile = new BuildProfile(tool + "-java17-v1", tool, "actual-output.jar");
+            String profileId = tool + "-java" + System.getProperty("sdk.test.java-version") + "-v1";
+            var profile = new BuildProfile(profileId, tool, "actual-output.jar");
             Path output = Files.createDirectory(root.resolve(tool + "-candidate"));
             var candidate = SourceCandidate.create(root, profile, List.of("actual-output.jar"), "7.8.9-rc.12",
                     "1234", "owner/source", "a".repeat(40), "5678", 1, output);
             assertThat(SourceCandidate.read(Files.readAllBytes(output.resolve("source-candidate.json")))).isEqualTo(candidate);
             assertThat(CommunityJson.strictTree(Files.readAllBytes(output.resolve("source-candidate.json")),
                     SourceCandidate.MAX_BYTES).get("buildProfile"))
-                    .isEqualTo(CommunityJson.strictTree(("{\"id\":\"" + tool
-                            + "-java17-v1\",\"projectDir\":\"" + tool
+                    .isEqualTo(CommunityJson.strictTree(("{\"id\":\"" + profileId
+                            + "\",\"projectDir\":\"" + tool
                             + "\",\"artifactPath\":\"actual-output.jar\"}").getBytes(StandardCharsets.UTF_8), 1024));
             assertThat(Files.readAllBytes(output.resolve(candidate.artifact().file()))).isEqualTo(Files.readAllBytes(artifact));
             assertThat(candidate.artifact().sha256()).isEqualTo(CommunityJson.sha256(Files.readAllBytes(artifact)));

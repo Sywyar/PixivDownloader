@@ -14,7 +14,7 @@ dependencies {
 
 sourceSets.main.java.srcDirs = ['../src/main/java']
 tasks.withType(JavaCompile).configureEach {
-    options.release = 17
+    options.release = 25
     options.encoding = 'UTF-8'
 }
 

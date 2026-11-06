@@ -4,7 +4,7 @@ This standalone Maven project is a template for a thin external PF4J plugin runn
 
 ## 1. Build and Run
 
-1. Install JDK 17+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
+1. Install JDK 25+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
 2. Run `mvn clean verify` in this directory and confirm `target/example-minimal-plugin-0.1.0.jar` is produced.
 3. Upload the JAR through Plugin Management in a compatible host, confirm the plugin starts under `declarative-process`, and open `/example-minimal.html` as an administrator.
 

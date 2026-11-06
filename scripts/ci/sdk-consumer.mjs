@@ -272,6 +272,10 @@ function parseArguments(argv) {
         else if (argument === '--sdk-zip') options.sdkZip = value;
         else if (argument === '--sdk-repository') options.sdkRepository = value;
         else if (argument === '--work-dir') options.workDirectory = value;
+        else if (argument === '--scope') {
+            if (!value) fail('missing consumer scope');
+            options.scope = value;
+        }
         else fail(`unknown argument: ${argument}`);
         index += 1;
     }
@@ -318,6 +322,9 @@ export function stageSdkArtifacts(localRepository, sdkRepository, version) {
 }
 
 export function verifyConsumer(options) {
+    const scope = options.scope ?? 'all';
+    if (!['all', 'templates', 'incremental'].includes(scope)) fail(`unsupported consumer scope: ${scope}`);
+    if (options.typedServiceOnly && scope !== 'all') fail('typed-service-only cannot be combined with a consumer scope');
     const repoRoot = path.resolve(options.repoRoot);
     const identity = inspectSdkVersion(repoRoot);
     const dependencyVersion = readMavenPluginVersion(path.join(repoRoot, 'pom.xml'), 'maven-dependency-plugin');
@@ -349,8 +356,16 @@ export function verifyConsumer(options) {
         cwd,
         env: mavenEnvironment,
     });
-    // HTTP 验收独立从原始 SDK 创建夹具，不等待或共享另一 job 的可变工程。
-    if (options.typedServiceOnly) {
+    const verifyIncremental = () => verifyTypedServiceSchemaRebuild(path.join(project, 'examples', 'typed-service-plugin'),
+            path.join(work, 'schema-incremental'), path.join(project, 'tools', 'sdk-tools.jar'), args => {
+        const result = spawnSync(command, [...prefix, '-B', '-ntp', '-o', '-s', settings,
+            `-Dmaven.repo.local=${localRepository}`, ...args], { cwd: project, env: mavenEnvironment, encoding: 'utf8' });
+        process.stdout.write(result.stdout || '');
+        process.stderr.write(result.stderr || '');
+        return result;
+    });
+    // 每组独立从原始 SDK 创建夹具，不共享另一 job 的可变工程。
+    if (options.typedServiceOnly || scope === 'incremental') {
         const typedProject = path.join(project, 'examples', 'typed-service-plugin');
         const toolsJar = path.join(project, 'tools', 'sdk-tools.jar');
         const buildTypedService = offline => runMaven([...(offline ? ['-o'] : []),
@@ -359,8 +374,9 @@ export function verifyConsumer(options) {
         buildTypedService(false);
         stageSdkArtifacts(localRepository, sdkRepository, identity.version);
         buildTypedService(true);
-        assertSdkResolution(localRepository, sdkRepository, identity.version);
         verifyTypedServiceArtifacts(typedProject, toolsJar);
+        if (scope === 'incremental') verifyIncremental();
+        assertSdkResolution(localRepository, sdkRepository, identity.version);
         return { project: typedProject, sdkVersion: identity.version };
     }
     const buildTemplates = offline => {
@@ -377,14 +393,7 @@ export function verifyConsumer(options) {
     ]);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
     buildTemplates(true);
-    verifyTypedServiceSchemaRebuild(path.join(project, 'examples', 'typed-service-plugin'),
-            path.join(work, 'schema-incremental'), path.join(project, 'tools', 'sdk-tools.jar'), args => {
-        const result = spawnSync(command, [...prefix, '-B', '-ntp', '-o', '-s', settings,
-            `-Dmaven.repo.local=${localRepository}`, ...args], { cwd: project, env: mavenEnvironment, encoding: 'utf8' });
-        process.stdout.write(result.stdout || '');
-        process.stderr.write(result.stderr || '');
-        return result;
-    });
+    if (scope === 'all') verifyIncremental();
     runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
         `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,

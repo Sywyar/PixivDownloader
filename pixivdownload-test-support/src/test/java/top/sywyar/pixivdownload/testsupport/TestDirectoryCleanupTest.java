@@ -37,6 +37,30 @@ class TestDirectoryCleanupTest {
     }
 
     @Test
+    @DisplayName("根目录属性读取被拒绝时传播错误，不视为目录不存在")
+    void propagatesRootAccessDenied() throws Exception {
+        var provider = mock(FileSystemProvider.class);
+        Path path = deletionPath(provider);
+        var denied = new AccessDeniedException("fixture");
+        when(provider.readAttributes(eq(path), eq(java.nio.file.attribute.BasicFileAttributes.class),
+                any(LinkOption[].class))).thenThrow(denied);
+        assertThatThrownBy(() -> TestDirectoryCleanup.delete(path)).isSameAs(denied);
+        verify(provider, never()).deleteIfExists(path);
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("Windows 只读普通文件沿用 JUnit 清理行为")
+    void deletesReadOnlyFixture() throws Exception {
+        Path root = Files.createDirectory(directory.resolve("readonly"));
+        Path file = Files.writeString(root.resolve("object"), "fixture");
+        Files.setAttribute(file, "dos:readonly", true, LinkOption.NOFOLLOW_LINKS);
+        assertThat(Files.readAttributes(file, java.nio.file.attribute.DosFileAttributes.class).isReadOnly()).isTrue();
+        TestDirectoryCleanup.delete(root);
+        assertThat(root).doesNotExist();
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     @DisplayName("Windows 空目录短暂报告非空后重试删除")
     void waitsForPendingDelete() throws Exception {

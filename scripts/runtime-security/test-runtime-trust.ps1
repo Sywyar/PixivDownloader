@@ -9,7 +9,7 @@ $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
 $work = Join-Path $tempBase ('pixiv-runtime-trust-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($work) | Out-Null
 try {
-    & javac --release 17 -encoding UTF-8 -d $work `
+    & javac --release 25 -encoding UTF-8 -d $work `
         (Join-Path $PSScriptRoot 'RemoveDistrustedCa.java') `
         (Join-Path $PSScriptRoot 'RuntimeTrustTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime trust probe compilation failed.' }

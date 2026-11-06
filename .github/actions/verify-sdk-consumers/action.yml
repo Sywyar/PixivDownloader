@@ -5,7 +5,7 @@ inputs:
     description: Exact source commit recorded in the SDK artifacts
     required: true
   scope:
-    description: Consumer group (all, templates or build-tools)
+    description: Consumer group (all, templates, incremental or build-tools)
     required: false
     default: all
 runs:
@@ -19,12 +19,12 @@ runs:
       run: |
         set -euo pipefail
         case "$CONSUMER_SCOPE" in
-          all|templates|build-tools) ;;
+          all|templates|incremental|build-tools) ;;
           *) echo "Unsupported consumer scope: $CONSUMER_SCOPE" >&2; exit 1 ;;
         esac
         sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
         if [ "$CONSUMER_SCOPE" != build-tools ]; then
-          node scripts/ci/sdk-consumer.mjs --repo-root . \
+          node scripts/ci/sdk-consumer.mjs --repo-root . --scope "$CONSUMER_SCOPE" \
             --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
             --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
         fi

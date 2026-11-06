@@ -365,10 +365,11 @@ test('SDK 消费者矩阵执行对应入口，未知分组和工具失败阻断�
         }
         ${step.run}
     `], { encoding: 'utf8', env: { ...process.env, CONSUMER_SCOPE: scope, FAIL_COMMAND: failure } });
-    for (const scope of ['all', 'templates', 'build-tools']) {
+    for (const scope of ['all', 'templates', 'incremental', 'build-tools']) {
         const commands = invoke(scope).trim().split('\n');
         assert.equal(commands.length, scope === 'all' ? 2 : 1);
         assert.equal(commands.some(command => command.startsWith('scripts/ci/sdk-consumer.mjs ')), scope !== 'build-tools');
+        if (scope !== 'build-tools') assert.ok(commands.some(command => command.includes(`--scope ${scope} `)));
         assert.equal(commands.some(command => command.startsWith('scripts/ci/sdk-build-tools.mjs ')), ['all', 'build-tools'].includes(scope));
         assert.throws(() => invoke(scope, scope === 'build-tools' ? 'scripts/ci/sdk-build-tools.mjs' : 'scripts/ci/sdk-consumer.mjs'),
             error => error.status === 7);
@@ -376,10 +377,29 @@ test('SDK 消费者矩阵执行对应入口，未知分组和工具失败阻断�
     assert.throws(() => invoke('unknown'), error => error.status === 1);
 });
 
+test('仅 Maven 的 SDK 验收不初始化 Gradle，实际 Gradle 消费者仍保留缓存', () => {
+    const action = load('.github/actions/setup-build-cache/action.yml');
+    const gradle = action.runs.steps.find(step => step.uses?.startsWith('gradle/actions/'));
+    assert.equal(action.inputs.gradle.default, 'true');
+    assert.equal(vm.runInNewContext(gradle.if, { inputs: { gradle: 'false' } }), false);
+    assert.equal(vm.runInNewContext(gradle.if, { inputs: { gradle: 'true' } }), true);
+    assert.equal(action.runs.steps.find(step => step.uses?.startsWith('actions/cache@')).if, undefined);
+    const { jobs } = load('.github/workflows/quality-gate.yml');
+    const cache = job => jobs[job].steps.find(step => step.uses === './.github/actions/setup-build-cache');
+    assert.equal(cache('sdk-services').with.gradle, 'false');
+    const expression = cache('sdk-consumers').with.gradle.replace(/^\$\{\{\s*|\s*\}\}$/gu, '');
+    for (const scope of jobs['sdk-consumers'].strategy.matrix.scope) {
+        assert.equal(vm.runInNewContext(expression, { matrix: { scope } }), scope === 'build-tools');
+    }
+    for (const job of ['java-app-tests', 'java-library-tests', 'sdk-build', 'release-artifacts', 'windows-runtime-tests']) {
+        assert.notEqual(cache(job).with?.gradle, 'false');
+    }
+});
+
 test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构建产物', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
     assert.deepEqual(jobs['sdk-consumers'].strategy, {
-        'fail-fast': false, matrix: { scope: ['templates', 'build-tools'] },
+        'fail-fast': false, matrix: { scope: ['templates', 'incremental', 'build-tools'] },
     });
     const consumers = jobs['sdk-consumers'].steps.find(step => step.uses === './.github/actions/verify-sdk-consumers');
     assert.equal(consumers.with.scope, '${{ matrix.scope }}');
@@ -387,7 +407,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const consumerAction = load('.github/actions/verify-sdk-consumers/action.yml');
     assert.equal(consumerAction.inputs.scope.default, 'all');
     const runtimeStep = consumerAction.runs.steps.find(step => /sdk-runtime-consumer\.ps1/u.test(step.run || ''));
-    for (const scope of ['all', 'templates', 'build-tools']) {
+    for (const scope of ['all', 'templates', 'incremental', 'build-tools']) {
         assert.equal(vm.runInNewContext(runtimeStep.if, { inputs: { scope } }), ['all', 'templates'].includes(scope));
     }
     const artifacts = executionSteps(jobs['release-artifacts']);
@@ -411,7 +431,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const templates = consumerAction.runs.steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
     const fixture = consumerAction.runs.steps.find(step => /node scripts\/ci\/sdk-build-tools\.mjs/u.test(step.run || '')
         && !step.run.includes('--sdk-zip'));
-    for (const scope of ['all', 'templates', 'build-tools']) {
+    for (const scope of ['all', 'templates', 'incremental', 'build-tools']) {
         for (const step of [templates, fixture]) {
             assert.equal(vm.runInNewContext(step.if, { inputs: { scope } }), ['all', 'build-tools'].includes(scope));
             assert.equal(step['continue-on-error'], undefined);

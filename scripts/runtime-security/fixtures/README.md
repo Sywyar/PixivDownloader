@@ -6,7 +6,7 @@
 
 `positive-root.pem` 和 `positive-leaf.pem` 是独立生成的测试 CA 与 localhost 服务器证书，仅用于确认移除操作保留正常证书链。此目录不含私钥，测试 CA 不写入发行运行时。
 
-在 Windows 上使用 JDK 17 或更高版本编译探针，并指定待验运行时：
+在 Windows 上使用 JDK 25 或更高版本编译探针，并指定待验运行时：
 
 ```powershell
 ./scripts/runtime-security/test-runtime-trust.ps1 -RuntimeHome ./build/runtime

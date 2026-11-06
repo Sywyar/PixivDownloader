@@ -10,7 +10,7 @@
 
 ## 1. 构建与验证模板
 
-安装 JDK 17+、Maven 与 Node.js，并准备与模板 SDK 版本匹配的开发包。在主仓库根目录执行验证 Reactor，将下列工具路径替换为该开发包中 `sdk-tools.jar` 的绝对路径（`typed-service-plugin` 需要它生成 Schema 与远程调用适配器）：
+安装 JDK 25+、Maven 与 Node.js，并准备与模板 SDK 版本匹配的开发包。在主仓库根目录执行验证 Reactor，将下列工具路径替换为该开发包中 `sdk-tools.jar` 的绝对路径（`typed-service-plugin` 需要它生成 Schema 与远程调用适配器）：
 
 ```bash
 mvn -f plugin-templates/pom.xml clean verify "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"

@@ -56,7 +56,7 @@ class PluginSdkUsageTest {
     }
 
     @Test
-    @DisplayName("多版本 JAR 按 Java 17 选择类，新增 SDK 回调覆盖与注解类型也要求提升下界")
+    @DisplayName("多版本 JAR 按当前运行时选择类，新增 SDK 回调覆盖与注解类型也要求提升下界")
     void checksRuntimeVariantsAndCallbacks() throws Exception {
         Path minimum = jar("minimum.jar", Map.of("fixture/Api.class", api(false)));
         ClassWriter annotation = new ClassWriter(0);
@@ -67,7 +67,8 @@ class PluginSdkUsageTest {
         Path variants = jar("variants.jar", Map.of(
                 "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\nMulti-Release: true\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 "fixture/Plugin.class", plugin("oldMethod", false),
-                "META-INF/versions/17/fixture/Plugin.class", plugin("newMethod", false)));
+                "META-INF/versions/" + Runtime.version().feature() + "/fixture/Plugin.class", plugin("newMethod", false),
+                "META-INF/versions/" + (Runtime.version().feature() + 1) + "/fixture/Plugin.class", plugin("oldMethod", false)));
         assertThatThrownBy(() -> PluginSdkUsage.verify(variants, List.of(minimum), List.of(current)))
                 .hasMessageContaining("newMethod");
         ClassWriter callback = new ClassWriter(0);

@@ -6,7 +6,7 @@ function Initialize-ReleaseProbe {
     $agentClasses = Join-Path $Destination 'agent-classes'
     $fixtureClasses = Join-Path $Destination 'fixture-classes'
     New-Item -ItemType Directory -Path $agentClasses, $fixtureClasses | Out-Null
-    & javac --release 17 -encoding UTF-8 -d $agentClasses (Join-Path $PSScriptRoot 'ReleaseProbeAgent.java')
+    & javac --release 25 -encoding UTF-8 -d $agentClasses (Join-Path $PSScriptRoot 'ReleaseProbeAgent.java')
     if ($LASTEXITCODE -ne 0) { throw 'Cannot compile release observer.' }
     $manifest = Join-Path $Destination 'agent-manifest.mf'
     [IO.File]::WriteAllText($manifest, "Premain-Class: releasee2e.ReleaseProbeAgent`n`n", [Text.Encoding]::ASCII)
@@ -32,7 +32,7 @@ function Initialize-ReleaseProbe {
             }
         }
     } finally { $archive.Dispose() }
-    & javac --release 17 -encoding UTF-8 -cp ($classpath -join [IO.Path]::PathSeparator) `
+    & javac --release 25 -encoding UTF-8 -cp ($classpath -join [IO.Path]::PathSeparator) `
         -d $fixtureClasses (Join-Path $PSScriptRoot 'FailingGuiPlugin.java')
     if ($LASTEXITCODE -ne 0) { throw 'Cannot compile failure fixture against the final application API.' }
     $sdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot (Join-Path $PSScriptRoot '../..')

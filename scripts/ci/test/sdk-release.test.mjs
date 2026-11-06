@@ -90,6 +90,8 @@ const runtime = {
 test('SDK 发布元数据使用结构化版本、精确源码与附件摘要', () => {
     const project = createProjectManifest(IDENTITY, 'a'.repeat(40), '', runtime);
     assert.equal(project.schemaVersion, 3);
+    assert.equal(project.javaVersion, Number(fs.readFileSync(path.join(REPO_ROOT, 'pom.xml'), 'utf8')
+            .match(/<java.version>([0-9]+)<\/java.version>/u)[1]));
     assert.deepEqual(project.developmentRuntime, runtime);
     assert.equal(project.prerelease, IDENTITY.prerelease);
     assert.equal(project.prereleaseChannel, IDENTITY.prereleaseChannel || null);

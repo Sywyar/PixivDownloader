@@ -13,7 +13,13 @@
     <description>宿主与插件测试共用的临时目录清理工具，仅以 test scope 引入。</description>
     <dependencies>
         <dependency>
+            <groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter-api</artifactId><scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId><artifactId>junit-platform-launcher</artifactId><scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope>

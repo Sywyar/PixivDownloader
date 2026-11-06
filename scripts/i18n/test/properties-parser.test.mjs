@@ -109,7 +109,7 @@ function lastWins(entries) {
 
 test('与 java.util.Properties 差分：全部 fixture 逐条一致（Node 解析器 vs Java oracle）', () => {
     if (!javaAvailable()) {
-        test.skip('javac/java 不在 PATH，跳过 JVM 差分（CI 会安装 JDK 17）');
+        test.skip('javac/java 不在 PATH，跳过 JVM 差分（CI 会安装 JDK）');
         return;
     }
     let compared = 0;
@@ -129,7 +129,7 @@ test('与 java.util.Properties 差分：全部 fixture 逐条一致（Node 解�
 
 test('非法 \\uXXXX fixture：Java oracle 报错，Node 同样失败', () => {
     if (!javaAvailable()) {
-        test.skip('javac/java 不在 PATH，跳过 JVM 差分（CI 会安装 JDK 17）');
+        test.skip('javac/java 不在 PATH，跳过 JVM 差分（CI 会安装 JDK）');
         return;
     }
     for (const content of INVALID_UNICODE_FIXTURES) {

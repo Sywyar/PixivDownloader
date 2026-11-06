@@ -366,8 +366,8 @@ jobs:
           | 发行包 | 运行要求与预置内容 |
           | --- | --- |
           | `PixivDownload-*-win-x64-setup.exe` | Windows x64 安装包（内置 JRE，可选自动下载 FFmpeg，预置默认官方插件集合，不含 Douyin） |
-          | `PixivDownload-*-java.zip` | 跨平台 Java 标准包（需 Java 17+，与 Windows 安装包预置相同的默认官方插件集合，不含 Douyin） |
-          | `PixivDownload-*-full-offline.zip` | 跨平台离线全量包（需 Java 17+，在标准包基础上额外预置 PostgreSQL 数据库、PixivBatchDownloader 导入等官方可选插件，不含 Douyin） |
+          | `PixivDownload-*-java.zip` | 跨平台 Java 标准包（需 Java 25+，与 Windows 安装包预置相同的默认官方插件集合，不含 Douyin） |
+          | `PixivDownload-*-full-offline.zip` | 跨平台离线全量包（需 Java 25+，在标准包基础上额外预置 PostgreSQL 数据库、PixivBatchDownloader 导入等官方可选插件，不含 Douyin） |
 
           ## 使用说明
 
@@ -377,14 +377,14 @@ jobs:
           FFmpeg 不包含在安装包内。勾选该选项后，安装器会在主程序安装完成后下载 Windows x64 版 FFmpeg，该文件由项目基于官方稳定源码构建。安装器会单独显示下载和解压进度。跳过该选项或下载失败不会影响普通图片下载，之后仍可在 GUI 的「状态」页点击「下载 FFmpeg」重试。安装器中的插件选择页当前不显示。
 
           ### Java 标准包（跨平台）
-          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。运行前需要安装 Java 17。Windows 使用 `run.bat`，Linux 和 macOS 在解压目录中执行 `sh run.sh`。
+          下载 `PixivDownload-*-java.zip` 并完整解压到任意目录，不要只提取其中的 JAR。运行前需要安装 Java 25。Windows 使用 `run.bat`，Linux 和 macOS 在解压目录中执行 `sh run.sh`。
 
           该包包含核心壳和默认安装的签名官方插件，与 Windows 安装包的默认插件集合一致。Douyin 不再由官方仓库或此发行包分发，需要从自定义仓库或本地包安装并确认第三方信任。包内不含 JRE 或 FFmpeg。在 Windows x64、Linux x64/arm64 与 macOS x64/arm64 系统上，可以在 GUI 的「状态」页下载 FFmpeg；其它系统需要手动安装。
 
           ### 离线全量包（跨平台）
           下载 `PixivDownload-*-full-offline.zip` 并完整解压。Windows 使用 `run.bat`，Linux 和 macOS 在解压目录中执行 `sh run.sh`。
 
-          该包包含核心壳、完整的签名官方插件分发集合，以及对应的 `.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，不包含 Douyin。所有官方插件文件均已随包提供。包内不含 JRE 或 FFmpeg。运行前需要自行安装 Java 17；如需使用依赖 FFmpeg 的功能，还应提前安装系统 FFmpeg。
+          该包包含核心壳、完整的签名官方插件分发集合，以及对应的 `.sha256`、`.sig`、provenance sidecar 和 `plugins-manifest.json`，不包含 Douyin。所有官方插件文件均已随包提供。包内不含 JRE 或 FFmpeg。运行前需要自行安装 Java 25；如需使用依赖 FFmpeg 的功能，还应提前安装系统 FFmpeg。
 
           ### 网页端一站式下载
 
