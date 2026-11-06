@@ -262,6 +262,45 @@ class NovelBatchServiceTest {
     }
 
     @Test
+    @DisplayName("译文 HTML 归档清单包含有效插图引用及同目录图片")
+    void translatedHtmlArchiveContainsReferencedImage() throws Exception {
+        translatedFixture();
+        Path html = Files.writeString(tempDir.resolve("content.html"), "Original HTML");
+        Path image = Files.write(tempDir.resolve("embed_7.png"), new byte[]{1, 2, 3});
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, tempDir, 1, List.of(
+                        new WorkAssetFile(0, html, "html"), new WorkAssetFile(1, image, "png")))));
+        var novels = org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelDatabase.class);
+        var novel = org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelRecord.class);
+        when(novels.getNovel(7)).thenReturn(novel);
+        when(novel.rawContent()).thenReturn("Original body[uploadedimage:7]");
+        when(novel.title()).thenReturn("Story");
+        when(novel.folder()).thenReturn(tempDir.toString());
+        when(novels.hasTranslation(7, "zh-CN@youdao")).thenReturn(true);
+        when(novels.getTranslationContent(7, "zh-CN@youdao")).thenReturn("Translated body[uploadedimage:7]");
+        when(novels.getNovelImageIds(7)).thenReturn(List.of("7"));
+        when(novels.getNovelImageExt(7, "7")).thenReturn("png");
+        var renderer = new top.sywyar.pixivdownload.novel.export.NovelExportService(novels,
+                workMetadataRepository, workAssetService,
+                top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages.messageResolver());
+        service = new NovelBatchService(novelGalleryService, workMetadataRepository, novelWorkDetailsRepository,
+                workAssetService, workCollectionMembership, archiveExportService, new ObjectMapper(), renderer);
+
+        service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao");
+        var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(captured.capture());
+        var entries = captured.getValue().entries();
+        var document = entries.stream().filter(e -> e.entryName().endsWith(".html")).findFirst().orElseThrow();
+        assertThat(new String(document.bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("Translated body", "<img", "src=\"embed_7.png\"").doesNotContain("Original body");
+        var picture = entries.stream().filter(e -> e.entryName().equals("7/embed_7.png")).findFirst().orElseThrow();
+        assertThat(picture.sourcePath()).isEqualTo(image);
+        assertThat(Files.readAllBytes(picture.sourcePath())).containsExactly(1, 2, 3);
+        assertThat(Files.readString(html)).isEqualTo("Original HTML");
+        assertThat(captured.getValue().deleteAfterReady()).isNull();
+    }
+
+    @Test
     @DisplayName("译文缺失、强制删除及生成字节超限均不提交归档")
     void rejectUnsafeOrUnavailableTranslation() throws Exception {
         translatedFixture();

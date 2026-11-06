@@ -49,6 +49,14 @@ public class AiNovelTranslationService {
     private final TranslationDocuments novelDatabase;
     private final MessageResolver messages;
     private final DatabaseAvailability database;
+    private TranslationCheckpoint checkpoint;
+    private String aiFingerprint;
+
+    AiNovelTranslationService checkpointed(TranslationCheckpoint context, String fingerprint) {
+        this.checkpoint = context;
+        this.aiFingerprint = fingerprint;
+        return this;
+    }
 
     public enum Status { OK, SKIPPED, SAME_LANGUAGE, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
 
@@ -144,7 +152,7 @@ public class AiNovelTranslationService {
                         TranslationRequest.CALL_TYPE,
                         new TranslationRequest(targetLanguage, segments.get(i),
                                 segmentTitle, segmentDescription, glossaryTerms).toMessages(),
-                        AiChatOptions.json().withTemperature(0.3));
+                        AiChatOptions.json().withTemperature(0.3), segmentTitle, segmentDescription);
                 TranslationResponse parsed;
                 try {
                     parsed = TranslationResponse.parse(chat.content());
@@ -215,9 +223,7 @@ public class AiNovelTranslationService {
                                          boolean translateTitle, boolean translateDescription) {
         long novelId = record.novelId();
         String title = record.title();
-        // 没有标题可作上下文且只想翻译简介时仍可继续（AI 不会强制要标题），但若同时连标题字段都没有则更明确。
-        if ((title == null || title.isBlank())
-                && (record.description() == null || record.description().isBlank())) {
+        if (!NovelTranslationService.hasSelectedMetadata(record, translateTitle, translateDescription)) {
             return new Result(Status.EMPTY, null, messages.get("novel.translate.empty"), false);
         }
         // hint 命中且跳过模式：仅当用户勾选的字段都已有非空译文时跳过；只译了正文 / 只译了标题等部分场景仍需补齐。
@@ -287,6 +293,7 @@ public class AiNovelTranslationService {
         if (!translateTitle && !translateDescription) return "";
         TranslationDocuments.Content series = novelDatabase.getSeries(seriesId);
         if (series == null) return "";
+        if (!NovelTranslationService.hasSelectedMetadata(series, translateTitle, translateDescription)) return "";
         String title = series.title();
         if (title == null || title.isBlank()) return "";
         // hint 命中：DB 已有该语言翻译则直接返回 hint，无需 AI（按用户选定字段判断已存在性）
@@ -379,7 +386,7 @@ public class AiNovelTranslationService {
                     new TitleTranslationRequest(targetLanguage, sourceTitle, sourceDescription,
                             terms == null ? List.of() : terms,
                             references == null ? List.of() : references).toMessages(),
-                    AiChatOptions.json().withTemperature(0.2));
+                    AiChatOptions.json().withTemperature(0.2), sourceTitle, sourceDescription);
             return TitleTranslationResponse.parse(chat.content());
         } catch (AiClientException | IllegalArgumentException e) {
             log.debug("title translation failed, fallback to original: {}", e.getMessage());
@@ -527,9 +534,15 @@ public class AiNovelTranslationService {
 
     private AiChatResult chat(String callType, List<AiChatMessage> messages, AiChatOptions options)
             throws AiClientException {
+        return chat(callType, messages, options, null, null);
+    }
+
+    private AiChatResult chat(String callType, List<AiChatMessage> messages, AiChatOptions options,
+                              String sourceTitle, String sourceDescription) throws AiClientException {
         database.requireAvailable();
         try {
-            AiChatResult result = aiChatClient.chat(callType, messages, options);
+            AiChatResult result = checkpoint == null ? aiChatClient.chat(callType, messages, options)
+                    : checkpoint.chat(aiChatClient, aiFingerprint, callType, messages, options, sourceTitle, sourceDescription);
             database.requireAvailable();
             return result;
         } catch (AiClientException failure) {

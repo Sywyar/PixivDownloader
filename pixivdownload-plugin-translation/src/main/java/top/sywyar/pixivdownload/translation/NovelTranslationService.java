@@ -23,6 +23,7 @@ public class NovelTranslationService {
     private final MessageResolver messages;
     private final DatabaseAvailability database;
     private TranslationCheckpoint checkpoint;
+    private String aiFingerprint;
 
     public NovelTranslationService(TranslationConfig config, AiChatClient ai, TranslationDocuments documents,
                                    MachineTranslationClient machine, MessageResolver messages, DatabaseAvailability database) {
@@ -30,8 +31,9 @@ public class NovelTranslationService {
         this.machine = machine; this.messages = messages; this.database = database;
     }
     NovelTranslationService checkpointed(TranslationCheckpoint context, String fingerprint) {
-        var service = new NovelTranslationService(config, context.ai(ai, fingerprint), context.documents(), machine, messages, database);
+        var service = new NovelTranslationService(config, ai, context.documents(), machine, messages, database);
         service.checkpoint = context;
+        service.aiFingerprint = fingerprint;
         return service;
     }
     NovelTranslationService bind(String engine) {
@@ -72,7 +74,11 @@ public class NovelTranslationService {
                 new Engine("libretranslate", "translation.engine.libretranslate", machine.available("libretranslate"), false, false));
     }
     private AiNovelTranslationService ai(TranslationDocuments session) {
-        return new AiNovelTranslationService(ai, session, messages, database);
+        return new AiNovelTranslationService(ai, session, messages, database).checkpointed(checkpoint, aiFingerprint);
+    }
+    static boolean hasSelectedMetadata(TranslationDocuments.Content source, boolean title, boolean description) {
+        return (title && source.title() != null && !source.title().isBlank())
+                || (description && source.description() != null && !source.description().isBlank());
     }
     public String resolveLangCode(String target) { return resolveLangCode(target, null); }
     public String resolveLangCode(String target, String requested) {

@@ -107,6 +107,15 @@ public final class TranslationJobStore {
             });
         } catch (SQLException e) { throw failure(e); }
     }
+    synchronized void discardStep(TranslationJobs.Job job, String slot) {
+        try {
+            database.transaction(s -> {
+                s.delete(STEPS, stepKey(job.id, slot));
+                s.update(JOBS, Map.of("payload", value(encode(job))), eq(JOBS, "id", job.id.toString()));
+                return null;
+            });
+        } catch (SQLException e) { throw failure(e); }
+    }
     synchronized void discard(UUID id) {
         try {
             database.transaction(s -> {

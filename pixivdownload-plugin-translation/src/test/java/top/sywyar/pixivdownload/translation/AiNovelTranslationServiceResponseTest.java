@@ -64,6 +64,24 @@ class AiNovelTranslationServiceResponseTest {
         when(novels.getNovel(42)).thenReturn(record);
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    @ValueSource(strings = {" \t"})
+    @DisplayName("仅选择简介时忽略未选择的原标题，空简介不调用 AI 或写入译文")
+    void emptySelectedDescriptionDoesNotCallAi(String description) throws Exception {
+        var source = new TranslationDocuments.Content(42, null, "body", "Original title", description);
+        when(novels.getNovel(42)).thenReturn(source);
+        when(novels.getSeries(42)).thenReturn(source);
+        when(ai.chat(eq(TitleTranslationRequest.CALL_TYPE), any(), any()))
+                .thenReturn(response("{\"status\":\"ok\",\"lang\":\"en\",\"title\":\"Translated title\"}"));
+        assertThat(service.translateChapter(42, "English", 0, true, "en", null, false, false, true).status())
+                .isEqualTo(AiNovelTranslationService.Status.EMPTY);
+        assertThat(service.translateSeriesTitle(42, "English", "en", null, false, true)).isEmpty();
+        verifyNoInteractions(ai);
+        verify(novels, never()).saveTranslationMetadata(anyLong(), any(), any(), any());
+        verify(novels, never()).saveSeriesTitleTranslation(anyLong(), any(), any(), any());
+    }
+
     private AiNovelTranslationService.Result translate(boolean body) {
         return service.translateChapter(42, "English", 0, true, "en", null, body, !body, false);
     }

@@ -67,7 +67,7 @@ public class NovelExportService {
             Path directory = novel.folder() == null || novel.folder().isBlank() ? null : Path.of(novel.folder());
             var cover = format == NovelFormat.EPUB
                     ? assets.existingThumbnail(WorkType.NOVEL, novelId, 0).orElse(null) : null;
-            if (format == NovelFormat.EPUB && directory != null) {
+            if ((format == NovelFormat.EPUB || format == NovelFormat.HTML) && directory != null) {
                 for (String id : novels.getNovelImageIds(novelId)) {
                     String extension = novels.getNovelImageExt(novelId, id);
                     if (extension != null && !extension.isBlank()) images.put(id, extension);

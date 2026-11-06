@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.translation.api.*;
 import top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.*;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /** 顺序重放已确认响应，保留分段算法及 AI 术语累积的原有执行顺序。 */
 final class TranslationCheckpoint {
@@ -23,17 +24,35 @@ final class TranslationCheckpoint {
         this.store = store; this.job = job; this.prefix = prefix; this.documents = documents; this.guard = guard;
     }
     <T> T memo(String slot, String signature, Class<T> type, Supplier<T> action) {
+        return memo(slot, signature, type, action, ignored -> {});
+    }
+    <T> T memo(String slot, String signature, Class<T> type, Supplier<T> action, Consumer<T> validate) {
         guard.run();
         String key = prefix + ":" + slot;
+        boolean response = slot.startsWith("batch:") || slot.startsWith("ai:");
         var saved = store.step(job.id, key);
         if (saved != null) {
             if (!signature.equals(saved.signature())) throw new IllegalStateException("translation.checkpoint-conflict");
-            return store.decode(saved.payload(), type);
+            T result = store.decode(saved.payload(), type);
+            try {
+                validate.accept(result);
+                return result;
+            } catch (IllegalStateException invalid) {
+                synchronized (job) {
+                    if (response) job.savedSteps--;
+                    try { store.discardStep(job, key); }
+                    catch (RuntimeException failure) { if (response) job.savedSteps++; throw failure; }
+                }
+                org.slf4j.LoggerFactory.getLogger(TranslationCheckpoint.class).warn(
+                        "Translation checkpoint rejected: jobId={}, runId={}, slot={}, reason={}",
+                        job.id, job.runId, slot, invalid.getMessage());
+            }
         }
+        guard.run();
         T result = action.get();
+        validate.accept(result);
         synchronized (job) {
             // 取消发生在远端响应返回前时，仍保存这份已付费结果；发布另行检查取消状态。
-            boolean response = slot.startsWith("batch:") || slot.startsWith("ai:");
             if (response) job.savedSteps++;
             try { store.checkpoint(job, key, signature, store.encode(result)); }
             catch (RuntimeException failure) { if (response) job.savedSteps--; throw failure; }
@@ -55,35 +74,42 @@ final class TranslationCheckpoint {
                     return result.toArray(String[]::new);
                 }));
     }
-    AiChatClient ai(AiChatClient delegate, String fingerprint) {
-        return new AiChatClient() {
-            public boolean isConfigured() { return delegate.isConfigured(); }
-            public AiChatResult chat(String type, List<AiChatMessage> messages, AiChatOptions options) {
-                String signature = TranslationDigest.of(type, store.encode(messages), store.encode(options));
-                return memo("ai:" + aiIndex++, signature, AiChatResult.class, () -> {
-                    AiChatResult result;
-                    try { result = delegate.chatBound(fingerprint, type, messages, options); }
-                    catch (AiClientException e) { throw new IllegalStateException("translation.ai-request-failed", e); }
-                    if ("length".equalsIgnoreCase(result.finishReason()))
-                        throw new IllegalStateException("translation.incomplete-response");
-                    try {
-                        if (TranslationRequest.CALL_TYPE.equals(type)) {
-                            var parsed = TranslationResponse.parse(result.content());
-                            if (!parsed.ok() || parsed.text() == null || parsed.text().isBlank())
-                                throw new IllegalArgumentException();
-                        } else if (TitleTranslationRequest.CALL_TYPE.equals(type)) {
-                            if (!TitleTranslationResponse.parse(result.content()).ok()) throw new IllegalArgumentException();
-                        } else if (LangProbeRequest.CALL_TYPE.equals(type)) {
-                            if (!LangProbeResponse.parse(result.content()).ok()) throw new IllegalArgumentException();
-                        } else SourceLanguageProbeResponse.parse(result.content());
-                    } catch (IllegalArgumentException e) { throw new IllegalStateException("translation.invalid-response", e); }
-                    return result;
-                });
-            }
-            public AiChatResult chatTest(String type, AiClientSettings settings, List<AiChatMessage> messages, AiChatOptions options) {
-                throw new UnsupportedOperationException();
-            }
-        };
+    AiChatResult chat(AiChatClient delegate, String fingerprint, String type, List<AiChatMessage> messages,
+                      AiChatOptions options, String sourceTitle, String sourceDescription) {
+        String signature = TranslationDigest.of(type, store.encode(messages), store.encode(options));
+        return memo("ai:" + aiIndex++, signature, AiChatResult.class, () -> {
+            try { return delegate.chatBound(fingerprint, type, messages, options); }
+            catch (AiClientException e) { throw new IllegalStateException("translation.ai-request-failed", e); }
+        }, result -> {
+            if (result == null) throw new IllegalStateException("translation.invalid-response");
+            if ("length".equalsIgnoreCase(result.finishReason()))
+                throw new IllegalStateException("translation.incomplete-response");
+            try {
+                if (TranslationRequest.CALL_TYPE.equals(type)) {
+                    var parsed = TranslationResponse.parse(result.content());
+                    if (!parsed.ok() || parsed.text() == null || parsed.text().isBlank())
+                        throw new IllegalArgumentException();
+                    requireLanguage(parsed.lang());
+                    requireTranslation(sourceTitle, parsed.translatedTitle());
+                    requireTranslation(sourceDescription, parsed.translatedDescription());
+                } else if (TitleTranslationRequest.CALL_TYPE.equals(type)) {
+                    var parsed = TitleTranslationResponse.parse(result.content());
+                    if (!parsed.ok()) throw new IllegalArgumentException();
+                    requireLanguage(parsed.lang());
+                    requireTranslation(sourceDescription, parsed.translatedDescription());
+                } else if (LangProbeRequest.CALL_TYPE.equals(type)) {
+                    if (!LangProbeResponse.parse(result.content()).ok()) throw new IllegalArgumentException();
+                } else SourceLanguageProbeResponse.parse(result.content());
+            } catch (IllegalArgumentException e) { throw new IllegalStateException("translation.invalid-response", e); }
+        });
+    }
+    private static void requireTranslation(String source, String translated) {
+        if (source != null && !source.isBlank() && (translated == null || translated.isBlank()))
+            throw new IllegalArgumentException();
+    }
+    private void requireLanguage(String language) {
+        if (language == null || language.isBlank() || !language.trim().equals(job.language))
+            throw new IllegalStateException("translation.language-changed");
     }
     static String digest(TranslationDocuments.Content value) {
         return value == null ? TranslationDigest.of(null, null, null)

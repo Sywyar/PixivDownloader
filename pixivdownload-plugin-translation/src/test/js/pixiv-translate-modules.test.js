@@ -312,6 +312,56 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const view = (state, extra) => Object.assign({id: 'fixture', state, savedSteps: 2, completed: 0, total: 1,
     language: 'zh-CN', variantKey: 'zh-CN@youdao', ok: 0, skipped: 0}, extra);
 
+test('系列按钮忽略单章及仅元数据任务，提交全部章节并按真实结果提示', async function () {
+    const submissions = [], messages = [];
+    let click, mounting, choices = 0;
+    const h = progressSandbox(async (url, init) => {
+        if (url.includes('access-check')) return jsonResponse({});
+        if (url.includes('?seriesId=')) return jsonResponse([
+            view('QUEUED', {id: 'single', allChapters: false, metadataOnly: false}),
+            view('PAUSED', {id: 'metadata', allChapters: false, metadataOnly: true})
+        ]);
+        if (init.method === 'POST') {
+            submissions.push(JSON.parse(init.body));
+            return jsonResponse(view('RUNNING', {allChapters: true, total: 3}));
+        }
+        return jsonResponse(view('COMPLETED', {allChapters: true, total: 3, completed: 3, ok: 3}));
+    });
+    h.sandbox.PixivTranslateDialog = {create: () => ({async openDialog() {
+        choices++; return {targetLanguage: 'zh-CN', engine: 'youdao'};
+    }})};
+    h.sandbox.PixivContentLang = {mount: () => ({destroy() {}})};
+    h.sandbox.PixivUiSlots = {registerModule(url, factory) {
+        mounting = factory({querySelector: () => ({style: {}})}, {
+            properties: {seriesId: 9, novel: true}, signal: new AbortController().signal,
+            i18n: {apply() {}, t(key, fallback, vars) { return {key, vars}; }},
+            loadScript: async () => true, loadStyle() {}, onCleanup() {}, region() {},
+            fetch: h.sandbox.fetch, on(button, event, listener) { click = listener; },
+            emit(event, value) { if (event === 'message') messages.push(value.message); }
+        });
+    }};
+    evaluateFile(h.sandbox, 'series-detail-translate-slot.js');
+    await mounting;
+    await click();
+    assert.equal(choices, 1);
+    assert.equal(submissions.length, 1);
+    assert.equal(submissions[0].allChapters, true);
+    assert.equal(submissions[0].seriesId, 9);
+    assert.equal(messages.at(-1).key, 'translate:toast.series-done');
+    assert.equal(messages.at(-1).vars.ok, 3);
+    assert.equal(h.timers.size, 0);
+});
+
+for (const state of ['PAUSED', 'CANCELLED']) test('系列查询保留可继续的整系列任务：' + state, async function () {
+    const h = progressSandbox(async () => jsonResponse([
+        view(state, {id: 'single', allChapters: false}),
+        view('COMPLETED', {id: 'finished', allChapters: true}),
+        view(state, {id: 'series', allChapters: true, metadataOnly: false})
+    ]));
+    assert.equal((await h.api.findJob(null, 9)).id, 'series');
+    assert.equal((await h.api.findJob(7, null)).id, 'single');
+});
+
 test('卸载翻译组件中止本实例轮询并释放弹窗，保留后台任务及其他实例', async function () {
     const requests = [];
     const h = progressSandbox(async (url, init) => {

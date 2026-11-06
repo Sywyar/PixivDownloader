@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.translation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+import top.sywyar.pixivdownload.translation.ai.LangProbeResponse;
 import top.sywyar.pixivdownload.translation.api.*;
 import top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.Kind;
 import top.sywyar.pixivdownload.translation.api.NovelTranslationOperations.*;
@@ -21,7 +22,7 @@ public final class TranslationJobs {
     }
     public record View(UUID id, String state, String reason, String engine, String language, String variantKey,
                        int completed, int total, int savedSteps, int ok, int skipped, String outcome,
-                       String runId, long elapsedSeconds) {}
+                       String runId, long elapsedSeconds, boolean allChapters) {}
     public static final class Job {
         public UUID id;
         public Submission submission;
@@ -177,10 +178,14 @@ public final class TranslationJobs {
                 store.save(job);
             }
             Request request = job.submission.request();
-            if (job.language == null) {
+            if (!LangProbeResponse.validCode(job.language)) {
+                job.language = null;
                 job.language = planning.memo("language", "language-v1", String.class, () ->
-                        attempt.checkpointed(planning, job.aiFingerprint).resolveLangCode(request.targetLanguage(), job.engine));
-                if (job.language == null || job.language.isBlank()) throw new IllegalStateException("translation.language-unsupported");
+                        attempt.checkpointed(planning, job.aiFingerprint).resolveLangCode(request.targetLanguage(), job.engine),
+                        language -> {
+                            if (!LangProbeResponse.validCode(language))
+                                throw new IllegalStateException("translation.language-unsupported");
+                        });
                 store.save(job);
             }
             for (; job.cursor < job.novelIds.size();) {
@@ -209,15 +214,21 @@ public final class TranslationJobs {
             if (series != null && (job.submission.metadataOnly() || job.submission.mergeAfter() && job.hasTranslation)) {
                 if (!job.metadataDone && (request.translateTitle() || request.translateDescription())) {
                     var checkpoint = new TranslationCheckpoint(store, job, "series:" + series, session, checkpointGuard);
+                    boolean empty = false;
                     if (!session.published(checkpoint.publication(Kind.SERIES, series))) {
                         checkpoint.prepare(Kind.SERIES, series, job.language);
-                        String result = attempt.checkpointed(checkpoint, job.aiFingerprint).translateSeriesTitle(series,
-                                request.targetLanguage(), job.language, request.glossaryId(),
-                                request.translateTitle(), request.translateDescription(), job.engine);
-                        if (result == null || result.isBlank()) throw new IllegalStateException("translation.remote-error");
+                        var source = checkpoint.source(Kind.SERIES, series);
+                        empty = source != null && !NovelTranslationService.hasSelectedMetadata(source,
+                                request.translateTitle(), request.translateDescription());
+                        if (!empty) {
+                            String result = attempt.checkpointed(checkpoint, job.aiFingerprint).translateSeriesTitle(series,
+                                    request.targetLanguage(), job.language, request.glossaryId(),
+                                    request.translateTitle(), request.translateDescription(), job.engine);
+                            if (result == null || result.isBlank()) throw new IllegalStateException("translation.remote-error");
+                        }
                     }
                     job.metadataDone = true;
-                    if (job.submission.metadataOnly()) job.outcome = "OK";
+                    if (job.submission.metadataOnly()) job.outcome = empty ? "EMPTY" : "OK";
                     store.advance(job, "series:" + series);
                 }
                 if (!job.merged && job.submission.mergeAfter()) {
@@ -259,7 +270,8 @@ public final class TranslationJobs {
     }
     public synchronized List<View> find(long novelId, Long seriesId) {
         recover();
-        return store.all().stream().filter(j -> seriesId != null ? Objects.equals(j.submission.seriesId(), seriesId)
+        return store.all().stream().filter(j -> seriesId != null
+                ? Objects.equals(j.submission.seriesId(), seriesId) && j.submission.allChapters()
                 : j.submission.request().novelId() == novelId || j.novelIds.contains(novelId))
                 .sorted(Comparator.comparingLong((Job j) -> j.startedAt).reversed()).map(j -> {
                     var execution = running.get(j.id);
@@ -315,10 +327,12 @@ public final class TranslationJobs {
         return job;
     }
     private static View view(Job job) {
-        return new View(job.id, job.state, job.reason, job.engine, job.language,
-                job.language == null || job.language.isBlank() ? null : new TranslationVariant(job.language, job.engine).key(),
+        String language = LangProbeResponse.validCode(job.language) ? job.language : null;
+        return new View(job.id, job.state, job.reason, job.engine, language,
+                language == null ? null : new TranslationVariant(language, job.engine).key(),
                 job.cursor, job.novelIds.size(), job.savedSteps, job.ok, job.skipped, job.outcome, job.runId,
-                Math.max(0, ((active(job.state) ? System.currentTimeMillis() : job.updatedAt) - job.startedAt) / 1000));
+                Math.max(0, ((active(job.state) ? System.currentTimeMillis() : job.updatedAt) - job.startedAt) / 1000),
+                job.submission.allChapters());
     }
     static boolean active(String state) { return List.of("QUEUED", "RUNNING", "PAUSING", "CANCELLING").contains(state); }
     private static String reason(RuntimeException failure) {

@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import top.sywyar.pixivdownload.translation.ai.AiResponseParser;
+import top.sywyar.pixivdownload.translation.api.TranslationVariant;
 
 /**
  * 「语言名 → 规范 BCP-47 代码」的 AI 响应体，对应 {@link LangProbeRequest} 约定的 JSON 输出规范。
@@ -30,6 +30,16 @@ public record LangProbeResponse(
 
     /** 是否得到了可用的语言代码。 */
     public boolean ok() {
-        return valid && code != null && !code.isBlank();
+        return valid && validCode(code);
+    }
+
+    /** 语言代码必须能用于既有译文身份，计划与响应共用同一校验。 */
+    public static boolean validCode(String code) {
+        try {
+            new TranslationVariant(code, TranslationVariant.UNKNOWN_ENGINE);
+            return true;
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
     }
 }

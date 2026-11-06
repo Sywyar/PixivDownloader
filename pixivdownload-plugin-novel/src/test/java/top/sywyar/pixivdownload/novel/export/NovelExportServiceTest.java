@@ -108,6 +108,23 @@ class NovelExportServiceTest {
         verifyNoInteractions(assets);
     }
 
+    @Test
+    @DisplayName("原文和译文 HTML 均保留已下载插图的相对引用")
+    void htmlReferencesLocalIllustrations() throws Exception {
+        existingNovel();
+        when(novel.rawContent()).thenReturn("Original body[uploadedimage:7]");
+        when(novels.hasTranslation(42, "zh-CN@youdao")).thenReturn(true);
+        when(novels.getTranslationContent(42, "zh-CN@youdao")).thenReturn("Translated body[uploadedimage:7]");
+        when(novels.getNovelImageIds(42)).thenReturn(List.of("7"));
+        when(novels.getNovelImageExt(42, "7")).thenReturn("png");
+        Path image = Files.write(root.resolve("embed_7.png"), new byte[]{1, 2, 3});
+        assertThat(body(service.export(42, NovelFormat.HTML, null), NovelFormat.HTML))
+                .contains("Original body", "<img", "src=\"embed_7.png\"");
+        assertThat(body(service.export(42, NovelFormat.HTML, "zh-CN@youdao"), NovelFormat.HTML))
+                .contains("Translated body", "<img", "src=\"embed_7.png\"").doesNotContain("Original body");
+        assertThat(Files.readAllBytes(image)).containsExactly(1, 2, 3);
+    }
+
     private static String body(NovelExportService.Export exported, NovelFormat format) throws Exception {
         return new String(format == NovelFormat.EPUB
                 ? unzip(exported.content()).get("OEBPS/chapter-1.xhtml") : exported.content(), StandardCharsets.UTF_8);

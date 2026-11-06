@@ -174,7 +174,9 @@
     async function findJob(novelId, seriesId) {
         var query = seriesId ? '?seriesId=' + encodeURIComponent(seriesId) : '?novelId=' + encodeURIComponent(novelId);
         var jobs = await jobRequest(query);
-        return jobs.find(function (job) { return job.state !== 'COMPLETED'; }) || null;
+        return jobs.find(function (job) {
+            return job.state !== 'COMPLETED' && (!seriesId || job.allChapters === true);
+        }) || null;
     }
 
     function buildProgress() {
