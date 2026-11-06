@@ -10,7 +10,9 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
-import top.sywyar.pixivdownload.i18n.*;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
+import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.api.download.queue.*;
 import top.sywyar.pixivdownload.plugin.api.http.*;
 import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
@@ -53,7 +55,7 @@ public class TranslationPluginConfiguration {
         return new NovelTranslationService(config, ai, documents, machine, messages, database);
     }
     @Bean public QueueTaskTracker translationTaskTracker() { return new QueueTaskTracker("translation"); }
-    @Bean public ThreadPoolTaskExecutor translationTaskExecutor(TranslationConfig config) {
+    @Bean("translationTaskExecutor") public ThreadPoolTaskExecutor translationTaskExecutor(TranslationConfig config) {
         var executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(Math.max(1, config.getMaxConcurrent()));
         executor.setMaxPoolSize(Math.max(1, config.getMaxConcurrent()));

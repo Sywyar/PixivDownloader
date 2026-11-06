@@ -6,6 +6,6 @@
     <name>PixivDownloader Novel Translation Contract API</name>
     <description>小说内容所有者与可选翻译服务之间的纯 Java 契约。</description>
     <build><plugins><plugin><artifactId>maven-jar-plugin</artifactId><executions>
-        <execution><id>default-jar</id><phase>process-classes</phase><goals><goal>jar</goal></goals></execution>
+        <execution><id>default-jar</id><phase>compile</phase><goals><goal>jar</goal></goals></execution>
     </executions></plugin></plugins></build>
 </project>

@@ -146,7 +146,7 @@ class DownloadWorkbenchOptionalBootContextTest {
                 context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("test-runtime", properties));
                 Path plugins = RuntimeFiles.pluginsDirectory();
                 PluginTestProvenance.stageSqliteProvider(plugins);
-                for (String id : disabled ? List.of("gallery", "novel", "pixiv-batch-downloader-import", "download-workbench") : List.of("gallery", "novel", "pixiv-batch-downloader-import")) {
+                for (String id : disabled ? List.of("gallery", "novel-translation-contract", "novel", "pixiv-batch-downloader-import", "download-workbench") : List.of("gallery", "novel-translation-contract", "novel", "pixiv-batch-downloader-import")) {
                     Path classes = Path.of(java.util.Objects.requireNonNull(System.getProperty(id + ".plugin.classes")));
                     if (!Files.isRegularFile(classes.resolve("plugin.properties"))) {
                         throw new IOException("Current plugin classes are missing: " + id);

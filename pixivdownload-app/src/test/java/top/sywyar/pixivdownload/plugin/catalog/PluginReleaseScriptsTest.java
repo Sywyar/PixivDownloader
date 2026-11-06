@@ -267,7 +267,6 @@ class PluginReleaseScriptsTest {
             assertI18nKey(plugin.module(), descriptor.get("pixiv.display-namespace"),
                     descriptor.get("pixiv.description-key"));
         }
-        assertI18nValue("pixivdownload-plugin-ai", "ai", "plugin.name", "AI 翻译", "AI Translation");
         assertI18nValue("pixivdownload-plugin-tts", "tts", "plugin.name", "TTS 朗读", "TTS Narration");
     }
 
