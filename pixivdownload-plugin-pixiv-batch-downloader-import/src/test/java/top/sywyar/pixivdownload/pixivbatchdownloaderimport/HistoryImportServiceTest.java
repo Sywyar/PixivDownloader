@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("历史导入执行与取消")
 class HistoryImportServiceTest {
+    private final top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry registry =
+            new top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry();
     private final ImportLogCapture logs = new ImportLogCapture();
     @AfterEach void closeLogs() { logs.close(); }
     @TempDir(factory = HistoryTestDirectory.class) Path temporary;
@@ -30,19 +32,7 @@ class HistoryImportServiceTest {
                     if (method.getName().equals("hasWork")) return present.contains(args[0] + ":" + args[1]);
                     throw new UnsupportedOperationException(method.getName());
                 });
-        PluginRuntimeTaskRegistrar tasks = new PluginRuntimeTaskRegistrar() {
-            public boolean acceptsNewTasks() { return true; }
-            public PluginRuntimeTask registerPeriodic(Runnable delegate) { throw new UnsupportedOperationException(); }
-            public PluginRuntimeTask registerOneShot(Runnable delegate) {
-                return new PluginRuntimeTask() {
-                    Future<?> future;
-                    public void run() { delegate.run(); }
-                    public void bindCancellation(Future<?> value) { future = value; }
-                    public void cancel() { if (future != null) future.cancel(true); }
-                    public void discardUnsubmitted() {}
-                };
-            }
-        };
+        PluginRuntimeTaskRegistrar tasks = registry.registrarForPlugin("history");
         return new HistoryImportService(new WorkFileImporter() {
             public boolean importFiles(WorkFileImportRequest request) { throw new AssertionError("metadata import called"); }
             public boolean importLocalFiles(LocalWorkFileImportRequest request) throws java.io.IOException {
@@ -184,6 +174,40 @@ class HistoryImportServiceTest {
             assertTrue(imported.isEmpty());
         } finally { release.countDown(); }
     }
+    @Test @DisplayName("宿主撤回中断当前登记且等待真实退出，不再登记下一作品")
+    void quiesceStopsRegistrationAndDrainsOnExit() throws Exception {
+        var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));
+        var entered = new CountDownLatch(1);
+        var interrupted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var request = request("[{\"id\":\"42_p0\",\"n\":\"a.png\"},{\"id\":\"43_p0\",\"n\":\"a.png\"}]");
+        try (var service = service(r -> {
+            entered.countDown();
+            while (true) {
+                try { release.await(); break; }
+                catch (InterruptedException cancellation) { interrupted.countDown(); }
+            }
+        }, statistics)) {
+            service.start(service.inspect(request).valueOrThrow().token(), "").valueOrThrow();
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var drain = registry.prepareQuiesce("history");
+            registry.cancelQuiescedTasks("history", drain);
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertFalse(registry.acceptsNewTasks("history"));
+            assertEquals(Phase.CANCELLING, service.status().phase());
+            assertFalse(drain.isDrained());
+            release.countDown();
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            assertEquals(Phase.CANCELLED, service.status().phase());
+            assertEquals(1, imported.size());
+            assertEquals(1, service.status().imported());
+            assertEquals(1, service.pendingCompletion().orElseThrow().imported());
+            try (var paths = Files.walk(temporary.resolve("cache"))) {
+                assertTrue(paths.noneMatch(Files::isRegularFile));
+            }
+        } finally { release.countDown(); }
+    }
+
     @Test @DisplayName("新预览替换旧凭据；服务关闭释放暂存并拒绝启动")
     void replacesPlanAndCloses() throws Exception {
         var statistics = new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("stats.db")));

@@ -22,7 +22,10 @@ class BrowserHistoryImportTest {
     @TempDir(factory = HistoryTestDirectory.class) Path temporary;
     private final List<LocalWorkFileImportRequest> imported = new CopyOnWriteArrayList<>();
     private final Set<String> present = ConcurrentHashMap.newKeySet();
-    private final List<PluginRuntimeTask> registered = new CopyOnWriteArrayList<>();
+    private final top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry registry =
+            new top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry();
+    private java.util.function.LongConsumer lookup = id -> {};
+    private PluginRuntimeTask expiry;
     private final HistoryImportCompletion completions = new HistoryImportCompletion();
     private Path root;
     private BrowserHistoryImport history;
@@ -37,21 +40,19 @@ class BrowserHistoryImportTest {
         var statistics = new PixivBatchDownloaderImportStatistics(database());
         var queries = (WorkQueryService) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{WorkQueryService.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("hasWork")) return present.contains(args[0] + ":" + args[1]);
+                    if (method.getName().equals("hasWork")) {
+                        lookup.accept((Long) args[1]);
+                        return present.contains(args[0] + ":" + args[1]);
+                    }
                     throw new UnsupportedOperationException(method.getName());
                 });
+        var owner = registry.registrarForPlugin("history");
         PluginRuntimeTaskRegistrar tasks = new PluginRuntimeTaskRegistrar() {
-            public boolean acceptsNewTasks() { return true; }
-            public PluginRuntimeTask registerPeriodic(Runnable delegate) { return registerOneShot(delegate); }
-            public PluginRuntimeTask registerOneShot(Runnable delegate) {
-                var task = new PluginRuntimeTask() {
-                    Future<?> future;
-                    public void run() { delegate.run(); }
-                    public void bindCancellation(Future<?> value) { future = value; }
-                    public void cancel() { if (future != null) future.cancel(true); }
-                    public void discardUnsubmitted() {}
-                };
-                registered.add(task); return task;
+            public boolean acceptsNewTasks() { return owner.acceptsNewTasks(); }
+            public PluginRuntimeTask registerOneShot(Runnable action) { return owner.registerOneShot(action); }
+            public PluginRuntimeTask registerPeriodic(Runnable action) {
+                expiry = owner.registerPeriodic(action);
+                return expiry;
             }
         };
         history = new BrowserHistoryImport(new WorkFileImporter() {
@@ -68,8 +69,45 @@ class BrowserHistoryImportTest {
     }
 
     @AfterEach void close() {
-        try { history.close(); registered.forEach(PluginRuntimeTask::cancel); }
+        try {
+            var drain = registry.prepareQuiesce("history");
+            registry.cancelQuiescedTasks("history", drain);
+            history.close();
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+        }
         finally { logs.close(); }
+    }
+
+    @Test @DisplayName("宿主撤回取消浏览器检查，退出前不排空，退出后释放上传与预览")
+    void quiesceCancelsInspection() throws Exception {
+        var entered = new CountDownLatch(1);
+        var interrupted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        lookup = ignored -> {
+            entered.countDown();
+            while (true) {
+                try { release.await(); break; }
+                catch (InterruptedException cancelled) { interrupted.countDown(); }
+            }
+        };
+        String id = upload("[{\"id\":\"42_p0\",\"n\":\"0.png\"}]");
+        try {
+            history.inspect(id);
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var drain = registry.prepareQuiesce("history");
+            registry.cancelQuiescedTasks("history", drain);
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertEquals("CANCELLING", history.status(id).phase());
+            assertFalse(drain.isDrained());
+            release.countDown();
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            assertEquals("CANCELLED", history.status(id).phase());
+            assertNull(history.status(id).preview());
+            assertTrue(imported.isEmpty());
+            try (var paths = Files.walk(temporary.resolve("cache"))) {
+                assertTrue(paths.noneMatch(Files::isRegularFile));
+            }
+        } finally { release.countDown(); }
     }
 
     @Test @DisplayName("多分片预览无副作用，开始后直接登记原文件，重复检查跳过")
@@ -205,7 +243,7 @@ class BrowserHistoryImportTest {
         Object session = sessionField.get(history);
         var touched = session.getClass().getDeclaredField("touched"); touched.setAccessible(true);
         touched.setLong(session, System.nanoTime() - TimeUnit.MINUTES.toNanos(16));
-        registered.get(0).run();
+        expiry.run();
         assertThrows(OperationException.class, () -> history.status(abandoned));
         String id = ready("[{\"id\":\"42_p0\",\"n\":\"0.png\"}]");
         history.close();

@@ -82,6 +82,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
         }
         HistoryRecords parsed = null;
         try {
+            checkCancelled();
             Path root = Path.of(request.sourceRoot()).normalize();
             parsed = HistoryRecords.read(Path.of(request.recordFile()).normalize(), root, cache);
             HistoryRecords snapshot = parsed;
@@ -157,24 +158,26 @@ public final class HistoryImportService implements Source, AutoCloseable {
             cancelled = false;
             status = status(Phase.RUNNING, selected.candidates(), 0, 0, 0, List.of());
             diagnostics.event(INFO, "log.history.start", diagnosticId, selected.candidates());
-            top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask task;
-            try { task = tasks.registerOneShot(() -> execute(selected)); }
+            try {
+                HistoryTask.submit(tasks, executor, () -> execute(selected),
+                        () -> { synchronized (lock) { if (runningPlan == selected) cancel(); } },
+                        () -> {
+                            synchronized (lock) {
+                                if (runningPlan != selected) return;
+                                cleanup(selected.records());
+                                runningPlan = null;
+                                status = status(Phase.CANCELLED, selected.candidates(), 0, 0, 0, List.of());
+                                diagnostics.event(INFO, "log.history.finish", diagnosticId, Phase.CANCELLED,
+                                        0, selected.candidates(), 0, 0, 0, 0, DETAIL_LIMIT);
+                            }
+                        });
+                return Result.success(status);
+            }
             catch (RuntimeException unavailable) {
                 cleanup(selected.records());
                 runningPlan = null;
                 status = status(Phase.FAILED, selected.candidates(), 0, 0, 0, List.of());
-                return failure("unavailable", unavailable);
-            }
-            try {
-                Future<?> future = executor.submit(task);
-                task.bindCancellation(future);
-                return Result.success(status);
-            } catch (RejectedExecutionException rejected) {
-                task.discardUnsubmitted();
-                cleanup(selected.records());
-                runningPlan = null;
-                status = status(Phase.FAILED, selected.candidates(), 0, 0, 0, List.of());
-                return failure("busy", rejected);
+                return failure(unavailable instanceof RejectedExecutionException ? "busy" : "unavailable", unavailable);
             }
         }
     }
@@ -292,6 +295,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
 
     private void checkCancelled() throws InterruptedIOException {
         synchronized (lock) {
+            if (!tasks.acceptsNewTasks()) cancel();
             if (cancelled || closed || Thread.currentThread().isInterrupted()) throw new InterruptedIOException("cancelled");
         }
     }

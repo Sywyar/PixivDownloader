@@ -50,12 +50,17 @@ class DirectorySuggestionLayoutTest {
                 File("src/main/resources/i18n/web/gui-compose$suffix.properties").reader(Charsets.UTF_8).use(::load)
             }
             val calls = HashMap<String, Function<Array<Any>, Any>>()
+            val candidate = java.util.concurrent.atomic.AtomicReference(DesktopDirectorySuggestionControllerTest.snapshot())
+            calls["controlCenterSnapshot"] = Function {
+                DesktopUiHost.GuiResponse(true, 200, candidate.get(), "", false)
+            }
             calls["guiPostJson"] = Function {
                 requests.add(it[1])
+                candidate.set(DesktopUiHost.GuiValue.of(mapOf("directories" to emptyList<Any>())))
                 DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(mapOf("code" to "SAVED")), "", false)
             }
             val model = DesktopConfigurationControllerTest.model(HashMap(), calls)
-            model.directorySuggestions.refresh(DesktopDirectorySuggestionControllerTest.snapshot())
+            model.directorySuggestions.refresh(candidate.get())
             var snapshot by mutableStateOf(model.snapshot())
             val subscription = model.subscribeSnapshots { snapshot = it }
             val resolve: (top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken) -> String = {

@@ -110,12 +110,18 @@ public final class BrowserHistoryImport implements AutoCloseable {
         if (!"UPLOADING".equals(view(value).phase()) || value.receivedBytes == 0) reject("input");
         value.inspecting = true;
         diagnostics.event(INFO, "log.browser.uploaded", value.service.diagnosticId(), value.receivedBytes);
-        top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask task;
-        try { task = tasks.registerOneShot(() -> inspect(value)); }
-        catch (RuntimeException failure) { value.inspecting = false; value.error = text("unavailable"); throw failure; }
-        try { task.bindCancellation(executor.submit(task)); }
+        try {
+            HistoryTask.submit(tasks, executor, () -> inspect(value),
+                    () -> { synchronized (this) { cancel(value); } },
+                    () -> {
+                        synchronized (this) {
+                            value.inspecting = false;
+                            dispose(value);
+                        }
+                    });
+        }
         catch (RuntimeException failure) {
-            task.discardUnsubmitted(); value.inspecting = false; value.error = text("unavailable");
+            value.inspecting = false; value.error = text("unavailable");
             throw failure;
         }
         return view(value);
@@ -124,7 +130,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
     private void inspect(Session value) {
         try {
             synchronized (this) {
-                if (closed || value.cancelled) return;
+                if (closed || value.cancelled || !tasks.acceptsNewTasks()) { cancel(value); return; }
                 value.inspector = Thread.currentThread();
             }
             var result = value.service.inspect(new Request(value.upload.toString(), value.root.toString()));
