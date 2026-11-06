@@ -60,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "pixivdownload.data-dir=target/test-runtime/translation-boot/data",
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-novel",
         "download.novel-max-concurrent=3",
+        "download.root-folder=target/test-runtime/translation-boot/downloads",
         "setup.browser.auto-open=false"
 })
 @ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalSqliteBootstrapInitializer.class)
@@ -327,6 +328,100 @@ class NovelExternalPluginBootContextTest {
                 "top.sywyar.pixivdownload.novel.translation.NovelGlossaryService");
         assertTransactionalProxy(child, externalCl,
                 "top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService");
+    }
+
+    @Test
+    @DisplayName("单篇直接下载与批量归档经真实装配读取精确译文，日志不含正文")
+    void exportsStoredVariantThroughPlugin() throws Exception {
+        var novel = externalPluginContextManager.contextFor("novel").orElseThrow();
+        Object database = novel.getBean("novelDatabase");
+        var insert = Arrays.stream(database.getClass().getMethods())
+                .filter(method -> method.getName().equals("insertNovel") && method.getParameterCount() == 22)
+                .findFirst().orElseThrow();
+        Path folder = Files.createDirectories(Path.of("target/test-runtime/translation-boot/novel-732"));
+        Files.writeString(folder.resolve("732.txt"), "private-original", StandardCharsets.UTF_8);
+        insert.invoke(database, 732L, "Export title", folder.toString(), 1, "txt", 1L, 0, false,
+                null, "Export description", 732L, null, null, null, 1, 10, 1, 1, false, "ja", "private-original", null);
+        database.getClass().getMethod("saveTranslation", long.class, String.class, String.class, String.class, String.class)
+                .invoke(database, 732L, "zh-CN@youdao", "private-youdao", "译文", null);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                "top.sywyar.pixivdownload.novel.export.NovelExportService");
+        var captured = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        captured.start();
+        logger.addAppender(captured);
+        var previousLocale = LocaleContextHolder.getLocale();
+        try {
+            LocaleContextHolder.setLocale(Locale.JAPANESE);
+            var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(applicationContext).build();
+            var attachment = http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .get("/api/novel/732/export").param("variant", "zh-CN@youdao"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                            .contentType("application/epub+zip"))
+                    .andReturn().getResponse();
+            try (var zip = new java.util.zip.ZipInputStream(
+                    new java.io.ByteArrayInputStream(attachment.getContentAsByteArray()))) {
+                assertThat(zip.getNextEntry().getName()).isEqualTo("mimetype");
+                assertThat(new String(zip.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("application/epub+zip");
+                boolean chapterFound = false;
+                for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                    if (entry.getName().equals("OEBPS/chapter-1.xhtml")) {
+                        assertThat(new String(zip.readAllBytes(), StandardCharsets.UTF_8))
+                                .contains("private-youdao").doesNotContain("private-original");
+                        chapterFound = true;
+                    }
+                }
+                assertThat(chapterFound).isTrue();
+            }
+            try (var files = Files.list(folder)) {
+                assertThat(files.map(path -> path.getFileName().toString()).toList()).containsExactly("732.txt");
+            }
+            assertThat(routeAccessRegistry.resolve("/api/novel/732/export", top.sywyar.pixivdownload.plugin.api.web.HttpMethod.GET)
+                    .orElseThrow().route().accessPolicy())
+                    .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN);
+            http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .post("/api/gallery/novels/export/options").contentType("application/json")
+                            .content("{\"ids\":[732]}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .jsonPath("$.variants[0]").value("zh-CN@youdao"));
+            String response = http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .post("/api/gallery/novels/export").contentType("application/json")
+                            .content("{\"ids\":[732],\"format\":\"zip\",\"groupBy\":\"id\",\"variant\":\"zh-CN@youdao\"}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            String token = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("archiveToken").asText();
+            var archives = applicationContext.getBean(top.sywyar.pixivdownload.quota.UserQuotaService.class);
+            try {
+                long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                while (List.of("pending", "creating").contains(archives.getArchive(token).getStatus())
+                        && System.nanoTime() < deadline) Thread.sleep(25);
+                var archive = archives.getArchive(token);
+                assertThat(archive.getStatus()).isEqualTo("ready");
+                try (var zip = new java.util.zip.ZipFile(archive.getArchivePath().toFile())) {
+                    var document = zip.stream().filter(entry -> entry.getName().endsWith(".txt")).findFirst().orElseThrow();
+                    assertThat(document.getName()).startsWith("732/");
+                    try (var input = zip.getInputStream(document)) {
+                        assertThat(new String(input.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("private-youdao");
+                    }
+                    assertThat(zip.getEntry("manifest.json")).isNotNull();
+                }
+                assertThat(Files.readString(folder.resolve("732.txt"), StandardCharsets.UTF_8)).isEqualTo("private-original");
+            } finally {
+                archives.deleteArchive(token);
+            }
+            http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .post("/api/gallery/novels/export").contentType("application/json")
+                            .content("{\"ids\":[732],\"variant\":\"zh-CN@ai\"}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict());
+            var logs = captured.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertThat(logs).anySatisfy(line -> assertThat(line).contains("Novel export finished", "novelId=732", "bytes=", "durationMs=", "runId="));
+            assertThat(logs).allSatisfy(line -> assertThat(line).doesNotContain("private-original", "private-youdao", "Export title", "译文"));
+        } finally {
+            LocaleContextHolder.setLocale(previousLocale);
+            logger.detachAppender(captured);
+            captured.stop();
+        }
     }
 
     @Test

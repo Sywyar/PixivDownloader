@@ -18,11 +18,11 @@ import java.util.Map;
 
 /** 将单本小说写出为 TXT、HTML 或 EPUB。 */
 @Slf4j
-final class NovelDownloadDocumentWriter {
+public final class NovelDownloadDocumentWriter {
 
     private final MessageResolver messages;
 
-    NovelDownloadDocumentWriter(MessageResolver messages) {
+    public NovelDownloadDocumentWriter(MessageResolver messages) {
         this.messages = messages;
     }
 
@@ -37,36 +37,38 @@ final class NovelDownloadDocumentWriter {
             String coverExt,
             Map<String, String> embeddedExts
     ) throws IOException {
-        Path file = downloadPath.resolve(baseName + "." + format.ext());
-        switch (format) {
-            case TXT -> writeTxt(file, raw);
-            case HTML -> writeHtml(file, title, raw, other, imageResolver(embeddedExts, ""));
-            case EPUB -> writeEpub(
-                    file,
-                    novelId,
-                    title,
-                    other,
-                    raw,
-                    downloadPath,
-                    baseName,
-                    coverExt,
-                    embeddedExts
-            );
-        }
+        Path cover = coverExt == null || coverExt.isBlank() ? null
+                : downloadPath.resolve(baseName + "_thumb." + coverExt);
+        Files.write(downloadPath.resolve(baseName + "." + format.ext()),
+                render(format, novelId, title, other, raw, downloadPath, cover, coverExt, embeddedExts));
     }
 
-    private void writeTxt(Path file, String raw) throws IOException {
-        String text = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT, imageLabels());
-        Files.writeString(file, text, StandardCharsets.UTF_8);
+    /** 生成附件内容；只读取本地图片，不改写下载文件。 */
+    public byte[] render(
+            NovelDownloadService.NovelFormat format,
+            long novelId,
+            String title,
+            NovelDownloadRequest.Other other,
+            String raw,
+            Path imageDirectory,
+            Path cover,
+            String coverExt,
+            Map<String, String> embeddedExts
+    ) throws IOException {
+        return switch (format) {
+            case TXT -> NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT, imageLabels())
+                    .getBytes(StandardCharsets.UTF_8);
+            case HTML -> renderHtml(title, raw, other, imageResolver(embeddedExts, ""));
+            case EPUB -> renderEpub(novelId, title, other, raw, imageDirectory, cover, coverExt, embeddedExts);
+        };
     }
 
-    private void writeHtml(
-            Path file,
+    private byte[] renderHtml(
             String title,
             String raw,
             NovelDownloadRequest.Other other,
             NovelMarkupParser.ImageResolver resolver
-    ) throws IOException {
+    ) {
         String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML, resolver, imageLabels());
         StringBuilder html = new StringBuilder()
                 .append("<!DOCTYPE html>\n")
@@ -84,17 +86,16 @@ final class NovelDownloadDocumentWriter {
                 .append("</style>\n</head>\n<body>\n<h1>").append(escapeHtml(title)).append("</h1>\n")
                 .append(body)
                 .append("</body>\n</html>\n");
-        Files.writeString(file, html.toString(), StandardCharsets.UTF_8);
+        return html.toString().getBytes(StandardCharsets.UTF_8);
     }
 
-    private void writeEpub(
-            Path file,
+    private byte[] renderEpub(
             long novelId,
             String title,
             NovelDownloadRequest.Other other,
             String raw,
             Path downloadPath,
-            String baseName,
+            Path cover,
             String coverExt,
             Map<String, String> embeddedExts
     ) throws IOException {
@@ -115,7 +116,7 @@ final class NovelDownloadDocumentWriter {
             chapters.add(new NovelEpubWriter.Chapter(chapterTitle, body));
             nav.add(new NovelEpubWriter.NavEntry(chapterTitle, index));
         }
-        byte[] epub = NovelEpubWriter.write(
+        return NovelEpubWriter.write(
                 title,
                 other.getAuthorName(),
                 other.getLanguage(),
@@ -123,11 +124,10 @@ final class NovelDownloadDocumentWriter {
                 chapters,
                 nav,
                 readEmbeddedImages(downloadPath, embeddedExts),
-                readCover(downloadPath, baseName, coverExt),
+                readCover(cover, coverExt),
                 buildNovelMetadata(novelId, other),
                 epubLabels()
         );
-        Files.write(file, epub);
     }
 
     private NovelEpubWriter.Metadata buildNovelMetadata(long novelId, NovelDownloadRequest.Other other) {
@@ -160,11 +160,10 @@ final class NovelDownloadDocumentWriter {
         );
     }
 
-    private NovelEpubWriter.Cover readCover(Path downloadPath, String baseName, String coverExt) {
-        if (coverExt == null || coverExt.isBlank()) {
+    private NovelEpubWriter.Cover readCover(Path cover, String coverExt) {
+        if (cover == null || coverExt == null || coverExt.isBlank()) {
             return null;
         }
-        Path cover = downloadPath.resolve(baseName + "_thumb." + coverExt);
         try {
             return new NovelEpubWriter.Cover(coverExt, Files.readAllBytes(cover));
         } catch (IOException e) {
@@ -177,7 +176,7 @@ final class NovelDownloadDocumentWriter {
             Path downloadPath,
             Map<String, String> embeddedExts
     ) {
-        if (embeddedExts == null || embeddedExts.isEmpty()) {
+        if (downloadPath == null || embeddedExts == null || embeddedExts.isEmpty()) {
             return List.of();
         }
         List<NovelEpubWriter.ImageResource> images = new ArrayList<>();

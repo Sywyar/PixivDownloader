@@ -16,6 +16,7 @@
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
     document.getElementById('downloadMergedBtn').addEventListener('click', openDownloadMergedDialog);
+    window.addEventListener('pagehide', cancelMergedDownload);
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {

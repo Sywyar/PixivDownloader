@@ -130,7 +130,7 @@
         return m ? m[1].trim() : '';
     }
 
-    async function downloadMergedVolume(lang) {
+    async function downloadMergedVolume(lang, signal) {
         if (!state.seriesId) return;
         setSeriesMessage(t('merge.generating', '正在生成合订本，请稍候...'));
         try {
@@ -138,22 +138,16 @@
             params.set('format', 'epub');
             if (lang) params.set('variant', lang);
             const url = `/api/novel/series/${state.seriesId}/merged?${params.toString()}`;
-            const res = await fetch(url, {credentials: 'same-origin'});
+            const res = await fetch(url, {credentials: 'same-origin', signal});
+            if (signal?.aborted) return;
             if (res.status === 401) {
                 window.location.href = '/login.html?redirect='
                     + encodeURIComponent(location.pathname + location.search);
                 return;
             }
-            if (!res.ok) {
-                let msg = `HTTP ${res.status}`;
-                try {
-                    const j = await res.json();
-                    if (j && (j.error || j.message)) msg = j.error || j.message;
-                } catch (_) {
-                }
-                throw new Error(msg);
-            }
+            if (!res.ok) throw new Error('merge_download_failed');
             const blob = await res.blob();
+            if (signal?.aborted) return;
             const filename = parseFilenameFromDisposition(res.headers.get('content-disposition'))
                 || `${(state.detail && state.detail.title) || state.seriesId}.epub`;
             const blobUrl = URL.createObjectURL(blob);
@@ -165,102 +159,83 @@
             a.remove();
             setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
             setSeriesMessage(t('merge.downloaded', '合订本已开始下载'));
-        } catch (e) {
-            setSeriesMessage(t('merge.failed', '合订本下载失败：{message}',
-                {message: String(e && e.message ? e.message : e)}));
+        } catch (_) {
+            if (!signal?.aborted) setSeriesMessage(t('merge.failed', 'Unable to download the merged volume. Please try again.'));
         }
     }
 
-    // 「下载合订本」弹窗：选择语言后触发下载；非原文语言额外展示「未译章节回退原文」的提示。
-    let mergeDownloadBackdrop = null;
+    let mergeDownloadRequest = null;
 
-    function openDownloadMergedDialog() {
-        if (!isNovelMode() || !state.seriesId) return;
-        if (!mergeDownloadBackdrop) {
-            mergeDownloadBackdrop = document.createElement('div');
-            mergeDownloadBackdrop.className = 'pt-backdrop';
-            mergeDownloadBackdrop.innerHTML =
-                '<div class="pt-modal" role="dialog" aria-modal="true">' +
-                '  <div class="pt-head">' +
-                '    <span class="pt-title" data-role="title"></span>' +
-                '    <button class="pt-close" type="button" data-role="close" aria-label="close">×</button>' +
-                '  </div>' +
-                '  <div class="pt-body">' +
-                '    <div class="pt-field">' +
-                '      <span class="pt-label" data-role="lang-label"></span>' +
-                '      <div class="pt-radio-row" data-role="lang-list"></div>' +
-                '    </div>' +
-                '    <div class="pt-hint" data-role="warning"></div>' +
-                '  </div>' +
-                '  <div class="pt-foot">' +
-                '    <button class="pt-btn" type="button" data-role="cancel"></button>' +
-                '    <button class="pt-btn pt-btn-primary" type="button" data-role="confirm"></button>' +
-                '  </div>' +
-                '</div>';
-            document.body.appendChild(mergeDownloadBackdrop);
+    function cancelMergedDownload() { mergeDownloadRequest?.abort(); }
+
+    async function openDownloadMergedDialog() {
+        if (!isNovelMode() || !state.seriesId || mergeDownloadRequest) return;
+        const request = new AbortController();
+        mergeDownloadRequest = request;
+        const button = document.getElementById('downloadMergedBtn');
+        button.disabled = true;
+        try {
+            const variants = [...new Set((seriesTranslatedLangs || []).filter(Boolean))];
+            const content = document.createElement('div');
+            content.className = 'series-merge-options';
+            function select(key, name) {
+                const label = document.createElement('label');
+                label.textContent = t(key);
+                const control = document.createElement('select');
+                control.name = name;
+                control.className = 'pixiv-feedback-input';
+                label.appendChild(control);
+                content.appendChild(label);
+                return control;
+            }
+            function option(control, value, label) {
+                const node = document.createElement('option');
+                node.value = value;
+                node.textContent = label;
+                control.appendChild(node);
+            }
+            const language = select('merge.dialog-language', 'language');
+            const engine = select('merge.dialog-engine', 'engine');
+            option(language, '', t('merge.lang-original'));
+            [...new Set(variants.map(value => value.split('@')[0]))].forEach(value => {
+                let label = value;
+                try { label = new Intl.DisplayNames([document.documentElement.lang || 'en'], {type: 'language'}).of(value); }
+                catch (_) { /* 未识别的语言保留原始代码。 */ }
+                option(language, value, label);
+            });
+            const warning = document.createElement('p');
+            warning.className = 'series-merge-hint';
+            warning.textContent = t('merge.dialog-warning');
+            content.appendChild(warning);
+            function updateEngines(preferred) {
+                engine.replaceChildren();
+                const matches = variants.filter(value => value.split('@')[0] === language.value);
+                matches.forEach(value => {
+                    const source = value.split('@')[1] || 'unknown';
+                    option(engine, value, ['ai', 'youdao', 'libretranslate', 'unknown'].includes(source)
+                        ? t('merge.engine.' + source) : source);
+                });
+                if (!matches.length) option(engine, '', t('merge.engine.none'));
+                engine.disabled = !matches.length;
+                if (matches.includes(preferred)) engine.value = preferred;
+                warning.hidden = !language.value;
+            }
+            language.value = variants.includes(activeContentLang) ? activeContentLang.split('@')[0] : '';
+            updateEngines(activeContentLang);
+            language.addEventListener('change', () => {
+                const source = engine.value.split('@')[1];
+                updateEngines(language.value + (source ? '@' + source : ''));
+            });
+            const variant = await window.PixivFeedback.form({
+                title: t('merge.dialog-title'), message: t('merge.dialog-message'), content,
+                readValue: () => engine.value,
+                confirmLabel: t('merge.dialog-confirm'), cancelLabel: t('merge.dialog-cancel'), signal: request.signal
+            });
+            if (variant === null || request.signal.aborted) return;
+            await downloadMergedVolume(variant, request.signal);
+        } finally {
+            if (mergeDownloadRequest === request) mergeDownloadRequest = null;
+            button.disabled = false;
+            if (!request.signal.aborted) button.focus();
         }
-        const root = mergeDownloadBackdrop;
-        const titleEl = root.querySelector('[data-role="title"]');
-        const closeBtn = root.querySelector('[data-role="close"]');
-        const langLabel = root.querySelector('[data-role="lang-label"]');
-        const langList = root.querySelector('[data-role="lang-list"]');
-        const warning = root.querySelector('[data-role="warning"]');
-        const cancelBtn = root.querySelector('[data-role="cancel"]');
-        const confirmBtn = root.querySelector('[data-role="confirm"]');
-
-        titleEl.textContent = t('merge.dialog-title', '下载合订本');
-        langLabel.textContent = t('merge.dialog-language', '语言');
-        cancelBtn.textContent = t('merge.dialog-cancel', '取消');
-        confirmBtn.textContent = t('merge.dialog-confirm', '下载');
-
-        const options = [{value: '', label: t('merge.lang-original', '原文')}];
-        (seriesTranslatedLangs || []).forEach(code => {
-            if (code) options.push({value: code, label: window.PixivContentLang
-                ? PixivContentLang.label(code, pageI18n) : code});
-        });
-        langList.innerHTML = options.map((o, i) => (
-            '<label class="pt-radio">'
-            + '<input type="radio" name="mergeDownloadLang" value="' + escapeHtml(o.value) + '"'
-            + (i === 0 ? ' checked' : '') + '>'
-            + '<span>' + escapeHtml(o.label) + '</span>'
-            + '</label>'
-        )).join('');
-
-        const warningText = t('merge.dialog-warning',
-            '非原文语言的合订本只会替换已翻译的章节，未翻译章节仍保留原文。' +
-            '若希望合订本完全使用所选语言，请先点击「翻译整个系列」翻译全部章节后重新下载。');
-        function updateWarning() {
-            const checked = langList.querySelector('input[name="mergeDownloadLang"]:checked');
-            const isOriginal = !checked || !checked.value;
-            warning.textContent = isOriginal ? '' : warningText;
-            warning.style.display = isOriginal ? 'none' : '';
-        }
-        updateWarning();
-        langList.querySelectorAll('input[name="mergeDownloadLang"]').forEach(r =>
-            r.addEventListener('change', updateWarning));
-
-        function cleanup() {
-            root.classList.remove('open');
-            closeBtn.onclick = null;
-            cancelBtn.onclick = null;
-            confirmBtn.onclick = null;
-            root.onclick = null;
-            document.removeEventListener('keydown', onKey);
-        }
-        function onKey(e) {
-            if (e.key === 'Escape') cleanup();
-            else if (e.key === 'Enter') confirmBtn.click();
-        }
-        closeBtn.onclick = cleanup;
-        cancelBtn.onclick = cleanup;
-        root.onclick = (e) => { if (e.target === root) cleanup(); };
-        confirmBtn.onclick = async () => {
-            const checked = langList.querySelector('input[name="mergeDownloadLang"]:checked');
-            const lang = checked ? checked.value : '';
-            cleanup();
-            await downloadMergedVolume(lang);
-        };
-        document.addEventListener('keydown', onKey);
-        root.classList.add('open');
     }
-

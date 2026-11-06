@@ -47,7 +47,7 @@ class NovelGalleryControllerDownloadedBatchTest {
                 mock(NovelSeriesService.class),
                 novelDatabase,
                 assets,
-                workVisibilityService);
+                workVisibilityService, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class));
     }
 
     @Test

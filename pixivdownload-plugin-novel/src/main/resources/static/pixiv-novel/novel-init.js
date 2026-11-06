@@ -77,6 +77,15 @@ document.getElementById('modalDeleteNovel').addEventListener('click', e => {
 });
 
 setupAdminMode();
+document.getElementById('exportNovelBtn').addEventListener('click', async () => {
+    if (!novelId || !novelView) return;
+    await window.PixivNovelExport.open({
+        novelId, variants: novelView.translatedLanguages || [], initialVariant: activeContentLang,
+        i18n: pageI18n, toast
+    });
+    if (!document.querySelector('dialog[open]')) readerMore.querySelector('summary').focus();
+});
+
 loadAll();
 
 // ---- PixivNovel facade ----

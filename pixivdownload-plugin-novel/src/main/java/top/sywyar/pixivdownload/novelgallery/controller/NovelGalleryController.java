@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.novelgallery.controller;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -45,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 @RestController
 @RequestMapping("/api/gallery")
 @RequiredArgsConstructor
+@Slf4j
 public class NovelGalleryController {
 
     private final NovelGalleryService novelGalleryService;
@@ -53,6 +57,7 @@ public class NovelGalleryController {
     private final NovelDatabase novelDatabase;
     private final WorkAssetService workAssetService;
     private final WorkVisibilityService workVisibilityService;
+    private final MessageResolver messages;
 
     @GetMapping("/novels")
     public NovelGalleryService.PagedNovels listNovels(
@@ -179,20 +184,53 @@ public class NovelGalleryController {
         return ResponseEntity.ok(new BatchCollectResponse(ids.size(), changed));
     }
 
-    /** 批量导出小说。打包方式 / 格式 / 是否导出后删除由请求体决定。 */
+    @PostMapping("/novels/export/options")
+    public NovelBatchService.ExportOptions exportOptions(@RequestBody NovelBatchRequest request) {
+        return novelBatchService.exportOptions(novelBatchService.resolveNovelIds(request));
+    }
+
+    /** 按选定版本批量导出小说归档。 */
     @PostMapping("/novels/export")
-    public ResponseEntity<BatchExportResponse> exportNovels(
+    public ResponseEntity<?> exportNovels(
             @RequestBody NovelBatchRequest request) {
-        ArchiveExportResult result = novelBatchService.exportNovels(
-                novelBatchService.resolveNovelIds(request),
-                request == null ? null : request.groupBy(),
-                request == null ? null : request.format(),
-                request != null && Boolean.TRUE.equals(request.deleteAfter()));
-        if (result.emptyArchive()) {
-            return ResponseEntity.noContent().build();
+        String runId = java.util.UUID.randomUUID().toString();
+        long started = System.nanoTime();
+        log.info("Novel archive requested: runId={}, translated={}", runId,
+                request != null && request.variant() != null && !request.variant().isBlank());
+        try {
+            ArchiveExportResult result = novelBatchService.exportNovels(
+                    novelBatchService.resolveNovelIds(request),
+                    request == null ? null : request.groupBy(),
+                    request == null ? null : request.format(),
+                    request != null && Boolean.TRUE.equals(request.deleteAfter()),
+                    request == null ? null : request.variant());
+            log.info("Novel archive submitted: runId={}, works={}, files={}, outcome={}, durationMs={}",
+                    runId, result.workCount(), result.fileCount(), result.emptyArchive() ? "empty" : "accepted",
+                    (System.nanoTime() - started) / 1_000_000);
+            if (result.emptyArchive()) {
+                return ResponseEntity.noContent().build();
+            }
+            return ResponseEntity.ok(new BatchExportResponse(
+                    result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
+        } catch (NovelBatchService.ExportRejected rejected) {
+            log.info("Novel archive rejected: runId={}, reason={}", runId, rejected.reason());
+            int status = switch (rejected.reason()) {
+                case "unavailable" -> 409;
+                case "too-large" -> 413;
+                default -> 400;
+            };
+            return ResponseEntity.status(status).body(ApiErrorResponse.of(
+                    "NOVEL_EXPORT_REJECTED", messages.get("novel.export." + rejected.reason())));
+        } catch (IllegalArgumentException invalid) {
+            log.info("Novel archive rejected: runId={}, reason=invalid_request", runId);
+            return ResponseEntity.badRequest().body(ApiErrorResponse.of(
+                    "NOVEL_EXPORT_INVALID_REQUEST", messages.get("novel.export.invalid-request")));
+        } catch (IOException | RuntimeException failure) {
+            log.error("Novel archive failed: runId={}, exceptionType={}, durationMs={}", runId,
+                    failure.getClass().getSimpleName(), (System.nanoTime() - started) / 1_000_000);
+            return ResponseEntity.internalServerError().body(ApiErrorResponse.of(
+                    "NOVEL_EXPORT_FAILED", messages.get("novel.export.failed")));
         }
-        return ResponseEntity.ok(new BatchExportResponse(
-                result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
     }
 
     public record DeleteResponse(int deleted) {}

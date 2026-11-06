@@ -1,0 +1,17 @@
+.novel-export-form {
+    display: grid;
+    gap: var(--space-4, 16px);
+    margin-top: var(--space-4, 16px);
+}
+
+.novel-export-form .pixiv-feedback-input {
+    margin-top: var(--space-2, 8px);
+    min-height: var(--layout-control-height, 2.75rem);
+}
+
+.novel-export-hint {
+    margin: 0;
+    color: var(--text, CanvasText);
+    font-size: var(--text-sm, 0.875rem);
+    line-height: 1.5;
+}

@@ -205,44 +205,6 @@
         .batch-menu button:disabled { opacity: 0.55; cursor: not-allowed; }
         .delete-modal-text { margin: 0; font-size: 0.8125rem; line-height: 1.7; color: var(--text-secondary); }
 
-        .export-option-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-        .export-option-label {
-            flex-shrink: 0;
-            width: 72px;
-            font-size: 0.8125rem;
-            color: var(--text);
-        }
-
-        .export-option-select {
-            flex: 1;
-            min-width: 0;
-            padding: 8px 10px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: var(--surface);
-            color: var(--text);
-            font-size: 0.8125rem;
-        }
-
-        .export-delete-check {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.8125rem;
-            color: var(--text);
-            cursor: pointer;
-            margin-bottom: 10px;
-        }
-
-        .export-delete-hint {
-            color: var(--danger);
-        }
-
         .collection-list {
             display: flex; flex-direction: column;
             gap: 4px;

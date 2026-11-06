@@ -7,6 +7,7 @@ async function setupAdminMode() {
         document.body.classList.add('admin-mode');
         const btn = document.getElementById('deleteNovelBtn');
         if (btn) btn.style.display = '';
+        document.getElementById('exportNovelBtn').hidden = false;
     } catch (_) { /* not admin */ }
 }
 

@@ -150,6 +150,7 @@
         .reader-more-links { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
         .reader-more-links .btn { border-color: transparent; background: transparent; white-space: normal; text-align: start; padding-block: 10px; }
         .reader-more-links .btn:hover { background: var(--hover-bg); }
+        .reader-more-links [hidden] { display: none; }
         .reader-more-links .reader-delete { color: var(--danger); }
         .topbar :is(button, a, summary):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 

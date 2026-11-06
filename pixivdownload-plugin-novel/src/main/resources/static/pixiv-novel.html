@@ -18,6 +18,7 @@
     <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
     <link rel="stylesheet" href="/css/pixiv-motion.css">
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
+    <link rel="stylesheet" href="/pixiv-novel/novel-export.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-novel/pixiv-novel.css">
     <script src="/js/pixiv-layout.js" defer></script>
@@ -45,6 +46,7 @@
                 <div class="reader-display-row"><span data-i18n="toolbar.interface-language">界面语言</span><span id="langSwitcherAnchor"></span></div>
                 <div class="reader-display-row"><span data-i18n="toolbar.appearance">外观</span><span id="themeSwitcherAnchor"></span></div>
                 <div class="reader-more-links">
+                    <button class="btn layout-touch" id="exportNovelBtn" type="button" hidden disabled data-reader-action data-i18n="manage.export">导出</button>
                     <a class="btn layout-touch" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-reader-action data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
                     <button class="btn layout-touch reader-delete" id="deleteNovelBtn" type="button" style="display:none" data-reader-action data-i18n="button.delete">删除</button>
                 </div>
@@ -126,6 +128,7 @@
 <script src="/pixiv-novel/novel-series.js"></script>
 <script src="/pixiv-novel/novel-collections.js"></script>
 <script src="/pixiv-novel/novel-admin.js"></script>
+<script src="/pixiv-novel/novel-export.js"></script>
 <script src="/pixiv-novel/novel-init.js"></script>
 </body>
 </html>

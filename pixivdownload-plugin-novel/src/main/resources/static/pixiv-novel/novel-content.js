@@ -33,6 +33,7 @@ async function loadAll() {
 }
 
 function revealNovel() {
+    document.getElementById('exportNovelBtn').disabled = false;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('root').style.display = 'block';
     bootstrapNovelUiSlots();

@@ -21,7 +21,7 @@ function load(storage) {
             if (!nodes.has(id)) nodes.set(id, {addEventListener(type, listener) { this[type] = listener; }});
             return nodes.get(id);
         }},
-        setTimeout, clearTimeout
+        setTimeout, clearTimeout, addEventListener() {}
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);

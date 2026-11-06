@@ -144,6 +144,7 @@ class NovelPluginDisabledContextTest {
                 .extracting(owner -> owner.owner().featurePluginId()).doesNotContain("novel");
         assertThat(scheduleCapabilityRegistry.resolveWorkExecutor("novel")).isEmpty();
         assertThat(routeAccessRegistry.isDeclared("/api/novel/download")).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/api/novel/732/export")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel/7/meta")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/pixiv/novel-search")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/download/pixiv/novel")).isFalse();

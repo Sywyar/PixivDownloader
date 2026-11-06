@@ -121,6 +121,7 @@
                 if (title) panel.setAttribute('aria-describedby', messageId);
                 else panel.setAttribute('aria-labelledby', messageId);
                 panel.appendChild(message);
+                if (options.content) panel.appendChild(options.content);
                 if (options.sections && options.sections.length) {
                     panel.classList.add('pixiv-feedback-dialog--structured');
                     appendSections(panel, options.sections);
@@ -247,6 +248,7 @@
                         if (problem) { input.focus(); return; }
                     }
                     if (kind === 'confirm') finish(true);
+                    else if (kind === 'form') finish(options.readValue());
                     else if (kind === 'prompt') finish(input.value);
                     else if (kind === 'choice') {
                         if (options.multiple) {
@@ -531,6 +533,7 @@
         confirm: function (options) { return openDialog('confirm', options || {}); },
         prompt: function (options) { return openDialog('prompt', options || {}); },
         choose: function (options) { return openDialog('choice', options || {}); },
+        form: function (options) { return openDialog('form', options); },
         toast: toast,
         confirmExternalLink: confirmExternalLink,
         followLink: followLink

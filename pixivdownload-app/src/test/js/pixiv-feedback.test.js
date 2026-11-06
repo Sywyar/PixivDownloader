@@ -215,6 +215,21 @@ function clickEvent(target, values) {
 
     {
         const {document, feedback} = loadFeedback();
+        const content = document.createElement('div');
+        const input = document.createElement('input');
+        content.appendChild(input);
+        const pending = feedback.form({message: 'Export options', content,
+            readValue: () => ({variant: input.value}), confirmLabel: 'Export', cancelLabel: 'Cancel'});
+        await nextTurn();
+        input.value = 'zh-CN@youdao';
+        const accept = actionButton(document, 'accept');
+        actionContainer(accept).emit('click', {target: accept});
+        assert.deepStrictEqual(await pending, {variant: 'zh-CN@youdao'});
+        ok(!document.contains(input), 'Form returns current values and releases its content');
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
         let complete, signal;
         const pending = feedback.prompt({
             message: 'CSS declarations', confirmLabel: 'Apply', cancelLabel: 'Cancel',

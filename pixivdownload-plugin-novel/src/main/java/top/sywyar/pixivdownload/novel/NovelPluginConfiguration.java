@@ -161,6 +161,14 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public top.sywyar.pixivdownload.novel.export.NovelExportService novelExportService(
+            NovelDatabase novels, WorkMetadataRepository works, WorkAssetService assets,
+            @Qualifier("novelPluginMessages") MessageResolver messages) {
+        return new top.sywyar.pixivdownload.novel.export.NovelExportService(novels, works, assets, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelGlossaryService novelGlossaryService(NovelMapper novelMapper,
                                                      NovelDatabase novelDatabase) {
         return new NovelGlossaryService(novelMapper, novelDatabase);
@@ -368,6 +376,14 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
+    public top.sywyar.pixivdownload.novel.controller.NovelExportController novelExportController(
+            top.sywyar.pixivdownload.novel.export.NovelExportService exports,
+            @Qualifier("novelPluginMessages") MessageResolver messages) {
+        return new top.sywyar.pixivdownload.novel.controller.NovelExportController(exports, messages);
+    }
+
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelDownloadController novelDownloadController(NovelDownloadService novelDownloadService,
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
@@ -444,10 +460,11 @@ public class NovelPluginConfiguration {
                                                WorkAssetService workAssetService,
                                                WorkCollectionMembership workCollectionMembership,
                                                ArchiveExportService archiveExportService,
-                                               ObjectMapper objectMapper) {
+                                               ObjectMapper objectMapper,
+                                               top.sywyar.pixivdownload.novel.export.NovelExportService novelExportService) {
         return new NovelBatchService(novelGalleryService, workMetadataRepository,
                 novelWorkDetailsRepository, workAssetService, workCollectionMembership,
-                archiveExportService, objectMapper);
+                archiveExportService, objectMapper, novelExportService);
     }
 
     @Bean
@@ -457,8 +474,9 @@ public class NovelPluginConfiguration {
                                                          NovelSeriesService novelSeriesService,
                                                          NovelDatabase novelDatabase,
                                                          WorkAssetService workAssetService,
-                                                         WorkVisibilityService workVisibilityService) {
+                                                         WorkVisibilityService workVisibilityService,
+                                                         @Qualifier("novelPluginMessages") MessageResolver messages) {
         return new NovelGalleryController(novelGalleryService, novelBatchService, novelSeriesService,
-                novelDatabase, workAssetService, workVisibilityService);
+                novelDatabase, workAssetService, workVisibilityService, messages);
     }
 }
