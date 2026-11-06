@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.guard;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.download.schedule.network.PixivScheduledRouteScope;
 import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;

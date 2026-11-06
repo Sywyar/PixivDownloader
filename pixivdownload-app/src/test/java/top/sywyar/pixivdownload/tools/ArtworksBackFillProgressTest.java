@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.tools;
 
+import tools.jackson.databind.json.JsonMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +52,7 @@ class ArtworksBackFillProgressTest {
                     if (missingAi) statement.executeUpdate("UPDATE artworks SET is_ai=NULL WHERE artwork_id=1");
                 }
                 if (localDescription) {
-                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    var mapper = JsonMapper.builderWithJackson2Defaults().build();
                     var metadata = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
                             .curateArtwork(1, mapper.readTree("{\"id\":1,\"description\":\"local\"}"), null, "forward");
                     try (var statement = connection.prepareStatement("UPDATE artworks SET description=NULL,metadata_json=? WHERE artwork_id=1")) {
@@ -110,7 +111,7 @@ class ArtworksBackFillProgressTest {
         var configuration = new HikariConfig();
         configuration.setJdbcUrl("jdbc:sqlite:" + path);
         configuration.setMaximumPoolSize(1);
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var curator = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper);
         var client = mock(ArtworksBackFillPixivClient.class);
         try (var pool = new HikariDataSource(configuration);

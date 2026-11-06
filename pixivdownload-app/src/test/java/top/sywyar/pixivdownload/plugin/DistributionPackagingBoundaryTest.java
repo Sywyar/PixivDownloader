@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.json.JsonMapper;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.BeanUtils;
@@ -582,7 +583,7 @@ class DistributionPackagingBoundaryTest {
                 assertThat(model.getMethod("owner").invoke(value)).isNotNull();
             }
             assertThat(java.util.Collections.list(loader.getResources("community/v1/catalogs.json"))).hasSize(1);
-            Class<?> mapperType = loader.loadClass("com.fasterxml.jackson.databind.ObjectMapper");
+            Class<?> mapperType = loader.loadClass("tools.jackson.databind.ObjectMapper");
             Object mapper = mapperType.getConstructor().newInstance();
             Class<?> inventoryType = loader.loadClass("top.sywyar.pixivdownload.transfer.TransferInventory$Inventory");
             String inventoryJson = """
@@ -591,7 +592,7 @@ class DistributionPackagingBoundaryTest {
             Object inventory = mapperType.getMethod("readValue", String.class, Class.class)
                     .invoke(mapper, inventoryJson, inventoryType);
             String serialized = (String) mapperType.getMethod("writeValueAsString", Object.class).invoke(mapper, inventory);
-            var verifier = new com.fasterxml.jackson.databind.ObjectMapper();
+            var verifier = JsonMapper.builderWithJackson2Defaults().build();
             assertThat(verifier.readTree(serialized)).isEqualTo(verifier.readTree(inventoryJson));
         }
     }
@@ -653,9 +654,9 @@ class DistributionPackagingBoundaryTest {
                     Path result = data.resolve("download-task-results").resolve(id.toString().substring(0, 2))
                             .resolve(id + ".json");
                     assertThat(result).isRegularFile();
-                    var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(Files.readAllBytes(result));
+                    var json = JsonMapper.builderWithJackson2Defaults().build().readTree(Files.readAllBytes(result));
                     assertThat(json.path("version").asInt()).isEqualTo(1);
-                    assertThat(json.path("phase").asText()).isEqualTo(phase);
+                    assertThat(json.path("phase").asString()).isEqualTo(phase);
                 }
             }
             try (URLClassLoader loader = new URLClassLoader(artifactUrls, ClassLoader.getPlatformClassLoader())) {
@@ -1477,9 +1478,11 @@ class DistributionPackagingBoundaryTest {
                     assertThat(Class.forName("com.sun.jna.Native", true, loader)
                             .getClassLoader()).isSameAs(loader);
                     // 必须使用插件私有 Jackson，宿主完整版不能掩盖 ProGuard 删除枚举反射成员的问题。
-                    Class<?> mapper = Class.forName("com.fasterxml.jackson.databind.ObjectMapper", true, loader);
+                    Class<?> mapper = Class.forName("tools.jackson.databind.ObjectMapper", true, loader);
                     assertThat(mapper.getClassLoader()).isSameAs(loader);
-                    Object privateMapper = mapper.getConstructor().newInstance();
+                    Class<?> jsonMapper = Class.forName("tools.jackson.databind.json.JsonMapper", true, loader);
+                    Object builder = jsonMapper.getMethod("builderWithJackson2Defaults").invoke(null);
+                    Object privateMapper = builder.getClass().getMethod("build").invoke(builder);
                     var readValue = mapper.getMethod("readValue", InputStream.class, Class.class);
                     Class<?> catalogType = Class.forName(
                             "top.sywyar.pixivdownload.guicompose.model.DesktopApplicationResources$MaintainerCatalog",
@@ -1490,7 +1493,7 @@ class DistributionPackagingBoundaryTest {
                     try (var catalogStream = loader.getResourceAsStream("pixivdownload/maintainers.json")) {
                         assertThat(catalogStream).as("构建必须提供目录或明确不可用状态").isNotNull();
                         byte[] catalogBytes = catalogStream.readAllBytes();
-                        var catalog = new com.fasterxml.jackson.databind.ObjectMapper().readTree(catalogBytes);
+                        var catalog = JsonMapper.builderWithJackson2Defaults().build().readTree(catalogBytes);
                         assertThat(catalog.path("maintainers").isArray()).isTrue();
                         if (catalog.path("unavailable").asBoolean()) {
                             assertThat(catalog.path("unavailable").isBoolean()).isTrue();
@@ -1628,7 +1631,8 @@ class DistributionPackagingBoundaryTest {
 
         @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             synchronized (getClassLoadingLock(name)) {
-                if (name.startsWith("com.fasterxml.jackson.")
+                if (name.startsWith("tools.jackson.")
+                        || name.startsWith("com.fasterxml.jackson.")
                         || name.startsWith("com.sun.jna.")
                         || name.startsWith("top.sywyar.pixivdownload.guicompose.")) {
                     Class<?> type = findLoadedClass(name);

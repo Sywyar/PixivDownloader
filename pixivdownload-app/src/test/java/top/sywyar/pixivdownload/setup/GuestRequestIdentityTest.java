@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +73,7 @@ class GuestRequestIdentityTest {
     private void start(String mode) throws Exception {
         DownloadConfig config = new DownloadConfig();
         config.setRootFolder(tempDir.resolve("works").toString());
-        setup = new SetupService(config, new ObjectMapper(), new DefaultApplicationArguments(),
+        setup = new SetupService(config, JsonMapper.builderWithJackson2Defaults().build(), new DefaultApplicationArguments(),
                 TestI18nBeans.appMessages());
         setup.init("fixture-admin", "fixture-password", mode);
         adminToken = setup.createSession(false);

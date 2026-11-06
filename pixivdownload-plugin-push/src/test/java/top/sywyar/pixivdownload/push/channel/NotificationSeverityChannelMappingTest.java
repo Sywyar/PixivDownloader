@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.push.channel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -29,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("推送通道级别映射")
 class NotificationSeverityChannelMappingTest {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("Bark 将 ERROR 映射为 timeSensitive")
@@ -43,7 +44,7 @@ class NotificationSeverityChannelMappingTest {
                         "标题", "正文", PushFormat.PLAIN_TEXT, NotificationSeverity.ERROR));
 
         JsonNode root = JSON.readTree(sender.body());
-        assertThat(root.path("level").asText()).isEqualTo("timeSensitive");
+        assertThat(root.path("level").asString()).isEqualTo("timeSensitive");
     }
 
     @Test
@@ -58,7 +59,7 @@ class NotificationSeverityChannelMappingTest {
                         "标题", "正文", PushFormat.CARD, NotificationSeverity.WARNING));
 
         JsonNode root = JSON.readTree(sender.body());
-        assertThat(root.path("card").path("header").path("template").asText()).isEqualTo("orange");
+        assertThat(root.path("card").path("header").path("template").asString()).isEqualTo("orange");
     }
 
     @Test
@@ -73,7 +74,7 @@ class NotificationSeverityChannelMappingTest {
                         "标题", "正文", PushFormat.MARKDOWN, NotificationSeverity.ERROR));
 
         JsonNode root = JSON.readTree(sender.body());
-        assertThat(root.path("markdown").path("content").asText())
+        assertThat(root.path("markdown").path("content").asString())
                 .contains("<font color=\"warning\">标题</font>");
     }
 

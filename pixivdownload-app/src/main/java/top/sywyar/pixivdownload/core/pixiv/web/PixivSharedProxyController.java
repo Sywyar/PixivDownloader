@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv.web;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,9 +38,9 @@ public final class PixivSharedProxyController {
     @GetMapping("/user/{userId}/meta")
     public ResponseEntity<?> getUserMeta(
             @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         URI uri = UriComponentsBuilder.fromUriString("https://www.pixiv.net/ajax/user/{userId}")
@@ -49,9 +49,9 @@ public final class PixivSharedProxyController {
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(root.path("message").asText()));
+                    .body(new ErrorResponse(root.path("message").asString()));
         }
-        String name = root.path("body").path("name").asText();
+        String name = root.path("body").path("name").asString();
         return ResponseEntity.ok(new UserMetaResponse(name, userId));
     }
 
@@ -89,9 +89,9 @@ public final class PixivSharedProxyController {
 
     @GetMapping("/me/uid")
     public ResponseEntity<?> getMeUid(
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String uid = PixivCookieUserResolver.extractUidFromCookie(cookie);
@@ -143,12 +143,6 @@ public final class PixivSharedProxyController {
                     .body(new ProxyRateLimitResponse(
                             decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
         };
-    }
-
-    private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
-        return AcquisitionCredentialResolver.resolve(
-                request == null ? null : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
-                legacyCredential);
     }
 
     public record UserMetaResponse(String name, String userId) {}

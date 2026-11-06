@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
@@ -25,10 +25,10 @@ public final class DatabaseSwitchTestEntry {
             var active = DatabaseTarget.fromBinding(DatabaseBootstrap.bind(session, environment));
             var settings = new DatabaseSettingsService(config, () -> environment, () -> Optional.of(active), session::databaseProviders);
             var migration = new DatabaseSwitchService(settings, config, session, () -> !args[0].equals("restart-fails"));
-            Map<String, String> draft = new ObjectMapper().readValue(Files.readAllBytes(Path.of(args[1])),
-                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+            Map<String, String> draft = JsonMapper.builderWithJackson2Defaults().build().readValue(Files.readAllBytes(Path.of(args[1])),
+                    new tools.jackson.core.type.TypeReference<Map<String, String>>() {});
             var plan = migration.preview(draft);
-            Files.write(Path.of(args[2]), new ObjectMapper().writeValueAsBytes(plan));
+            Files.write(Path.of(args[2]), JsonMapper.builderWithJackson2Defaults().build().writeValueAsBytes(plan));
             if (!args[0].equals("preview") && plan.ready()) {
                 if (args[0].equals("stale")) config.writeAll(Map.of("fixture.changed", "true"));
                 migration.start(plan.token());

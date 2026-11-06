@@ -77,7 +77,7 @@ public final class JdbcMigrationSupport {
         if (table.previousPrimaryKey().isEmpty()) throw failure("SCHEMA_MISMATCH");
         return new TableSpec(table.name(), table.columns().stream().map(c -> new ColumnSpec(
                 c.name(), c.type(), c.notNull(), c.defaultValue(), table.previousPrimaryKey().indexOf(c.name()) + 1,
-                c.autoIncrement())).toList(), table.indexes(), table.checkExpression(), table.check());
+                c.autoIncrement())).toList(), table.indexes(), table.check());
     }
     /**
      * 单表的中性物理比较模型。

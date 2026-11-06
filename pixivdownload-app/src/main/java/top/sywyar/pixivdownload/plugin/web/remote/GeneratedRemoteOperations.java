@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.web.remote;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
@@ -66,20 +66,20 @@ public final class GeneratedRemoteOperations implements PluginRemoteOperationsFa
             JsonNode declaredIdentity = contract.remove("identity");
             verifiedIdentity = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(RemoteValues.JSON.writeValueAsBytes(contract)));
-            if (declaredIdentity == null || !declaredIdentity.asText().equals(verifiedIdentity)
+            if (declaredIdentity == null || !declaredIdentity.asString().equals(verifiedIdentity)
                     || !verifiedIdentity.equals(identity) || !verifiedIdentity.equals(request.getHeader("X-Pixiv-Contract")))
                 return error(request, 409, "REMOTE_CONTRACT_MISMATCH", verifiedIdentity);
             JsonNode declaration = contract.path("operations").path(operation);
-            if (contract.path("format").asInt() != 1 || !contract.path("service").asText().equals(key.type().getName())
-                    || !contract.path("owner").asText().equals(key.contractId())
-                    || !declaration.path("path").asText().equals(path) || !declaration.path("method").asText().equals("POST")
-                    || !declaration.path("access").asText().equals("ADMIN")) return error(request, 404, "REMOTE_UNDECLARED", verifiedIdentity);
+            if (contract.path("format").asInt() != 1 || !contract.path("service").asString().equals(key.type().getName())
+                    || !contract.path("owner").asString().equals(key.contractId())
+                    || !declaration.path("path").asString().equals(path) || !declaration.path("method").asString().equals("POST")
+                    || !declaration.path("access").asString().equals("ADMIN")) return error(request, 404, "REMOTE_UNDECLARED", verifiedIdentity);
             Method method = null;
             for (Method candidate : key.type().getMethods()) {
                 if (candidate.getName().equals(operation) && candidate.getParameterCount() == 1
                         && candidate.getParameterTypes()[0].isRecord() && candidate.getReturnType().isRecord()
-                        && declaration.path("request").path("$ref").asText().equals("#/$defs/" + candidate.getParameterTypes()[0].getCanonicalName())
-                        && declaration.path("response").path("$ref").asText().equals("#/$defs/" + candidate.getReturnType().getCanonicalName())) {
+                        && declaration.path("request").path("$ref").asString().equals("#/$defs/" + candidate.getParameterTypes()[0].getCanonicalName())
+                        && declaration.path("response").path("$ref").asString().equals("#/$defs/" + candidate.getReturnType().getCanonicalName())) {
                     if (method != null) return error(request, 404, "REMOTE_UNDECLARED", verifiedIdentity);
                     method = candidate;
                 }

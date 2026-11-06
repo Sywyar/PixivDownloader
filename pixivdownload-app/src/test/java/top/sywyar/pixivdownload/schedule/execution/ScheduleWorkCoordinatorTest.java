@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -86,7 +87,7 @@ class ScheduleWorkCoordinatorTest {
             actions.add(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED").orElse("ASK"));
             return ScheduledWorkResult.completed();
         }));
-        var row = new ScheduleWorkPersistenceCodec(new ObjectMapper()).toPendingWork(1L, work("illust", "1"),
+        var row = new ScheduleWorkPersistenceCodec(JsonMapper.builderWithJackson2Defaults().build()).toPendingWork(1L, work("illust", "1"),
                 "DOWNLOAD_PATH_ACTION_REQUIRED", "{\"requiresUserAction\":false,\"userAction\":\"TRUNCATE\",\"rememberForRun\":true}",
                 0, 1L, null);
         ScheduleWorkCoordinator first = coordinator(store, executors, new SyncTaskExecutor(), 5);
@@ -886,7 +887,7 @@ class ScheduleWorkCoordinatorTest {
                         throw new IllegalStateException("fixture projection failed");
                     }
                 });
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(objectMapper);
         List<ScheduledWork> works = List.of(
                 work(ILLUST, "safe"), work(NOVEL, "secret"), work("audio", "broken"));
@@ -958,7 +959,7 @@ class ScheduleWorkCoordinatorTest {
         ScheduledTaskDefinition task = new ScheduledTaskDefinition(
                 1L, "fixture-source", "fixture.definition", 1, "{}",
                 ScheduledTaskPresentation.empty());
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         return new ScheduleWorkCoordinator(
                 1L,
                 task,

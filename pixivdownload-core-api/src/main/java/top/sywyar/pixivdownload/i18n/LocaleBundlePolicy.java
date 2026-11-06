@@ -17,8 +17,7 @@ import java.util.Locale;
  *       source=zh-CN（suffix 空）时返回 suffix 列表 ja → en → 空串；</li>
  *   <li>suffix 序列只表达「目标 → 回退 → 源」的文件查找顺序，不触发 JVM 默认 Locale 回退。</li>
  * </ul>
- * 该接口是 core-api 稳定契约：旧第三方插件走 {@link LegacyLocaleBundlePolicy}（只保证旧版
- * root=zh-CN + {@code _en}=en-US 约定），第一方代码一律使用 host catalog 构造的策略。
+ * 该接口是 core-api 稳定契约，插件使用 host catalog 构造的策略。
  */
 public interface LocaleBundlePolicy {
 
@@ -32,7 +31,7 @@ public interface LocaleBundlePolicy {
     }
 
     /**
-     * 返回用于缺省输出的全局回退语言。默认方法保持当前语言，host catalog 与 legacy 策略提供明确值。
+     * 返回用于缺省输出的全局回退语言。默认方法保持当前语言，host catalog 提供明确值。
      *
      * @return 全局回退语言
      */

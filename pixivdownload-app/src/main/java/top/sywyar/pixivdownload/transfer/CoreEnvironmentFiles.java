@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution;
 
@@ -12,8 +12,10 @@ import java.util.List;
 
 /** 核心只声明自己拥有的管理员、桌面偏好与收藏夹资源。 */
 final class CoreEnvironmentFiles implements EnvironmentFileContribution {
-    private static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private final Definition definition;
 
     private CoreEnvironmentFiles(Definition definition) { this.definition = definition; }
@@ -37,14 +39,14 @@ final class CoreEnvironmentFiles implements EnvironmentFileContribution {
             if (!includeCredentials || !saved.path("setupComplete").isBoolean()) throw new IOException("transfer.file-invalid");
             for (String key : List.of("username", "displayName", "passwordHash", "salt")) {
                 var value = saved.get(key);
-                if (value != null && !value.isNull() && (!value.isTextual() || value.textValue().length() > 1024))
+                if (value != null && !value.isNull() && (!value.isString() || value.stringValue().length() > 1024))
                     throw new IOException("transfer.file-invalid");
                 if (value != null) result.set(key, value);
             }
-            if (saved.path("setupComplete").booleanValue() && (saved.path("username").asText().isBlank()
-                    || saved.path("passwordHash").asText().isBlank())) throw new IOException("transfer.file-invalid");
+            if (saved.path("setupComplete").booleanValue() && (saved.path("username").asString().isBlank()
+                    || saved.path("passwordHash").asString().isBlank())) throw new IOException("transfer.file-invalid");
             result.set("setupComplete", saved.get("setupComplete"));
-            String mode = existing == null ? "solo" : read(existing).path("mode").asText("solo");
+            String mode = existing == null ? "solo" : read(existing).path("mode").asString("solo");
             if (!List.of("solo", "multi").contains(mode)) throw new IOException("transfer.file-invalid");
             result.put("mode", mode);
             result.putObject("sessions");

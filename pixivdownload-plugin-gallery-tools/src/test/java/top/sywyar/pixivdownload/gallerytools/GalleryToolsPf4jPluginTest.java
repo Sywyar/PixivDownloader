@@ -35,13 +35,13 @@ class GalleryToolsPf4jPluginTest {
 
     @Test
     @DisplayName("唯一入口暴露合并后的描述与两套业务配置")
-    void providerExposesMergedPluginAndConfigurations() {
+    void providerExposesMergedPluginAndConfigurations() throws Exception {
         PixivPluginProvider provider = new GalleryToolsPf4jPlugin();
 
         assertThat(provider.featurePlugin()).isInstanceOf(GalleryToolsPlugin.class)
                 .extracting(plugin -> plugin.id()).isEqualTo("gallery-tools");
-        assertThat(provider.configurationClasses())
-                .containsExactly(StatsPluginConfiguration.class, DuplicatePluginConfiguration.class);
+        assertThat(readPluginProperties().getProperty("pixiv.configuration-classes").split(","))
+                .containsExactly(StatsPluginConfiguration.class.getName(), DuplicatePluginConfiguration.class.getName());
     }
 
     private Properties readPluginProperties() throws Exception {

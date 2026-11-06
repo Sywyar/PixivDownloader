@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.author;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -180,7 +180,7 @@ public class AuthorService {
                 return;
             }
 
-            String actualName = normalizeHintName(root.path("body").path("name").asText(null));
+            String actualName = normalizeHintName(root.path("body").path("name").asString(null));
             if (!StringUtils.hasText(actualName) || actualName.equals(existing.name())) {
                 return;
             }
@@ -226,7 +226,7 @@ public class AuthorService {
                 return;
             }
 
-            String authorName = normalizeHintName(body.path("userName").asText(null));
+            String authorName = normalizeHintName(body.path("userName").asString(null));
             pixivDatabase.updateAuthorId(artworkId, authorId);
             observe(authorId, authorName);
         } catch (DatabaseUnavailableException unavailable) {

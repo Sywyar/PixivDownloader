@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.download;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("PixivFetchService 作品发现")
 class PixivFetchServiceDiscoveryTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     /** PHPSESSID 下划线前缀 = uid（账号私有发现需要它取 uid）。 */
     private static final String COOKIE = "PHPSESSID=12345_abcdefghijklmnop";
 

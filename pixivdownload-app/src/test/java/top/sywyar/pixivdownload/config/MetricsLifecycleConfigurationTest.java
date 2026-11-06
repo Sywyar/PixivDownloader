@@ -9,9 +9,9 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.actuate.autoconfigure.metrics.LogbackMetricsAutoConfiguration;
-import org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration;
-import org.springframework.boot.actuate.autoconfigure.metrics.export.simple.SimpleMetricsExportAutoConfiguration;
+import org.springframework.boot.micrometer.metrics.autoconfigure.logging.logback.LogbackMetricsAutoConfiguration;
+import org.springframework.boot.micrometer.metrics.autoconfigure.MetricsAutoConfiguration;
+import org.springframework.boot.micrometer.metrics.autoconfigure.export.simple.SimpleMetricsExportAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.io.support.ResourcePropertySource;
@@ -51,7 +51,7 @@ class MetricsLifecycleConfigurationTest {
                     createdRegistries.add(registry);
                     registry.counter("backend.lifecycle.test").increment();
                     assertThat(registry.get("backend.lifecycle.test").counter().count()).isEqualTo(1.0);
-                    assertThat(registry.find("logback.events").tag("level", "warn").counter()).isNotNull();
+                    assertThat(registry.find("logback.events").tag("level", "warn").functionCounter()).isNotNull();
                     assertThat(Metrics.globalRegistry.getRegistries()).doesNotContain(registry);
                 });
                 assertThat(createdRegistries.get(restart).isClosed()).isTrue();
@@ -77,7 +77,7 @@ class MetricsLifecycleConfigurationTest {
                 try (var metrics = new MetricsConfiguration.ContextLogbackMetrics(loggerContext)) {
                     metrics.bindTo(registry);
                     var logger = loggerContext.getLogger("metrics-lifecycle-test");
-                    var warnings = registry.get("logback.events").tag("level", "warn").counter();
+                    var warnings = registry.get("logback.events").tag("level", "warn").functionCounter();
                     logger.warn("before reset");
                     assertThat(warnings.count()).isEqualTo(1.0);
                     loggerContext.reset();

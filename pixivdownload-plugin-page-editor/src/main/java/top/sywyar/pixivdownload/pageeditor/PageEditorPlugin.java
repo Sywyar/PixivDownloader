@@ -7,7 +7,6 @@ import java.util.*;
 
 /** 页面编辑器的资源、导航与管理入口归本插件。 */
 public final class PageEditorPlugin extends Plugin implements PixivPluginProvider {
-    @Override public List<Class<?>> configurationClasses() { return List.of(PageEditorConfiguration.class); }
     @Override public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
             public String id() { return "page-editor"; }

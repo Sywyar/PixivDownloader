@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -60,7 +61,7 @@ class NovelPixivProxyControllerTest {
 
     private MockMvc mockMvc;
     private NovelPixivProxyController controller;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Mock
     private PixivAjaxClient pixivAjaxClient;
@@ -155,8 +156,8 @@ class NovelPixivProxyControllerTest {
         }
 
         @Test
-        @DisplayName("旧 Pixiv 凭证头仍应作为 Cookie 转发")
-        void shouldForwardLegacyPixivCredential() throws Exception {
+        @DisplayName("来源专用旧请求头不再提供凭据")
+        void shouldIgnoreRemovedPixivCredentialHeader() throws Exception {
             when(pixivAjaxClient.get(any(URI.class), any()))
                     .thenReturn(PIXIV_NOVEL_SEARCH_RESPONSE);
 
@@ -165,20 +166,17 @@ class NovelPixivProxyControllerTest {
                             .header("X-Pixiv-Cookie", " legacy-cookie "))
                     .andExpect(status().isOk());
 
-            verify(pixivAjaxClient).get(any(URI.class), eq("legacy-cookie"));
+            verify(pixivAjaxClient).get(any(URI.class), isNull());
         }
 
         @Test
-        @DisplayName("通用与旧 Pixiv 凭证冲突时应拒绝请求")
-        void shouldRejectConflictingPixivCredentials() {
-            MockHttpServletRequest request = new MockHttpServletRequest();
-            request.addHeader(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie");
-
+        @DisplayName("超长通用凭证在访问外部服务前拒绝")
+        void shouldRejectOversizedCredential() {
             assertThatIllegalArgumentException()
                     .isThrownBy(() -> controller.searchNovels(
-                            "miku", "date_d", "all", "s_tag", 1, "legacy-cookie", request))
-                    .withMessage("Conflicting acquisition credential headers");
-
+                            "miku", "date_d", "all", "s_tag", 1,
+                            "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1),
+                            new MockHttpServletRequest()));
             verifyNoInteractions(pixivAjaxClient);
         }
     }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.security;
 
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
 import top.sywyar.pixivdownload.plugin.api.web.page.PageInteraction;
 import top.sywyar.pixivdownload.plugin.api.web.page.PageResourceProfile;
@@ -10,7 +12,7 @@ import java.util.HashSet;
 
 /** 只检验声明纯值，不生成挑战、不调用供应商。 */
 public final class OperationPolicies {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final tools.jackson.databind.ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private OperationPolicies() { }
 
     public static void identity(String value) {
@@ -29,7 +31,7 @@ public final class OperationPolicies {
             return left.id().equals(right.id()) && left.version() == right.version()
                     && JSON.readTree(left.stateSchema()).equals(JSON.readTree(right.stateSchema()))
                     && JSON.readTree(left.responseSchema()).equals(JSON.readTree(right.responseSchema()));
-        } catch (java.io.IOException invalid) { throw new IllegalArgumentException("OPERATION_POLICY_INVALID"); }
+        } catch (JacksonException invalid) { throw new IllegalArgumentException("OPERATION_POLICY_INVALID"); }
     }
 
     public static void schema(String value) {

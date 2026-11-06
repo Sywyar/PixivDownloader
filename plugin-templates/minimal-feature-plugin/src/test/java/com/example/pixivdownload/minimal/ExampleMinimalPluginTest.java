@@ -68,7 +68,6 @@ class ExampleMinimalPluginTest {
 
         assertNotNull(feature);
         assertInstanceOf(ExampleMinimalPlugin.class, feature);
-        assertTrue(provider.configurationClasses().isEmpty());
     }
 
     @Test

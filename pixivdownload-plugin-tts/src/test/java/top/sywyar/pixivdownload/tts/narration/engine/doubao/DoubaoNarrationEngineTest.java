@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.doubao;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,7 +38,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("豆包 / Seed-TTS 朗读引擎")
 class DoubaoNarrationEngineTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final MessageResolver MESSAGES = TestMessageResolver.INSTANCE;
     /** 任意 base64 音频（解码后 4 字节）。 */
     private static final String AUDIO_B64 = Base64.getEncoder().encodeToString(new byte[]{0x49, 0x44, 0x33, 0x04});

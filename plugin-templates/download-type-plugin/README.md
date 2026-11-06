@@ -30,7 +30,7 @@ Replace all template identities consistently across Java classes, `plugin.proper
 
 ## 3. Contracts Demonstrated and Boundaries
 
-- **PF4J & Spring child context**: Explicit `@Bean` registration via `PixivPluginProvider.configurationClasses()` and `pixiv.configuration-classes` (no host component scanning).
+- **PF4J & Spring child context**: Explicit `@Bean` registration in classes declared by `pixiv.configuration-classes` (no host component scanning).
 - **Download type & queue lifecycle**:
   - `DownloadTypeDescriptor` (contract version 1) declaring `single-import`, `user`, `series`, `search`, and `quick` modes, `cancelSupported=true`, filters, settings, and behavior module URL.
   - `DownloadSubmissionHandler`, `DownloadOptionsHook`, and `DownloadObserver` wired through `DownloadLifecycle` / `QueueTaskTracker` (admin submission via `DownloadTasks.submit` or `POST /api/download/tasks`).

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -71,7 +72,7 @@ class GuiTransferPreferencesTest {
         var settings = new LinkedHashMap<String, String>();
         settings.put(key, value);
         if (enableSelected) settings.put(toggle, "true");
-        byte[] payload = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(settings);
+        byte[] payload = JsonMapper.builderWithJackson2Defaults().build().writeValueAsBytes(settings);
         Path bundle = root.resolve("preferences.pdbackup");
         new TransferArchive().write(bundle, null, "fixture", List.of(new TransferArchive.Source(
                 new TransferArchive.Descriptor("host", TransferArchive.Category.CONFIG, "settings.json", 1),

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.http;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
@@ -18,7 +20,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Locale;
@@ -40,7 +41,7 @@ public abstract class AbstractHttpNarrationEngine {
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
     /** 子类共用的 JSON 编解码器：序列化请求体（{@link #serialize}）、解析 JSON 响应体（{@link #postForJson}）。 */
-    protected static final ObjectMapper MAPPER = new ObjectMapper();
+    protected static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     /** 非 2xx 错误体 / 失败摘要的上限，避免超长正文进异常 / 日志。 */
     protected static final int MAX_DETAIL_LENGTH = 500;
@@ -115,7 +116,7 @@ public abstract class AbstractHttpNarrationEngine {
         try {
             // 按 UTF-8 字节流解析（遵循「禁止 String.class、按 byte[] 取后解析」的项目约束）。
             return MAPPER.readValue(raw, type);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             String detail = redact(safeMessage(e), secret);
             log.warn(forLog("narration.tts.log.synthesize.failed", detail, elapsedMs));
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), e);
@@ -137,8 +138,8 @@ public abstract class AbstractHttpNarrationEngine {
             long elapsedMs = elapsedMs(startNs);
             String redactedBody = redact(e.getResponseBodyAsString(StandardCharsets.UTF_8), secret);
             log.warn(forLog("narration.tts.log.synthesize.http-error",
-                    e.getRawStatusCode(), redactedBody, elapsedMs));
-            String detail = "HTTP " + e.getRawStatusCode()
+                    e.getStatusCode().value(), redactedBody, elapsedMs));
+            String detail = "HTTP " + e.getStatusCode().value()
                     + (redactedBody.isBlank() ? "" : ": " + redactedBody);
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), e);
         } catch (RestClientException e) {

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.credential;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
@@ -92,7 +92,7 @@ public class OveruseWarningService {
             }
             if (modifiedMs > best) {
                 best = modifiedMs;
-                bestExcerpt = excerpt(thread.path("latest_content").asText(""));
+                bestExcerpt = excerpt(thread.path("latest_content").asString(""));
             }
         }
         return best > 0 ? Result.warned(best, bestExcerpt) : Result.clean();
@@ -112,13 +112,13 @@ public class OveruseWarningService {
     }
 
     private static boolean isActionableWarning(JsonNode thread) {
-        if (!OFFICIAL_THREAD_NAME.equals(thread.path("thread_name").asText(""))) {
+        if (!OFFICIAL_THREAD_NAME.equals(thread.path("thread_name").asString(""))) {
             return false;
         }
         if (!isTruthy(thread.path("is_official"))) {
             return false;
         }
-        String content = thread.path("latest_content").asText("");
+        String content = thread.path("latest_content").asString("");
         return content.contains(POLICY_MARKER) && content.contains(ARTICLE_MARKER);
     }
 
@@ -126,7 +126,7 @@ public class OveruseWarningService {
     private static boolean isTruthy(JsonNode node) {
         if (node.isBoolean()) return node.asBoolean();
         if (node.isNumber()) return node.asInt() != 0;
-        String t = node.asText("");
+        String t = node.asString("");
         return "1".equals(t) || "true".equalsIgnoreCase(t);
     }
 

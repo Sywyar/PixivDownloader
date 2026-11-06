@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -141,7 +142,7 @@ class ArtworkDownloadExecutorTest {
                 visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,
                 pixivBookmarkActions, ugoiraService,
                 new top.sywyar.pixivdownload.download.media.ImageOutputService(
-                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()),
+                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()),
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,
@@ -1199,7 +1200,7 @@ class ArtworkDownloadExecutorTest {
                         return "";
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");
@@ -1274,7 +1275,7 @@ class ArtworkDownloadExecutorTest {
                         return "";
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");
@@ -1327,7 +1328,7 @@ class ArtworkDownloadExecutorTest {
                         throw new IOException("encoding failed");
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, new com.fasterxml.jackson.databind.ObjectMapper(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");

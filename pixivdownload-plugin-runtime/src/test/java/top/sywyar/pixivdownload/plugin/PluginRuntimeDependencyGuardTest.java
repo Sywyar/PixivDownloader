@@ -118,10 +118,9 @@ class PluginRuntimeDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("JDK 数据源仅用于旧私库兼容适配，不进入中性运行时接缝")
-    void jdbcDataSourceOnlyBelongsToLegacyAdapter() {
+    @DisplayName("JDBC 数据源不进入中性运行时接缝")
+    void runtimeDoesNotDependOnJdbcDataSource() {
         noClasses().that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime..")
-                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.plugin.runtime.context.LegacyPluginDataSource")
                 .should().dependOnClassesThat().resideInAPackage("javax.sql").check(CLASSES);
     }
 

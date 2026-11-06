@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.config;
 
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -8,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.WebServerException;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
@@ -169,7 +170,7 @@ class DevelopmentWebServerCustomizerTest {
             WebServer server = server(factory);
             server.start();
             assertPublicAddresses(server, occupied.getLocalPort(), "https");
-            int redirectPort = factory.getAdditionalTomcatConnectors().get(0).getLocalPort();
+            int redirectPort = factory.getAdditionalConnectors().get(0).getLocalPort();
             assertThat(redirectPort).isGreaterThan(redirectOccupied.getLocalPort()).isNotEqualTo(server.getPort());
             var response = HttpClient.newHttpClient().send(
                     HttpRequest.newBuilder(URI.create("http://localhost:" + redirectPort + "/"))
@@ -225,8 +226,8 @@ class DevelopmentWebServerCustomizerTest {
             context.registerBean(SslConfig.class);
             context.registerBean(top.sywyar.pixivdownload.config.http.ServerAddressProvider.class);
             context.refresh();
-            context.publishEvent(new org.springframework.boot.web.servlet.context.ServletWebServerInitializedEvent(
-                    server, new org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext()));
+            context.publishEvent(new org.springframework.boot.web.server.servlet.context.ServletWebServerInitializedEvent(
+                    server, new org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext()));
             var address = context.getBean(top.sywyar.pixivdownload.config.http.ServerAddressProvider.class);
             String base = scheme + "://localhost:" + server.getPort();
             assertThat(address.uri("/setup.html").toString()).isEqualTo(base + "/setup.html");
@@ -244,7 +245,7 @@ class DevelopmentWebServerCustomizerTest {
                     .post("/api/admin/invites").contentType("application/json").content("{\"name\":\"address test\"}"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                     .andReturn().getResponse();
-            var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(created.getContentAsByteArray());
+            var json = JsonMapper.builderWithJackson2Defaults().build().readTree(created.getContentAsByteArray());
             assertThat(json.path("url").asText()).isEqualTo(base + "/invite?code=" + json.path("code").asText());
             assertThat(invites.detail(1L).url()).isEqualTo(json.path("url").asText());
             var status = new top.sywyar.pixivdownload.gui.controller.GuiStatusController(
@@ -258,9 +259,9 @@ class DevelopmentWebServerCustomizerTest {
             assertThat(body.getScheme()).isEqualTo(scheme);
             assertThat(body.getDomain()).isEqualTo("localhost");
             assertThat(environment.getProperty("server.port")).isEqualTo(Integer.toString(configuredPort));
-            var management = new org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext();
+            var management = new org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext();
             management.setServerNamespace("management");
-            context.publishEvent(new org.springframework.boot.web.servlet.context.ServletWebServerInitializedEvent(
+            context.publishEvent(new org.springframework.boot.web.server.servlet.context.ServletWebServerInitializedEvent(
                     org.mockito.Mockito.mock(WebServer.class), management));
             assertThat(address.baseUri().toString()).isEqualTo(base);
         }

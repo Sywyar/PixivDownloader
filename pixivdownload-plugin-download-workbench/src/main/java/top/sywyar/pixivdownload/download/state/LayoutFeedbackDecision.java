@@ -22,6 +22,7 @@ public enum LayoutFeedbackDecision {
 
     private final String wireName;
 
+    @JsonCreator
     LayoutFeedbackDecision(String wireName) {
         this.wireName = wireName;
     }

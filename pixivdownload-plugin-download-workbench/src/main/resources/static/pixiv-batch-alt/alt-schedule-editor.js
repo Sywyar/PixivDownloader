@@ -55,7 +55,7 @@ function isValidProxyHostPort(value) {
 
 function openScheduleOverride(task) {
     const body = el('div', 'ab-override');
-    const sourceType = task.sourceType || task.type;
+    const sourceType = task.sourceType;
     const capabilities = scheduleCredentialCapabilities(sourceType, {task});
     const presentation = capabilities.presentation;
     let lease;
@@ -256,7 +256,7 @@ async function openSchedulePending(task) {
         const meta = el('div', 'ab-pending-meta');
         meta.appendChild(el('strong', '', scheduleKindLabel(item.workType) + ' · ' + item.workId));
         const sub = el('span', 'ab-muted');
-        const reason = schedulePendingReasonText(item, task.sourceType || task.type);
+        const reason = schedulePendingReasonText(item, task.sourceType);
         sub.textContent = summaryJoin([
             bt('schedule.pending.attempts', '已重试 {count} 次', {count: item.attempts ?? 0}),
             item.needsManual ? bt('schedule.pending.needs-manual', '需人工处理') : '',

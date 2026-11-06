@@ -438,7 +438,6 @@
                 && state.mode === 'schedule' && document.visibilityState !== 'hidden'
                 && scheduleExpandedQueues.has(id) && latest
                 && currentBody() === body && latest.runState === runState
-                && latest.runStartedTime === task.runStartedTime
                 && latest.lastRunTime === task.lastRunTime
                 && latest.sourceActivationToken === task.sourceActivationToken;
         };
@@ -464,7 +463,7 @@
                 // 完成时间变化不代表换轮；元数据和实时进度只在相同 startedTime 下继承。
                 const sameRun = data.startedTime != null && data.startedTime === scheduleQueueStartedTimes.get(id);
                 const model = mergeScheduleQueueModel(id, incoming,
-                    task ? (task.sourceType || task.type) : null, sameRun ? previous : []);
+                    task ? (task.sourceType) : null, sameRun ? previous : []);
                 scheduleQueueModels[id] = model;
                 scheduleQueueStartedTimes.set(id, data.startedTime);
                 writeScheduleQueueCache(id, {
@@ -769,7 +768,7 @@
             const task = scheduleTaskById(id);
             Object.assign(q, registry.scheduledQueueItem(q.workType,
                 Object.assign({}, q, {title: data.title, presentationAttributes: data.presentationAttributes}),
-                {sourceType: task && (task.sourceType || task.type), task, previous: q}));
+                {sourceType: task && (task.sourceType), task, previous: q}));
         }
         // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
         // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支

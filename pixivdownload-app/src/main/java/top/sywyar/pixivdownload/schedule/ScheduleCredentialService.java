@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
@@ -402,7 +402,7 @@ public final class ScheduleCredentialService {
     private String writeJson(Map<String, String> values) {
         try {
             return objectMapper.writeValueAsString(values == null ? Map.of() : values);
-        } catch (JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw badRequest(
                     "schedule.error.credential-policy-result-invalid",
                     "凭证策略返回了无效结果");

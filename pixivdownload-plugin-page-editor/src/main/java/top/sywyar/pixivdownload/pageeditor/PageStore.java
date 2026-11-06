@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.pageeditor;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.web.page.PagePublications;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -54,7 +55,7 @@ public final class PageStore {
                     throw new IOException("invalid page state");
                 return (ObjectNode) state;
             }
-        } catch (IOException failure) { throw new IllegalStateException("PAGE_STORAGE_FAILED", failure); }
+        } catch (JacksonException | IOException failure) { throw new IllegalStateException("PAGE_STORAGE_FAILED", failure); }
     }
 
     public synchronized ObjectNode save(String id, long revision, JsonNode draft) {
@@ -96,7 +97,7 @@ public final class PageStore {
         try {
             byte[] input = PageDocuments.JSON.writeValueAsBytes(List.of(plan.fingerprint(), drafts, restoring));
             return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(input));
-        } catch (IOException | java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
+        } catch (JacksonException | java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
     }
 
     private Map<String, ObjectNode> candidates(String id, long revision, List<Draft> selected, boolean restoring) {

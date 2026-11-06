@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("文件导入的耐久备份与中断恢复")
 class FileRestoreTransactionTest {
     @TempDir Path root;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test @DisplayName("准备不改目标，提交回读验证并保留空文件与原内容的备份")
     void preparesAndCommitsWithoutDiscardingBackups() throws Exception {

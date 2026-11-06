@@ -2,8 +2,6 @@ package top.sywyar.pixivdownload.plugin.api.database.migration.jdbc;
 
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
-import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
 
 /** JDBC 提供者可选复用的 CHECK 渲染；引擎专用谓词由调用方实现。 */
@@ -44,32 +42,4 @@ public final class JdbcSchemaCheck {
         return precedence < parent ? "(" + sql + ")" : sql;
     }
 
-    /**
-     * 校验已发布字符串入口的受限语法；提供者决定允许的额外词汇，不执行 SQL。
-     * @param table 表声明
-     * @param extraWords 提供者明确支持的词汇
-     * @return 原表达式，没有约束时为空
-     */
-    public static String legacy(TableSpec table, Set<String> extraWords) {
-        String expression = table.checkExpression();
-        if (expression == null || expression.isBlank()) return "";
-        var names = new java.util.HashSet<>(List.of("and", "or", "not", "in", "is", "null", "length", "trim"));
-        names.addAll(extraWords);
-        table.columns().forEach(c -> names.add(c.name()));
-        var tokens = java.util.regex.Pattern.compile(
-                "\\s+|'(?:[^']|'')*'|[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+|<>|<=|>=|[()=<>+,.-]").matcher(expression);
-        int end = 0;
-        while (tokens.find()) {
-            String token = tokens.group(), word = token.toLowerCase(java.util.Locale.ROOT);
-            boolean identifier = Character.isLetter(token.charAt(0)) || token.charAt(0) == '_';
-            boolean function = expression.substring(tokens.end()).stripLeading().startsWith("(");
-            if (tokens.start() != end || identifier && (!names.contains(word)
-                    || function && !Set.of("and", "or", "not", "in", "length", "trim").contains(word)))
-                throw new IllegalArgumentException("DATABASE_SCHEMA_UNSUPPORTED");
-            end = tokens.end();
-        }
-        if (end != expression.length() || expression.contains("--"))
-            throw new IllegalArgumentException("DATABASE_SCHEMA_UNSUPPORTED");
-        return expression;
-    }
 }

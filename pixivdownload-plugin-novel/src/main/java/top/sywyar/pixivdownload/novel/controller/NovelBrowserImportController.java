@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -110,8 +111,7 @@ public class NovelBrowserImportController {
 
     private JsonNode requirePixivBody(String response, long novelId) throws IOException {
         JsonNode root;
-        try (JsonParser parser = objectMapper.createParser(response)) {
-            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        try (JsonParser parser = objectMapper.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION).createParser(response)) {
             root = objectMapper.readTree(parser);
             if (parser.nextToken() != null) {
                 throw new IllegalArgumentException("trailing JSON content");
@@ -132,10 +132,10 @@ public class NovelBrowserImportController {
         if (value.isIntegralNumber()) {
             return value.canConvertToLong() && value.longValue() == expected;
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             return false;
         }
-        return Long.toString(expected).equals(value.textValue());
+        return Long.toString(expected).equals(value.stringValue());
     }
 
     private static String decodeUtf8(byte[] bytes) throws CharacterCodingException {

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.*;
@@ -156,7 +156,7 @@ public class PixivBookmarkService implements PixivBookmarkActions {
         }
         JsonNode root = objectMapper.readValue(respBody, JsonNode.class);
         if (root.path("error").asBoolean(false)) {
-            throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
+            throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asString()));
         }
     }
 

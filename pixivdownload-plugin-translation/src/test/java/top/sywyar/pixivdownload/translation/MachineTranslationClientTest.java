@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.translation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -28,7 +28,7 @@ class MachineTranslationClientTest {
         config.setYoudaoAppSecret("fixture-secret");
         var rest = new RestTemplate();
         var server = MockRestServiceServer.bindTo(rest).build();
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.languages("youdao")).extracting(MachineTranslationClient.Language::code)
                 .contains("zh-CN", "zh-TW", "ja-JP", "sr-Latn", "sr-Cyrl", "jv").doesNotHaveDuplicates().doesNotContain("auto");
         for (String[] pair : new String[][]{{"zh-CN", "zh-CHS"}, {"zh-TW", "zh-CHT"}, {"sr-Latn", "sr-Latn"}, {"jv", "jw"}}) {
@@ -56,7 +56,7 @@ class MachineTranslationClientTest {
                 .andExpect(method(org.springframework.http.HttpMethod.GET)).andExpect(content().string(""))
                 .andRespond(withSuccess("[{\"code\":\"ja\",\"targets\":[\"en\",\"zh\",\"zt\"]},"
                         + "{\"code\":\"en\",\"targets\":[\"zh\"]}]", MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.languages("libretranslate")).extracting(MachineTranslationClient.Language::code)
                 .containsExactly("en-US", "zh-CN", "zh-TW");
         server.verify();
@@ -73,7 +73,7 @@ class MachineTranslationClientTest {
         config.setLibretranslateUrl("http://localhost:5000");
         var rest = new RestTemplate();
         var server = MockRestServiceServer.bindTo(rest).build();
-        var mapper = new ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var targets = new java.util.ArrayList<String>();
         for (int i = 0; i <= MachineTranslationClient.MAX_LANGUAGES; i++)
             targets.add("a" + (char) ('a' + i / 26) + (char) ('a' + i % 26));
@@ -106,7 +106,7 @@ class MachineTranslationClientTest {
         for (String code : new String[]{"110", "202", "401", "102", "411", "206", "secret-injected"})
             server.expect(requestTo("https://openapi.youdao.com/api")).andRespond(withSuccess(
                     "{\"errorCode\":\"" + code + "\",\"query\":\"private-novel\",\"errorMessage\":\"fixture-secret\"}", MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         for (String key : new String[]{"service-not-enabled", "credentials-error", "balance-error", "language-unsupported", "rate-limited", "clock-error", "remote-error"}) {
             assertThatThrownBy(() -> client.translate("youdao", "private-novel", "zh-CN", 0))
                     .isInstanceOfSatisfying(MachineTranslationClient.Failure.class, failure -> {
@@ -168,7 +168,7 @@ class MachineTranslationClientTest {
         server.expect(requestTo("http://127.0.0.1:5000/translate"))
                 .andExpect(content().json("{\"q\":\"hello\",\"source\":\"auto\",\"target\":\"zh\",\"format\":\"text\"}"))
                 .andRespond(withSuccess("{\"translatedText\":\"你好\"}".getBytes(StandardCharsets.UTF_8), MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.translate("libretranslate", "hello", "zh-CN", 0)).isEqualTo("你好");
         server.verify();
         for (String address : new String[]{"file:///tmp/data", "http://user:secret@localhost", "https://example.test?token=secret", "https://example.test#x"})
@@ -186,7 +186,7 @@ class MachineTranslationClientTest {
         var server = MockRestServiceServer.bindTo(rest).build();
         server.expect(requestTo("http://127.0.0.1:5000/translate"))
                 .andRespond(withSuccess(new byte[MachineTranslationClient.RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThatThrownBy(() -> client.translate("libretranslate", "hello", "en", 0))
                 .hasMessage("translation.response-too-large");
         server.verify();

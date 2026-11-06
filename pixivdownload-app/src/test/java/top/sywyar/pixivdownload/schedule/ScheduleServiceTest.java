@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,7 +10,6 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -105,7 +105,7 @@ class ScheduleServiceTest {
     @Mock
     private ScheduleCredentialBindingLease credentialBindingLease;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     private final TransactionTemplate transactionTemplate =
             new TransactionTemplate(NO_OP_TRANSACTION_MANAGER);
 
@@ -729,9 +729,9 @@ class ScheduleServiceTest {
         verify(store).suspend(
                 eq(9L), eq(STATE_VERSION + 1), eq(ScheduleSuspendReason.POLICY),
                 eq("PIXIV_OVERUSE"), detail.capture());
-        assertThat(objectMapper.readTree(detail.getValue()).path("modifiedAt").asText())
+        assertThat(objectMapper.readTree(detail.getValue()).path("modifiedAt").asString())
                 .isEqualTo("999000");
-        assertThat(objectMapper.readTree(detail.getValue()).path("excerpt").asText())
+        assertThat(objectMapper.readTree(detail.getValue()).path("excerpt").asString())
                 .isEqualTo("safe excerpt");
         assertThat(detail.getValue()).doesNotContain(cookie);
     }
@@ -1303,12 +1303,11 @@ class ScheduleServiceTest {
                 null, null, false);
 
         ScheduleTaskView view = top.sywyar.pixivdownload.schedule.dto.ScheduleTaskViews.of(
-                suspended, null, null,
+                suspended, null,
                 top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation.empty(),
                 false, null,
                 ScheduleCredentialPolicyView.unavailable(null, null, null, false));
 
-        assertThat(view.lastStatus()).isEqualTo(reason.name());
         assertThat(view.suspendReason()).isEqualTo(reason.name());
     }
 
@@ -1353,8 +1352,8 @@ class ScheduleServiceTest {
     }
 
     @Test
-    @DisplayName("来源兼容适配器从中性快照解析当前凭证策略 publication")
-    void currentCredentialPolicyActionResolvesStampedPublication() {
+    @DisplayName("凭证策略动作使用调用方提供的精确 publication")
+    void credentialPolicyActionUsesRequestedPublication() {
         String ownerPluginId = "third-party";
         String policyId = "third-party-credential";
         ScheduleCapabilityOwner owner =
@@ -1377,8 +1376,14 @@ class ScheduleServiceTest {
                 objectMapper, credentialService, transactionTemplate,
                 capabilityRegistry, ScheduleTestHost.started(new ScheduleRunState()), () -> true);
 
-        service.applyCurrentCredentialPolicyAction(
-                ownerPluginId, policyId, "account-42", "resume", Map.of("delay", "60"));
+        ScheduleCredentialPolicyActionRequest request = new ScheduleCredentialPolicyActionRequest();
+        request.setOwnerPluginId(ownerPluginId);
+        request.setPolicyId(policyId);
+        request.setPublicationId(publication.publicationId());
+        request.setAccountKey("account-42");
+        request.setActionId("resume");
+        request.setParameters(Map.of("delay", "60"));
+        service.applyCredentialPolicyAction(request);
 
         verify(credentialService).applyAccountAction(
                 ownerPluginId, policyId, publication.publicationId(),

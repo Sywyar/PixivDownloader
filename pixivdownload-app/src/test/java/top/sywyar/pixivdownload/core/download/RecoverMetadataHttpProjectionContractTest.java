@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.core.download;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.download.request.RecoverMetadataRequest;
@@ -12,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("recover-metadata HTTP 投影契约")
 class RecoverMetadataHttpProjectionContractTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("两阶段恢复请求应绑定 camelCase xRestrict，且不暴露全小写别名")

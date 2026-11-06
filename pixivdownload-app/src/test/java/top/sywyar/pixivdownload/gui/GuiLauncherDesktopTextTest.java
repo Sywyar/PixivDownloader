@@ -4,7 +4,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleExecutor;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleCredentialService;
 import top.sywyar.pixivdownload.schedule.ScheduleHostLifecycle;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import org.junit.jupiter.api.AfterEach;
@@ -61,7 +61,7 @@ class GuiLauncherDesktopTextTest {
                 store, mock(ScheduleExecutor.class),
                 new ScheduleConfig(), new ScheduleRunState(),
                 mock(ScheduleRunQueue.class),
-                new ObjectMapper(),
+                JsonMapper.builderWithJackson2Defaults().build(),
                 mock(ScheduleCredentialService.class),
                 mock(TransactionTemplate.class),
                 mock(ScheduleCapabilityAccess.class),

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -28,7 +29,7 @@ import static org.mockito.Mockito.*;
 @DisplayName("历史作品说明按原始快照修复")
 class WorkDescriptionRepairTaskTest {
     @TempDir Path directory;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private SingleConnectionDataSource source;
     private JdbcTemplate jdbc;
     private MainDatabase database;

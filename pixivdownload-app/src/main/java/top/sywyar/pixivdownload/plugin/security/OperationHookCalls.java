@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.function.LongSupplier;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.node.StringNode;
 import top.sywyar.pixivdownload.plugin.api.operation.*;
 import top.sywyar.pixivdownload.plugin.api.service.*;
 import top.sywyar.pixivdownload.plugin.api.security.OperationGuard;
@@ -298,7 +299,7 @@ final class OperationHookCalls implements AutoCloseable {
     private static final class WebValue {
         private static String string(String value) {
             if (value == null || value.length() > 16384) throw new IllegalArgumentException("OPERATION_HOOK_VALUE_LIMIT");
-            return com.fasterxml.jackson.databind.node.TextNode.valueOf(value).toString();
+            return StringNode.valueOf(value).toString();
         }
     }
 }

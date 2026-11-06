@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.push.channel.pushplus;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
@@ -25,7 +26,7 @@ import java.util.List;
 @Component
 public class PushPlusPushChannel implements PushChannel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String SEND_URL = "https://www.pushplus.plus/send";
 
     private final PushPlusConfig config;

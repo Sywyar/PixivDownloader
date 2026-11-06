@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
@@ -22,7 +24,7 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
  */
 final class ArtworksBackFillDatabase implements AutoCloseable {
     private static final top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator METADATA =
-            new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(new com.fasterxml.jackson.databind.ObjectMapper());
+            new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(JsonMapper.builderWithJackson2Defaults().build());
 
     private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
             backfillSchema();
@@ -337,7 +339,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                     identity(table, key(type), id), List.of(), List.of(), 1, 0));
             if (rows.isEmpty()) return null;
             try {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = JsonMapper.builderWithJackson2Defaults().build();
                 var meta = rows.get(0).get("metadata_json") == null
                         ? top.sywyar.pixivdownload.migration.WorkMetadataImport.readRegisteredSnapshot(connection, target, rootFolder, type, id)
                         : new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
@@ -345,7 +347,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                                 mapper.readTree((String) rows.get(0).get("metadata_json")));
                 if (meta == null) return null;
                 return ArtworksBackFillPixivClient.parsePayload(meta.document().path("raw"), meta.uploadTime(), false).withMetadata(meta);
-            } catch (java.io.IOException | IllegalArgumentException invalid) {
+            } catch (JacksonException | java.io.IOException | IllegalArgumentException invalid) {
                 return null;
             }
         }

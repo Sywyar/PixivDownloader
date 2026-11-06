@@ -303,10 +303,6 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path resolvePluginConfigPath(String id, String extension) { return RuntimeFiles.resolvePluginConfigPath(id, extension); }
     @Override public Path resolveImageClassifierPath(String rootFolder) { return RuntimeFiles.resolveImageClassifierPath(rootFolder); }
     @Override public Path resolveSetupConfigPath(String rootFolder) { return RuntimeFiles.resolveSetupConfigPath(rootFolder); }
-    @Override public Path resolveDatabasePath(String rootFolder) {
-        return configuredDatabaseTarget().localFile()
-                .orElseThrow(() -> new IllegalStateException("DATABASE_LOCAL_FILE_UNSUPPORTED"));
-    }
     @Override public String readDownloadRootFromConfig(Path path, String fallback) { return RuntimeFiles.readDownloadRootFromConfig(path, fallback); }
     @Override public String normalizeRootFolder(String rootFolder) { return RuntimeFiles.normalizeRootFolder(rootFolder); }
     @Override public void openExternalUri(java.net.URI uri) throws Exception {

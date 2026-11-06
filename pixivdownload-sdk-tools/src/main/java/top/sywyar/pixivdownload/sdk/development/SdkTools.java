@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.development;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.sdk.community.submission.MarketPublicationFiles;
@@ -177,14 +177,14 @@ public final class SdkTools {
                     project.toString(), run.toString(), artifact.toString(), digest));
             JsonNode receipt = install(install, run);
             if (receipt.path("schemaVersion").asInt() != 1
-                    || !receipt.path("sdkVersion").asText().equals(lock.sdkVersion())
-                    || !receipt.path("artifactSha256").asText().equals(digest)
-                    || !receipt.path("pluginId").asText().matches("[a-z0-9][a-z0-9._-]{0,127}")
+                    || !receipt.path("sdkVersion").asString().equals(lock.sdkVersion())
+                    || !receipt.path("artifactSha256").asString().equals(digest)
+                    || !receipt.path("pluginId").asString().matches("[a-z0-9][a-z0-9._-]{0,127}")
                     || !List.of("host-process-full-trust", "declarative-process")
-                            .contains(receipt.path("executionMode").asText())) {
+                            .contains(receipt.path("executionMode").asString())) {
                 throw new IOException("SDK_INSTALL_RECEIPT");
             }
-            String mode = receipt.path("executionMode").asText();
+            String mode = receipt.path("executionMode").asString();
             List<String> command = javaCommand(run, state);
             if (debug) {
                 if (debugConnect) waitForDebugger(debugPort);
@@ -198,7 +198,7 @@ public final class SdkTools {
                             + ",suspend=y,quiet=y,address=127.0.0.1:"
                             + debugPort + ",timeout=30000");
                 } else {
-                    command.add("-Dpixivdownload.sdk.debug.plugin-id=" + receipt.path("pluginId").asText());
+                    command.add("-Dpixivdownload.sdk.debug.plugin-id=" + receipt.path("pluginId").asString());
                     command.add("-Dpixivdownload.sdk.debug.artifact-sha256=" + digest);
                     command.add("-Dpixivdownload.sdk.debug.port=" + debugPort);
                     command.add("-Dpixivdownload.sdk.debug.connect=" + debugConnect);
@@ -222,7 +222,7 @@ public final class SdkTools {
                 process.set(host);
                 recordSession(dev, run, host.toHandle(), serverPort);
                 System.out.println(MessageBundles.get(debug ? "sdk.debug" : "sdk.running",
-                        receipt.path("pluginId").asText(), mode, Integer.toString(debugPort)));
+                        receipt.path("pluginId").asString(), mode, Integer.toString(debugPort)));
                 System.out.println("PIXIV_SDK_HOST_STARTED");
                 while (!host.waitFor(100, TimeUnit.MILLISECONDS)) {
                     if (Files.exists(run.resolve("stop.request"), LinkOption.NOFOLLOW_LINKS)) {
@@ -295,7 +295,7 @@ public final class SdkTools {
         runPath(project, metadata);
         var host = ProcessHandle.of(metadata.path("pid").longValue())
                 .filter(process -> process.info().startInstant().map(Object::toString).orElse("")
-                        .equals(metadata.path("started").asText()));
+                        .equals(metadata.path("started").asString()));
         if (host.isPresent()) {
             stop(project);
             host.get().onExit().get(STOP_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
@@ -304,7 +304,7 @@ public final class SdkTools {
     }
 
     private static Path runPath(Path project, JsonNode metadata) throws IOException {
-        String id = metadata.path("run").asText();
+        String id = metadata.path("run").asString();
         if (!id.matches("[0-9a-f]{16}")) {
             throw new IOException("SDK_SESSION_ID");
         }

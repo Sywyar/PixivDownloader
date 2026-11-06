@@ -1,8 +1,14 @@
 package top.sywyar.pixivdownload.pageeditor.components;
 
-import com.fasterxml.jackson.core.*;
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.*;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -17,10 +23,10 @@ public final class ComponentLibrary {
     public static final int MAX_SOURCE_BYTES = 1024 * 1024;
     private static final int MAX_COMPONENTS = 128;
     private static final int MAX_VERSIONS = 4096;
-    public static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    public static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(32).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(32).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private final Path directory;
     private final Map<String, ObjectNode> summaries = new LinkedHashMap<>();
     private boolean loaded;
@@ -35,27 +41,27 @@ public final class ComponentLibrary {
             JsonNode result = JSON.readTree(bytes);
             if (result == null) throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
             return result;
-        } catch (IOException error) { throw invalid("PAGE_COMPONENT_SOURCE_INVALID"); }
+        } catch (JacksonException error) { throw invalid("PAGE_COMPONENT_SOURCE_INVALID"); }
     }
 
     public static ObjectNode source(JsonNode value) {
         fields(value, Set.of("name", "html", "css", "javascript", "properties"));
         for (String key : List.of("name", "html", "css", "javascript"))
-            if (!value.path(key).isTextual()) throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
-        if (value.path("name").asText().isBlank() || value.path("name").asText().length() > 128)
+            if (!value.path(key).isString()) throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
+        if (value.path("name").asString().isBlank() || value.path("name").asString().length() > 128)
             throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
         if (value.toString().getBytes(StandardCharsets.UTF_8).length > MAX_SOURCE_BYTES)
             throw invalid("PAGE_COMPONENT_BUDGET");
         JsonNode properties = value.path("properties");
         if (!properties.isObject() || properties.size() > 64) throw invalid("PAGE_COMPONENT_PROPERTIES_INVALID");
-        properties.fields().forEachRemaining(entry -> {
+        properties.properties().iterator().forEachRemaining(entry -> {
             if (!entry.getKey().matches("[A-Za-z][A-Za-z0-9_-]{0,63}")
                     || Set.of("__proto__", "constructor", "prototype").contains(entry.getKey()))
                 throw invalid("PAGE_COMPONENT_PROPERTIES_INVALID");
             JsonNode property = entry.getValue();
             fields(property, Set.of("type", "label", "default"));
-            if (!property.path("label").isTextual() || property.path("label").asText().length() > 128
-                    || !matches(property.path("type").asText(), property.path("default")))
+            if (!property.path("label").isString() || property.path("label").asString().length() > 128
+                    || !matches(property.path("type").asString(), property.path("default")))
                 throw invalid("PAGE_COMPONENT_PROPERTIES_INVALID");
         });
         return ((ObjectNode) value).deepCopy();
@@ -63,7 +69,7 @@ public final class ComponentLibrary {
 
     private static boolean matches(String type, JsonNode value) {
         return switch (type) {
-            case "string" -> value.isTextual() && value.asText().length() <= 16384;
+            case "string" -> value.isString() && value.asString().length() <= 16384;
             case "boolean" -> value.isBoolean();
             case "number" -> value.isNumber() && Double.isFinite(value.asDouble());
             default -> false;
@@ -72,7 +78,7 @@ public final class ComponentLibrary {
 
     private static void fields(JsonNode value, Set<String> allowed) {
         if (!value.isObject()) throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
-        value.fieldNames().forEachRemaining(key -> {
+        value.propertyNames().iterator().forEachRemaining(key -> {
             if (!allowed.contains(key)) throw invalid("PAGE_COMPONENT_SOURCE_INVALID");
         });
     }
@@ -102,21 +108,21 @@ public final class ComponentLibrary {
                 }
             }
             loaded = true;
-        } catch (IOException error) { summaries.clear(); throw storage(error); }
+        } catch (JacksonException | IOException error) { summaries.clear(); throw storage(error); }
         catch (RuntimeException error) { summaries.clear(); throw error; }
     }
 
     public synchronized ObjectNode read(String id) {
         Path file = file(id);
         ObjectNode state = readFile(file, 2 * MAX_SOURCE_BYTES);
-        if (!state.path("id").asText().equals(id) || !state.path("revision").isIntegralNumber()
+        if (!state.path("id").asString().equals(id) || !state.path("revision").isIntegralNumber()
                 || !state.path("revision").canConvertToLong() || state.path("revision").asLong() < 1
                 || !state.path("enabled").isBoolean() || !state.path("versions").isArray()
-                || state.path("versions").size() > MAX_VERSIONS || !state.path("latest").isTextual())
+                || state.path("versions").size() > MAX_VERSIONS || !state.path("latest").isString())
             throw storage(null);
         source(state.path("draft"));
-        for (JsonNode version : state.path("versions")) requireVersion(version.asText());
-        if (!state.path("latest").asText().isEmpty() && !containsVersion(state, state.path("latest").asText())) throw storage(null);
+        for (JsonNode version : state.path("versions")) requireVersion(version.asString());
+        if (!state.path("latest").asString().isEmpty() && !containsVersion(state, state.path("latest").asString())) throw storage(null);
         return state;
     }
 
@@ -171,7 +177,7 @@ public final class ComponentLibrary {
     private ObjectNode version(ObjectNode state, String version) {
         requireVersion(version);
         if (!containsVersion(state, version)) throw invalid("PAGE_COMPONENT_UNAVAILABLE");
-        Path file = versionFile(state.path("id").asText(), version);
+        Path file = versionFile(state.path("id").asString(), version);
         byte[] bytes = bytes(file, MAX_SOURCE_BYTES);
         if (!digest(bytes).equals(version)) throw storage(null);
         return source(parse(bytes));
@@ -179,13 +185,13 @@ public final class ComponentLibrary {
 
     public synchronized void validateConfiguration(JsonNode config, boolean publishing) {
         fields(config, Set.of("componentId", "version", "properties"));
-        ObjectNode definition = publishing ? published(config.path("componentId").asText(), config.path("version").asText())
-                : version(config.path("componentId").asText(), config.path("version").asText());
+        ObjectNode definition = publishing ? published(config.path("componentId").asString(), config.path("version").asString())
+                : version(config.path("componentId").asString(), config.path("version").asString());
         JsonNode values = config.path("properties"), properties = definition.path("properties");
         if (!values.isObject()) throw invalid("PAGE_COMPONENT_PROPERTIES_INVALID");
-        values.fields().forEachRemaining(entry -> {
-            if (!properties.has(entry.getKey()) || !entry.getValue().isTextual()
-                    || !encodedValue(properties.path(entry.getKey()).path("type").asText(), entry.getValue().asText()))
+        values.properties().iterator().forEachRemaining(entry -> {
+            if (!properties.has(entry.getKey()) || !entry.getValue().isString()
+                    || !encodedValue(properties.path(entry.getKey()).path("type").asString(), entry.getValue().asString()))
                 throw invalid("PAGE_COMPONENT_PROPERTIES_INVALID");
         });
     }
@@ -208,24 +214,24 @@ public final class ComponentLibrary {
         byte[] bytes = state.toString().getBytes(StandardCharsets.UTF_8);
         if (bytes.length > 2 * MAX_SOURCE_BYTES) throw invalid("PAGE_COMPONENT_BUDGET");
         ObjectNode summary = summary(state);
-        write(file(state.path("id").asText()), bytes);
-        summaries.put(state.path("id").asText(), summary);
+        write(file(state.path("id").asString()), bytes);
+        summaries.put(state.path("id").asString(), summary);
         return state;
     }
 
     private ObjectNode summary(ObjectNode state) {
-        ObjectNode summary = JSON.createObjectNode().put("id", state.path("id").asText())
-                .put("name", state.path("draft").path("name").asText()).put("revision", state.path("revision").asLong())
-                .put("latest", state.path("latest").asText()).put("enabled", state.path("enabled").asBoolean());
-        if (!state.path("latest").asText().isEmpty()) {
-            ObjectNode published = version(state, state.path("latest").asText());
-            summary.put("name", published.path("name").asText());
+        ObjectNode summary = JSON.createObjectNode().put("id", state.path("id").asString())
+                .put("name", state.path("draft").path("name").asString()).put("revision", state.path("revision").asLong())
+                .put("latest", state.path("latest").asString()).put("enabled", state.path("enabled").asBoolean());
+        if (!state.path("latest").asString().isEmpty()) {
+            ObjectNode published = version(state, state.path("latest").asString());
+            summary.put("name", published.path("name").asString());
         }
         return summary;
     }
 
     private boolean containsVersion(ObjectNode state, String version) {
-        for (JsonNode item : state.path("versions")) if (item.asText().equals(version)) return true;
+        for (JsonNode item : state.path("versions")) if (item.asString().equals(version)) return true;
         return false;
     }
 
@@ -249,7 +255,7 @@ public final class ComponentLibrary {
             JsonNode state = JSON.readTree(bytes(file, limit));
             if (state == null || !state.isObject()) throw storage(null);
             return (ObjectNode) state;
-        } catch (IOException error) { throw storage(error); }
+        } catch (JacksonException error) { throw storage(error); }
     }
 
     private byte[] bytes(Path file, int limit) {

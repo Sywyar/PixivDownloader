@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.cosyvoice;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -42,7 +43,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("CosyVoice 朗读引擎")
 class CosyVoiceNarrationEngineTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final MessageResolver MESSAGES = TestMessageResolver.INSTANCE;
 
     private final RestTemplate direct = mock(RestTemplate.class);

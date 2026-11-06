@@ -8,6 +8,7 @@ import java.text.MessageFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -19,8 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 资源解析契约：resolver 只按 {@link LocaleBundlePolicy#resourceSuffixChain(Locale)}
  * 返回的 suffix 顺序精确加载文件（suffix 为空 = root 文件），不做 JDK 属性包的隐式
  * 默认语言回退，也不触发 JVM 系统默认语言。第一方代码必须显式传入 host catalog 构造的
- * 策略；旧构造器仅为第三方插件二进制兼容，走 {@link LegacyLocaleBundlePolicy}
- * （只保证旧版 root=zh-CN + {@code _en}=en-US 约定）。
+ * 策略，插件与宿主共用同一语言目录。
  * 物理文件按解析器实例缓存，解析器实例与插件 ClassLoader 同生命周期，不残留全局引用。
  */
 public final class ResourceBundleMessageResolver implements MessageResolver {
@@ -37,17 +37,6 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
      * @param fallback 回退项
      * @param classLoader 类加载器
      * @param baseNames 基础名称列表
-     */
-    public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames) {
-        this(fallback, classLoader, baseNames, LegacyLocaleBundlePolicy.INSTANCE);
-    }
-
-    /**
-     * 创建 {@code ResourceBundleMessageResolver} 实例。
-     *
-     * @param fallback 回退项
-     * @param classLoader 类加载器
-     * @param baseNames 基础名称列表
      * @param policy 策略
      */
     public ResourceBundleMessageResolver(MessageResolver fallback, ClassLoader classLoader, List<String> baseNames,
@@ -55,21 +44,7 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
         this.fallback = fallback;
         this.classLoader = classLoader == null ? ResourceBundleMessageResolver.class.getClassLoader() : classLoader;
         this.baseNames = baseNames == null ? List.of() : List.copyOf(baseNames);
-        this.policy = policy == null ? LegacyLocaleBundlePolicy.INSTANCE : policy;
-    }
-
-    /**
-     * 创建并返回 {@code ResourceBundleMessageResolver} 实例。
-     *
-     * @param fallback 回退项
-     * @param classLoader 类加载器
-     * @param baseNames 基础名称列表
-     * @return 方法返回的 {@code ResourceBundleMessageResolver} 实例
-     */
-    public static ResourceBundleMessageResolver of(MessageResolver fallback, ClassLoader classLoader,
-                                                   String... baseNames) {
-        return new ResourceBundleMessageResolver(fallback, classLoader,
-                baseNames == null ? List.of() : List.of(baseNames), LegacyLocaleBundlePolicy.INSTANCE);
+        this.policy = Objects.requireNonNull(policy, "policy");
     }
 
     /**

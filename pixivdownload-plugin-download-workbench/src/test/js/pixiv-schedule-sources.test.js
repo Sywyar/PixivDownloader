@@ -148,10 +148,14 @@ test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读�
     const result = await contribution.bindSavedCredential(42, {}, credentialLease);
     assert.equal(result.ok, true);
     assert.equal(result.status, 'bound');
-    assert.equal(requests[0].url, '/api/schedule/tasks/42/authorize-cookie');
+    assert.equal(requests[0].url, '/api/schedule/tasks/42/credential');
     assert.equal(requests[0].init.headers['X-Acquisition-Credential'], 'PHPSESSID=42_secret');
     assert.equal(Object.values(result).some(value => String(value).includes('42_secret')), false);
     assert.deepEqual(JSON.parse(requests[0].init.body), {
         activationToken: 'activation-pixiv'
     });
+    const revoked = await contribution.revokeCredential(42, {}, credentialLease);
+    assert.equal(revoked.status, 'revoked');
+    assert.equal(requests[1].url, '/api/schedule/tasks/42/credential');
+    assert.equal(requests[1].init.method, 'DELETE');
 });

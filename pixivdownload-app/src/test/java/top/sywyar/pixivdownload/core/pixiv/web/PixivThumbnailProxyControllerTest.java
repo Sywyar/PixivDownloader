@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,7 +61,7 @@ class PixivThumbnailProxyControllerTest {
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.US);
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         PixivSharedProxyController controller = new PixivSharedProxyController(
                 objectMapper,
                 pixivAjaxClient,
@@ -180,7 +181,7 @@ class PixivThumbnailProxyControllerTest {
 
         mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
                         .param("url", VALID_URL)
-                        .header("X-Pixiv-Cookie", "PHPSESSID=12345_secret; other=value"))
+                        .header("X-Acquisition-Credential", "PHPSESSID=12345_secret; other=value"))
                 .andExpect(status().isOk());
 
         verify(pixivThumbnailFetcher).fetch(URI.create(VALID_URL));

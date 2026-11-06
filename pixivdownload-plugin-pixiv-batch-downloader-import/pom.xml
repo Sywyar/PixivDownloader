@@ -16,6 +16,10 @@
         <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
     <dependencies>
+    <dependency>
+      <groupId>tools.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-runtime</artifactId>

@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.download.state;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.response.feedback.LayoutFeedbackStateResponse;
@@ -19,10 +21,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("布局调查决策 JSON 线格式")
 class LayoutFeedbackDecisionJsonTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     // 状态文档序列化使用与 Store 相同的 NON_NULL 配置（null 字段不输出）。
-    private static final ObjectMapper DOCUMENT_MAPPER = new ObjectMapper()
-            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
+    private static final ObjectMapper DOCUMENT_MAPPER = JsonMapper.builderWithJackson2Defaults()
+            .changeDefaultPropertyInclusion(incl -> incl.withContentInclusion(JsonInclude.Include.NON_NULL).withValueInclusion(JsonInclude.Include.NON_NULL))
+            .build();
     private static final String SURVEY_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
     @Test
@@ -62,7 +65,7 @@ class LayoutFeedbackDecisionJsonTest {
     @DisplayName("未知状态拒绝，fromWire 仍返回 null")
     void unknownValueRejectedButFromWireStaysNullSafe() {
         assertThatThrownBy(() -> MAPPER.readValue("\"bogus\"", LayoutFeedbackDecision.class))
-                .isInstanceOf(com.fasterxml.jackson.core.JacksonException.class);
+                .isInstanceOf(tools.jackson.core.JacksonException.class);
         assertThat(LayoutFeedbackDecision.fromWire("bogus")).isNull();
         assertThat(LayoutFeedbackDecision.fromWire(null)).isNull();
     }

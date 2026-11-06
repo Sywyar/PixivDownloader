@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -330,7 +330,7 @@ class ScheduleCredentialServiceTest {
                 executionEngine,
                 capabilities,
                 new TransactionTemplate(transactionManager),
-                new ObjectMapper());
+                JsonMapper.builderWithJackson2Defaults().build());
     }
 
     private FakeScheduleCapabilityAccess.Publication publish(

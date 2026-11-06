@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.gui;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolHistoryEntry;
@@ -35,7 +36,7 @@ final class DesktopToolHistory {
     private static final Set<String> ENTRY_FIELDS = Set.of(
             "toolId", "startedAtEpochMs", "finishedAtEpochMs", "outcome",
             "processedCount", "changedCount", "failedCount", "logFileName", "executionId", "sourceIdentity");
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final Logger LOG = LoggerFactory.getLogger(DesktopToolHistory.class);
 
     private final Path file;
@@ -214,7 +215,7 @@ final class DesktopToolHistory {
 
     private static void requireObjectWithFields(JsonNode value, Set<String> allowed) throws IOException {
         if (value == null || !value.isObject()) throw new IOException("expected object");
-        Iterator<String> names = value.fieldNames();
+        Iterator<String> names = value.propertyNames().iterator();
         while (names.hasNext()) {
             if (!allowed.contains(names.next())) throw new IOException("unexpected field");
         }
@@ -222,15 +223,15 @@ final class DesktopToolHistory {
 
     private static String requiredText(JsonNode value, String field) throws IOException {
         JsonNode node = value.get(field);
-        if (node == null || !node.isTextual() || node.textValue().isBlank()) throw new IOException("invalid text");
-        return node.textValue();
+        if (node == null || !node.isString() || node.stringValue().isBlank()) throw new IOException("invalid text");
+        return node.stringValue();
     }
 
     private static String optionalText(JsonNode value, String field) throws IOException {
         JsonNode node = value.get(field);
         if (node == null) return null;
-        if (!node.isTextual() || node.textValue().isBlank()) throw new IOException("invalid optional text");
-        return node.textValue();
+        if (!node.isString() || node.stringValue().isBlank()) throw new IOException("invalid optional text");
+        return node.stringValue();
     }
 
     private static long requiredLong(JsonNode value, String field) throws IOException {

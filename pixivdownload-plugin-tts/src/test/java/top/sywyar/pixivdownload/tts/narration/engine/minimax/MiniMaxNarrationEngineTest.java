@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.minimax;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -33,7 +34,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("MiniMax 朗读引擎")
 class MiniMaxNarrationEngineTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final MessageResolver MESSAGES = TestMessageResolver.INSTANCE;
     /** hex 编码的 4 字节音频（52 49 46 46 = "RIFF"）。 */
     private static final String AUDIO_HEX = "52494646";

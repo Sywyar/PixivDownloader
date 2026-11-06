@@ -163,7 +163,7 @@ function mapScheduleQueueItem(item, task, previous) {
     const liveStatus = item.liveStatus && typeof item.liveStatus === 'object'
         && !Array.isArray(item.liveStatus) ? Object.assign({}, item.liveStatus) : null;
     const owned = runtime.scheduledQueueItem(workType, item, {
-        sourceType: task.sourceType || task.type, task, previous
+        sourceType: task.sourceType, task, previous
     });
     return Object.assign({}, owned, {
         id: workId, kind: workType, workType, workId,
@@ -238,7 +238,7 @@ function subscribeScheduleQueue(task, entry) {
             if (data.title || data.presentationAttributes) {
                 Object.assign(item, runtime.scheduledQueueItem(item.workType,
                     Object.assign({}, item, {title: data.title, presentationAttributes: data.presentationAttributes}),
-                    {sourceType: task.sourceType || task.type, task, previous: item}));
+                    {sourceType: task.sourceType, task, previous: item}));
             }
             if (data.cancelled) { item.status = 'paused'; item.rawStatus = 'cancelled'; item.statusMessageKey = 'queue.stage.cancelled'; }
             else if (data.completed && !data.failed) { item.status = 'completed'; item.rawStatus = 'downloaded'; }
@@ -408,7 +408,7 @@ function schedulePresentationFallbackSections(task) {
 
 function openScheduleSnapshot(task) {
     const body = el('div', 'ab-snapshot');
-    const sourceType = task.sourceType || task.type;
+    const sourceType = task.sourceType;
     const runtime = altScheduleSources();
     let contributed = null;
     if (task.sourceAvailable !== false && runtime && runtime.isAvailable(sourceType)) {

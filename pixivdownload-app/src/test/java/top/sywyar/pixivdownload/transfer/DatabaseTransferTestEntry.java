@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
@@ -39,7 +39,7 @@ public final class DatabaseTransferTestEntry {
                     if (args[0].equals("export")) transfer.exportConfiguration(Path.of(args[1]), password, false, true, true, false);
                     else {
                         var preview = transfer.previewConfiguration(Path.of(args[1]), password);
-                        Files.write(Path.of(args[2]), new ObjectMapper().writeValueAsBytes(preview));
+                        Files.write(Path.of(args[2]), JsonMapper.builderWithJackson2Defaults().build().writeValueAsBytes(preview));
                         if (args[0].equals("prepare") || args[0].equals("prepare-paths")) transfer.importConfiguration(preview.token(),
                                 preview.changes().stream().map(DesktopEnvironmentTransfer.Change::field).collect(java.util.stream.Collectors.toSet()),
                                 Map.of(), password, true, preview.files().stream().map(DesktopEnvironmentTransfer.FileGroup::id)

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.service.*;
@@ -409,7 +410,7 @@ class ServiceBindingsTest {
         });
         var report = f.registry.serviceRelations();
         assertThat(report.truncated()).isTrue();
-        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(report).length).isLessThan(4 * 1024 * 1024);
+        assertThat(JsonMapper.builderWithJackson2Defaults().build().writeValueAsBytes(report).length).isLessThan(4 * 1024 * 1024);
         assertThat(f.registry.serviceImpact("provider-128-" + "x".repeat(70)).consumers()).containsExactly("consumer");
         assertThat(f.work).isEmpty();
         assertThat(bindings).allSatisfy(binding -> assertThat(binding.state()).isEqualTo(ServiceBinding.State.AMBIGUOUS));

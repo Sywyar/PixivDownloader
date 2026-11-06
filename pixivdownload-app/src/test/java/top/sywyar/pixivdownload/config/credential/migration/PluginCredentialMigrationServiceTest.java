@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config.credential.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -967,10 +968,12 @@ class PluginCredentialMigrationServiceTest {
                         .as("feature %s must come from its official plugin output",
                                 descriptorId)
                         .isSameAs(classLoader);
-                List<Class<?>> configurationClasses =
-                        List.copyOf(provider.configurationClasses());
+                List<Class<?>> configurationClasses = new java.util.ArrayList<>();
+                for (String className : properties.getProperty("pixiv.configuration-classes", "").split(",")) {
+                    if (!className.isBlank()) configurationClasses.add(Class.forName(className.trim(), false, classLoader));
+                }
                 assertThat(configurationClasses)
-                        .as("configuration classes returned by %s",
+                        .as("configuration classes declared by %s",
                                 providerClassName)
                         .isNotEmpty()
                         .allSatisfy(configurationClass -> {
@@ -1290,7 +1293,7 @@ class PluginCredentialMigrationServiceTest {
         parent.registerBean(
                 OutboundWebSocketClientFactory.class,
                 () -> profile -> mock(OutboundWebSocketClient.class));
-        parent.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+        parent.registerBean(ObjectMapper.class, () -> JsonMapper.builderWithJackson2Defaults().build());
         parent.registerBean(
                 RequestOwnerIdentityResolver.class,
                 () -> mock(RequestOwnerIdentityResolver.class));

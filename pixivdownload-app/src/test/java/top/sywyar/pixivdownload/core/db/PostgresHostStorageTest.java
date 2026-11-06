@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.db;
 
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -277,7 +278,7 @@ class PostgresHostStorageTest {
                 new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()), initializer));
         factory.addAdvice(advice);
         var store = (top.sywyar.pixivdownload.core.metadata.WorkMetadataStore) factory.getProxy();
-        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var json = JsonMapper.builderWithJackson2Defaults().build();
         var capture = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService(
                 new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(json), store, json, () -> true);
         jdbc.execute("ALTER TABLE artworks ADD CONSTRAINT fixture_metadata CHECK (is_original <> 0)");

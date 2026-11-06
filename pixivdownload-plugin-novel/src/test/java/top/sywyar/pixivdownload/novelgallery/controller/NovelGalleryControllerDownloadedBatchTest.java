@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,7 +78,7 @@ class NovelGalleryControllerDownloadedBatchTest {
                 new NovelTagOption(12L, "tag", "translated", 4L)));
 
         var response = controller.listNovelTags(null, 500, WorkVisibilityScope.unrestricted());
-        var json = new ObjectMapper().valueToTree(response);
+        var json = JsonMapper.builderWithJackson2Defaults().build().valueToTree(response);
 
         assertThat(json.path("tags").get(0).path("tagId").longValue()).isEqualTo(12L);
         assertThat(json.path("tags").get(0).path("name").textValue()).isEqualTo("tag");
@@ -127,7 +127,7 @@ class NovelGalleryControllerDownloadedBatchTest {
     @Test
     @DisplayName("旧请求省略 includeDeleted 时默认不返回软删除 ID")
     void omittedIncludeDeletedDefaultsToFalse() throws Exception {
-        var request = new ObjectMapper().readValue(
+        var request = JsonMapper.builderWithJackson2Defaults().build().readValue(
                 "{\"novelIds\":[1,2]}",
                 NovelGalleryController.NovelDownloadedBatchRequest.class);
         when(novelDatabase.getDownloadedStatuses(request.novelIds())).thenReturn(List.of(

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.notificationbase;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;

@@ -51,10 +51,10 @@ test('能力阻断分别显示状态，阻止运行但保留空闲任务的编�
     assert.equal(buttonDisabled(h.renderTaskCard({id: 7, enabled: false}), 'Run'), true);
 });
 
-test('中断结果驱动恢复状态灯，遗留开始时间不能把成功任务显示为中断', () => {
+test('中断结果驱动恢复状态灯，上次运行时间不能把成功任务显示为中断', () => {
     const h = harness({translations});
     assert.equal(h.statusLight({enabled: true, lastOutcome: 'INTERRUPTED'}).text, 'Interrupted');
-    assert.equal(h.statusLight({enabled: true, lastStatus: 'OK', runStartedTime: 123}).text, 'Succeeded');
+    assert.equal(h.statusLight({enabled: true, lastOutcome: 'OK', lastRunTime: 123}).text, 'Succeeded');
 });
 
 test('来源缺席时快照展示已保存摘要，不解释来源私有定义', () => {

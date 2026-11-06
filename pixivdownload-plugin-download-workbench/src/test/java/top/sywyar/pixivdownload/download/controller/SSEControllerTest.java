@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -283,10 +284,10 @@ class SSEControllerTest {
         assertThat(payload.getImageProgress().getProgress()).isNull();
         own.setImageProgress(null);
         ReflectionTestUtils.invokeMethod(controller, "sendActiveStatuses", subscription);
-        var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(emitter.events.get(1).payload);
-        assertThat(json.get("title").asText()).isEqualTo("own");
-        assertThat(json.get("presentationAttributes").get("xRestrict").asText()).isEqualTo("2");
-        assertThat(json.get("presentationAttributes").get("illustType").asText()).isEqualTo("2");
+        var json = JsonMapper.builderWithJackson2Defaults().build().valueToTree(emitter.events.get(1).payload);
+        assertThat(json.get("title").asString()).isEqualTo("own");
+        assertThat(json.get("presentationAttributes").get("xRestrict").asString()).isEqualTo("2");
+        assertThat(json.get("presentationAttributes").get("illustType").asString()).isEqualTo("2");
         assertThat(json.has("imageProgress")).isTrue();
         assertThat(json.get("imageProgress").isNull()).isTrue();
         assertThat(json.has("ugoiraProgress")).isTrue();

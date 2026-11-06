@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.cli;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore;
 import java.io.PrintStream;
@@ -40,7 +40,7 @@ public final class CliWebPublications {
                 try { out.println(MessageBundles.get("cli.publications.current", store.snapshot().identity())); }
                 catch (IllegalStateException unavailable) { out.println(MessageBundles.get("cli.publications.unavailable")); }
                 out.println(MessageBundles.get("cli.publications.candidates"));
-                out.println(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(store.recoveryCandidates()));
+                out.println(JsonMapper.builderWithJackson2Defaults().build().writerWithDefaultPrettyPrinter().writeValueAsString(store.recoveryCandidates()));
             }
             return 0;
         } catch (Exception failure) {

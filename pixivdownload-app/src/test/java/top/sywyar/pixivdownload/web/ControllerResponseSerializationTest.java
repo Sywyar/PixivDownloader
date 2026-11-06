@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.collection.CollectionController;
@@ -17,7 +18,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("控制器显式响应 DTO JSON 契约")
 class ControllerResponseSerializationTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
+
+    @Test
+    @DisplayName("实际宿主 Jackson 自动配置保留响应顺序、日期文本与未知字段容忍")
+    void hostMapperPreservesWireFormat() {
+        new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withInitializer(new org.springframework.boot.test.context.ConfigDataApplicationContextInitializer())
+                .withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(
+                        org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration.class))
+                .run(context -> {
+                    ObjectMapper mapper = context.getBean(ObjectMapper.class);
+                    assertThat(mapper.valueToTree(new MaintenanceController.StatusResponse(
+                            true, false, 1L, 2L, "manual")).propertyNames())
+                            .containsExactly("enabled", "paused", "lastStartedAt", "lastFinishedAt", "lastTriggeredBy");
+                    assertThat(mapper.writeValueAsString(java.time.Instant.parse("2020-01-02T03:04:05Z")))
+                            .isEqualTo("\"2020-01-02T03:04:05Z\"");
+                    assertThat(mapper.readValue("{\"added\":true,\"extra\":1}", CollectionController.AddedResponse.class))
+                            .isEqualTo(new CollectionController.AddedResponse(true));
+                });
+    }
 
     @Test
     @DisplayName("收藏夹响应保留原有字段名")
@@ -51,7 +71,7 @@ class ControllerResponseSerializationTest {
 
     private List<String> fieldNames(Object value) {
         List<String> names = new ArrayList<>();
-        objectMapper.valueToTree(value).fieldNames().forEachRemaining(names::add);
+        objectMapper.valueToTree(value).propertyNames().iterator().forEachRemaining(names::add);
         return names;
     }
 }

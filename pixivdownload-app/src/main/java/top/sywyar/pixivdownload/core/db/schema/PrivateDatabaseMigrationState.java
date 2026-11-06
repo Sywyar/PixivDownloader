@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.core.db.schema;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.InstallIdentity;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -19,7 +21,7 @@ import java.util.*;
 
 /** 宿主只保存 owner 和 provider 变化凭据；源布局与变化验证完全由可信源 provider 拥有。 */
 public final class PrivateDatabaseMigrationState {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private static final int MAX_RECEIPT_BYTES = 16 * 1024;
     private PrivateDatabaseMigrationState() {}
 
@@ -115,7 +117,7 @@ public final class PrivateDatabaseMigrationState {
             Receipt saved = JSON.readValue(bytes, Receipt.class);
             if (saved == null || saved.formatVersion() != 1) throw required();
             return saved;
-        } catch (IOException invalid) { throw required(); }
+        } catch (JacksonException | IOException invalid) { throw required(); }
     }
     private static IOException required() { return new IOException("DATABASE_PRIVATE_MIGRATION_REQUIRED"); }
 }

@@ -62,10 +62,14 @@ class PluginDatabaseIntegrationTest {
         if (!Files.isDirectory(root.resolve("pixivdownload-app"))) root = root.getParent();
         Path novel = root.resolve("pixivdownload-plugin-novel/target/classes");
         Path notification = root.resolve("pixivdownload-plugin-notification/target/classes");
+        Path translationApi = root.resolve("pixivdownload-novel-translation-api/target/classes");
         assertThat(novel.resolve("top/sywyar/pixivdownload/novel/db/NovelMapper.class")).isRegularFile();
         assertThat(notification.resolve("top/sywyar/pixivdownload/notificationbase/NotificationInboxSchema.class"))
                 .isRegularFile();
-        loader = new URLClassLoader(new URL[]{novel.toUri().toURL(), notification.toUri().toURL()},
+        assertThat(translationApi.resolve("top/sywyar/pixivdownload/translation/api/TranslationVariant.class"))
+                .isRegularFile();
+        loader = new URLClassLoader(new URL[]{novel.toUri().toURL(), notification.toUri().toURL(),
+                translationApi.toUri().toURL()},
                 getClass().getClassLoader());
         if ("postgresql".equals(engine)) {
             postgres = new PostgresTestDatabase();

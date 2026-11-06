@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.download.schedule.source.executor;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.download.PixivFetchService;
@@ -187,9 +187,9 @@ public final class PixivScheduledSourceSupport {
         return discoverScoped(context, cookie -> {
             JsonNode source = definition.source();
             String word = text(source, "word");
-            String order = source.path("order").asText(SOURCE_ORDER);
-            String mode = source.path("mode").asText(SOURCE_MODE);
-            String searchMode = source.path("sMode").asText(SOURCE_S_MODE);
+            String order = source.path("order").asString(SOURCE_ORDER);
+            String mode = source.path("mode").asString(SOURCE_MODE);
+            String searchMode = source.path("sMode").asString(SOURCE_S_MODE);
             int maxPages = source.path("maxPages").asInt(SOURCE_MAX_PAGES);
             String workType = workType(definition);
             PageLoader pages = page -> definition.snapshot().novel()
@@ -231,7 +231,7 @@ public final class PixivScheduledSourceSupport {
             throws ScheduledExecutionException {
         ParsedDefinition definition = parseSingleKind(task(context), MY_BOOKMARKS, false);
         return discoverScoped(context, cookie -> {
-            String rest = definition.source().path("rest").asText(SOURCE_REST);
+            String rest = definition.source().path("rest").asString(SOURCE_REST);
             List<String> ids = definition.snapshot().novel()
                     ? fetchService.discoverMyNovelBookmarkIds(rest, cookie)
                     : fetchService.discoverMyIllustBookmarkIds(rest, cookie);
@@ -598,7 +598,7 @@ public final class PixivScheduledSourceSupport {
         JsonNode root;
         try {
             root = objectMapper.readTree(task.definitionJson());
-        } catch (JsonProcessingException ignored) {
+        } catch (JacksonException ignored) {
             throw failure(ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.pixiv.definition-json-invalid");
         }
@@ -608,7 +608,7 @@ public final class PixivScheduledSourceSupport {
         }
         PixivScheduledDefinitionValidator.validate(root, expectedSourceType);
         ScheduleTaskSnapshot snapshot = ScheduleTaskSnapshot.from(root);
-        String kind = root.path("kind").asText(KIND).toLowerCase(Locale.ROOT);
+        String kind = root.path("kind").asString(KIND).toLowerCase(Locale.ROOT);
         if (kind.isEmpty()) {
             kind = KIND;
         }
@@ -618,7 +618,7 @@ public final class PixivScheduledSourceSupport {
     private SearchMode searchMode(ParsedDefinition definition) {
         int maxPages = definition.source().path("maxPages").asInt(SOURCE_MAX_PAGES);
         boolean dateDescending = "date_d".equals(
-                definition.source().path("order").asText(SOURCE_ORDER));
+                definition.source().path("order").asString(SOURCE_ORDER));
         if (maxPages == -1 && dateDescending) {
             return SearchMode.WATERMARK;
         }
@@ -635,7 +635,7 @@ public final class PixivScheduledSourceSupport {
     }
 
     private static String text(JsonNode node, String field) {
-        return node.path(field).asText("");
+        return node.path(field).asString("");
     }
 
     private static ScheduledTaskDefinition task(ScheduledSourceContext context)

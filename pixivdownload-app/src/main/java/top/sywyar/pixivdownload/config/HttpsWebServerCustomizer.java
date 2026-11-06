@@ -9,7 +9,7 @@ import org.apache.catalina.connector.Request;
 import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ValveBase;
 import org.apache.tomcat.util.descriptor.web.SecurityConstraint;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.Ssl;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.core.annotation.Order;
@@ -58,7 +58,7 @@ public class HttpsWebServerCustomizer implements WebServerFactoryCustomizer<Tomc
             int httpPort = sslConfig.getHttpRedirectPort();
             log.info(message("https.log.redirect.enabled", httpPort, httpsPort));
             Connector redirect = createHttpConnector(httpPort, httpsPort);
-            factory.addAdditionalTomcatConnectors(redirect);
+            factory.addAdditionalConnectors(redirect);
             factory.addConnectorCustomizers(primary -> primary.addLifecycleListener(event -> {
                 if (Lifecycle.AFTER_START_EVENT.equals(event.getType()) && primary.getLocalPort() > 0) {
                     redirect.setRedirectPort(primary.getLocalPort());

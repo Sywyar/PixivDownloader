@@ -59,7 +59,7 @@ class PluginPackageReaderTest {
     @DisplayName("显式宿主完全信任的解压目录描述符可读取")
     void readsExplodedDirectoryLayout() {
         Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("p.zip"),
-                "ext-stats", "1.2.0", "1.0", "com.example.ExtStatsPlugin");
+                "ext-stats", "1.2.0", top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "com.example.ExtStatsPlugin");
 
         PluginPackageInspection inspection = PluginPackageReader.inspect(zip);
 

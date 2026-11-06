@@ -77,7 +77,7 @@ final class SqliteCheckMigration {
             ddlTable = new TableSpec(table.name(), table.columns().stream().map(c ->
                     new top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec(c.name(), c.type(), c.notNull(),
                             c.defaultValue(), c.primaryKeyPosition(), c.primaryKeyPosition() == 1 && c.type().equals("INTEGER")))
-                    .toList(), table.indexes(), table.checkExpression(), table.check());
+                    .toList(), table.indexes(), table.check());
         }
         String temporary = "check_migration_" + UUID.randomUUID().toString().replace("-", "");
         String rowid = List.of("rowid", "_rowid_", "oid").stream()

@@ -1,7 +1,6 @@
 package com.example.textmetrics.consumer;
 
 import com.example.textmetrics.api.TextMetrics;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -51,7 +50,7 @@ class MetricsControllerTest {
         var messages = ResourceBundleMessageResolver.of(null, getClass().getClassLoader(), policy,
                 "i18n.web.text-metrics-consumer");
         var controller = new MetricsController(services, messages);
-        var mapper = new ObjectMapper();
+        var mapper = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build();
         String previous = null;
         for (Locale locale : List.of(Locale.SIMPLIFIED_CHINESE, Locale.US)) {
             var response = controller.analyze(new TextMetrics.Request(List.of("private input")), locale);

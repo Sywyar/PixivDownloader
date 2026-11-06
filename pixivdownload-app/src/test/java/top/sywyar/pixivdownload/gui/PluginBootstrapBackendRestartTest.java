@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
@@ -299,7 +298,7 @@ class PluginBootstrapBackendRestartTest {
     private static Path stageProbeJar(Path pluginsDir) throws IOException {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-7.8.9.jar");
-        String props = "plugin.id=bootstrap-probe\nplugin.version=7.8.9\nplugin.requires=1.0\n"
+        String props = "plugin.id=bootstrap-probe\nplugin.version=7.8.9\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BackendRestartProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.execution-mode=host-process-full-trust\n"

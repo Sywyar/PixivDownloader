@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.translation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.task.SyncTaskExecutor;
@@ -29,7 +30,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class TranslationJobsTest {
     @TempDir Path directory;
-    final ObjectMapper json = new ObjectMapper();
+    final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     final TranslationConfig config = new TranslationConfig();
     final TranslationDocuments documents = mock(TranslationDocuments.class);
     final RestTemplate http = new RestTemplate();

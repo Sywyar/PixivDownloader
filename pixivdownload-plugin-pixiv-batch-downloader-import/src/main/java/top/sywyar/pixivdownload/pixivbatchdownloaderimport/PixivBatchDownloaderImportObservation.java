@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
@@ -13,7 +13,7 @@ final class PixivBatchDownloaderImportObservation {
     static WorkFileImportRequest parse(JsonNode input, Path root) {
         require(input != null && input.isObject() && input.path("schemaVersion").isInt()
                 && input.path("schemaVersion").intValue() == 1
-                && input.path("source").asText().equals("pixiv-batch-downloader"), "INVALID_OBSERVATION");
+                && input.path("source").asString().equals("pixiv-batch-downloader"), "INVALID_OBSERVATION");
         require(input.path("taskBatch").isIntegralNumber() && input.path("taskBatch").longValue() > 0
                 && input.path("tabId").isIntegralNumber(), "UNKNOWN_BATCH");
         JsonNode meta = input.path("metadata");
@@ -32,11 +32,11 @@ final class PixivBatchDownloaderImportObservation {
         require(observations.isArray() && observations.size() == count, "INCOMPLETE_PAGE_SET");
         Path[] paths = new Path[count];
         for (JsonNode file : observations) {
-            require(file.path("outcome").asText().equals("success") && !file.path("noReply").asBoolean(), "UNCONFIRMED_FILE");
+            require(file.path("outcome").asString().equals("success") && !file.path("noReply").asBoolean(), "UNCONFIRMED_FILE");
             require(file.path("page").isInt(), "INVALID_PAGE");
             int page = file.path("page").intValue();
             require(page >= 0 && page < count && paths[page] == null, "AMBIGUOUS_PAGE");
-            require(file.path("fileId").asText().equals(type >= 2 ? Long.toString(id) : id + "_p" + page), "FILE_ID_MISMATCH");
+            require(file.path("fileId").asString().equals(type >= 2 ? Long.toString(id) : id + "_p" + page), "FILE_ID_MISMATCH");
             String name = text(file.path("path"));
             require(name.length() <= 4096 && !name.contains("\0"), "INVALID_SOURCE_PATH");
             Path path = root.resolve(name).toAbsolutePath().normalize();
@@ -57,12 +57,12 @@ final class PixivBatchDownloaderImportObservation {
                 tags, root, Arrays.asList(paths), type == 3 ? optional(meta.path("novelContent")) : null);
     }
     private static long positiveId(JsonNode node) {
-        String value = node.asText(); require(value.matches("[1-9][0-9]{0,15}"), "INVALID_ID"); return Long.parseLong(value);
+        String value = node.asString(); require(value.matches("[1-9][0-9]{0,15}"), "INVALID_ID"); return Long.parseLong(value);
     }
     private static String text(JsonNode node) {
-        require(node.isTextual() && !node.textValue().isBlank(), "MISSING_TEXT"); return node.textValue();
+        require(node.isString() && !node.stringValue().isBlank(), "MISSING_TEXT"); return node.stringValue();
     }
-    private static String optional(JsonNode node) { return node.isTextual() ? node.textValue() : null; }
+    private static String optional(JsonNode node) { return node.isString() ? node.stringValue() : null; }
     private static void require(boolean condition, String code) { if (!condition) throw new InvalidObservation(code); }
     static final class InvalidObservation extends IllegalArgumentException {
         InvalidObservation(String code) { super(code); }

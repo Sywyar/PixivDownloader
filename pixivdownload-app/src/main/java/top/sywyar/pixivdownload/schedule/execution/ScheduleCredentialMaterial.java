@@ -1,12 +1,13 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -86,14 +87,13 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
             String json = pendingJson.removeFirst();
             boolean candidateMatches = false;
             ArrayDeque<String> embeddedCandidates = new ArrayDeque<>();
-            try (JsonParser parser = objectMapper.createParser(json)) {
-                parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+            try (JsonParser parser = objectMapper.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION).createParser(json)) {
                 JsonToken token;
                 while ((token = parser.nextToken()) != null) {
                     if (!isScalarToken(token)) {
                         continue;
                     }
-                    String text = parser.getText();
+                    String text = parser.getString();
                     if (containsEcho(text)) {
                         candidateMatches = true;
                     }
@@ -105,7 +105,7 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
                         }
                     }
                 }
-            } catch (IOException | IllegalArgumentException ignored) {
+            } catch (JacksonException | IllegalArgumentException ignored) {
                 // 非法 JSON 由调用方既有 schema 校验拒绝；这里只做凭证原文比对。
                 continue;
             }
@@ -118,7 +118,7 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
     }
 
     private static boolean isScalarToken(JsonToken token) {
-        return token == JsonToken.FIELD_NAME
+        return token == JsonToken.PROPERTY_NAME
                 || token == JsonToken.VALUE_STRING
                 || token == JsonToken.VALUE_NUMBER_INT
                 || token == JsonToken.VALUE_NUMBER_FLOAT

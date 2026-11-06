@@ -196,7 +196,7 @@ abstract class PluginBootstrapSessionTestSupport {
     protected static Path stageProbeJarWithoutProvenance(Path pluginsDir) throws IOException {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
-        String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
+        String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.lifecycle-policy=process-restart\n"
@@ -213,7 +213,7 @@ abstract class PluginBootstrapSessionTestSupport {
 
     protected static Path stageProbeDevelopmentClasses(Path repositoryRoot) throws IOException {
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
-        String properties = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
+        String properties = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "pixiv.kind=feature\n"
                 + "pixiv.lifecycle-policy=process-restart\n"

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novelgallery;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -221,10 +221,10 @@ class NovelGalleryServiceTest {
             NovelGalleryService.NovelView found = novelGalleryService.find(1L);
 
             assertThat(found.tags()).containsExactlyElementsOf(tags);
-            JsonNode json = new ObjectMapper().valueToTree(found);
+            JsonNode json = JsonMapper.builderWithJackson2Defaults().build().valueToTree(found);
             assertThat(json.path("tags").size()).isEqualTo(3);
             assertThat(json.path("tags").get(0).path("tagId").isNull()).isTrue();
-            assertThat(json.path("tags").get(1).path("translatedName").asText()).isEqualTo("magic");
+            assertThat(json.path("tags").get(1).path("translatedName").asString()).isEqualTo("magic");
             found.tags().clear();
             assertThat(metadata.tags()).containsExactlyElementsOf(tags);
         }
@@ -410,7 +410,7 @@ class NovelGalleryServiceTest {
                 700L, "系列甲", 801L, null, 2L, "png",
                 List.of(new WorkTag(21L, "魔法", "magic")));
 
-        JsonNode json = new ObjectMapper().valueToTree(summary);
+        JsonNode json = JsonMapper.builderWithJackson2Defaults().build().valueToTree(summary);
 
         assertThat(json.size()).isEqualTo(7);
         assertThat(json.has("seriesId")).isTrue();
@@ -422,7 +422,7 @@ class NovelGalleryServiceTest {
         assertThat(json.has("tags")).isTrue();
         assertThat(json.path("tags").get(0).size()).isEqualTo(3);
         assertThat(json.path("tags").get(0).path("tagId").asLong()).isEqualTo(21L);
-        assertThat(json.path("tags").get(0).path("name").asText()).isEqualTo("魔法");
-        assertThat(json.path("tags").get(0).path("translatedName").asText()).isEqualTo("magic");
+        assertThat(json.path("tags").get(0).path("name").asString()).isEqualTo("魔法");
+        assertThat(json.path("tags").get(0).path("translatedName").asString()).isEqualTo("magic");
     }
 }

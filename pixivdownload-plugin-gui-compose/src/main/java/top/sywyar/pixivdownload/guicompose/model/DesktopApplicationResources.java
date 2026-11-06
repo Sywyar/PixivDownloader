@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  */
 final class DesktopApplicationResources {
     private static final Logger LOG = LoggerFactory.getLogger(DesktopApplicationResources.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build();
     private static final Pattern MAINTAINER_LOGIN = Pattern.compile(
             "[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?");
     private static final Set<String> MAINTAINER_ROLES = Set.of(

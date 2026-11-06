@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.*;
 import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
 import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-@DisplayName("SQLite 中性 CHECK 与旧字符串入口")
+@DisplayName("SQLite 中性 CHECK 与既有约束核验")
 class SqliteCheckContractTest {
     private TableSpec table() {
         return new TableSpec("facts", List.of(new ColumnSpec("id", "INTEGER", true, null, 1),
@@ -56,18 +56,15 @@ class SqliteCheckContractTest {
         }
     }
 
-    @ParameterizedTest @DisplayName("旧字符串入口在任何建表前拒绝注入和未声明函数")
-    @ValueSource(strings = {"id=1); DROP TABLE facts; --", "secret_function(id)=1", "id=1 --comment", "body(body)"})
-    void rejectsLegacySqlBeforeDdl(String expression) throws Exception {
-        var first = new TableSpec("before_table", table().columns(), List.of());
-        var invalid = new TableSpec("facts", table().columns(), List.of(), expression);
-        try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:")) {
-            assertThatThrownBy(() -> SqliteStorageSchema.apply(connection,
-                    new MigrationSchema(1, List.of(first, invalid), List.of(), List.of()), true))
-                    .hasMessage("DATABASE_SCHEMA_UNSUPPORTED");
-            try (var sql = connection.createStatement(); var rows = sql.executeQuery("SELECT count(*) FROM sqlite_schema")) {
-                assertThat(rows.next()).isTrue(); assertThat(rows.getLong(1)).isZero();
-            }
+    @ParameterizedTest @DisplayName("实际数据库中的未声明约束不会被静默替换")
+    @ValueSource(strings = {"id=1", "length(body)>0", "id>0 OR 1=1"})
+    void rejectsUndeclaredStoredChecks(String expression) throws Exception {
+        var declared = table().withCheck(call(GREATER, column("facts", "id"), value(0)));
+        try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:");
+             var sql = connection.createStatement()) {
+            sql.execute("CREATE TABLE facts(id INTEGER NOT NULL PRIMARY KEY, body TEXT, CHECK(" + expression + "))");
+            assertThatThrownBy(() -> SqliteMigrationSchema.validateConstraints(connection, schema(declared)))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("SCHEMA_MISMATCH");
         }
     }
 }

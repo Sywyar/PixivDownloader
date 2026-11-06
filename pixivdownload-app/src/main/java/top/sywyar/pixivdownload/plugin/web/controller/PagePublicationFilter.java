@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import org.springframework.core.annotation.Order;
@@ -44,7 +45,7 @@ public final class PagePublicationFilter extends OncePerRequestFilter {
                         ? !slots.permits(slotToken) : !slots.permits(slotToken, route.pluginId(), route.requestOwner())))) {
                 response.setStatus(409); response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");
-                new com.fasterxml.jackson.databind.ObjectMapper().writeValue(response.getWriter(),
+                JsonMapper.builderWithJackson2Defaults().build().writeValue(response.getWriter(),
                         top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse.of(
                                 slotToken != null ? "UI_PUBLICATION_STALE" : "PAGE_PUBLICATION_STALE",
                                 messages.get("error.request.param.invalid")));

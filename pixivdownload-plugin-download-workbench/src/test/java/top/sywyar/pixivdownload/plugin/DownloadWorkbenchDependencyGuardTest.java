@@ -530,8 +530,7 @@ class DownloadWorkbenchDependencyGuardTest {
                         "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
                         "top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor",
                         "top.sywyar.pixivdownload.download.controller.DownloadTaskController",
-                        "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
-                        "top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController");
+                        "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor");
     }
 
     private static JavaClasses importPluginClasses() {

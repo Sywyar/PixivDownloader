@@ -2,7 +2,6 @@ package example.pages.plugin;
 
 import example.pages.contract.Checklist;
 import pixivdownload.generated.remote.example.pages.contract.ChecklistRemoteAdapter;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pf4j.*;
 import org.springframework.context.annotation.*;
 import top.sywyar.pixivdownload.plugin.api.plugin.*;
@@ -20,7 +19,6 @@ public final class ChecklistPlugin extends Plugin implements PixivPluginProvider
     public static final CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
     private static final ServiceKey<Checklist> KEY = new ServiceKey<>("page-checklist-contract", Checklist.class);
     public ChecklistPlugin(PluginWrapper wrapper) { super(wrapper); }
-    public List<Class<?>> configurationClasses() { return List.of(Configuration.class); }
     public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
             public String id() { return "page-checklist"; }
@@ -78,7 +76,7 @@ public final class ChecklistPlugin extends Plugin implements PixivPluginProvider
                 }
                 public void validate(String type, String json) {
                     try {
-                        var config = new ObjectMapper().readValue(json, Checklist.Config.class);
+                        var config = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build().readValue(json, Checklist.Config.class);
                         if (config.items().stream().map(Checklist.Item::label).distinct().count() != config.items().size())
                             throw new IllegalArgumentException("duplicate labels");
                     } catch (Exception failure) { throw new IllegalArgumentException("PAGE_CONFIGURATION_INVALID"); }

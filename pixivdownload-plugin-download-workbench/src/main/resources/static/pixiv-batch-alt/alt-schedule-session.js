@@ -2,7 +2,7 @@
 
 function beginScheduleEdit(task) {
     const runtime = altScheduleSources();
-    const lease = runtime.activationLease(task.sourceType || task.type);
+    const lease = runtime.activationLease(task.sourceType);
     if (task.sourceAvailable === false || task.sourceActivationToken !== lease.activationToken
         || !Number.isSafeInteger(task.stateVersion) || task.stateVersion < 0) {
         throw new Error(bt('schedule.error.concurrent-change'));

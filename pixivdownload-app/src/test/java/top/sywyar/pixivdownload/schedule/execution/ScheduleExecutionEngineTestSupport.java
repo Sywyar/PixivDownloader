@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
@@ -150,7 +151,7 @@ abstract class ScheduleExecutionEngineTestSupport {
         ScheduleConfig config = new ScheduleConfig();
         config.setPendingMaxAttempts(5);
         config.setAuthFailureCircuitBreaker(5);
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         OutboundProxySettings direct = new OutboundProxySettings() {
             @Override
             public boolean isEnabled() {

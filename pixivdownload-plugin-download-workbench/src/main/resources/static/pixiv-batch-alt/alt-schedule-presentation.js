@@ -3,7 +3,7 @@
 function scheduleSourceSummary(task) {
     const runtime = altScheduleSources();
     let summary;
-    if (task.sourceAvailable !== false && runtime?.isAvailable(task.sourceType || task.type)) {
+    if (task.sourceAvailable !== false && runtime?.isAvailable(task.sourceType)) {
         try { summary = runtime.summary(task, {}); } catch (e) { /* Keep the stored presentation when the owner is unavailable. */ }
     }
     const presentation = scheduleTaskPresentation(task);
@@ -29,7 +29,7 @@ function scheduleCadenceLabel(task) {
 }
 
 function scheduleNextLabel(task, now = new Date()) {
-    if (!task.enabled || task.suspendReason || ['PAUSED', 'OVERUSE_PAUSED'].includes(task.lastStatus)) return '';
+    if (!task.enabled || task.suspendReason) return '';
     const next = new Date(task.nextRunTime);
     if (!task.nextRunTime || !Number.isFinite(next.getTime())) return '';
     const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);

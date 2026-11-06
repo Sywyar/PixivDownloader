@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.i18n;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("LocaleCatalog 共享 fixture：Java 与 Node 对等拒绝同一批非法目录")
 class LocaleCatalogSharedFixtureTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     /** surefire 工作目录 = 模块 basedir（pixivdownload-app）；仓库根时直接用根路径。 */
     private static Path fixturesDir() {
@@ -47,9 +48,9 @@ class LocaleCatalogSharedFixtureTest {
         JsonNode shared = load("catalog-invalid-shared.json");
         assertThat(shared.path("cases")).hasSizeGreaterThanOrEqualTo(15);
         for (JsonNode c : shared.path("cases")) {
-            String id = c.path("id").asText();
+            String id = c.path("id").asString();
             String json = MAPPER.writeValueAsString(c.path("json"));
-            Pattern expected = Pattern.compile(c.path("expected").asText());
+            Pattern expected = Pattern.compile(c.path("expected").asString());
             assertThatThrownBy(() -> new LocaleCatalogLoader(null).parse(json))
                     .as("Java 必须拒绝: " + id)
                     .isInstanceOf(RuntimeException.class)

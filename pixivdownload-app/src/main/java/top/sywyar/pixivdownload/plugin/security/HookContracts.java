@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.plugin.security;
 
 import java.nio.charset.StandardCharsets;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.plugin.api.operation.*;
 import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
 import top.sywyar.pixivdownload.plugin.web.remote.RemoteValues;
@@ -8,10 +11,10 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationHookCapabil
 
 /** 发布与执行共用的纯值校验，不运行插件回调。 */
 public final class HookContracts {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper(
-            com.fasterxml.jackson.core.JsonFactory.builder().enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-                    .streamReadConstraints(com.fasterxml.jackson.core.StreamReadConstraints.builder().maxNestingDepth(24).build()).build())
-            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final tools.jackson.databind.ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(
+            JsonFactory.builder().enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                    .streamReadConstraints(tools.jackson.core.StreamReadConstraints.builder().maxNestingDepth(24).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private HookContracts() { }
 
     public static OperationHook.Definition definition(OperationHook.Definition value) {
@@ -45,6 +48,6 @@ public final class HookContracts {
         if (value == null || value.length() > 16384 || value.getBytes(StandardCharsets.UTF_8).length > 16384)
             throw new IllegalArgumentException("OPERATION_HOOK_VALUE_LIMIT");
         try { if (JSON.readTree(value) == null) throw new IllegalArgumentException("OPERATION_HOOK_VALUE_INVALID"); }
-        catch (java.io.IOException invalid) { throw new IllegalArgumentException("OPERATION_HOOK_VALUE_INVALID"); }
+        catch (JacksonException invalid) { throw new IllegalArgumentException("OPERATION_HOOK_VALUE_INVALID"); }
     }
 }

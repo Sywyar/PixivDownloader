@@ -1,9 +1,12 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -39,9 +42,9 @@ class SetupConfigFileTest {
     void readsAtLimitAndRejectsOverflow() throws Exception {
         Path file = directory.resolve("setup.json");
         Files.writeString(file, "{}" + " ".repeat(LIMIT - 2), StandardCharsets.UTF_8);
-        assertThat(SetupConfigFile.read(file, new ObjectMapper()).isSetupComplete()).isFalse();
+        assertThat(SetupConfigFile.read(file, JsonMapper.builderWithJackson2Defaults().build()).isSetupComplete()).isFalse();
         Files.writeString(file, "{}" + " ".repeat(LIMIT - 1), StandardCharsets.UTF_8);
-        assertThatThrownBy(() -> SetupConfigFile.read(file, new ObjectMapper()))
+        assertThatThrownBy(() -> SetupConfigFile.read(file, JsonMapper.builderWithJackson2Defaults().build()))
                 .isInstanceOf(IOException.class);
         assertThat(Files.size(file)).isEqualTo(LIMIT + 1);
     }
@@ -69,7 +72,7 @@ class SetupConfigFileTest {
                 .thenReturn(beforeGrowth);
         when(provider.newByteChannel(eq(observed), any())).thenReturn(channel);
         try {
-            assertThatThrownBy(() -> SetupConfigFile.read(observed, new ObjectMapper()))
+            assertThatThrownBy(() -> SetupConfigFile.read(observed, JsonMapper.builderWithJackson2Defaults().build()))
                     .isInstanceOf(IOException.class);
             assertThat(consumed.get()).isEqualTo(LIMIT + 1);
             assertThat(channel.isOpen()).isFalse();
@@ -79,16 +82,17 @@ class SetupConfigFileTest {
         }
     }
 
-    @Test
-    @DisplayName("JSON null 不是有效初始化状态，拒绝读取及备份替换并保留原文件")
-    void rejectsNullConfigWithoutReplacingFiles() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "{", "[]"})
+    @DisplayName("非法 JSON 或非对象状态拒绝读取及备份替换并保留原文件")
+    void rejectsInvalidConfigWithoutReplacingFiles(String content) throws Exception {
         Path file = directory.resolve("setup.json");
-        Files.writeString(file, "null", StandardCharsets.UTF_8);
-        ObjectMapper mapper = new ObjectMapper();
+        Files.writeString(file, content, StandardCharsets.UTF_8);
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         assertThatThrownBy(() -> SetupConfigFile.read(file, mapper)).isInstanceOf(IOException.class);
         assertThatThrownBy(() -> SetupConfigFile.write(file, new SetupConfig(), mapper))
                 .isInstanceOf(IOException.class);
-        assertThat(Files.readString(file, StandardCharsets.UTF_8)).isEqualTo("null");
+        assertThat(Files.readString(file, StandardCharsets.UTF_8)).isEqualTo(content);
         assertThat(SetupConfigFile.backupPath(file)).doesNotExist();
     }
 
@@ -98,7 +102,7 @@ class SetupConfigFileTest {
         Path file = directory.resolve("setup.json");
         Files.writeString(file, "{}", StandardCharsets.UTF_8);
         Files.writeString(SetupConfigFile.backupPath(file), "{\"mode\":\"solo\"}", StandardCharsets.UTF_8);
-        assertThatThrownBy(() -> SetupConfigFile.write(file, null, new ObjectMapper()))
+        assertThatThrownBy(() -> SetupConfigFile.write(file, null, JsonMapper.builderWithJackson2Defaults().build()))
                 .isInstanceOf(IOException.class);
         assertThat(Files.readString(file, StandardCharsets.UTF_8)).isEqualTo("{}");
         assertThat(Files.readString(SetupConfigFile.backupPath(file), StandardCharsets.UTF_8))

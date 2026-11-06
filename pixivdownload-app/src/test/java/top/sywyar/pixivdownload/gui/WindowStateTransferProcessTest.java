@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,9 +34,9 @@ class WindowStateTransferProcessTest {
                 assertThat(root.resolve("completed")).as(Files.readString(root.resolve("replacement.log"))).exists();
                 assertThat(Files.readString(root.resolve("completed"))).isEqualTo("predecessor-exited; instance-acquired");
             }
-            var json = new ObjectMapper();
+            var json = JsonMapper.builderWithJackson2Defaults().build();
             var job = json.readTree(root.resolve("data/environment-transfers/pending.json").toFile());
-            assertThat(job.path("status").asText()).isEqualTo(
+            assertThat(job.path("status").asString()).isEqualTo(
                     scenario.equals("external-change") || scenario.equals("restart-fails") ? "FAILED" : "SUCCEEDED");
             assertThat(Files.readString(root.resolve("close-save-result"))).isEqualTo(
                     scenario.equals("unselected") || scenario.equals("restart-fails") ? "true" : "false");

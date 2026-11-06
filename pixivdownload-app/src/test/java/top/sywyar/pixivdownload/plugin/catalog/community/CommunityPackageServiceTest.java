@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog.community;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -68,7 +69,7 @@ class CommunityPackageServiceTest {
         var communitySignature = sign(community, "community-test", EnvelopeV1Codec.communityPackageMessage(
                 "Ed25519", "community-test", PluginRepository.COMMUNITY_ID, "demo", "2.3.4", bytes.length,
                 HexFormat.of().parseHex(sha), "SOURCE_REVIEWED", "12".repeat(20),
-                HexFormat.of().parseHex(reviewRef.path("sha256").asText())));
+                HexFormat.of().parseHex(reviewRef.path("sha256").asString())));
         var published = vector("structure/published.json");
         published.set("package", submission.get("package").deepCopy());
         published.set("communitySignature", tree(communitySignature));
@@ -80,7 +81,7 @@ class CommunityPackageServiceTest {
                 "expectedSizeBytes", bytes.length, "sha256", sha, "signature", communitySignature,
                 "assuranceLevel", "SOURCE_REVIEWED", "sourceCommit", "12".repeat(20),
                 "reviewRef", reviewRef, "historicalOwner", review.get("owner")));
-        var pkg = new com.fasterxml.jackson.databind.ObjectMapper().treeToValue(packageJson, PluginCatalogPackage.class);
+        var pkg = JsonMapper.builderWithJackson2Defaults().build().treeToValue(packageJson, PluginCatalogPackage.class);
         var http = mock(PluginCatalogHttpClient.class);
         when(http.fetchBytes(anyString(), anyLong())).thenAnswer(call -> {
             byte[] result = documents.get(call.getArgument(0, String.class).substring(CommunityDirectoryService.BASE_URL.length()));
@@ -93,7 +94,7 @@ class CommunityPackageServiceTest {
                 ignored -> new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(key))));
         var repository = PluginRepository.community(true, 1000, 1000, 1024 * 1024, 1024 * 1024);
         var evidence = service.verify(artifact, repository, "demo", pkg);
-        assertThat(evidence.reviewSha256()).isEqualTo(reviewRef.path("sha256").asText());
+        assertThat(evidence.reviewSha256()).isEqualTo(reviewRef.path("sha256").asString());
         var changedReview = review.deepCopy();
         ((ObjectNode) changedReview.path("descriptor").path("riskDeclaration")).putArray("signals").add("PROCESS_EXECUTION");
         assertThatThrownBy(() -> CommunityReview.read(CommunityJson.parse(CommunityJson.Kind.REVIEW,
@@ -113,7 +114,7 @@ class CommunityPackageServiceTest {
         store.acceptRevocations(repository.repositoryId(), new PluginCatalogTrustStateStore.RevocationSnapshot(
                 2L, "cd".repeat(32), now, Instant.now().plusSeconds(3600).toString(), now, List.of(
                 new PluginCatalogTrustStateStore.RevocationEntry("PUBLISHER", null, null, null, null,
-                        review.path("owner").path("publisherId").asText(), "REVOKED", "MALWARE", now))));
+                        review.path("owner").path("publisherId").asString(), "REVOKED", "MALWARE", now))));
         assertThat(revocations.status(repository, "demo", pkg)).isEqualTo("REVOKED");
         assertThat(admission.evaluate(request).code()).isEqualTo("PLUGIN_REVOKED");
         assertThat(admission.evaluate(new PluginArtifactAdmissionRequest(repository.repositoryId(), "demo", "2.3.4",

@@ -197,7 +197,7 @@ class PostgresProviderIntegrationTest {
     @DisplayName("目录中的自定义函数不能借同名列绕过 CHECK 表达式边界")
     void rejectsStoredCheckFunctions() throws Exception {
         var table = new TableSpec("facts", List.of(new ColumnSpec("kind", "TEXT", true, null, 0)),
-                List.of(), "length(kind) > 0");
+                List.of()).withCheck(call(GREATER, call(LENGTH, column("facts", "kind")), value(0)));
         var declarations = List.of(new SchemaContribution(List.of(table), List.of(), List.of()));
         try (var connection = target.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE);
              var statement = connection.createStatement()) {

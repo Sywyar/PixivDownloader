@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.media;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,7 +29,7 @@ class ImageOutputServiceTest {
         Path source = jpeg();
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         assertEquals(List.of("jpg"), service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings(null), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
@@ -46,7 +46,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         Path stem = directory.resolve("42_p0");
         assertEquals(List.of("png"), service.process(42L, 0, stem, "jpg", settings("png"), () -> false));
         assertEquals(1, calls.get());
@@ -62,7 +62,7 @@ class ImageOutputServiceTest {
         ImageIO.write(new BufferedImage(25_001, 1, BufferedImage.TYPE_INT_RGB), "png", source.toFile());
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         assertEquals(List.of("png"), service.process(42L, 0, directory.resolve("42_p0"), "png", settings("png"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
@@ -77,7 +77,7 @@ class ImageOutputServiceTest {
             Files.writeString(output, "partial");
             throw new IOException("fixture failure");
         };
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         Path stem = directory.resolve("42_p0");
         assertThrows(IOException.class, () -> service.process(42L, 0, stem, "jpg", settings("png,webp"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
@@ -99,7 +99,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings("png,webp"), () -> false, events::add);
         assertEquals(List.of("verifying", "ffmpeg-waiting", "ffmpeg", "verifying",
                 "ffmpeg-waiting", "ffmpeg", "verifying", "thumbnail", "finalizing"),
@@ -125,7 +125,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         var first = settings("webp");
         first.setQuality(73);
         first.setWebpLossless(true);
@@ -164,7 +164,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, new ObjectMapper(), failedStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), failedStore);
         assertThrows(IOException.class, () -> service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings("png"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         assertTrue(Files.exists(directory.resolve("42_p0.png")));
@@ -184,7 +184,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        new ImageOutputService(runner, new ObjectMapper(), mediaStore).addMissingFormats(42L, 0, source, "png", () -> false);
+        new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore).addMissingFormats(42L, 0, source, "png", () -> false);
         assertArrayEquals(original, Files.readAllBytes(source));
         assertEquals(new ArtworkMediaManifest("png", List.of("jpg", "png"), false), mediaStore.find(42L, 0).orElseThrow());
         assertNotNull(ImageIO.read(directory.resolve("42_p0.png").toFile()));
@@ -220,7 +220,7 @@ class ImageOutputServiceTest {
         };
         Path stem = directory.resolve("transparent");
         ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_ARGB), "png", directory.resolve("transparent.png").toFile());
-        var service = new ImageOutputService(runner, new ObjectMapper(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
         assertEquals(List.of("jpg", "webp"), service.process(42L, 0, stem, "png", settings("jpg,webp"), () -> false));
         BufferedImage jpg = ImageIO.read(directory.resolve("transparent.jpg").toFile());
         assertEquals(0xFFFFFF, jpg.getRGB(0, 0) & 0xFFFFFF);

@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.core.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
@@ -27,7 +29,7 @@ import java.util.UUID;
 @Component
 public final class DownloadTaskResultStore {
     static final int MAX_RECORD_BYTES = 64 * 1024;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private final Path directory;
 
     public DownloadTaskResultStore() { this(RuntimeFiles.downloadTaskResultsDirectory()); }
@@ -79,7 +81,7 @@ public final class DownloadTaskResultStore {
             return Optional.empty();
         } catch (IOException failure) {
             throw new UncheckedIOException(failure);
-        } catch (IllegalArgumentException | java.time.DateTimeException invalid) {
+        } catch (JacksonException | IllegalArgumentException | java.time.DateTimeException invalid) {
             throw new UncheckedIOException(new IOException("invalid download result", invalid));
         }
     }

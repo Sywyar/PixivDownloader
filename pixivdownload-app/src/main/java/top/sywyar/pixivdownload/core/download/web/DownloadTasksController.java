@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmission;
@@ -23,13 +24,13 @@ import java.util.UUID;
 @RequestMapping("/api/download/tasks")
 public final class DownloadTasksController {
     private static final int MAX_COMMAND_BYTES = 128 * 1024;
-    private static final com.fasterxml.jackson.databind.ObjectReader COMMANDS =
-            new com.fasterxml.jackson.databind.ObjectMapper(com.fasterxml.jackson.core.JsonFactory.builder()
-                    .streamReadConstraints(com.fasterxml.jackson.core.StreamReadConstraints.builder()
+    private static final tools.jackson.databind.ObjectReader COMMANDS =
+            tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
+                    .streamReadConstraints(tools.jackson.core.StreamReadConstraints.builder()
                             .maxNestingDepth(4).maxStringLength(16 * 1024).build())
-                    .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
+                    .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).configureForJackson2().build()
                     .readerFor(DownloadSubmission.class)
-                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+                    .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final DownloadTasks tasks;
     private final RequestOwnerIdentityResolver identities;
     private final MessageResolver messages;
@@ -51,7 +52,7 @@ public final class DownloadTasksController {
         DownloadSubmission command = COMMANDS.readValue(bytes);
         if (command == null) throw new IllegalArgumentException("download command is required");
         String credential = AcquisitionCredentialResolver.resolve(
-                request.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
+                request.getHeader(AcquisitionCredentialResolver.HEADER_NAME));
         var result = tasks.submit(command, credential, owner);
         return ResponseEntity.accepted().cacheControl(CacheControl.noStore())
                 .body(new ReceiptView(TaskView.from(result.task()), result.duplicate()));
@@ -99,6 +100,7 @@ public final class DownloadTasksController {
     }
 
     @ExceptionHandler({IllegalArgumentException.class,
+            tools.jackson.core.JacksonException.class,
             java.io.IOException.class,
             org.springframework.http.converter.HttpMessageNotReadableException.class,
             org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})

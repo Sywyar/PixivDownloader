@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.development;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.asm.Opcodes;
 import java.io.IOException;
 import java.nio.file.*;
@@ -88,7 +88,7 @@ public final class ContractEvolution {
         if (target.equals(baseline.toAbsolutePath().normalize()) || target.equals(candidate.toAbsolutePath().normalize())
                 || Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw new IOException("SDK_EVOLUTION_OUTPUT_EXISTS");
         Files.createDirectories(target.getParent());
-        byte[] bytes = new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsBytes(report);
+        byte[] bytes = JsonMapper.builderWithJackson2Defaults().build().writerWithDefaultPrettyPrinter().writeValueAsBytes(report);
         if (bytes.length > 1024 * 1024) throw new IOException("SDK_EVOLUTION_REPORT_LIMIT");
         Files.write(target, bytes, StandardOpenOption.CREATE_NEW);
         return !report.binaryLinkage().equals("POTENTIALLY_BREAKING")

@@ -235,7 +235,7 @@
             ? scheduleTaskById(Number((document.getElementById('schedule-override-modal') || {}).dataset?.taskId))
             : null;
         const preview = task ? null : currentScheduleSourcePreview();
-        const sourceType = task ? (task.sourceType || task.type) : (preview && preview.sourceType);
+        const sourceType = task ? (task.sourceType) : (preview && preview.sourceType);
         const capabilities = scheduleCredentialCapabilities(sourceType, {task, mode: state.mode});
         if (!capabilities.supportsCredential) {
             report(bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证'), 'error');
@@ -412,7 +412,7 @@
         const task = scheduleTasksCache.find(t => t.id === id);
         if (!task) return;
         setScheduleFormStatus('');
-        const sourceType = task.sourceType || task.type;
+        const sourceType = task.sourceType;
         const taskId = Number(task.id);
         const stateVersion = Number(task.stateVersion);
         const activationToken = typeof task.sourceActivationToken === 'string'

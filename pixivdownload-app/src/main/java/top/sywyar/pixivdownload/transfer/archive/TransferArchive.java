@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.transfer.archive;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 
@@ -21,9 +21,10 @@ import java.util.zip.ZipOutputStream;
 /** 只交换逻辑条目；归档中的名称从不直接用作本机目标路径。 */
 public final class TransferArchive {
     public static final long MAX_CONTENT_BYTES = 64L * 1024 * 1024 * 1024;
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private static final String MANIFEST = "manifest.json";
     private final Limits limits;
 
@@ -201,7 +202,7 @@ public final class TransferArchive {
                         byte[] bytes = zip.readNBytes(limits.maxManifestBytes() + 1);
                         if (bytes.length > limits.maxManifestBytes()) throw new IOException("transfer.archive-limit");
                         try { manifest = JSON.readValue(bytes, Manifest.class); }
-                        catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException invalid) {
+                        catch (RuntimeException invalid) {
                             throw new IOException("transfer.archive-invalid");
                         }
                     } else {

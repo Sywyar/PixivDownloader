@@ -184,7 +184,7 @@ test('计划轮询在语言变化后复用卡片、菜单和结果容器', () =>
     const c = h.context;
     c.state.mode = 'schedule';
     c.scheduleState = {tasks: [{id: 1, name: 'Plan', sourceType: 'demo', enabled: true,
-        intervalMinutes: 5, lastStatus: 'OK'}], loaded: true, expandedQueues: new Set(), error: null};
+        intervalMinutes: 5, lastOutcome: 'OK'}], loaded: true, expandedQueues: new Set(), error: null};
     c.altScheduleSources = () => ({isAvailable: () => false, descriptor: () => null});
     c.startScheduleQueuePolling = () => {};
     c.renderScheduleCredentialPolicyBanners = () => {};
@@ -433,7 +433,7 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
     }
     const plan = (id, extra = {}) => ({id, name: id, sourceType: 'demo', enabled: true, ...extra});
     const tasks = [plan('Favorite'), plan('running', {runState: 'RUNNING'}),
-        plan('disabled', {enabled: false}), plan('paused', {suspendReason: 'MANUAL', lastStatus: 'PAUSED'}),
+        plan('disabled', {enabled: false}), plan('paused', {suspendReason: 'MANUAL'}),
         plan('unavailable', {suspendReason: 'SOURCE_UNAVAILABLE'}),
         plan('input-needed', {suspendReason: 'USER_ACTION_REQUIRED'})];
     const ids = (query, filter) => Array.from(context.scheduleVisibleTasks(tasks, query, filter), task => task.id);

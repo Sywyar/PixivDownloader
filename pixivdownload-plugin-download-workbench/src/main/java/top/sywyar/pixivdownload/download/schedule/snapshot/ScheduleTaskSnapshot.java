@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.snapshot;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathAction;
 
 import java.util.ArrayList;
@@ -28,8 +27,7 @@ public record ScheduleTaskSnapshot(
     private static final String KIND_NOVEL = "novel";
 
     /** 从持久化的任务参数 JSON 解析一次运行所需的快照。 */
-    public static ScheduleTaskSnapshot parse(ObjectMapper objectMapper, String paramsJson)
-            throws JsonProcessingException {
+    public static ScheduleTaskSnapshot parse(ObjectMapper objectMapper, String paramsJson) {
         Objects.requireNonNull(objectMapper, "objectMapper");
         return from(objectMapper.readTree(paramsJson == null ? "{}" : paramsJson));
     }
@@ -38,7 +36,7 @@ public record ScheduleTaskSnapshot(
     public static ScheduleTaskSnapshot from(JsonNode root) {
         Objects.requireNonNull(root, "root");
         return new ScheduleTaskSnapshot(
-                KIND_NOVEL.equalsIgnoreCase(root.path("kind").asText(KIND)),
+                KIND_NOVEL.equalsIgnoreCase(root.path("kind").asString(KIND)),
                 root.path("source"),
                 parseFilters(root.path("filters")),
                 parseDownload(root.path("download")),
@@ -49,11 +47,11 @@ public record ScheduleTaskSnapshot(
     /** 解析任务快照中的服务端筛选条件。 */
     public static Filters parseFilters(JsonNode filters) {
         return new Filters(
-                filters.path("content").asText(FILTERS_CONTENT),
-                filters.path("aiFilter").asText(FILTERS_AI_FILTER),
+                filters.path("content").asString(FILTERS_CONTENT),
+                filters.path("aiFilter").asString(FILTERS_AI_FILTER),
                 readLoweredList(filters.path("tagsExact")),
                 readLoweredList(filters.path("tagsFuzzy")),
-                filters.path("typeFilter").asText(FILTERS_TYPE_FILTER),
+                filters.path("typeFilter").asString(FILTERS_TYPE_FILTER),
                 intOrNull(filters.path("pagesMin")), intOrNull(filters.path("pagesMax")),
                 intOrNull(filters.path("wordsMin")), intOrNull(filters.path("wordsMax")),
                 intOrNull(filters.path("bookmarksMin")), intOrNull(filters.path("bookmarksMax")));
@@ -62,7 +60,7 @@ public record ScheduleTaskSnapshot(
     /** 解析任务快照中的下载设置。 */
     public static Download parseDownload(JsonNode download) {
         var media = top.sywyar.pixivdownload.download.media.MediaOutputSettings.fromJson(download);
-        String template = download.path("fileNameTemplate").asText(DOWNLOAD_FILE_NAME_TEMPLATE);
+        String template = download.path("fileNameTemplate").asString(DOWNLOAD_FILE_NAME_TEMPLATE);
         return new Download(
                 template.isBlank() ? null : template,
                 download.path("bookmark").asBoolean(DOWNLOAD_BOOKMARK),
@@ -72,13 +70,13 @@ public record ScheduleTaskSnapshot(
                 intOrNull(download.path("imageDelayMs")),
                 download.path("verifyFiles").asBoolean(DOWNLOAD_VERIFY_FILES),
                 download.path("redownloadDeleted").asBoolean(DOWNLOAD_REDOWNLOAD_DELETED),
-                download.path("novelFormat").asText(DOWNLOAD_NOVEL_FORMAT),
+                download.path("novelFormat").asString(DOWNLOAD_NOVEL_FORMAT),
                 download.path("novelMerge").asBoolean(DOWNLOAD_NOVEL_MERGE),
-                download.path("novelMergeFormat").asText(DOWNLOAD_NOVEL_MERGE_FORMAT),
+                download.path("novelMergeFormat").asString(DOWNLOAD_NOVEL_MERGE_FORMAT),
                 download.path("novelAutoTranslate").asBoolean(DOWNLOAD_NOVEL_AUTO_TRANSLATE),
-                download.path("novelTranslateLanguage").asText(DOWNLOAD_NOVEL_TRANSLATE_LANGUAGE),
+                download.path("novelTranslateLanguage").asString(DOWNLOAD_NOVEL_TRANSLATE_LANGUAGE),
                 intOrNull(download.path("novelTranslateSegmentSize")),
-                DownloadPathAction.parse(download.path("pathOverflowAction").asText(DOWNLOAD_PATH_OVERFLOW_ACTION)),
+                DownloadPathAction.parse(download.path("pathOverflowAction").asString(DOWNLOAD_PATH_OVERFLOW_ACTION)),
                 media.getImageFormats(), media.getUgoiraFormats(),
                 media.getQuality(), media.isWebpLossless(), media.getMaximumEdge());
     }
@@ -88,11 +86,11 @@ public record ScheduleTaskSnapshot(
      * 缺失的 {@code filters.content} 仍按旧逻辑视为 {@code safe}，不能改用筛选解析的 {@code all} 默认值。
      */
     private static boolean isCookieDependent(JsonNode root) {
-        String content = root.path("filters").path("content").asText(CREDENTIAL_CONTENT);
+        String content = root.path("filters").path("content").asString(CREDENTIAL_CONTENT);
         if (!"safe".equals(content)) {
             return true;
         }
-        if ("r18".equals(root.path("source").path("mode").asText(""))) {
+        if ("r18".equals(root.path("source").path("mode").asString(""))) {
             return true;
         }
         return root.path("download").path("bookmark").asBoolean(DOWNLOAD_BOOKMARK);
@@ -102,7 +100,7 @@ public record ScheduleTaskSnapshot(
         List<String> values = new ArrayList<>();
         if (array.isArray()) {
             for (JsonNode item : array) {
-                String value = item.asText("").trim().toLowerCase(Locale.ROOT);
+                String value = item.asString("").trim().toLowerCase(Locale.ROOT);
                 if (!value.isEmpty()) {
                     values.add(value);
                 }
@@ -115,9 +113,9 @@ public record ScheduleTaskSnapshot(
         if (node.isNumber()) {
             return node.asInt();
         }
-        if (node.isTextual() && !node.asText().isBlank()) {
+        if (node.isString() && !node.asString().isBlank()) {
             try {
-                return Integer.parseInt(node.asText().trim());
+                return Integer.parseInt(node.asString().trim());
             } catch (NumberFormatException ignored) {
                 // 非法旧值保持 null，由既有默认行为兜底。
             }
@@ -129,9 +127,9 @@ public record ScheduleTaskSnapshot(
         if (node.isNumber()) {
             return node.asLong();
         }
-        if (node.isTextual() && !node.asText().isBlank()) {
+        if (node.isString() && !node.asString().isBlank()) {
             try {
-                return Long.parseLong(node.asText().trim());
+                return Long.parseLong(node.asString().trim());
             } catch (NumberFormatException ignored) {
                 // 非法旧值保持 null，由既有默认行为兜底。
             }

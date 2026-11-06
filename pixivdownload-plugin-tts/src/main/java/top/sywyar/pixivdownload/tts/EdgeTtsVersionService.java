@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.tts;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
@@ -110,7 +110,7 @@ public class EdgeTtsVersionService {
         try {
             // 按仓库约束：UTF-8 JSON 用 byte[] 取回再解析。
             ResponseEntity<byte[]> resp = restTemplate.exchange(
-                    EDGE_UPDATES_API, HttpMethod.GET, new HttpEntity<>(null), byte[].class);
+                    EDGE_UPDATES_API, HttpMethod.GET, HttpEntity.EMPTY, byte[].class);
             byte[] body = resp.getBody();
             if (body == null || body.length == 0) {
                 return null;
@@ -148,17 +148,17 @@ public class EdgeTtsVersionService {
         }
         String best = null;
         for (JsonNode product : root) {
-            if (!"Stable".equalsIgnoreCase(product.path("Product").asText(""))) {
+            if (!"Stable".equalsIgnoreCase(product.path("Product").asString(""))) {
                 continue;
             }
             for (JsonNode rel : product.path("Releases")) {
-                if (!"Windows".equalsIgnoreCase(rel.path("Platform").asText(""))) {
+                if (!"Windows".equalsIgnoreCase(rel.path("Platform").asString(""))) {
                     continue;
                 }
-                if (!"x64".equalsIgnoreCase(rel.path("Architecture").asText(""))) {
+                if (!"x64".equalsIgnoreCase(rel.path("Architecture").asString(""))) {
                     continue;
                 }
-                String version = rel.path("ProductVersion").asText("");
+                String version = rel.path("ProductVersion").asString("");
                 if (isValidVersion(version) && (best == null || compareVersions(version, best) > 0)) {
                     best = version;
                 }

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
@@ -15,7 +15,7 @@ class PixivScheduledNovelDefaultsTest {
     @Test
     @DisplayName("小说缺省任务与同源默认值快照具有相同执行设置")
     void defaultsMatchExplicitSnapshot() throws Exception {
-        var mapper = new ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var defaults = mapper.readTree(Files.readString(Path.of("../scripts/schedule/pixiv-defaults.json")));
         var root = mapper.createObjectNode().put("kind", "novel");
         var original = PixivScheduledNovelDefinition.parse(mapper, definition(root.toString()));

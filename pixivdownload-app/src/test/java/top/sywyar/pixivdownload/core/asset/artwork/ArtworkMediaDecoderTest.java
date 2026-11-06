@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.core.asset.artwork;
 
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.*;
 import java.util.zip.*;
 import java.awt.image.BufferedImage;
@@ -36,7 +36,7 @@ class ArtworkMediaDecoderTest {
                 file.writeInt(Integer.reverseBytes((int) (size - 8)));
             }
             var runner = mock(FfmpegRunner.class);
-            var decoder = new ArtworkMediaDecoder(runner, new ObjectMapper());
+            var decoder = new ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build());
             for (boolean cover : new boolean[]{false, true}) {
                 var expected = cover ? decoder.readCover(fixture, 64) : decoder.read(fixture, 64);
                 var actual = cover ? decoder.readCover(large, 64) : decoder.read(large, 64);
@@ -74,7 +74,7 @@ class ArtworkMediaDecoderTest {
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, directory.resolve("data").toString());
         try {
             var runner = mock(FfmpegRunner.class);
-            var decoder = new ArtworkMediaDecoder(runner, new ObjectMapper());
+            var decoder = new ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build());
             Path archive = directory.resolve("animation.zip");
             try (var out = new ZipOutputStream(Files.newOutputStream(archive))) {
                 out.putNextEntry(new ZipEntry("../../escape.png"));
@@ -116,7 +116,7 @@ class ArtworkMediaDecoderTest {
         Path source = directory.resolve("source.png");
         ImageIO.write(new BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB), "png", source.toFile());
         var runner = mock(FfmpegRunner.class);
-        var decoder = new ArtworkMediaDecoder(runner, new ObjectMapper());
+        var decoder = new ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build());
         Thread.currentThread().interrupt();
         try {
             assertThrows(java.io.InterruptedIOException.class, () -> decoder.read(source, 16));

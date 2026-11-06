@@ -27,6 +27,29 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("插件刷新回滚保留 Spring 关闭顺序")
 class DrainAwarePluginApplicationContextTest {
     @Test
+    @DisplayName("正常上下文仍委托处理器的暂停、重启和显式启停")
+    void delegatesNormalLifecycleOperations() {
+        var events = new ArrayList<String>();
+        try (var context = new DrainAwarePluginApplicationContext()) {
+            context.getBeanFactory().registerSingleton("lifecycleProcessor", new LifecycleProcessor() {
+                @Override public void onRefresh() { events.add("refresh"); }
+                @Override public void onPause() { events.add("pause"); }
+                @Override public void onRestart() { events.add("restart"); }
+                @Override public void onClose() { events.add("close"); }
+                @Override public void start() { events.add("start"); }
+                @Override public void stop() { events.add("stop"); }
+                @Override public boolean isRunning() { return true; }
+            });
+            context.refresh();
+            context.pause();
+            context.restart();
+            context.stop();
+            context.start();
+        }
+        assertThat(events).containsExactly("refresh", "pause", "restart", "stop", "start", "close");
+    }
+
+    @Test
     @DisplayName("非单例 FactoryBean 的停止处理器使用刷新原实例并允许关闭重入")
     void factoryBeanProcessorClosesExactInstance() {
         var events = new ArrayList<String>();

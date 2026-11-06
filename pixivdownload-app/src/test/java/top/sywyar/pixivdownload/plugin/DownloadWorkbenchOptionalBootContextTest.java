@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
+@org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 @SpringBootTest(properties = {
         "database.provider=database-sqlite",
         "setup.browser.auto-open=false",
@@ -75,8 +76,8 @@ class DownloadWorkbenchOptionalBootContextTest {
                         .get("/api/pixiv-batch-downloader-import/token")
                         .header("Host", "localhost").header("X-Pixiv-Collector", "1").cookie(cookie))
                 .andExpect(status.isOk()).andReturn().getResponse().getContentAsString();
-        String importToken = new com.fasterxml.jackson.databind.ObjectMapper().readTree(tokenResponse)
-                .path("token").asText();
+        String importToken = JsonMapper.builderWithJackson2Defaults().build().readTree(tokenResponse)
+                .path("token").asString();
         assertThat(importToken).isNotBlank();
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/api/pixiv-batch-downloader-import")

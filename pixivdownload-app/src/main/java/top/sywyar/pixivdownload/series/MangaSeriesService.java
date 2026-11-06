@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.series;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -281,12 +281,12 @@ public class MangaSeriesService {
             }
             long seriesId = nav.path("seriesId").asLong(0);
             long order = nav.path("order").asLong(0);
-            String title = nav.path("title").asText("").trim();
+            String title = nav.path("title").asString("").trim();
             if (seriesId <= 0) {
                 pixivDatabase.updateSeriesInfo(artworkId, NO_SERIES_SENTINEL, NO_SERIES_SENTINEL);
                 return;
             }
-            Long authorId = parsePositiveLong(body.path("userId").asText(null));
+            Long authorId = parsePositiveLong(body.path("userId").asString(null));
             pixivDatabase.updateSeriesInfo(artworkId, seriesId, order);
             observe(seriesId, title, authorId);
         } catch (DatabaseUnavailableException unavailable) {

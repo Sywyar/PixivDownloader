@@ -12,9 +12,8 @@ import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 import top.sywyar.pixivdownload.plugin.catalog.security.PluginCatalogStrictJson;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,9 +111,8 @@ public class PluginCatalogService {
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         // 自建 ObjectMapper：显式注册 ParameterNamesModule（record 按构造参数名绑定）+ 忽略未知字段（前向兼容），
         // 不依赖全局 Boot ObjectMapper 的配置，使解析行为在生产与单测中确定一致。
-        this.objectMapper = new ObjectMapper()
-                .registerModule(new ParameterNamesModule())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        this.objectMapper = JsonMapper.builderWithJackson2Defaults()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
     }
 
     /**

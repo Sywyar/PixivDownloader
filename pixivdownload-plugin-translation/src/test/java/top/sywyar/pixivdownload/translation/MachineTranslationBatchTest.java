@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.translation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -62,7 +62,7 @@ class MachineTranslationBatchTest {
             assertThat(form.get("sign")).containsExactly(MachineTranslationClient.sign("fixture-app", "HelloWorld",
                     form.get("salt").get(0), form.get("curtime").get(0), "fixture-secret"));
         }).andRespond(withSuccess("{\"errorCode\":\"0\",\"translateResults\":[{\"translation\":\"你好\"},{\"translation\":\"世界\"}]}", MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.translate("youdao", "Hello\n[newpage]\nWorld", "zh-CN", 0)).isEqualTo("你好\n[newpage]\n世界");
         server.verify();
     }
@@ -80,7 +80,7 @@ class MachineTranslationBatchTest {
         server.expect(requestTo("http://localhost:5000/translate"))
                 .andExpect(content().json("{\"q\":\"cc\",\"source\":\"auto\",\"target\":\"zh\",\"format\":\"text\"}"))
                 .andRespond(withSuccess("{\"translatedText\":\"丙\"}", MediaType.APPLICATION_JSON));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.translate("libretranslate", "aa\nbb\ncc", "zh-CN", 0)).isEqualTo("甲\n乙\n丙");
         server.verify();
     }
@@ -104,7 +104,7 @@ class MachineTranslationBatchTest {
                 salts.add(form.get("salt").get(0));
             }).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         }
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThat(client.translate("youdao", "aa\nbb", "zh-CN", 0)).isEqualTo("甲\n乙");
         assertThat(salts).hasSize(2).doesNotHaveDuplicates();
         assertThat(output.getAll()).contains("Translation retry scheduled:", "Translation requests finished:",
@@ -124,7 +124,7 @@ class MachineTranslationBatchTest {
                 .andRespond(withSuccess("{\"translatedText\":[\"only-one\"]}", MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://localhost:5000/translate"))
                 .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).header("Retry-After", "600"));
-        var client = new MachineTranslationClient(config, rest, rest, new ObjectMapper());
+        var client = new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build());
         assertThatThrownBy(() -> client.translate("libretranslate", "a\nb", "en", 0)).hasMessage("translation.credentials-error").hasNoCause();
         assertThatThrownBy(() -> client.translate("libretranslate", "a\nb", "en", 0)).hasMessage("translation.invalid-response");
         assertThatThrownBy(() -> client.translate("libretranslate", "a\nb", "en", 0)).hasMessage("translation.rate-limited");
@@ -144,7 +144,7 @@ class MachineTranslationBatchTest {
         String translated = "译".repeat(700_000);
         server.expect(requestTo("http://localhost:5000/translate"))
                 .andRespond(withSuccess("{\"translatedText\":\"" + translated + "\"}", MediaType.APPLICATION_JSON));
-        assertThat(new MachineTranslationClient(config, rest, rest, new ObjectMapper())
+        assertThat(new MachineTranslationClient(config, rest, rest, JsonMapper.builderWithJackson2Defaults().build())
                 .translate("libretranslate", "a".repeat(700_000), "zh-CN", 0)).isEqualTo(translated);
         server.verify();
     }

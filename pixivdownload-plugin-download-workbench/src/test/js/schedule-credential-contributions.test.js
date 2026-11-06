@@ -122,7 +122,7 @@ test('宿主只消费 credentialPolicy wire 且私有状态仅由插件展示', 
     });
     const task = {
         sourceType: 'source-a',
-        lastStatus: 'OK',
+        lastOutcome: 'OK',
         enabled: true,
         credentialPolicy: taskCredentialPolicy({
             bound: true,

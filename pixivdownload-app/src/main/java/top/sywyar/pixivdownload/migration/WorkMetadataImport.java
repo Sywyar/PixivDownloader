@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
@@ -26,8 +27,8 @@ public final class WorkMetadataImport {
     // 旧文件可带缩进；紧凑文档仍由 curator 的 256 KiB 合同校验。
     public static final int MAX_SOURCE_BYTES = 1024 * 1024;
     private static final int PAGE_SIZE = 256;
-    private static final ObjectMapper MAPPER = com.fasterxml.jackson.databind.json.JsonMapper.builder()
-            .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
+    private static final ObjectMapper MAPPER = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     private static final WorkMetaCurator CURATOR = new WorkMetaCurator(MAPPER);
     private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
             CoreMigrationSchema.create(DatabaseSchemaRegistry.forBuiltInPlugins(), true);
@@ -96,14 +97,14 @@ public final class WorkMetadataImport {
                                 snapshot = (String) current.get(0).get("metadata_json");
                             }
                             meta = CURATOR.restore(type, last, MAPPER.reader()
-                                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(snapshot));
+                                    .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(snapshot));
                         } else {
                             if (folder == null || folder.isBlank()) continue;
                             Path file = Path.of(codec.resolve(folder)).resolve(last + ".meta.json");
                             if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) continue;
                             meta = readSnapshot(file, type, last);
                         }
-                    } catch (IOException | IllegalArgumentException e) {
+                    } catch (JacksonException | IOException | IllegalArgumentException e) {
                         failed++;
                         report(reporter, "metadata-import.invalid", type.name(), last);
                         continue;
@@ -191,7 +192,7 @@ public final class WorkMetadataImport {
             byte[] bytes = input.readNBytes(MAX_SOURCE_BYTES + 1);
             if (bytes.length > MAX_SOURCE_BYTES) throw new IOException("METADATA_FILE_TOO_LARGE");
             return CURATOR.restore(type, id, MAPPER.reader()
-                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(bytes));
+                    .with(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(bytes));
         }
     }
 

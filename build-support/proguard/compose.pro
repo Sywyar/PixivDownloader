@@ -1,6 +1,9 @@
 # 参数删除会留下越界的 Kotlin long/double 局部变量槽，保留参数形状。
 -optimizations !method/removal/parameter
 
+# Jackson 的 invokeExact 签名由 JVM 链接，JMOD 不逐个声明调用点的多态签名。
+-dontwarn java.lang.invoke.MethodHandle
+
 -keep class kotlin.** { *; }
 -keep class org.jetbrains.skia.** { *; }
 -keep class org.jetbrains.skiko.** { *; }

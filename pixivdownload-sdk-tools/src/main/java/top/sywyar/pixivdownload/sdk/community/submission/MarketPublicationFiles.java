@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.sdk.community.submission;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.sdk.community.content.MarketContent;
 import top.sywyar.pixivdownload.sdk.community.content.MarketImage;
 import top.sywyar.pixivdownload.sdk.community.content.MarketLink;
@@ -40,7 +40,7 @@ public final class MarketPublicationFiles {
         try (var stream = Files.newInputStream(curation)) { input = stream.readNBytes(256 * 1024 + 1); }
         var entry = CommunityJson.strictTree(input, 256 * 1024).path(pluginId);
         if (!entry.isObject()) throw new ContractException("SCHEMA_INVALID", "/curation");
-        String locale = entry.path("defaultLocale").asText();
+        String locale = entry.path("defaultLocale").asString();
         var assets = new LinkedHashMap<String, byte[]>();
         var sources = entry.path("documentationSources");
         var content = new MarketContent(documents(root, sources.path("readme"), false, version, base, assets, sourceBase),
@@ -71,9 +71,9 @@ public final class MarketPublicationFiles {
             throw CommunityJson.limit("/documentationSources", top.sywyar.pixivdownload.sdk.community.content.ContentLocales.MAX_LOCALES, "locales");
         }
         var result = new LinkedHashMap<String, MarketContent.Document>();
-        for (var fields = sources.fields(); fields.hasNext();) {
+        for (var fields = sources.properties().iterator(); fields.hasNext();) {
             var source = fields.next();
-            String path = CommunityPaths.relative(source.getValue().asText(), false);
+            String path = CommunityPaths.relative(source.getValue().asString(), false);
             String format = path.matches("(?i).*\\.html?$") ? "html" : "markdown";
             byte[] bytes = MarketDocumentFiles.read(root, path, MarketContent.DOCUMENT_BYTES);
             if (extract) {

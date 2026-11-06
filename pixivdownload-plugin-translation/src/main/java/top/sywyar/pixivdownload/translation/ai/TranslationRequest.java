@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.translation.ai;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 
 import java.util.List;
@@ -39,7 +39,7 @@ public record TranslationRequest(String targetLanguage, String sourceText,
     /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "translation";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     /** 便捷构造：无标题、无简介、无名词映射表。 */
     public TranslationRequest(String targetLanguage, String sourceText) {
@@ -146,7 +146,7 @@ public record TranslationRequest(String targetLanguage, String sourceText,
         }
         try {
             return MAPPER.writeValueAsString(list);
-        } catch (JsonProcessingException e) {
+        } catch (RuntimeException e) {
             return null;
         }
     }

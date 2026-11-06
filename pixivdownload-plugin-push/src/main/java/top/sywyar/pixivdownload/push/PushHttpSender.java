@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.push;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
@@ -31,7 +32,7 @@ import java.util.List;
 public class PushHttpSender {
 
     private static final int DETAIL_MAX_LEN = 500;
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
 
     private final RestTemplate directRestTemplate;
     private final RestTemplate proxyRestTemplate;
@@ -101,7 +102,7 @@ public class PushHttpSender {
             String detail;
             if (e instanceof RestClientResponseException responseError) {
                 String body = responseError.getResponseBodyAsString(StandardCharsets.UTF_8);
-                detail = truncate("HTTP " + responseError.getRawStatusCode()
+                detail = truncate("HTTP " + responseError.getStatusCode().value()
                         + (body == null || body.isBlank() ? "" : ": " + redact(body, request.secrets())));
             } else {
                 detail = truncate(redact(safeMessage(e), request.secrets()));
@@ -213,7 +214,7 @@ public class PushHttpSender {
         if (exact != null && !exact.isNull()) {
             return exact;
         }
-        Iterator<String> names = root.fieldNames();
+        Iterator<String> names = root.propertyNames().iterator();
         while (names.hasNext()) {
             String candidate = names.next();
             if (name.equalsIgnoreCase(candidate)) {
@@ -236,8 +237,8 @@ public class PushHttpSender {
         if (node.isBoolean()) {
             return node.booleanValue();
         }
-        if (node.isTextual()) {
-            String value = node.asText().trim();
+        if (node.isString()) {
+            String value = node.asString().trim();
             if ("true".equalsIgnoreCase(value)) {
                 return Boolean.TRUE;
             }
@@ -270,8 +271,8 @@ public class PushHttpSender {
         if (node == null || node.isNull()) {
             return null;
         }
-        if (node.isTextual() || node.isNumber() || node.isBoolean()) {
-            return node.asText();
+        if (node.isString() || node.isNumber() || node.isBoolean()) {
+            return node.asString();
         }
         return node.toString();
     }

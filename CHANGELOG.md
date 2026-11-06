@@ -40,7 +40,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 
-- 宿主、官方插件和 SDK 的编译与运行基线统一为 Java 25；新 SDK 开发包需 JDK 25，已有兼容 SDK 的 Java 17 插件仍可在新宿主中运行。
+- 宿主、官方插件和 SDK 统一使用 Java 25、Spring Boot 4 和 SDK 2.x；SDK 1.x 插件需迁移并重新构建，安装和启动时会明确拒绝不兼容包。
 - Compose 工具页区分运行中的任务与维护历史，并移除旧 JSON 数据导入入口。
 - 邀请链接打开预填兑换界面，提交并完成已发布的验证后签发独立访客会话；旧邀请码 Cookie 不再直接登录，已有访客需重新兑换。
 - 桌面和无头服务器在后端就绪后自动后台回填，主日志与独立 CLI 输出阶段、进度和结果；Swing 和 Compose 可查看进度、停止任务，自动回填显示可关闭的提示，停止时保留已补入的数据。

@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.novelgallery;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.novel.export.NovelExportService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat;
 import top.sywyar.pixivdownload.translation.api.TranslationVariant;
@@ -270,7 +270,7 @@ public class NovelBatchService {
     private byte[] jsonBytes(Object value) {
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return "[]\n".getBytes(StandardCharsets.UTF_8);
         }
     }

@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryKeyPreview;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.security.PluginCatalogStrictJson;
@@ -111,7 +111,7 @@ public final class RepositoryDescriptorParser {
 
     private static void validateArrayBounds(JsonNode node) {
         if (node.isArray() && node.size() > 256) invalid("JSON arrays may contain at most 256 entries");
-        node.elements().forEachRemaining(RepositoryDescriptorParser::validateArrayBounds);
+        node.values().iterator().forEachRemaining(RepositoryDescriptorParser::validateArrayBounds);
     }
 
     private static void validateDescriptor(RepositoryDescriptor descriptor, boolean authenticatedCommunity) {

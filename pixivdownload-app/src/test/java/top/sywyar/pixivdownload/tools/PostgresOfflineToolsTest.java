@@ -1,14 +1,12 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
 
 import java.nio.charset.StandardCharsets;
@@ -33,7 +31,7 @@ class PostgresOfflineToolsTest {
                     + " VALUES(5000000001, '旧作品', '{0}/旧作品', 1, 'png', 1700000000123)");
             // 模拟历史结构缺列，停机工具必须补齐同样的 BIGINT 类型。
             jdbc.execute("ALTER TABLE artworks DROP COLUMN description");
-            var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("missing.json"), new ObjectMapper());
+            var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("missing.json"), JsonMapper.builderWithJackson2Defaults().build());
             try (var tool = ArtworksBackFillDatabase.open(target)) {
                 assertThat(tool.countCandidates(0, unreachable)).isEqualTo(1);
                 var candidate = tool.findCandidates(0, unreachable).candidates().get(0);

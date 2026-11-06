@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.voxcpm;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,7 +39,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("VoxCPM 朗读引擎")
 class VoxCpmNarrationEngineTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final MessageResolver MESSAGES = TestMessageResolver.INSTANCE;
 
     private final RestTemplate direct = mock(RestTemplate.class);

@@ -14,7 +14,7 @@
 -keep,includedescriptorclasses @org.apache.ibatis.annotations.Mapper interface * { *; }
 
 # spring.factories 按名称实例化环境处理器，静态调用图不包含该入口。
--keep,includedescriptorclasses class * implements org.springframework.boot.env.EnvironmentPostProcessor {
+-keep,includedescriptorclasses class * implements org.springframework.boot.EnvironmentPostProcessor {
     public <init>(...);
 }
 

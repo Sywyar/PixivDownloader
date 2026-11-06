@@ -1,9 +1,8 @@
 package top.sywyar.pixivdownload.novel.request;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
@@ -58,9 +57,8 @@ public final class NovelDownloadRequestFactory {
         return request;
     }
 
-    public static String boundedRawMetadata(ObjectMapper objectMapper, JsonNode body)
-            throws JsonProcessingException {
-        ObjectNode raw = body.deepCopy();
+    public static String boundedRawMetadata(ObjectMapper objectMapper, JsonNode body) {
+        ObjectNode raw = ((ObjectNode) body).deepCopy();
         raw.remove(List.of("content", "textEmbeddedImages"));
         String json = objectMapper.writeValueAsString(raw);
         if (json.getBytes(StandardCharsets.UTF_8).length > MAX_RAW_METADATA_BYTES) {

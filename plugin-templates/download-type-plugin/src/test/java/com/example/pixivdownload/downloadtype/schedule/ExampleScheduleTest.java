@@ -2,7 +2,7 @@ package com.example.pixivdownload.downloadtype.schedule;
 
 import com.example.pixivdownload.downloadtype.ExampleDownloadPlugin;
 import com.example.pixivdownload.downloadtype.queue.ExampleDownloadQueue;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,7 +35,7 @@ class ExampleScheduleTest {
     @Test
     @DisplayName("凭证无关来源发现单件作品并同步完成领域动作")
     void credentialFreeSourceDiscoversAndExecutesOneWork() throws Exception {
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build();
         ExampleScheduledSourceExecutor source = new ExampleScheduledSourceExecutor(objectMapper);
         ExampleDownloadQueue queue = new ExampleDownloadQueue();
         ExampleScheduledWorkExecutor workExecutor = new ExampleScheduledWorkExecutor(objectMapper, queue);
@@ -71,7 +71,7 @@ class ExampleScheduleTest {
     })
     @DisplayName("非法定义在规划与发现时返回明确失败且不提交作品")
     void invalidDefinitionFailsBeforeSubmittingWork(String json, String expectedCode) {
-        ExampleScheduledSourceExecutor source = new ExampleScheduledSourceExecutor(new ObjectMapper());
+        ExampleScheduledSourceExecutor source = new ExampleScheduledSourceExecutor(tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build());
         ScheduledTaskDefinition task = task(json);
         AtomicReference<ScheduledWork> discovered = new AtomicReference<>();
 
@@ -104,7 +104,7 @@ class ExampleScheduleTest {
     @DisplayName("非法作品载荷返回明确失败且不写入下载队列")
     void invalidPayloadFailsBeforeWritingQueue(String json, String expectedCode) {
         ExampleDownloadQueue queue = new ExampleDownloadQueue();
-        ExampleScheduledWorkExecutor executor = new ExampleScheduledWorkExecutor(new ObjectMapper(), queue);
+        ExampleScheduledWorkExecutor executor = new ExampleScheduledWorkExecutor(tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build(), queue);
         ScheduledWork work = new ScheduledWork(new ScheduledWorkKey(ExampleDownloadPlugin.TYPE, "123"),
                 ExampleScheduledSourceExecutor.PAYLOAD_SCHEMA, 1, json, null, null);
 

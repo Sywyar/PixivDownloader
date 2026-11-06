@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -63,7 +64,7 @@ class ArtworkFileServiceTest {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbnails"));
             var service = new ArtworkFileService(database, locator,
                     new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
-                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build()));
             assertThat(service.existingThumbnail(119L, 0)).isNull();
             assertThat(Files.exists(tempDir.resolve("thumbnails"))).isFalse();
             var result = service.getThumbnailFile(119L, 0);
@@ -155,7 +156,7 @@ class ArtworkFileServiceTest {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(directory);
             var service = new ArtworkFileService(database, locator,
                     new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
-                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build()));
             assertThat(service.existingThumbnail(42L, 0)).isNull();
             var fit = service.getThumbnailFile(42L, 0);
             assertThat(fit.path()).isNotEqualTo(legacy);
@@ -194,7 +195,7 @@ class ArtworkFileServiceTest {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbs"));
             var service = new ArtworkFileService(database, locator,
                     new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
-                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), new com.fasterxml.jackson.databind.ObjectMapper()));
+                            mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build()));
             var file = service.getThumbnailFile(42L, 0, 256, true);
             BufferedImage cover = ImageIO.read(file.path().toFile());
             assertThat(cover.getWidth()).isEqualTo(256);
@@ -219,7 +220,7 @@ class ArtworkFileServiceTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         var service = new ArtworkFileService(database, locator,
-                new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, new com.fasterxml.jackson.databind.ObjectMapper()));
+                new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build()));
         Path cache = tempDir.resolve("thumbnails");
         int capacity = ArtworkFileService.MAX_CONCURRENT_THUMBNAILS;
         var started = new CountDownLatch(capacity);

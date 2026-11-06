@@ -156,9 +156,7 @@ final class PostgresMigrationSchema {
     }
 
     static String renderCheck(TableSpec table) {
-        if (table.check() != null) return JdbcSchemaCheck.render(table, text -> text + " !~ '[^0-9a-f]'");
-        if (table.checkExpression() == null || table.checkExpression().isBlank()) return "";
-        return validateCheck(table, table.checkExpression(), false);
+        return JdbcSchemaCheck.render(table, text -> text + " !~ '[^0-9a-f]'");
     }
 
     private static String validateCheck(TableSpec table, String expression, boolean stored) {

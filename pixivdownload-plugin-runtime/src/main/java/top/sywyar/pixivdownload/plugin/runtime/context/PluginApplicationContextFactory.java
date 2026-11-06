@@ -12,7 +12,6 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
-import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
 import top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
@@ -53,7 +52,6 @@ public final class PluginApplicationContextFactory {
     private static final String PLUGIN_STREAM_REGISTRAR_BEAN_NAME = "pluginStreamRegistrar";
     private static final String PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME = "pluginRuntimeTaskRegistrar";
     private static final String RUNTIME_PATH_PROVIDER_BEAN_NAME = "pluginRuntimePathProvider";
-    private static final String PLUGIN_DATA_SOURCE_BEAN_NAME = "pluginDataSource";
     public static final String SCOPED_PROPERTY_SOURCE_PREFIX = "pixivdownloadPluginScoped:";
     public static final String SENSITIVE_PROPERTY_MASK_SOURCE_PREFIX = "pixivdownloadPluginSensitiveMask:";
     private static final String SENSITIVE_PROPERTY_UPDATE_MASK_SUFFIX = ":updating";
@@ -62,7 +60,6 @@ public final class PluginApplicationContextFactory {
     private final PluginStreamRegistry pluginStreamRegistry;
     private final PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
     private final Function<String, RuntimePathProvider> runtimePathProviderFactory;
-    private final Function<String, PluginDataSource> pluginDataSourceFactory;
     private final Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory;
     private final Function<PluginContextModule, top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase> mainDatabaseFactory;
 
@@ -83,20 +80,9 @@ public final class PluginApplicationContextFactory {
             PluginStreamRegistry pluginStreamRegistry,
             PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
             Function<String, RuntimePathProvider> runtimePathProviderFactory,
-            Function<String, PluginDataSource> pluginDataSourceFactory) {
-        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry,
-                runtimePathProviderFactory, pluginDataSourceFactory, null);
-    }
-
-    public PluginApplicationContextFactory(
-            PluginContextPropertySourceProvider propertySourceProvider,
-            PluginStreamRegistry pluginStreamRegistry,
-            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
-            Function<String, RuntimePathProvider> runtimePathProviderFactory,
-            Function<String, PluginDataSource> pluginDataSourceFactory,
             Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory) {
-        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry, runtimePathProviderFactory,
-                pluginDataSourceFactory, pluginDatabaseFactory, null);
+        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry,
+                runtimePathProviderFactory, pluginDatabaseFactory, null);
     }
 
     public PluginApplicationContextFactory(
@@ -104,15 +90,12 @@ public final class PluginApplicationContextFactory {
             PluginStreamRegistry pluginStreamRegistry,
             PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
             Function<String, RuntimePathProvider> runtimePathProviderFactory,
-            Function<String, PluginDataSource> pluginDataSourceFactory,
             Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory,
             Function<PluginContextModule, top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase> mainDatabaseFactory) {
         this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
         this.pluginStreamRegistry = Objects.requireNonNull(pluginStreamRegistry, "pluginStreamRegistry");
-        this.pluginRuntimeTaskRegistry =
-                Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
+        this.pluginRuntimeTaskRegistry = Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
         this.runtimePathProviderFactory = runtimePathProviderFactory;
-        this.pluginDataSourceFactory = pluginDataSourceFactory;
         this.pluginDatabaseFactory = pluginDatabaseFactory;
         this.mainDatabaseFactory = mainDatabaseFactory;
     }
@@ -193,18 +176,6 @@ public final class PluginApplicationContextFactory {
             child.registerBean("pluginDatabase", PluginDatabase.class,
                     () -> pluginDatabaseFactory.apply(module), definition -> {
                         definition.setLazyInit(module.privateSchema().isEmpty());
-                        definition.setDestroyMethodName("close");
-                    });
-            child.registerBean(PLUGIN_DATA_SOURCE_BEAN_NAME, PluginDataSource.class,
-                    () -> new LegacyPluginDataSource(child.getBean(PluginDatabase.class)),
-                    definition -> definition.setLazyInit(true));
-        } else if (pluginDataSourceFactory != null) {
-            child.registerBean(
-                    PLUGIN_DATA_SOURCE_BEAN_NAME,
-                    PluginDataSource.class,
-                    () -> pluginDataSourceFactory.apply(module.sourcePluginId()),
-                    definition -> {
-                        definition.setLazyInit(true);
                         definition.setDestroyMethodName("close");
                     });
         }

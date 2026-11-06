@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
@@ -122,7 +123,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
         }
         if (root.path("error").asBoolean(false)) {
-            String responseMessage = root.path("message").asText("pixiv ajax error");
+            String responseMessage = root.path("message").asString("pixiv ajax error");
             String lower = responseMessage.toLowerCase(Locale.ROOT);
             for (String keyword : R18_KEYWORDS) {
                 if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
@@ -155,7 +156,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
 
     static LookupResult parsePayload(JsonNode payload, Long uploadTime, boolean completeResponse) {
         long authorId = payload.path("userId").asLong(0);
-        String authorName = payload.path("userName").asText("").trim();
+        String authorName = payload.path("userName").asString("").trim();
         if (authorName.isEmpty()) {
             authorName = null;
         }
@@ -163,7 +164,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 ? payload.path("xRestrict").intValue() : null;
         Boolean isAi = payload.path("aiType").canConvertToInt()
                 ? payload.path("aiType").intValue() >= 2 : null;
-        String description = payload.path("description").isTextual() ? payload.path("description").textValue() : null;
+        String description = payload.path("description").isString() ? payload.path("description").stringValue() : null;
         List<TagEntry> tags = payload.path("tags").path("tags").isArray() ? extractTags(payload) : null;
         long seriesId = 0;
         Long seriesOrder = null;
@@ -174,13 +175,13 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             if (candidateSeriesId > 0) {
                 seriesId = candidateSeriesId;
                 if (navigation.path("order").canConvertToLong()) seriesOrder = navigation.path("order").longValue();
-                seriesTitle = navigation.path("title").asText("").trim();
+                seriesTitle = navigation.path("title").asString("").trim();
                 if (seriesTitle.isEmpty()) {
                     seriesTitle = null;
                 }
             }
         }
-        if (uploadTime == null) uploadTime = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(new ObjectMapper())
+        if (uploadTime == null) uploadTime = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(JsonMapper.builderWithJackson2Defaults().build())
                 .curateArtwork(1, payload, null, "backfill").uploadTime();
         return new LookupResult(
                 ResultType.FOUND,
@@ -196,7 +197,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 null,
                 uploadTime,
                 navigation.isNull() || seriesId > 0 || (completeResponse && navigation.isMissingNode()),
-                payload.path("title").isTextual() ? payload.path("title").textValue() : null, null
+                payload.path("title").isString() ? payload.path("title").stringValue() : null, null
         );
     }
 
@@ -208,14 +209,14 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
 
         List<TagEntry> result = new ArrayList<>();
         for (JsonNode value : tags) {
-            String name = value.path("tag").asText("");
+            String name = value.path("tag").asString("");
             if (name.isEmpty()) {
                 continue;
             }
             String translatedName = null;
             JsonNode translation = value.path("translation");
             if (translation.isObject()) {
-                String english = translation.path("en").asText("");
+                String english = translation.path("en").asString("");
                 if (!english.isEmpty()) {
                     translatedName = english;
                 }

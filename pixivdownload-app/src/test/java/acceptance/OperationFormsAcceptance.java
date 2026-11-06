@@ -1,8 +1,9 @@
 package acceptance;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
@@ -16,7 +17,7 @@ import static acceptance.PageEditorAcceptance.*;
 
 /** 未知表单经真实 HTTP、签名安装和受管 child context 验证通用操作边界。 */
 final class OperationFormsAcceptance {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private static final java.util.Map<String, HttpResponse<String>> staged = new java.util.concurrent.ConcurrentHashMap<>();
     static void verify(ConfigurableApplicationContext context, String origin, String cookie, String browser, Path fixed) throws Exception {
         var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
@@ -33,13 +34,13 @@ final class OperationFormsAcceptance {
         var calls = (AtomicInteger) form.getField("calls").get(null);
         var catalog = JSON.readTree(request(origin, "/api/web/operation-hooks/catalog", null, cookie).body());
         var current = JSON.readTree(request(origin, "/api/web/operation-hooks/configuration", null, cookie).body());
-        ObjectNode settings = current.path("settings").deepCopy();
+        ObjectNode settings = ((ObjectNode) current.path("settings")).deepCopy();
         for (String operation : List.of("alpha", "beta")) {
             var members = ((ObjectNode) settings.path("groups")).putArray("operation-form:" + operation);
             for (var endpoint : catalog) for (var route : endpoint.path("routes"))
-                if (route.path("method").asText().equals("POST") && (route.path("template").asText().equals("/api/operation-form/" + operation)
-                        || operation.equals("alpha") && route.path("template").asText().equals("/api/operation-form/alpha-secondary")))
-                    members.add(endpoint.path("id").asText());
+                if (route.path("method").asString().equals("POST") && (route.path("template").asString().equals("/api/operation-form/" + operation)
+                        || operation.equals("alpha") && route.path("template").asString().equals("/api/operation-form/alpha-secondary")))
+                    members.add(endpoint.path("id").asString());
         }
         var groupPlan = request(origin, "/api/web/operation-hooks/prepare", JSON.createObjectNode()
                 .put("revision", current.path("revision").asLong()).set("settings", settings).toString(), cookie);
@@ -124,7 +125,7 @@ final class OperationFormsAcceptance {
         long id = invites.createInvite(creation); String code = invites.detail(id).code();
         java.nio.file.Files.writeString(fixed.resolve("access-fixture.json"), JSON.createObjectNode().put("code", code).toString());
         browser(browser, origin, cookie, "access", fixed);
-        String token = JSON.readTree(fixed.resolve("access-session.json").toFile()).path("token").asText();
+        String token = JSON.readTree(fixed.resolve("access-session.json").toFile()).path("token").asString();
         check(invites.resolveSession(token).isPresent() && invites.resolveSession(code).isEmpty(), "only redeemed opaque credentials resolve");
         check(request(origin, "/api/download/status/active", null, "pixiv_invite_token=" + token).statusCode() == 200,
                 "redeemed opaque credential enters the existing guest route");
@@ -158,13 +159,13 @@ final class OperationFormsAcceptance {
         var states = new java.util.LinkedHashMap<String, JsonNode>();
         for (String page : List.of("page", "other")) {
             var state = document(origin, cookie, page, null);
-            check(java.util.stream.StreamSupport.stream(state.path("draft").path("hooks").spliterator(), false).filter(binding -> binding.path("hook").asText().equals("fixture-generic")).count() == 2, "real editor saved both generic phases");
+            check(java.util.stream.StreamSupport.stream(state.path("draft").path("hooks").spliterator(), false).filter(binding -> binding.path("hook").asString().equals("fixture-generic")).count() == 2, "real editor saved both generic phases");
             states.put(page, state);
         }
         var publication = JSON.createObjectNode().put("revision", states.get("page").path("revision").asLong()).put("restoring", false);
         publication.putArray("drafts").addObject().put("page", "operation-form:other").put("revision", states.get("other").path("revision").asLong());
         var plan = document(origin, cookie, "page/prepare", publication);
-        publication.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong()).put("fingerprint", plan.path("fingerprint").asText())
+        publication.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong()).put("fingerprint", plan.path("fingerprint").asString())
                 .set("approvals", plan.path("permissions")));
         document(origin, cookie, "page/publish", publication);
         @SuppressWarnings("unchecked") var events = (List<String>) provider.getField("hookEvents").get(null);
@@ -192,7 +193,7 @@ final class OperationFormsAcceptance {
     private static void verifySharedPublications(ConfigurableApplicationContext context, String origin, String cookie,
             String browser, Path fixed, Class<?> proof) throws Exception {
         var primary = document(origin, cookie, "page", null);
-        ObjectNode source = primary.path("published").deepCopy();
+        ObjectNode source = ((ObjectNode) primary.path("published")).deepCopy();
         source.put("pageId", "operation-form:other").put("title", "First published title");
         var other = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", 0).set("document", source));
         publish(origin, cookie, "other", other);
@@ -208,7 +209,7 @@ final class OperationFormsAcceptance {
         var plan = document(origin, cookie, "page/prepare", request);
         check(plan.path("pages").toString().equals("[\"operation-form:page\",\"operation-form:other\"]"), "editor plans both related pages");
         request.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
-                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+                .put("fingerprint", plan.path("fingerprint").asString()).set("approvals", plan.path("permissions")));
         proof.getField("revision").set(null, "three");
         check(request(origin, "/api/page-editor/documents/operation-form:page/publish", request.toString(), cookie).statusCode() == 422,
                 "policy change invalidates confirmed plan");
@@ -237,7 +238,7 @@ final class OperationFormsAcceptance {
         var batchPlan = document(origin, cookie, "page/prepare", batch);
         check(!batchPlan.path("permissions").isEmpty(), "resource permissions are shown for the selected batch");
         batch.set("decision", JSON.createObjectNode().put("revision", batchPlan.path("revision").asLong())
-                .put("fingerprint", batchPlan.path("fingerprint").asText()).set("approvals", JSON.createArrayNode()));
+                .put("fingerprint", batchPlan.path("fingerprint").asString()).set("approvals", JSON.createArrayNode()));
         var unbound = context.getBean(WebPublicationStore.class).snapshot();
         check(request(origin, "/api/page-editor/documents/operation-form:page/publish", batch.toString(), cookie).statusCode() == 422,
                 "selected batch requires explicit resource approval");
@@ -255,12 +256,12 @@ final class OperationFormsAcceptance {
         check(context.getBean(WebPublicationStore.class).snapshot().equals(unbound), "rejected batches have no partial publication");
         batchPlan = document(origin, cookie, "page/prepare", batch);
         batch.set("decision", JSON.createObjectNode().put("revision", batchPlan.path("revision").asLong())
-                .put("fingerprint", batchPlan.path("fingerprint").asText()).set("approvals", batchPlan.path("permissions")));
+                .put("fingerprint", batchPlan.path("fingerprint").asString()).set("approvals", batchPlan.path("permissions")));
         document(origin, cookie, "page/publish", batch);
         check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "confirmed draft batch restores protection");
         System.out.println("SHARED_OPERATION_SELECTED_DRAFTS_PERMISSIONS_POLICY_CAS_AND_RECOVERY_PASSED");
         a = document(origin, cookie, "page", null);
-        ObjectNode changedTitle = a.path("draft").deepCopy(); changedTitle.put("title", "Changed after batch");
+        ObjectNode changedTitle = ((ObjectNode) a.path("draft")).deepCopy(); changedTitle.put("title", "Changed after batch");
         a = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", a.path("revision").asLong()).set("document", changedTitle));
         publish(origin, cookie, "page", a);
         var incompatible = JSON.createObjectNode().put("revision", a.path("revision").asLong()).put("restoring", true);
@@ -290,7 +291,7 @@ final class OperationFormsAcceptance {
         var plan = document(origin, cookie, "page/prepare", batch);
         check(!plan.path("permissions").isEmpty(), "historical bindings require resource approval");
         batch.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
-                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", JSON.createArrayNode()));
+                .put("fingerprint", plan.path("fingerprint").asString()).set("approvals", JSON.createArrayNode()));
         var before = context.getBean(WebPublicationStore.class).snapshot();
         String endpoint = "/api/page-editor/documents/operation-form:page/restore";
         check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "history restore rejects missing permissions");
@@ -303,7 +304,7 @@ final class OperationFormsAcceptance {
         check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "catalog replacement invalidates restore confirmation");
         plan = document(origin, cookie, "page/prepare", batch);
         batch.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
-                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+                .put("fingerprint", plan.path("fingerprint").asString()).set("approvals", plan.path("permissions")));
         b = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", b.path("revision").asLong()).set("document", b.path("draft")));
         check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 409, "draft changes invalidate restore confirmation");
         ((ObjectNode) batch.path("drafts").get(0)).put("revision", b.path("revision").asLong());
@@ -320,8 +321,8 @@ final class OperationFormsAcceptance {
     static void verifyPresentationWithdrawal(ConfigurableApplicationContext context, String origin, String cookie) throws Exception {
         var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
         var other = document(origin, cookie, "other", null);
-        ObjectNode source = other.path("published").deepCopy();
-        var root = (com.fasterxml.jackson.databind.node.ArrayNode) source.path("project").path("pages").get(0)
+        ObjectNode source = ((ObjectNode) other.path("published")).deepCopy();
+        var root = (tools.jackson.databind.node.ArrayNode) source.path("project").path("pages").get(0)
                 .path("frames").get(0).path("component").path("components");
         var decoration = root.addObject().put("type", "page-component").put("componentType", "page-checklist:list")
                 .put("configVersion", 1).put("instanceId", "decoration");
@@ -333,7 +334,7 @@ final class OperationFormsAcceptance {
         try {
             check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "ordinary decoration withdrawal does not affect operation availability");
             var primary = document(origin, cookie, "page", null);
-            ObjectNode changed = primary.path("draft").deepCopy(); changed.put("title", "Title without changed requirements");
+            ObjectNode changed = ((ObjectNode) primary.path("draft")).deepCopy(); changed.put("title", "Title without changed requirements");
             primary = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", primary.path("revision").asLong()).set("document", changed));
             var plan = document(origin, cookie, "page/prepare", JSON.createObjectNode().put("revision", primary.path("revision").asLong()).put("restoring", false));
             check(plan.path("pages").toString().equals("[\"operation-form:page\"]"), "unchanged operation requirements do not recompile the unrelated page");
@@ -358,7 +359,7 @@ final class OperationFormsAcceptance {
         var command = JSON.createObjectNode().put("revision", state.path("revision").asLong()).put("restoring", false);
         var plan = document(origin, cookie, page + "/prepare", command);
         command.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
-                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+                .put("fingerprint", plan.path("fingerprint").asString()).set("approvals", plan.path("permissions")));
         document(origin, cookie, page + "/publish", command);
     }
     private static ObjectNode command(String value) {
@@ -367,23 +368,23 @@ final class OperationFormsAcceptance {
     private static ObjectNode response(HttpResponse<String> challenge, String value) throws Exception {
         check(challenge.statusCode() == 409, "challenge required before response");
         JsonNode data = JSON.readTree(challenge.body());
-        var result = command(value).put("token", data.path("token").asText());
-        ((ObjectNode) result.get("proofs")).put("fixture-proof", "fixture:" + data.path("challenges").path("fixture-proof").asText());
+        var result = command(value).put("token", data.path("token").asString());
+        ((ObjectNode) result.get("proofs")).put("fixture-proof", "fixture:" + data.path("challenges").path("fixture-proof").asString());
         return result;
     }
     private static HttpResponse<String> call(String origin, String cookie, String target, ObjectNode command) throws Exception {
-        String path = "/api/operation-form/" + target, token = command.path("token").asText();
+        String path = "/api/operation-form/" + target, token = command.path("token").asString();
         if (!token.isEmpty()) {
             var stagedResponse = staged.computeIfAbsent(token, ignored -> {
                 var prepare = JSON.createObjectNode().put("method", "POST").put("url", path).put("token", token).put("nativeSubmit", false);
                 prepare.putObject("headers").put("Content-Type", "application/json");
-                prepare.set("proofs", command.path("proofs")); prepare.putObject("json").put("/value", command.path("value").asText());
+                prepare.set("proofs", command.path("proofs")); prepare.putObject("json").put("/value", command.path("value").asString());
                 try { return hookRequest(origin, "/api/operation-hooks/prepare", prepare.toString(), cookie, ""); }
                 catch (Exception failure) { throw new CompletionException(failure); }
             });
             if (stagedResponse.statusCode() != 200) return stagedResponse;
         }
-        return hookRequest(origin, path, JSON.createObjectNode().put("value", command.path("value").asText()).toString(), cookie, token);
+        return hookRequest(origin, path, JSON.createObjectNode().put("value", command.path("value").asString()).toString(), cookie, token);
     }
     private static int uncheckedCall(String origin, String cookie, ObjectNode command) {
         try { return call(origin, cookie, "alpha", command).statusCode(); }

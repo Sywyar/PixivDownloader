@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.gallery;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
@@ -210,7 +210,7 @@ public class GalleryBatchService {
     private byte[] jsonBytes(Object value) {
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             return "[]\n".getBytes(StandardCharsets.UTF_8);
         }
     }

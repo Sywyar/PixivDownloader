@@ -220,14 +220,14 @@ class WebI18nServiceTest {
                     plugin.id=%s
                     plugin.version=1.0.0
                     plugin.class=com.example.%sPlugin
-                    plugin.requires=1.0
+                    plugin.requires=%s
                     pixiv.execution-mode=host-process-full-trust
                     pixiv.display-namespace=%s
                     pixiv.display-name-key=plugin.name
                     pixiv.description-key=plugin.summary
                     pixiv.icon-key=mail
                     pixiv.color-token=green
-                    """.formatted(pluginId, pluginId, pluginId));
+                    """.formatted(pluginId, pluginId, top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, pluginId));
             writeEntry(jar, "i18n/web/%s.properties".formatted(pluginId),
                     "\uFEFFplugin.name=%s\nplugin.summary=中文简介\n".formatted(zhName));
             writeEntry(jar, "i18n/web/%s_en.properties".formatted(pluginId),

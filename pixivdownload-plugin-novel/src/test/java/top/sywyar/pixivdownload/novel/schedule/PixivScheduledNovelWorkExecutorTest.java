@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -76,7 +76,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("Pixiv 小说计划作品执行器")
 class PixivScheduledNovelWorkExecutorTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets;
     @Mock

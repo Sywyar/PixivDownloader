@@ -172,7 +172,7 @@
 
     function pixivHeader() {
         const c = getCookie();
-        return c ? {'X-Pixiv-Cookie': c} : {};
+        return c ? {'X-Acquisition-Credential': c} : {};
     }
 
     // Cookie 相关提示显示在 Cookie 区域，而非下载队列状态栏

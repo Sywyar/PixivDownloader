@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
@@ -51,19 +51,19 @@ public record PixivNovelMetadata(
             if (parsedSeriesId > 0L) {
                 seriesId = parsedSeriesId;
                 seriesOrder = nav.path("order").asLong(0L);
-                seriesTitle = nav.path("title").asText("");
+                seriesTitle = nav.path("title").asString("");
             }
         }
-        String content = body.path("content").asText("");
+        String content = body.path("content").asString("");
         return new PixivNovelMetadata(
                 novelId,
-                body.path("title").asText(""),
+                body.path("title").asString(""),
                 body.path("xRestrict").asInt(0),
                 body.path("aiType").asInt(0) >= 2,
                 body.path("bookmarkCount").asInt(-1),
-                positiveLong(body.path("userId").asText(null)),
-                body.path("userName").asText(""),
-                body.path("description").asText(""),
+                positiveLong(body.path("userId").asString(null)),
+                body.path("userName").asString(""),
+                body.path("description").asString(""),
                 tags(body),
                 seriesId,
                 seriesOrder,
@@ -74,7 +74,7 @@ public record PixivNovelMetadata(
                 readingTimeSeconds(body),
                 pageCount(content),
                 body.path("isOriginal").asBoolean(false),
-                body.path("language").asText(""),
+                body.path("language").asString(""),
                 novelCoverUrl(body),
                 uploadTimestamp(body),
                 embeddedImages(body));
@@ -82,7 +82,7 @@ public record PixivNovelMetadata(
 
     public static SeriesMetadata parseSeries(JsonNode body) {
         return new SeriesMetadata(
-                body.path("caption").asText(""),
+                body.path("caption").asString(""),
                 seriesCoverUrl(body),
                 tags(body));
     }
@@ -170,16 +170,16 @@ public record PixivNovelMetadata(
         }
         List<WorkTag> tags = new ArrayList<>();
         for (JsonNode value : values) {
-            String name = value.isTextual()
-                    ? value.asText("")
-                    : value.path("tag").asText(value.path("name").asText(""));
+            String name = value.isString()
+                    ? value.asString("")
+                    : value.path("tag").asString(value.path("name").asString(""));
             if (name.isEmpty()) {
                 continue;
             }
             String translated = null;
             JsonNode translation = value.path("translation");
             if (translation.isObject()) {
-                String english = translation.path(PixivScheduledNovelWorkExecutor.ENGLISH_TRANSLATION_KEY).asText("");
+                String english = translation.path(PixivScheduledNovelWorkExecutor.ENGLISH_TRANSLATION_KEY).asString("");
                 if (!english.isEmpty()) {
                     translated = english;
                 }
@@ -194,7 +194,7 @@ public record PixivNovelMetadata(
             JsonNode urls = body.path(parent);
             if (urls.isObject()) {
                 for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String value = urls.path(key).asText("");
+                    String value = urls.path(key).asString("");
                     if (!value.isBlank()) {
                         return value;
                     }
@@ -202,7 +202,7 @@ public record PixivNovelMetadata(
             }
         }
         for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String value = body.path(key).asText("");
+            String value = body.path(key).asString("");
             if (!value.isBlank()) {
                 return value;
             }
@@ -214,14 +214,14 @@ public record PixivNovelMetadata(
         JsonNode urls = body.path("cover").path("urls");
         if (urls.isObject()) {
             for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
+                String value = urls.path(key).asString("");
                 if (!value.isBlank()) {
                     return value;
                 }
             }
         }
         for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = body.path(key).asText("");
+            String value = body.path(key).asString("");
             if (!value.isBlank()) {
                 return value;
             }
@@ -240,7 +240,7 @@ public record PixivNovelMetadata(
                 int seconds = value.asInt(0);
                 return seconds > 0 ? seconds : null;
             }
-            String digits = value.asText("").replaceAll("[^0-9]", "");
+            String digits = value.asString("").replaceAll("[^0-9]", "");
             if (digits.isEmpty()) {
                 continue;
             }
@@ -269,7 +269,7 @@ public record PixivNovelMetadata(
 
     private static Long uploadTimestamp(JsonNode body) {
         for (String field : List.of("uploadDate", "createDate", "updateDate")) {
-            String value = body.path(field).asText(null);
+            String value = body.path(field).asString(null);
             if (value == null || value.isBlank()) {
                 continue;
             }
@@ -289,10 +289,10 @@ public record PixivNovelMetadata(
         if (value.isNumber()) {
             return normalizeEpochMillis(value.asLong());
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             return null;
         }
-        String text = value.asText("").trim();
+        String text = value.asString("").trim();
         if (text.isEmpty()) {
             return null;
         }
@@ -324,8 +324,8 @@ public record PixivNovelMetadata(
             throw new PixivAjaxException(PixivAjaxFailure.RESPONSE_TOO_LARGE, 0);
         }
         Map<String, String> images = new LinkedHashMap<>();
-        values.fields().forEachRemaining(entry -> {
-            String url = entry.getValue().path("urls").path("original").asText("");
+        values.properties().iterator().forEachRemaining(entry -> {
+            String url = entry.getValue().path("urls").path("original").asString("");
             if (url.isBlank()) {
                 return;
             }

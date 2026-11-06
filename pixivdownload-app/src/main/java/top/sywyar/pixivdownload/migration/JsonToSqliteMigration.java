@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -103,7 +104,7 @@ public class JsonToSqliteMigration {
         if (!historyFile.exists()) {
             return 0;
         }
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         JsonNode history = mapper.readTree(historyFile);
         return history.path("downloaded").size();
     }
@@ -135,7 +136,7 @@ public class JsonToSqliteMigration {
 
         log.info(logMessage("migration.log.started", historyFile.getAbsolutePath()));
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         JsonNode history = historyFile.exists() ? mapper.readTree(historyFile) : mapper.createObjectNode();
         JsonNode downloaded = history.path("downloaded");
         int total = downloaded.size();
@@ -169,10 +170,10 @@ public class JsonToSqliteMigration {
                             skipped++;
                         } else {
                             JsonNode artwork = entry.getValue();
-                            String title = artwork.path("title").asText(null);
-                            String folder = PathPrefixCodec.stripTrailingSeparators(artwork.path("folder").asText(null));
+                            String title = artwork.path("title").asString(null);
+                            String folder = PathPrefixCodec.stripTrailingSeparators(artwork.path("folder").asString(null));
                             int count = artwork.path("count").asInt();
-                            String extensions = artwork.path("extensions").asText(null);
+                            String extensions = artwork.path("extensions").asString(null);
                             long time = artwork.has("time")
                                     ? EpochMillisNormalizer.normalize(artwork.path("time").asLong())
                                     : nextUniqueTime(session);
@@ -186,7 +187,7 @@ public class JsonToSqliteMigration {
                             }
 
                             if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
-                                String moveFolder = PathPrefixCodec.stripTrailingSeparators(artwork.path("moveFolder").asText(null));
+                                String moveFolder = PathPrefixCodec.stripTrailingSeparators(artwork.path("moveFolder").asString(null));
                                 long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
                                 session.update("artworks", Map.of("moved", value(1), "move_folder", value(moveFolder), "move_time", value(moveTime)),
                                         call(EQUAL, column("artworks", "artwork_id"), value(artworkId)));

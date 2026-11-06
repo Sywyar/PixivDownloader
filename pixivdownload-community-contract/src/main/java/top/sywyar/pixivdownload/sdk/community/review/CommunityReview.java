@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.community.review;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.CommunityPackageEvidence;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
@@ -27,13 +27,13 @@ public record CommunityReview(String pluginId, String version, long packageSize,
         JsonNode node = document.value();
         var descriptor = value("descriptor", node.get("descriptor"), DescriptorSnapshot.class);
         descriptor.validate();
-        var review = new CommunityReview(node.get("pluginId").textValue(), node.get("version").textValue(),
-                node.get("packageSize").longValue(), node.get("packageSha256").textValue(),
-                value("owner", node.get("owner"), CommunityValues.Owner.class), node.get("source").get("commit").textValue(),
-                node.get("assuranceLevel").textValue(), value("reference", node.get("submissionRef"), CommunityValues.Reference.class), descriptor);
+        var review = new CommunityReview(node.get("pluginId").stringValue(), node.get("version").stringValue(),
+                node.get("packageSize").longValue(), node.get("packageSha256").stringValue(),
+                value("owner", node.get("owner"), CommunityValues.Owner.class), node.get("source").get("commit").stringValue(),
+                node.get("assuranceLevel").stringValue(), value("reference", node.get("submissionRef"), CommunityValues.Reference.class), descriptor);
         CommunityValues.version(review.version, "/version");
         review.submissionRef.validate();
-        if (!"SOURCE_REVIEWED".equals(review.assuranceLevel) || !"PASS".equals(node.path("riskScan").path("gate").asText()))
+        if (!"SOURCE_REVIEWED".equals(review.assuranceLevel) || !"PASS".equals(node.path("riskScan").path("gate").asString()))
             throw mismatch();
         return review;
     }

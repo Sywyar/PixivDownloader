@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.schedule.persistence;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
@@ -12,7 +13,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduleCredentialRedactor;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 
@@ -140,7 +140,7 @@ public final class ScheduleWorkPersistenceCodec {
         try {
             return objectMapper.readValue(value, objectMapper.getTypeFactory()
                     .constructCollectionType(List.class, ScheduledWorkRelation.class));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             rethrowApiValidation(e);
             throw new IllegalArgumentException("pending relations are invalid JSON", e);
         }
@@ -164,8 +164,7 @@ public final class ScheduleWorkPersistenceCodec {
         if (json == null || json.isBlank()) {
             throw new IllegalArgumentException(label + " must not be blank");
         }
-        try (JsonParser parser = objectMapper.createParser(json)) {
-            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        try (JsonParser parser = objectMapper.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION).createParser(json)) {
             JsonNode root = objectMapper.readTree(parser);
             if (root == null) {
                 throw new IllegalArgumentException(label + " must not be empty");
@@ -174,10 +173,9 @@ public final class ScheduleWorkPersistenceCodec {
                 throw new IllegalArgumentException(label + " must contain exactly one JSON value");
             }
             return root;
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException(label + " is invalid JSON", e);
-        } catch (IOException e) {
-            throw new IllegalStateException("failed to read " + label, e);
+
         }
     }
 
@@ -185,7 +183,7 @@ public final class ScheduleWorkPersistenceCodec {
         String json;
         try {
             json = objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException(label + " cannot be encoded as JSON", e);
         }
         JsonNode root = parseSingleJson(json, label);
@@ -196,13 +194,13 @@ public final class ScheduleWorkPersistenceCodec {
     private <T> T readValue(String json, Class<T> type, String label) {
         try {
             return objectMapper.readValue(json, type);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             rethrowApiValidation(e);
             throw new IllegalArgumentException(label + " is invalid JSON", e);
         }
     }
 
-    private static void rethrowApiValidation(JsonProcessingException exception) {
+    private static void rethrowApiValidation(JacksonException exception) {
         Throwable cause = exception.getCause();
         while (cause != null) {
             if (cause instanceof IllegalArgumentException validationFailure) {
@@ -214,13 +212,13 @@ public final class ScheduleWorkPersistenceCodec {
 
     private void rejectCredentialMaterial(JsonNode node, String label) {
         if (node.isObject()) {
-            node.fields().forEachRemaining(entry -> {
+            node.properties().iterator().forEachRemaining(entry -> {
                 if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())
                         || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(entry.getKey())
                         && (!entry.getValue().isValueNode()
                         || entry.getValue().isNull()
                         || !ScheduleCredentialRedactor.isSafeMetadataValue(
-                        entry.getKey(), entry.getValue().asText())))) {
+                        entry.getKey(), entry.getValue().asString())))) {
                     throw new IllegalArgumentException(label + " contains forbidden credential material");
                 }
                 rejectCredentialMaterial(entry.getValue(), label);
@@ -231,10 +229,10 @@ public final class ScheduleWorkPersistenceCodec {
             node.forEach(item -> rejectCredentialMaterial(item, label));
             return;
         }
-        if (!node.isTextual()) {
+        if (!node.isString()) {
             return;
         }
-        String text = node.textValue();
+        String text = node.stringValue();
         String nestedJson = text.trim();
         if (nestedJson.startsWith("{") || nestedJson.startsWith("[")) {
             JsonNode nested = readEmbeddedJson(nestedJson, label);
@@ -255,7 +253,7 @@ public final class ScheduleWorkPersistenceCodec {
                 if (permissive != null && (permissive.isObject() || permissive.isArray())) {
                     throw strictFailure;
                 }
-            } catch (JsonProcessingException ignored) {
+            } catch (JacksonException ignored) {
                 // 以花括号开头的普通展示文本不是完整 JSON，不按嵌套载荷解释。
             }
             return null;

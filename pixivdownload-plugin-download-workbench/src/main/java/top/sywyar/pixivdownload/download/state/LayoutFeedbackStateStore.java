@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.download.state;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
@@ -71,9 +72,10 @@ public final class LayoutFeedbackStateStore {
     static final long SNOOZE_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
     private static final String CORRUPT_SUFFIX_PREFIX = ".corrupt-";
-    private static final ObjectMapper STRICT_MAPPER = new ObjectMapper()
+    private static final ObjectMapper STRICT_MAPPER = JsonMapper.builderWithJackson2Defaults()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            .changeDefaultPropertyInclusion(incl -> incl.withContentInclusion(JsonInclude.Include.NON_NULL).withValueInclusion(JsonInclude.Include.NON_NULL))
+            .build();
 
     private final Path stateFile;
     private final Object lock = new Object();
@@ -176,7 +178,7 @@ public final class LayoutFeedbackStateStore {
             LayoutFeedbackStateDocument document = STRICT_MAPPER.readValue(bytes,
                     LayoutFeedbackStateDocument.class);
             current = document.toSnapshot();
-        } catch (com.fasterxml.jackson.core.JsonProcessingException | RuntimeException e) {
+        } catch (RuntimeException e) {
             // JSON、schema 或记录构造校验失败均按损坏隔离，store 继续可用。
             quarantine("corrupt");
             current = emptySnapshot();

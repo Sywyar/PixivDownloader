@@ -51,7 +51,7 @@ class RemoteValuesTest {
             {"number":9007199254740991,"text":"😀","values":[1],"labels":{"private key":"value"}}
             """;
 
-    private static com.fasterxml.jackson.databind.JsonNode parse(String value) throws Exception {
+    private static tools.jackson.databind.JsonNode parse(String value) throws Exception {
         return RemoteValues.parse(new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -90,7 +90,7 @@ class RemoteValuesTest {
     void budgets() throws Exception {
         byte[] bytes = new byte[RemoteValues.MAX_BYTES + 1];
         assertThatThrownBy(() -> RemoteValues.parse(new ByteArrayInputStream(bytes))).hasMessage("REMOTE_BUDGET");
-        var schema = parse(SCHEMA); var input = (com.fasterxml.jackson.databind.node.ObjectNode) parse(VALID);
+        var schema = parse(SCHEMA); var input = (tools.jackson.databind.node.ObjectNode) parse(VALID);
         var values = input.putArray("values"); for (int i = 0; i < 16385; i++) values.add(i);
         assertThatThrownBy(() -> RemoteValues.validate(schema, input)).hasMessage("REMOTE_BUDGET");
         var large = new Input(1, "x", List.of(), Map.of("a","x".repeat(600000),"b","x".repeat(600000)), null);

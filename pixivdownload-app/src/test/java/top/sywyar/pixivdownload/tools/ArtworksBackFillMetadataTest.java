@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("本地登记作品的标题与元数据快照回填")
 class ArtworksBackFillMetadataTest {
     @TempDir Path directory;
-    final ObjectMapper mapper = new ObjectMapper();
+    final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @org.junit.jupiter.api.AfterEach
     void cleanup() throws Exception {

@@ -66,19 +66,19 @@ public final class CommunityPackageService {
         var review = CommunityReview.read(evidence);
         review.requireDescriptor(PluginPackageReader.inspect(artifact).descriptor());
         var submission = referenced(repository, review.submissionRef(), CommunityJson.Kind.SUBMISSION).value();
-        if (!submission.path("pluginId").asText().equals(pluginId) || !submission.path("version").asText().equals(pkg.version())
-                || !submission.path("publisherId").asText().equals(review.owner().publisherId())
-                || !submission.path("source").path("commit").asText().equals(evidence.sourceCommit())
+        if (!submission.path("pluginId").asString().equals(pluginId) || !submission.path("version").asString().equals(pkg.version())
+                || !submission.path("publisherId").asString().equals(review.owner().publisherId())
+                || !submission.path("source").path("commit").asString().equals(evidence.sourceCommit())
                 || submission.path("package").path("expectedSize").asLong() != pkg.expectedSizeBytes()
-                || !submission.path("package").path("sha256").asText().equals(pkg.sha256())) throw rejected();
+                || !submission.path("package").path("sha256").asString().equals(pkg.sha256())) throw rejected();
         var originalSignature = CommunityReview.value("signature", submission.path("package").get("signature"), SignatureMetadata.class);
         String publishedPath = "published/" + pluginId + "/" + pkg.version() + ".json";
         var published = document(repository, publishedPath, CommunityJson.Kind.PUBLISHED).value();
-        if (!published.path("pluginId").asText().equals(pluginId) || !published.path("version").asText().equals(pkg.version())
-                || !published.path("sourceCommit").asText().equals(evidence.sourceCommit())
-                || !published.path("assuranceLevel").asText().equals(evidence.assuranceLevel())
+        if (!published.path("pluginId").asString().equals(pluginId) || !published.path("version").asString().equals(pkg.version())
+                || !published.path("sourceCommit").asString().equals(evidence.sourceCommit())
+                || !published.path("assuranceLevel").asString().equals(evidence.assuranceLevel())
                 || published.path("package").path("expectedSize").asLong() != pkg.expectedSizeBytes()
-                || !published.path("package").path("sha256").asText().equals(pkg.sha256())
+                || !published.path("package").path("sha256").asString().equals(pkg.sha256())
                 || !CommunityReview.value("signature", published.path("package").get("signature"), SignatureMetadata.class).equals(originalSignature)
                 || !CommunityReview.value("signature", published.get("communitySignature"), SignatureMetadata.class).equals(pkg.signature())
                 || !Objects.equals(published.get("owner"), CommunityJson.strictTree(CommunityJson.encode(review.owner()), 64 * 1024))

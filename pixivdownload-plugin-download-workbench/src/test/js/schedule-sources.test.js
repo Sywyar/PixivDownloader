@@ -37,7 +37,7 @@ test('捕获编辑任务时仅向原来源提供只读定义快照', async () =>
     const runtime = harness([manifest(1, [source({legacyAliases: ['LEGACY_A']})])],
         new Map([['/plugins/source-a.js', install]]));
     await runtime.refresh(false);
-    const task = {type: 'LEGACY_A', paramsJson: '{"source":{"id":"1"},"custom":true}',
+    const task = {sourceType: 'LEGACY_A', paramsJson: '{"source":{"id":"1"},"custom":true}',
         credential: 'must-not-cross'};
     runtime.captureForMode('user', {mode: 'user', editingTask: task});
     assert.equal(received.editingTask.paramsJson, task.paramsJson);

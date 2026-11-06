@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 
@@ -13,9 +13,10 @@ import java.util.*;
 
 /** 停写期间的文件恢复事务；目标由宿主解析，归档和恢复记录不能指定任意本机路径。 */
 final class FileRestoreTransaction {
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private static final int MAX_JOURNAL_BYTES = 8 * 1024 * 1024;
     private static final long MAX_TOTAL_BYTES = 64L * 1024 * 1024 * 1024;
     private final Path directory;

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.gui.config.DatabaseSwitchTestEntry;
@@ -12,7 +13,7 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("设置页迁移任务跨进程交接")
 class DatabaseSwitchProcessTest {
     @TempDir Path directory;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     private Path source, target, config, draft;
     @BeforeEach void setup() throws Exception {
         source = directory.resolve("source.db"); target = directory.resolve("target.ledger");
@@ -30,7 +31,7 @@ class DatabaseSwitchProcessTest {
         return MigrationProcessHarness.run(directory, DatabaseSwitchTestEntry.class, action, action,
                 draft.toString(), directory.resolve("plan.json").toString());
     }
-    private String status() throws Exception { return json.readTree(directory.resolve("data/database-migrations/switch.json").toFile()).path("status").asText(); }
+    private String status() throws Exception { return json.readTree(directory.resolve("data/database-migrations/switch.json").toFile()).path("status").asString(); }
     @Test @DisplayName("只读检查不建目标，确认后仍保留源配置，替代进程核验成功才切换")
     void confirmsThenMigratesBeforeSwitching() throws Exception {
         byte[] before = Files.readAllBytes(config);
@@ -66,8 +67,8 @@ class DatabaseSwitchProcessTest {
                 "database.jdbc-url", "jdbc:sqlite:" + source)));
         assertThat(run("preview")).isZero();
         var plan = json.readTree(directory.resolve("plan.json").toFile());
-        assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asText()).isTrue();
-        assertThat(plan.path("stores").get(0).path("phase").asText()).isEqualTo("CONNECTION_REPAIR");
+        assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asString()).isTrue();
+        assertThat(plan.path("stores").get(0).path("phase").asString()).isEqualTo("CONNECTION_REPAIR");
         assertThat(Files.readAllBytes(config)).isEqualTo(before);
         assertThat(Files.readAllBytes(source)).isEqualTo(database);
         assertThat(run("stage")).isZero();
@@ -114,14 +115,14 @@ class DatabaseSwitchProcessTest {
             try {
                 assertThat(run("preview")).isZero();
                 var plan = json.readTree(directory.resolve("plan.json").toFile());
-                assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asText()).isTrue();
+                assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asString()).isTrue();
                 assertThat(plan.path("stores").size()).isEqualTo(2);
                 assertThat(directory.resolve("config/credentials/" + owner + ".properties")).doesNotExist();
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema()", Integer.class)).isZero();
                 assertThat(run("stage")).isZero();
                 assertThat(run("run")).isZero();
                 var job = json.readTree(data.resolve("database-migrations/switch.json").toFile());
-                assertThat(job.path("status").asText()).as("migration: %s", job.path("failure").asText()).isEqualTo("SUCCEEDED");
+                assertThat(job.path("status").asString()).as("migration: %s", job.path("failure").asString()).isEqualTo("SUCCEEDED");
                 assertThat(jdbc.queryForObject("SELECT name FROM tags WHERE tag_id=9007199254740993", String.class)).isEqualTo("迁移 🌸");
                 assertThat(data.resolve("database-migrations/private/" + owner + "/verified.json")).isRegularFile();
                 var privateSchemas = jdbc.queryForList("SELECT nspname FROM pg_namespace WHERE obj_description(oid,'pg_namespace') LIKE ?",
@@ -142,16 +143,16 @@ class DatabaseSwitchProcessTest {
                 Files.write(draft, json.writeValueAsBytes(Map.of("database.provider", "database-sqlite", "database.jdbc-url", "jdbc:sqlite:" + source)));
                 assertThat(run("preview")).isZero();
                 var reverse = json.readTree(directory.resolve("plan.json").toFile());
-                assertThat(reverse.path("ready").asBoolean()).as("reverse: %s", reverse.path("failure").asText()).isTrue();
+                assertThat(reverse.path("ready").asBoolean()).as("reverse: %s", reverse.path("failure").asString()).isTrue();
                 assertThat(reverse.path("stores")).hasSize(2);
-                for (var store : reverse.path("stores")) assertThat(store.path("phase").asText()).isEqualTo("REPLACE_TARGET");
+                for (var store : reverse.path("stores")) assertThat(store.path("phase").asString()).isEqualTo("REPLACE_TARGET");
                 assertThat(Files.readAllBytes(source)).isEqualTo(oldMain);
                 assertThat(Files.readAllBytes(privateFile)).isEqualTo(oldPrivate);
                 assertThat(run("stage")).isZero();
                 assertThat(Files.readAllBytes(config)).isEqualTo(activeConfig);
                 assertThat(run("run")).isZero();
                 job = json.readTree(data.resolve("database-migrations/switch.json").toFile());
-                assertThat(job.path("status").asText()).as("reverse migration: %s", job.path("failure").asText()).isEqualTo("SUCCEEDED");
+                assertThat(job.path("status").asString()).as("reverse migration: %s", job.path("failure").asString()).isEqualTo("SUCCEEDED");
                 assertThat(Files.readString(config)).contains("database-sqlite");
                 try (var connection = DatabaseProviderTestFixtures.openExisting(source); var sql = connection.createStatement();
                      var rows = sql.executeQuery("SELECT name FROM tags WHERE tag_id=9007199254740993")) {
@@ -161,8 +162,8 @@ class DatabaseSwitchProcessTest {
                      var rows = sql.executeQuery("SELECT imported_at FROM imported_works")) {
                     assertThat(rows.next()).isTrue(); assertThat(rows.getLong(1)).isEqualTo(1791600000999L);
                 }
-                var mainBackup = Path.of(java.net.URI.create(job.path("replacements").path("main").path("backup").asText()));
-                var privateBackup = Path.of(java.net.URI.create(job.path("replacements").path("private:" + owner).path("backup").asText()));
+                var mainBackup = Path.of(java.net.URI.create(job.path("replacements").path("main").path("backup").asString()));
+                var privateBackup = Path.of(java.net.URI.create(job.path("replacements").path("private:" + owner).path("backup").asString()));
                 assertThat(mainBackup).isNotEqualTo(privateBackup);
                 try (var connection = DatabaseProviderTestFixtures.openExisting(mainBackup); var sql = connection.createStatement();
                      var rows = sql.executeQuery("SELECT name FROM tags WHERE tag_id=9007199254740993")) {
@@ -196,8 +197,8 @@ class DatabaseSwitchProcessTest {
                     "database.password", properties.getPassword())));
             assertThat(run("stage")).isZero();
             var plan = json.readTree(directory.resolve("plan.json").toFile());
-            assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asText()).isTrue();
-            assertThat(plan.path("stores").get(0).path("phase").asText()).isEqualTo("SAME_TARGET");
+            assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asString()).isTrue();
+            assertThat(plan.path("stores").get(0).path("phase").asString()).isEqualTo("SAME_TARGET");
             assertThat(run("run")).isZero();
             assertThat(status()).isEqualTo("SUCCEEDED");
             assertThat(Files.readString(config)).doesNotContain("missing_recovery_user");
@@ -215,9 +216,9 @@ class DatabaseSwitchProcessTest {
         assertThat(run("preview")).isZero();
         var plan = json.readTree(directory.resolve("plan.json").toFile());
         assertThat(plan.path("ready").asBoolean()).isFalse();
-        assertThat(plan.path("failure").asText()).isEqualTo("PRIVATE_SCHEMA_MISSING");
+        assertThat(plan.path("failure").asString()).isEqualTo("PRIVATE_SCHEMA_MISSING");
         assertThat(plan.path("stores")).hasSize(2);
-        assertThat(plan.path("stores").get(1).path("owner").asText()).isEqualTo("private:unknown-owner");
+        assertThat(plan.path("stores").get(1).path("owner").asString()).isEqualTo("private:unknown-owner");
         assertThat(target).doesNotExist();
     }
 
@@ -228,13 +229,13 @@ class DatabaseSwitchProcessTest {
         assertThat(run("run")).isZero();
         Files.write(config, before);
         Path journal = directory.resolve("data/database-migrations/switch.json");
-        var job = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
+        var job = (tools.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
         job.put("status", "FAILED");
         Files.write(journal, json.writeValueAsBytes(job));
         assertThat(run("preview")).isZero();
         var plan = json.readTree(directory.resolve("plan.json").toFile());
-        assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asText()).isTrue();
-        assertThat(plan.path("stores").get(0).path("phase").asText()).isEqualTo("COMMITTED");
+        assertThat(plan.path("ready").asBoolean()).as("preflight: %s", plan.path("failure").asString()).isTrue();
+        assertThat(plan.path("stores").get(0).path("phase").asString()).isEqualTo("COMMITTED");
         Files.delete(target);
         assertThat(run("preview")).isZero();
         assertThat(json.readTree(directory.resolve("plan.json").toFile()).path("ready").asBoolean()).isFalse();
@@ -247,7 +248,7 @@ class DatabaseSwitchProcessTest {
         assertThat(run("stage")).isZero();
         assertThat(run("run")).isZero();
         Path journal = directory.resolve("data/database-migrations/switch.json");
-        var job = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
+        var job = (tools.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
         job.put("status", "SWITCHING");
         Files.write(journal, json.writeValueAsBytes(job));
         byte[] committed = Files.readAllBytes(config);
@@ -266,14 +267,14 @@ class DatabaseSwitchProcessTest {
         assertThat(run("stage")).isZero();
         var plan = json.readTree(directory.resolve("plan.json").toFile());
         assertThat(plan.path("ready").asBoolean()).isTrue();
-        assertThat(plan.path("stores").get(0).path("phase").asText()).isEqualTo("REPLACE_TARGET");
+        assertThat(plan.path("stores").get(0).path("phase").asString()).isEqualTo("REPLACE_TARGET");
         try (var connection = DatabaseProviderTestFixtures.openExisting(target); var sql = connection.createStatement()) {
             sql.execute("UPDATE tags SET name='changed target'");
         }
         assertThat(run("run")).isZero();
         var job = json.readTree(directory.resolve("data/database-migrations/switch.json").toFile());
-        assertThat(job.path("status").asText()).isEqualTo("FAILED");
-        assertThat(job.path("failure").asText()).isEqualTo("MIGRATION_TARGET_CHANGED");
+        assertThat(job.path("status").asString()).isEqualTo("FAILED");
+        assertThat(job.path("failure").asString()).isEqualTo("MIGRATION_TARGET_CHANGED");
         assertThat(Files.readAllBytes(config)).isEqualTo(active);
         try (var connection = DatabaseProviderTestFixtures.openExisting(target); var sql = connection.createStatement();
              var rows = sql.executeQuery("SELECT name FROM tags")) {
@@ -289,7 +290,7 @@ class DatabaseSwitchProcessTest {
         byte[] before = Files.readAllBytes(config);
         assertThat(run("stage")).isZero();
         Path journal = directory.resolve("data/database-migrations/switch.json");
-        var job = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
+        var job = (tools.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
         job.put("status", "RUNNING");
         Files.write(journal, json.writeValueAsBytes(job));
         Files.writeString(target, "partial target");

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -95,7 +96,7 @@ public class ArtworksBackFill {
     private static int countCandidates(Options options, ArtworksBackFillDatabase database) throws Exception {
         ArtworksBackFillUnreachableStore store = ArtworksBackFillUnreachableStore.load(
                 RuntimeFiles.resolveBackfillUnreachablePath(),
-                new ObjectMapper()
+                JsonMapper.builderWithJackson2Defaults().build()
         );
         return database.findCandidates(options.limit(), store, options.alwaysNetwork() ? null : options.rootFolder(),
                 options.automatic()).candidates().size();
@@ -155,7 +156,7 @@ public class ArtworksBackFill {
             log.info(logMessage("artworks-backfill.log.stop-backend-hint"));
         }
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         database.requireAvailable();
         Path unreachablePath = RuntimeFiles.resolveBackfillUnreachablePath();
         ArtworksBackFillUnreachableStore unreachable = ArtworksBackFillUnreachableStore.load(

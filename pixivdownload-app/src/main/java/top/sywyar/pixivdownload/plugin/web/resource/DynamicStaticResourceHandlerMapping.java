@@ -92,7 +92,7 @@ final class DynamicStaticResourceHandlerMapping extends AbstractHandlerMapping {
         Resource location = registered.location();
         ResourceHttpRequestHandler handler = new ResourceHttpRequestHandler();
         handler.setLocations(List.of(location));
-        handler.setContentNegotiationManager(contentNegotiationManager);
+        handler.setMediaTypes(contentNegotiationManager.getMediaTypeMappings());
         handler.setCacheControl(CacheControl.noCache());
         handler.setUseLastModified(false);
         handler.setEtagGenerator(StaticResourceVersioning::contentHash);

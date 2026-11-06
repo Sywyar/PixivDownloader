@@ -1,13 +1,13 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -44,7 +44,6 @@ import top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine;
 
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -95,7 +94,7 @@ class ScheduleServiceDefinitionSaveTest {
     @Mock
     private ScheduleExecutionEngine executionEngine;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("创建调用当前 owner 规范化与计划校验后才写入通用信封")
@@ -735,7 +734,7 @@ class ScheduleServiceDefinitionSaveTest {
     @SuppressWarnings("unchecked")
     private static SourceFixture publishPixivUserNewSource(
             FakeScheduleCapabilityAccess registry, ClassLoader loader) throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         String base = "top.sywyar.pixivdownload.download.";
         Class<?> supportType = loader.loadClass(base + "schedule.source.executor.PixivScheduledSourceSupport");
         var supportConstructor = supportType.getConstructors()[0];

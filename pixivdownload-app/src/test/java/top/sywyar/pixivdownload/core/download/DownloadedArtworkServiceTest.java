@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,7 +50,7 @@ class DownloadedArtworkServiceTest {
         ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator,
                 new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
                         org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
-                        new com.fasterxml.jackson.databind.ObjectMapper()));
+                        JsonMapper.builderWithJackson2Defaults().build()));
         downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService);
     }
 

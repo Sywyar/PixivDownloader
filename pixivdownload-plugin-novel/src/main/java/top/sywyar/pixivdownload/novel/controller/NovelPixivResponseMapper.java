@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
@@ -33,19 +33,19 @@ final class NovelPixivResponseMapper {
             if (parsedSeriesId > 0) {
                 seriesId = parsedSeriesId;
                 seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
+                seriesTitle = nav.path("title").asString("");
             }
         }
-        String content = body.path("content").asText("");
+        String content = body.path("content").asString("");
         return new NovelMetaResponse(
                 novelId,
-                body.path("title").asText(""),
+                body.path("title").asString(""),
                 body.path("xRestrict").asInt(0),
                 body.path("aiType").asInt(0) >= 2,
                 body.path("bookmarkCount").asInt(-1),
-                parsePositiveLong(body.path("userId").asText(null)),
-                body.path("userName").asText(""),
-                PixivDescriptionHtml.normalizeLinks(body.path("description").asText("")),
+                parsePositiveLong(body.path("userId").asString(null)),
+                body.path("userName").asString(""),
+                PixivDescriptionHtml.normalizeLinks(body.path("description").asString("")),
                 extractTags(body),
                 seriesId,
                 seriesOrder,
@@ -56,7 +56,7 @@ final class NovelPixivResponseMapper {
                 extractReadingTimeSeconds(body),
                 countPages(content),
                 body.path("isOriginal").asBoolean(false),
-                body.path("language").asText(""),
+                body.path("language").asString(""),
                 extractNovelCoverUrl(body),
                 extractUploadTimestamp(body),
                 extractTextEmbeddedImages(body),
@@ -66,16 +66,16 @@ final class NovelPixivResponseMapper {
 
     static NovelSeriesResponse.NovelSeriesMeta seriesMeta(JsonNode body, long fallbackId) {
         return new NovelSeriesResponse.NovelSeriesMeta(
-                parsePositiveOrDefault(body.path("id").asText(null), fallbackId),
-                body.path("title").asText(""),
-                parsePositiveLong(body.path("userId").asText(null)),
-                body.path("userName").asText(""),
+                parsePositiveOrDefault(body.path("id").asString(null), fallbackId),
+                body.path("title").asString(""),
+                parsePositiveLong(body.path("userId").asString(null)),
+                body.path("userName").asString(""),
                 body.path("publishedContentCount").asInt(body.path("total").asInt(0)),
-                body.path("language").asText(""),
+                body.path("language").asString(""),
                 body.path("isOriginal").asBoolean(false),
                 body.path("publishedTotalCharacterCount").asInt(0),
                 body.path("publishedTotalWordCount").asInt(0),
-                body.path("caption").asText(""),
+                body.path("caption").asString(""),
                 extractSeriesCoverUrl(body),
                 extractTags(body)
         );
@@ -96,15 +96,15 @@ final class NovelPixivResponseMapper {
         List<NovelSeriesResponse.NovelSeriesItem> items = new ArrayList<>();
         for (JsonNode item : itemsNode) {
             items.add(new NovelSeriesResponse.NovelSeriesItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
+                    item.path("id").asString(""),
+                    item.path("title").asString(""),
                     item.path("xRestrict").asInt(0),
                     item.path("aiType").asInt(0),
                     item.path("wordCount").asInt(0),
                     item.path("textLength").asInt(item.path("characterCount").asInt(0)),
                     extractReadingTimeSeconds(item),
-                    item.path("userId").asText(String.valueOf(authorId == null ? "" : authorId)),
-                    item.path("userName").asText(authorName),
+                    item.path("userId").asString(String.valueOf(authorId == null ? "" : authorId)),
+                    item.path("userName").asString(authorName),
                     item.path("seriesOrder").asInt(item.path("order").asInt(0)),
                     extractNovelCoverUrl(item),
                     extractUploadTimestamp(item),
@@ -117,7 +117,7 @@ final class NovelPixivResponseMapper {
     static NovelSearchResponse search(JsonNode novel, int page) {
         List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
         for (JsonNode item : novel.path("data")) {
-            items.add(searchItem(item, item.path("url").asText("")));
+            items.add(searchItem(item, item.path("url").asString("")));
         }
         return new NovelSearchResponse(items, novel.path("total").asInt(0), page);
     }
@@ -141,15 +141,15 @@ final class NovelPixivResponseMapper {
                 continue;
             }
             items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(id),
-                    item.path("title").asText(""),
+                    item.path("id").asString(id),
+                    item.path("title").asString(""),
                     item.path("xRestrict").asInt(0),
                     item.path("aiType").asInt(0),
                     item.path("bookmarkCount").asInt(-1),
                     item.path("wordCount").asInt(0),
                     item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
+                    item.path("userId").asString(""),
+                    item.path("userName").asString(""),
                     extractNovelCoverUrl(item),
                     item.path("isOriginal").asBoolean(false),
                     parseStringTags(item.path("tags"))
@@ -160,15 +160,15 @@ final class NovelPixivResponseMapper {
 
     private static NovelSearchResponse.NovelSearchItem searchItem(JsonNode item, String coverUrl) {
         return new NovelSearchResponse.NovelSearchItem(
-                item.path("id").asText(""),
-                item.path("title").asText(""),
+                item.path("id").asString(""),
+                item.path("title").asString(""),
                 item.path("xRestrict").asInt(0),
                 item.path("aiType").asInt(0),
                 item.path("bookmarkCount").asInt(-1),
                 item.path("wordCount").asInt(0),
                 item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                item.path("userId").asText(""),
-                item.path("userName").asText(""),
+                item.path("userId").asString(""),
+                item.path("userName").asString(""),
                 coverUrl,
                 item.path("isOriginal").asBoolean(false),
                 parseStringTags(item.path("tags"))
@@ -202,16 +202,16 @@ final class NovelPixivResponseMapper {
         }
         List<WorkTag> tags = new ArrayList<>();
         for (JsonNode tag : tagsNode) {
-            String name = tag.isTextual()
-                    ? tag.asText("")
-                    : tag.path("tag").asText(tag.path("name").asText(""));
+            String name = tag.isString()
+                    ? tag.asString("")
+                    : tag.path("tag").asString(tag.path("name").asString(""));
             if (name.isEmpty()) {
                 continue;
             }
             String translated = null;
             JsonNode translation = tag.path("translation");
             if (translation.isObject()) {
-                String english = translation.path("en").asText("");
+                String english = translation.path("en").asString("");
                 if (!english.isEmpty()) {
                     translated = english;
                 }
@@ -227,7 +227,7 @@ final class NovelPixivResponseMapper {
         }
         LinkedHashSet<String> tags = new LinkedHashSet<>();
         for (JsonNode tag : tagsNode) {
-            String value = tag.isTextual() ? tag.asText("") : tag.path("tag").asText("");
+            String value = tag.isString() ? tag.asString("") : tag.path("tag").asString("");
             value = value.trim();
             if (!value.isEmpty()) {
                 tags.add(value);
@@ -241,7 +241,7 @@ final class NovelPixivResponseMapper {
             JsonNode urls = node.path(parent);
             if (urls.isObject()) {
                 for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String cover = urls.path(key).asText("");
+                    String cover = urls.path(key).asString("");
                     if (!cover.isBlank()) {
                         return PixivCoverUrlResolver.preferHighResolution(cover);
                     }
@@ -249,7 +249,7 @@ final class NovelPixivResponseMapper {
             }
         }
         for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String cover = node.path(key).asText("");
+            String cover = node.path(key).asString("");
             if (!cover.isBlank()) {
                 return PixivCoverUrlResolver.preferHighResolution(cover);
             }
@@ -261,14 +261,14 @@ final class NovelPixivResponseMapper {
         JsonNode urls = meta.path("cover").path("urls");
         if (urls.isObject()) {
             for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
+                String value = urls.path(key).asString("");
                 if (!value.isBlank()) {
                     return value;
                 }
             }
         }
         for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
+            String value = meta.path(key).asString("");
             if (!value.isBlank()) {
                 return value;
             }
@@ -287,7 +287,7 @@ final class NovelPixivResponseMapper {
                 int seconds = value.asInt(0);
                 return seconds > 0 ? seconds : null;
             }
-            String digits = value.asText("").trim().replaceAll("[^0-9]", "");
+            String digits = value.asString("").trim().replaceAll("[^0-9]", "");
             if (digits.isEmpty()) {
                 continue;
             }
@@ -302,7 +302,7 @@ final class NovelPixivResponseMapper {
 
     private static Long extractUploadTimestamp(JsonNode node) {
         for (String fieldName : List.of("uploadDate", "createDate", "updateDate")) {
-            Long parsed = parsePixivIsoToEpochMillis(node.path(fieldName).asText(null));
+            Long parsed = parsePixivIsoToEpochMillis(node.path(fieldName).asString(null));
             if (parsed != null) {
                 return parsed;
             }
@@ -342,8 +342,8 @@ final class NovelPixivResponseMapper {
             return Map.of();
         }
         Map<String, String> images = new LinkedHashMap<>();
-        node.fields().forEachRemaining(entry -> {
-            String url = entry.getValue().path("urls").path("original").asText("");
+        node.properties().iterator().forEachRemaining(entry -> {
+            String url = entry.getValue().path("urls").path("original").asString("");
             if (url.isBlank()) {
                 return;
             }

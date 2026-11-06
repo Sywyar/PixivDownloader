@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.gallery;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -99,10 +99,10 @@ class GalleryControllerTest {
                 .getResponse()
                 .getContentAsString();
 
-        JsonNode tag = new ObjectMapper().readTree(responseBody).path("tags").path(0);
+        JsonNode tag = JsonMapper.builderWithJackson2Defaults().build().readTree(responseBody).path("tags").path(0);
         assertThat(tag.path("tagId").longValue()).isEqualTo(11L);
-        assertThat(tag.path("name").textValue()).isEqualTo("tag");
-        assertThat(tag.path("translatedName").textValue()).isEqualTo("translated");
+        assertThat(tag.path("name").stringValue()).isEqualTo("tag");
+        assertThat(tag.path("translatedName").stringValue()).isEqualTo("translated");
         assertThat(tag.path("artworkCount").intValue()).isEqualTo(3);
     }
 

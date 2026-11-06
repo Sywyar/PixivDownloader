@@ -2,8 +2,7 @@ package top.sywyar.pixivdownload.schedule;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.support.CronExpression;
@@ -11,6 +10,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSnapshot;
@@ -105,7 +105,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
 
     public List<ScheduleTaskView> list() {
         if (!database.available()) return List.of();
-        Map<SourceActivationKey, SourceProjection> activations = sourceActivations(
+        Map<SourceActivationKey, String> activations = sourceActivations(
                 scheduleCapabilityRegistry.snapshot());
         return store.findAll().stream()
                 .map(t -> taskView(t, runState.get(t.id()), activations))
@@ -422,28 +422,6 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
         credentialService.applyAccountAction(
                 request.getOwnerPluginId(), request.getPolicyId(), request.getPublicationId(),
                 request.getAccountKey(), request.getActionId(), request.getParameters());
-    }
-
-    /**
-     * 供来源自有旧版 HTTP 适配器解析当前策略 publication；随后仍由凭证服务按精确 publication
-     * 取得租约并执行，快照与租约之间发生 reload 时会安全拒绝。
-     */
-    public void applyCurrentCredentialPolicyAction(
-            String ownerPluginId,
-            String policyId,
-            String accountKey,
-            String actionId,
-            Map<String, String> parameters) {
-        database.requireAvailable();
-        long publicationId = scheduleCapabilityRegistry.snapshot().owners().stream()
-                .filter(owner -> owner.owner().featurePluginId().equals(ownerPluginId))
-                .filter(owner -> owner.credentialPolicyIds().contains(policyId))
-                .mapToLong(ScheduleCapabilityOwnerSnapshot::publicationId)
-                .findFirst()
-                .orElseThrow(this::credentialPolicyUnavailable);
-        credentialService.applyAccountAction(
-                ownerPluginId, policyId, publicationId,
-                accountKey, actionId, parameters);
     }
 
     /**
@@ -821,7 +799,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
         try {
             var detail = objectMapper.readTree(detailJson == null ? "{}" : detailJson);
             return detail != null && detail.path("requiresUserAction").asBoolean(false);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
+        } catch (JacksonException malformed) {
             return false;
         }
     }
@@ -1019,7 +997,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("failed to encode schedule presentation", e);
         }
     }
@@ -1058,30 +1036,24 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
     private ScheduleTaskView taskView(
             ScheduledTask task,
             String effectiveRunState,
-            Map<SourceActivationKey, SourceProjection> activations) {
-        SourceProjection source = activations.get(new SourceActivationKey(
+            Map<SourceActivationKey, String> activations) {
+        String source = activations.get(new SourceActivationKey(
                 task.sourceOwnerPluginId(), task.sourceType()));
         return top.sywyar.pixivdownload.schedule.dto.ScheduleTaskViews.of(
                 task,
                 effectiveRunState,
-                source == null ? task.sourceType() : source.legacyType(),
                 readPresentation(task.presentationJson()),
                 source != null,
-                source == null ? null : source.activationToken(),
+                source,
                 credentialService.project(task));
     }
 
-    private Map<SourceActivationKey, SourceProjection> sourceActivations(
+    private Map<SourceActivationKey, String> sourceActivations(
             ScheduleCapabilitySnapshot snapshot) {
-        Map<SourceActivationKey, SourceProjection> activations = new LinkedHashMap<>();
+        Map<SourceActivationKey, String> activations = new LinkedHashMap<>();
         for (ScheduleCapabilityOwnerSnapshot owner : snapshot.owners()) {
             for (ScheduledSourceDescriptor descriptor : owner.sourceDescriptors()) {
-                String legacyType = descriptor.legacyAliases().stream()
-                        .sorted()
-                        .findFirst()
-                        .orElse(descriptor.sourceType());
-                SourceProjection projection = new SourceProjection(
-                        owner.activationToken(), legacyType);
+                String projection = owner.activationToken();
                 SourceActivationKey canonical = new SourceActivationKey(
                         owner.owner().featurePluginId(), descriptor.sourceType());
                 activations.put(canonical, projection);
@@ -1103,7 +1075,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
                     presentationJson, ScheduledTaskPresentation.class);
             return new ScheduleTaskDefinitionValidator(objectMapper)
                     .validatePresentation(presentation);
-        } catch (JsonProcessingException | IllegalArgumentException failure) {
+        } catch (JacksonException | IllegalArgumentException failure) {
             return ScheduledTaskPresentation.empty();
         }
     }
@@ -1163,11 +1135,6 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
     private record SourceActivationKey(
             String ownerPluginId,
             String sourceType) {
-    }
-
-    private record SourceProjection(
-            String activationToken,
-            String legacyType) {
     }
 
     private String validateTrigger(ScheduleTaskRequest req) {

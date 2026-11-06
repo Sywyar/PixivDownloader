@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.i18n;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +32,7 @@ public final class LocaleCatalogLoader {
 
     public static final String CATALOG_RESOURCE = "i18n/locales.json";
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final java.util.regex.Pattern ILLEGAL_SUFFIX =
             java.util.regex.Pattern.compile("[/\\\\:*?\"<>|\\u0000-\\u001f]|\\.\\.");
 
@@ -57,7 +59,7 @@ public final class LocaleCatalogLoader {
         JsonNode root;
         try {
             root = OBJECT_MAPPER.readTree(json);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException("locale catalog is not valid JSON: " + e.getMessage(), e);
         }
         if (root == null || !root.isObject()) {
@@ -134,10 +136,10 @@ public final class LocaleCatalogLoader {
                 throw new IllegalArgumentException("locale " + canonical + ": aliases must be an array");
             }
             for (JsonNode alias : aliasesNode) {
-                if (alias == null || !alias.isTextual() || alias.asText().isBlank()) {
+                if (alias == null || !alias.isString() || alias.asString().isBlank()) {
                     throw new IllegalArgumentException("locale " + canonical + ": alias must be a non-empty string");
                 }
-                aliases.add(alias.asText().trim());
+                aliases.add(alias.asString().trim());
             }
         }
         return new LocaleDescriptor(canonical, nativeName, suffix, status, direction, aliases);
@@ -184,10 +186,10 @@ public final class LocaleCatalogLoader {
 
     private static String requiredString(JsonNode node, String field) {
         JsonNode value = node.get(field);
-        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+        if (value == null || !value.isString() || value.asString().isBlank()) {
             throw new IllegalArgumentException("locale catalog requires non-empty string field: " + field);
         }
-        return value.asText().trim();
+        return value.asString().trim();
     }
 
     private static String optionalString(JsonNode node, String field) {
@@ -195,9 +197,9 @@ public final class LocaleCatalogLoader {
         if (value == null || value.isNull()) {
             return null;
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             throw new IllegalArgumentException("locale catalog field must be a string: " + field);
         }
-        return value.asText().trim();
+        return value.asString().trim();
     }
 }

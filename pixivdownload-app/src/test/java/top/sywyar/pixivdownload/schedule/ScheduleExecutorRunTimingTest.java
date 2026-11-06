@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,6 @@ import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
-import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -112,7 +112,7 @@ class ScheduleExecutorRunTimingTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        objectMapper = new ObjectMapper();
+        objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         localRunState = new ScheduleRunState();
         defaultEngine = mock(ScheduleExecutionEngine.class);
         lenient().when(defaultEngine.execute(any(ScheduledTask.class), any(), any()))
@@ -406,7 +406,7 @@ class ScheduleExecutorRunTimingTest {
                 eq("schedule.credential.failure-circuit-open"), detail.capture());
         assertThat(objectMapper.readTree(detail.getValue()).path("consecutiveFailures").asInt())
                 .isEqualTo(5);
-        assertThat(objectMapper.readTree(detail.getValue()).path("lastErrorExcerpt").asText())
+        assertThat(objectMapper.readTree(detail.getValue()).path("lastErrorExcerpt").asString())
                 .isEqualTo("pixiv.illust.access-unavailable");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);

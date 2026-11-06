@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -15,7 +15,6 @@ import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
-import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
@@ -49,7 +48,6 @@ import top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings;
 import top.sywyar.pixivdownload.download.schedule.PixivScheduleSettings;
 import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduledCredentialPolicy;
-import top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacySchedulePersistenceDescriptorProvider;
 import top.sywyar.pixivdownload.download.schedule.persistence.migration.PixivLegacyScheduledTaskMigrationAdapter;
@@ -189,13 +187,6 @@ public class DownloadWorkbenchPluginConfiguration {
                                        top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
                                        top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings settings) {
         return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore, settings);
-    }
-
-    @Bean
-    public PixivScheduleCredentialController pixivScheduleCredentialController(
-            top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduledTaskCredentials scheduleService,
-            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new PixivScheduleCredentialController(scheduleService, messages);
     }
 
     @Bean

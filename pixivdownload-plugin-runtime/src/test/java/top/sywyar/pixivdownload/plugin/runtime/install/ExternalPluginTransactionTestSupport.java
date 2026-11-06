@@ -150,11 +150,11 @@ abstract class ExternalPluginTransactionTestSupport {
     }
 
     protected Path packageFile(String name, String version) {
-        return PluginPackageFixtures.explodedZip(temp.resolve(name), "demo", version, "1.0", "demo.Plugin");
+        return PluginPackageFixtures.explodedZip(temp.resolve(name), "demo", version, top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "demo.Plugin");
     }
 
     protected Path packageFile(String name, String id, String version, String replaces) {
-        String properties = PluginPackageFixtures.pluginProperties(id, version, "1.0", "demo.Plugin");
+        String properties = PluginPackageFixtures.pluginProperties(id, version, top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "demo.Plugin");
         if (replaces != null) {
             properties += "pixiv.replaces=" + replaces + "\n";
         }

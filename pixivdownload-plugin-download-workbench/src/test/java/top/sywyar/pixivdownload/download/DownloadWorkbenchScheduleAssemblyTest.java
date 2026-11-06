@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.DownloadSettings;
@@ -60,9 +61,9 @@ class DownloadWorkbenchScheduleAssemblyTest {
         var lookup = configuration.pixivScheduledLocalWorkLookup(
                 artworkDownloader, workQueryService, workAssets);
         ScheduleTaskSnapshot.Download keepDeleted = ScheduleTaskSnapshot.parseDownload(
-                new ObjectMapper().readTree("{}"));
+                JsonMapper.builderWithJackson2Defaults().build().readTree("{}"));
         ScheduleTaskSnapshot.Download redownloadDeletedAndVerify = ScheduleTaskSnapshot.parseDownload(
-                new ObjectMapper().readTree(
+                JsonMapper.builderWithJackson2Defaults().build().readTree(
                         "{\"redownloadDeleted\":true,\"verifyFiles\":true}"));
         when(workQueryService.hasWork(WorkType.ARTWORK, 123L)).thenReturn(true);
         when(workQueryService.hasWork(WorkType.ARTWORK, 124L)).thenReturn(true);
@@ -113,7 +114,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
         var lookup = new DownloadWorkbenchPluginConfiguration().pixivScheduledLocalWorkLookup(
                 mock(ArtworkDownloader.class), queries, assets);
         var key = new ScheduledWorkKey("novel", "129");
-        var options = ScheduleTaskSnapshot.parseDownload(new ObjectMapper().readTree("{}"));
+        var options = ScheduleTaskSnapshot.parseDownload(JsonMapper.builderWithJackson2Defaults().build().readTree("{}"));
         when(queries.hasActiveWork(WorkType.NOVEL, 129L)).thenReturn(true);
         assertThat(lookup.isAlreadyCompleted(key, options)).isFalse();
         when(assets.hasCompleteFiles(WorkType.NOVEL, 129L)).thenReturn(true);
@@ -129,7 +130,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
         DownloadWorkbenchPluginConfiguration configuration =
                 new DownloadWorkbenchPluginConfiguration();
         DownloadWorkbenchPlugin plugin = configuration.downloadWorkbenchPlugin();
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         PixivSchedulePersistenceCodec persistenceCodec =
                 new PixivSchedulePersistenceCodec(objectMapper);
         ArtworkDownloader artworkDownloader = mock(ArtworkDownloader.class);

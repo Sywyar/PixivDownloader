@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download.web;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -38,7 +39,7 @@ class DownloadTasksControllerTest {
         when(tasks.snapshot(admin)).thenReturn(new DownloadTasks.Snapshot(UUID.randomUUID(), 1, List.of(task)));
         when(tasks.cancel(attempt.attemptId(), admin)).thenReturn(DownloadTasks.CancelResult.REQUESTED);
         var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
-        String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(command);
+        String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(command);
         mvc.perform(post("/api/download/tasks").locale(Locale.US).contentType(MediaType.APPLICATION_JSON)
                 .header("X-Acquisition-Credential", "private-credential").content(json))
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.task.attempt.attemptId").value(attempt.attemptId().toString()))

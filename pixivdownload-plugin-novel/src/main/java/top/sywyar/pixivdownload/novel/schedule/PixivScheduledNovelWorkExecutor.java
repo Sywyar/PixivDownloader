@@ -1,11 +1,11 @@
 package top.sywyar.pixivdownload.novel.schedule;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
@@ -425,17 +425,17 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         JsonNode payload;
         try {
             payload = objectMapper.readTree(work.payloadJson());
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw payloadUnsupported();
         }
         if (payload == null
                 || !payload.isObject()
                 || payload.size() != 1
                 || !payload.has("workId")
-                || !payload.path("workId").isTextual()) {
+                || !payload.path("workId").isString()) {
             throw payloadUnsupported();
         }
-        String id = payload.path("workId").textValue();
+        String id = payload.path("workId").stringValue();
         if (!work.key().id().equals(id)) {
             throw payloadUnsupported();
         }
@@ -450,14 +450,14 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         JsonNode root;
         try {
             root = objectMapper.readTree(response);
-        } catch (JsonProcessingException | IllegalArgumentException e) {
+        } catch (JacksonException | IllegalArgumentException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.response-invalid");
         }
         if (root == null || !root.isObject()) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.response-invalid");
         }
         if (root.path("error").asBoolean(false)) {
-            throw classifyAjaxError(root.path("message").asText(""));
+            throw classifyAjaxError(root.path("message").asString(""));
         }
         JsonNode body = root.path("body");
         if (!body.isObject()) {

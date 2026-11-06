@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.community.submission;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 
@@ -11,7 +11,7 @@ import java.util.Set;
 /** 与工具一起固定分发的目录；不在校验期间下载或修改目录。 */
 public final class ControlledCatalogs {
     private static final JsonNode DATA = resource("catalogs.json");
-    public static final String VERSION = DATA.get("catalogVersion").textValue();
+    public static final String VERSION = DATA.get("catalogVersion").stringValue();
     public static final Set<String> CATEGORIES = values(DATA, "categories");
     public static final Set<String> TAGS = values(DATA, "tags");
     public static final Set<String> RISK_SIGNALS = values(DATA, "riskSignals");
@@ -27,7 +27,7 @@ public final class ControlledCatalogs {
 
     static Set<String> values(JsonNode node, String key) {
         var result = new LinkedHashSet<String>();
-        for (JsonNode item : node.get(key)) result.add(item.textValue());
+        for (JsonNode item : node.get(key)) result.add(item.stringValue());
         return Set.copyOf(result);
     }
 

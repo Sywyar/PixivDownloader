@@ -1,6 +1,6 @@
 package example;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.pf4j.Plugin;
 import org.springframework.context.ApplicationContext;

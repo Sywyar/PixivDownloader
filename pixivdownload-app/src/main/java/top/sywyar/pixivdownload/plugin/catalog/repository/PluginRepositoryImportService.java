@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryImportPreview;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.catalog.community.CommunityDirectoryService;

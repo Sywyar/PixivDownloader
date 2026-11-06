@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool;
@@ -61,7 +60,6 @@ class MediaToolsPanelTest {
                     case "mediaTool" -> { assertEquals(identity, args[0]); yield source; }
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "readDownloadRootFromConfig" -> ".";
-                    case "resolveDatabasePath" -> Path.of("data", "test.db");
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions(databaseTarget, "localhost", 8080, false, 1000, 0, false);
                     case "supportsDatabaseFileSelection" -> fileSelection;
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);

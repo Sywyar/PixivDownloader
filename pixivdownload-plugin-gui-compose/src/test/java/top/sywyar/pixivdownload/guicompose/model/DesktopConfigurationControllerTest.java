@@ -894,7 +894,6 @@ class DesktopConfigurationControllerTest {
                         case "applicationName": return "PixivDownloader";
                         case "applicationBuildChannel": return DesktopUiHost.BuildChannel.UNKNOWN;
                         case "applicationConfig": return config;
-                        case "resolveDatabasePath": return Path.of("data", "test.db");
                         case "supportsDatabaseFileSelection": return true;
                         case "defaultBackfillOptions": return new DesktopUiHost.BackfillOptions(
                                 "data/test.db", "localhost", 8080, false, 1000, 0, false

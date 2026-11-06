@@ -10,7 +10,7 @@
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
-        <pixivdownload.sdk.version>1.4.0</pixivdownload.sdk.version>
+        <pixivdownload.sdk.version>2.0.0</pixivdownload.sdk.version>
     </properties>
     <modules><module>api</module><module>contract</module><module>provider</module><module>consumer</module></modules>
     <dependencyManagement><dependencies>

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.security;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -607,43 +608,43 @@ class OperationHooksTest {
             resultSchema = "{\"type\":\"object\",\"properties\":{\"display\":{\"type\":\"string\"}},\"required\":[],\"additionalProperties\":false}";
             class Client {
                 String base(String id) { return "/api/page-editor/documents/" + id; }
-                com.fasterxml.jackson.databind.JsonNode read(String id) throws Exception {
+                tools.jackson.databind.JsonNode read(String id) throws Exception {
                     return HookRequestFilter.JSON.readTree(http.perform(get(base(id))).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
                 }
-                com.fasterxml.jackson.databind.JsonNode send(String id, String action, com.fasterxml.jackson.databind.JsonNode body) throws Exception {
+                tools.jackson.databind.JsonNode send(String id, String action, tools.jackson.databind.JsonNode body) throws Exception {
                     return HookRequestFilter.JSON.readTree(http.perform(post(base(id) + "/" + action).contentType("application/json").content(body.toString()))
                             .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
                 }
                 void save(List<OperationBinding.Field> fields) throws Exception {
                     for (String id : List.of("core:a", "core:b")) {
                         var state = read(id);
-                        var document = (com.fasterxml.jackson.databind.node.ObjectNode) state.path("draft");
+                        var document = (tools.jackson.databind.node.ObjectNode) state.path("draft");
                         document.putArray("hooks").add(HookRequestFilter.JSON.valueToTree(new OperationBinding("observer", hook.id(), "core:save", "",
                                 OperationHook.Phase.AFTER_COMPLETION, 2, OperationHook.Completion.SUCCEEDED, "{}", fields)));
                         send(id, "save", HookRequestFilter.JSON.createObjectNode().put("revision", state.path("revision").asLong()).set("document", document));
                     }
                 }
-                com.fasterxml.jackson.databind.node.ObjectNode selection(boolean restoring) throws Exception {
+                tools.jackson.databind.node.ObjectNode selection(boolean restoring) throws Exception {
                     var body = HookRequestFilter.JSON.createObjectNode().put("revision", read("core:a").path("revision").asLong()).put("restoring", restoring);
                     body.putArray("drafts").addObject().put("page", "core:b").put("revision", read("core:b").path("revision").asLong());
                     return body;
                 }
-                com.fasterxml.jackson.databind.node.ObjectNode decision(com.fasterxml.jackson.databind.node.ObjectNode selection,
-                        com.fasterxml.jackson.databind.JsonNode preview) {
+                tools.jackson.databind.node.ObjectNode decision(tools.jackson.databind.node.ObjectNode selection,
+                        tools.jackson.databind.JsonNode preview) {
                     var command = selection.deepCopy();
-                    command.putObject("decision").put("revision", preview.path("revision").asLong()).put("fingerprint", preview.path("fingerprint").asText())
+                    command.putObject("decision").put("revision", preview.path("revision").asLong()).put("fingerprint", preview.path("fingerprint").asString())
                             .set("approvals", preview.path("permissions"));
                     return command;
                 }
-                void verify(com.fasterxml.jackson.databind.JsonNode preview, List<OperationBinding.Field> before, List<OperationBinding.Field> after) {
+                void verify(tools.jackson.databind.JsonNode preview, List<OperationBinding.Field> before, List<OperationBinding.Field> after) {
                     assertThat(preview.path("hooks")).hasSize(2);
                     for (var change : preview.path("hooks")) {
-                        assertThat(change.path("page").asText()).isIn("core:a", "core:b");
+                        assertThat(change.path("page").asString()).isIn("core:a", "core:b");
                         for (String side : List.of("before", "after")) {
                             var access = change.path(side).get(0);
-                            assertThat(access.path("owner").asText()).isEqualTo("unknown-owner");
+                            assertThat(access.path("owner").asString()).isEqualTo("unknown-owner");
                             assertThat(access.path("fields")).isEqualTo(HookRequestFilter.JSON.valueToTree(side.equals("before") ? before : after));
-                            assertThat(access.path("completion").asText()).isEqualTo("SUCCEEDED");
+                            assertThat(access.path("completion").asString()).isEqualTo("SUCCEEDED");
                             assertThat(access.path("order").asInt()).isEqualTo(2);
                             assertThat(access.has("configuration")).isFalse();
                         }
@@ -667,7 +668,7 @@ class OperationHooksTest {
                 assertThat(shared.snapshot()).isEqualTo(snapshot); // 预检后取消不写正式状态。
                 var command = client.decision(selection, preview);
                 var denied = command.deepCopy();
-                ((com.fasterxml.jackson.databind.node.ObjectNode) denied.path("decision")).putArray("approvals");
+                ((tools.jackson.databind.node.ObjectNode) denied.path("decision")).putArray("approvals");
                 http.perform(post(client.base("core:a") + "/publish").contentType("application/json").content(denied.toString()))
                         .andExpect(status().isUnprocessableEntity());
                 String originalSchema = inputSchema;
@@ -744,17 +745,17 @@ class OperationHooksTest {
                 String endpoint = catalog.catalog(null).stream().filter(value -> value.handler().endsWith("#" + action)).findFirst().orElseThrow().id();
                 class Client {
                     final String base = "/api/page-editor/documents/core:editor";
-                    com.fasterxml.jackson.databind.node.ObjectNode get(String suffix) throws Exception {
+                    tools.jackson.databind.node.ObjectNode get(String suffix) throws Exception {
                         var response = http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base + suffix))
                                 .andExpect(status().isOk()).andReturn().getResponse();
-                        return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(response.getContentAsByteArray());
+                        return (tools.jackson.databind.node.ObjectNode) JsonMapper.builderWithJackson2Defaults().build().readTree(response.getContentAsByteArray());
                     }
-                    com.fasterxml.jackson.databind.node.ObjectNode send(String suffix, com.fasterxml.jackson.databind.JsonNode body) throws Exception {
+                    tools.jackson.databind.node.ObjectNode send(String suffix, tools.jackson.databind.JsonNode body) throws Exception {
                         var response = http.perform(post(base + suffix).contentType("application/json").content(body.toString()))
                                 .andExpect(status().isOk()).andReturn().getResponse();
-                        return (com.fasterxml.jackson.databind.node.ObjectNode) new com.fasterxml.jackson.databind.ObjectMapper().readTree(response.getContentAsByteArray());
+                        return (tools.jackson.databind.node.ObjectNode) JsonMapper.builderWithJackson2Defaults().build().readTree(response.getContentAsByteArray());
                     }
-                    com.fasterxml.jackson.databind.node.ObjectNode command(boolean restore) throws Exception {
+                    tools.jackson.databind.node.ObjectNode command(boolean restore) throws Exception {
                         long revision = get("").path("revision").asLong();
                         var preview = send("/prepare", HookRequestFilter.JSON.createObjectNode().put("revision", revision).put("restoring", restore));
                         var command = HookRequestFilter.JSON.createObjectNode().put("revision", revision);
@@ -771,7 +772,7 @@ class OperationHooksTest {
                         OperationHook.Phase.AFTER_COMPLETION, 0, OperationHook.Completion.ALL, "{}")));
                 client.send("/save", HookRequestFilter.JSON.createObjectNode().put("revision", 0).set("document", document));
                 var initial = client.command(false);
-                var denied = initial.deepCopy(); ((com.fasterxml.jackson.databind.node.ObjectNode) denied.path("decision")).putArray("approvals");
+                var denied = initial.deepCopy(); ((tools.jackson.databind.node.ObjectNode) denied.path("decision")).putArray("approvals");
                 http.perform(post(client.base + "/publish").contentType("application/json").content(denied.toString())).andExpect(status().isUnprocessableEntity());
                 assertThat(publications.snapshot().revision()).isZero();
                 client.send("/publish", initial);
@@ -808,7 +809,7 @@ class OperationHooksTest {
                     assertThat(other.get(5, TimeUnit.SECONDS).getResponse().getStatus()).isEqualTo(409);
                     var committed = publishing.get(5, TimeUnit.SECONDS);
                     assertThat(committed.path("publicationRevision").asLong()).isEqualTo(before + 1);
-                    assertThat(committed.path("published").path("title").asText()).isEqualTo(restoring ? "" : "current");
+                    assertThat(committed.path("published").path("title").asString()).isEqualTo(restoring ? "" : "current");
                     assertThat(client.get("").path("revision").asLong()).isEqualTo(restoring ? 3 : 2);
                     http.perform(post(client.base + "/" + action).contentType("application/json").content(command.toString()))
                             .andExpect(status().is4xxClientError());
@@ -834,10 +835,10 @@ class OperationHooksTest {
                             var plan = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), bindings));
                             contracts.publishConfiguration(plan, plan.permissions());
                         }
-                        com.fasterxml.jackson.databind.node.ObjectNode body() throws Exception {
+                        tools.jackson.databind.node.ObjectNode body() throws Exception {
                             return HookRequestFilter.JSON.createObjectNode().put("revision", client.get("").path("revision").asLong()).set("document", document);
                         }
-                        void succeeds(com.fasterxml.jackson.databind.node.ObjectNode body, int callbacks) throws Exception {
+                        void succeeds(tools.jackson.databind.node.ObjectNode body, int callbacks) throws Exception {
                             events.clear();
                             var saved = client.send("/save?marker=approved", body);
                             assertThat(saved.path("revision").asLong()).isEqualTo(body.path("revision").asLong() + 1);
@@ -847,7 +848,7 @@ class OperationHooksTest {
                     }
                     var saving = new Save();
                     saving.configure(List.of(observer)); saving.succeeds(saving.body(), 1);
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) document.at("/project/pages/0/frames/0/component/components/0/components"))
+                    ((tools.jackson.databind.node.ArrayNode) document.at("/project/pages/0/frames/0/component/components/0/components"))
                             .addObject().put("type", "page-text").put("content", "review ".repeat(10000));
                     var large = saving.body();
                     assertThat(large.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length).isBetween(65537, 1048576);
@@ -879,7 +880,7 @@ class OperationHooksTest {
                     assertThat(events).hasSize(2);
                     assertThat(client.get("").path("draft")).isEqualTo(document);
                     verdict = OperationHook.Verdict.CONTINUE;
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) document.at("/project/pages/0/frames/0/component/components/0/components")).removeAll();
+                    ((tools.jackson.databind.node.ArrayNode) document.at("/project/pages/0/frames/0/component/components/0/components")).removeAll();
                     for (String path : List.of("/document", "/document/title")) {
                         var incompatible = new OperationBinding("invalid-observer", hook.id(), "", save, OperationHook.Phase.AFTER_COMPLETION,
                                 0, OperationHook.Completion.ALL, "{}", List.of(new OperationBinding.Field(OperationBinding.Source.JSON, path, "revision")));
@@ -990,8 +991,8 @@ class OperationHooksTest {
                 endpoints.publications(shared);
             }
             var b = endpointChange("core:b", save.id(), -1);
-            var document = (com.fasterxml.jackson.databind.node.ObjectNode) HookRequestFilter.JSON.readTree(b.document());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) document.path("actions").get(0)).put("endpoint", "").put("operation", group);
+            var document = (tools.jackson.databind.node.ObjectNode) HookRequestFilter.JSON.readTree(b.document());
+            ((tools.jackson.databind.node.ObjectNode) document.path("actions").get(0)).put("endpoint", "").put("operation", group);
             var mixed = new PagePublications.Change(b.page(), document.toString(), b.projection());
             long revision = shared.snapshot().revision();
             var conflicting = mixed;
@@ -1148,7 +1149,7 @@ class OperationHooksTest {
             beans.registerSingleton("hook-configuration", new top.sywyar.pixivdownload.plugin.web.controller.OperationHooksController(catalog, registry, identities, contracts, store));
             beans.registerSingleton("hooks", new org.springframework.web.servlet.handler.MappedInterceptor(null, interception));
         });
-        var tomcat = new org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory(0);
+        var tomcat = new org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory(0);
         tomcat.setAddress(java.net.InetAddress.getLoopbackAddress());
         tomcat.setBaseDirectory(root.resolve("tomcat").toFile());
         var server = tomcat.getWebServer(servletContext -> {
@@ -1308,8 +1309,8 @@ class OperationHooksTest {
             assertThat(projectedResponse.statusCode()).isEqualTo(200);
             long projectedBy = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             while (events.size() < 2 && System.nanoTime() < projectedBy) Thread.sleep(10);
-            assertThat(HookRequestFilter.JSON.readTree(events.get(0).input()).fieldNames()).toIterable().containsExactlyInAnyOrder("value", "marker");
-            assertThat(HookRequestFilter.JSON.readTree(events.get(1).result()).fieldNames()).toIterable().containsExactly("calls");
+            assertThat(HookRequestFilter.JSON.readTree(events.get(0).input()).propertyNames()).containsExactlyInAnyOrder("value", "marker");
+            assertThat(HookRequestFilter.JSON.readTree(events.get(1).result()).propertyNames()).containsExactly("calls");
             assertThat(HookRequestFilter.JSON.readTree(projectedResponse.body()).path("value").asText()).isEqualTo("synthetic-private-field");
             int executed = automatic.executions.get();
             assertThat(client.send(java.net.http.HttpRequest.newBuilder(projectedRequest, (name, value) -> true)
@@ -1323,7 +1324,7 @@ class OperationHooksTest {
             var observedResponse = client.send(java.net.http.HttpRequest.newBuilder(projectedRequest, (name, value) -> true)
                     .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"value\":\"" + largeValue + "\"}")).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
             assertThat(observedResponse.statusCode()).isEqualTo(200);
-            assertThat(new com.fasterxml.jackson.databind.ObjectMapper().readTree(observedResponse.body()).path("value").asText()).isEqualTo(largeValue);
+            assertThat(JsonMapper.builderWithJackson2Defaults().build().readTree(observedResponse.body()).path("value").asString()).isEqualTo(largeValue);
             assertThat(automatic.executions).hasValue(executed + 1);
             admissions.closeAndDrain(Set.of(endpoint.id()), java.time.Duration.ofSeconds(5)); admissions.reopen(Set.of(endpoint.id()));
             assertThat(events).isEmpty();
@@ -1353,8 +1354,8 @@ class OperationHooksTest {
                     var resultResponse = client.send(java.net.http.HttpRequest.newBuilder(request, (name, content) -> true)
                             .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"value\":\"" + value + "\"}")).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
                     assertThat(resultResponse.statusCode()).isEqualTo(200);
-                    var originalResult = new com.fasterxml.jackson.databind.ObjectMapper().readTree(resultResponse.body());
-                    assertThat(originalResult.path("value").asText()).isEqualTo(value);
+                    var originalResult = JsonMapper.builderWithJackson2Defaults().build().readTree(resultResponse.body());
+                    assertThat(originalResult.path("value").asString()).isEqualTo(value);
                     assertThat(originalResult.path("calls").asInt()).isEqualTo(beforeResult + 1);
                     admissions.closeAndDrain(Set.of(endpoint.id()), java.time.Duration.ofSeconds(5)); admissions.reopen(Set.of(endpoint.id()));
                     assertThat(automatic.executions).hasValue(beforeResult + 1);

@@ -1,11 +1,10 @@
 package top.sywyar.pixivdownload.notificationbase;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
@@ -78,7 +77,7 @@ abstract class RemoteAnnouncementImporterTestSupport {
                 client,
                 new RemoteAnnouncementImporter(
                         client,
-                        new ObjectMapper(),
+                        JsonMapper.builderWithJackson2Defaults().build(),
                         inbox,
                         signing.verifier(),
                         clock,
@@ -635,7 +634,7 @@ abstract class RemoteAnnouncementImporterTestSupport {
         ) {
             return new RemoteAnnouncementImporter(
                     client,
-                    new ObjectMapper(),
+                    JsonMapper.builderWithJackson2Defaults().build(),
                     inbox,
                     signing.verifier(),
                     CLOCK,

@@ -67,9 +67,25 @@ Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@
 - **定制插件身份**：修改 `src/main/resources/plugin.properties` 时，同步替换插件 ID、Java 包名、路由、i18n namespace、版本号、`plugin.provider` 及 `pixiv.risk-signals`（查阅 `contracts/community/v1/catalogs.json`）。
 - **核心架构约束**：
   - **路径、凭据与网络**：配置通过 `GuiConfigContribution` 声明；私有目录通过 `RuntimePathProvider` 获取；敏感凭据通过 `credentialKeys()` 与 `PluginCredentials` 管理；出站 HTTP / WebSocket 使用 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`。
-  - **数据库与迁移**：私有持久化通过 `PixivFeaturePlugin.privateSchema()` 与 `privateStorageMigrations()` 声明，注入 `PluginDatabase` 使用 `read` / `transaction` 与 `Query` / `Expression` 无方言操作（支持 SQLite 与 PostgreSQL，以及通过 `DatabaseMigrationProvider` 的停机双向迁移）；参与宿主主库受管表或 `sharedMainStorage()` 协作时使用 `PluginMainDatabase`。旧 `PluginDataSource` 仅兼容 SQLite。
+  - **数据库与迁移**：私有持久化通过 `PixivFeaturePlugin.privateSchema()` 与 `privateStorageMigrations()` 声明，注入 `PluginDatabase` 使用 `read` / `transaction` 与 `Query` / `Expression` 无方言操作（支持 SQLite 与 PostgreSQL，以及通过 `DatabaseMigrationProvider` 的停机双向迁移）；参与宿主主库受管表或 `sharedMainStorage()` 协作时使用 `PluginMainDatabase`。
   - **下载任务与外部文件导入**：可选注册 `DownloadSubmissionHandler`、`DownloadOptionsHook`、`DownloadAdmissionPolicy` 与 `DownloadObserver` Bean（通过 `DownloadTasks.submit` / `DownloadLifecycle` 协作，解析请求身份须使用 `RequestOwnerIdentityResolver`）；只读外部文件登记使用 `WorkFileImporter`。
   - **生命周期验收**：发布前须在管理页逐项验证安装启动、`stop`（拒绝新工作、排空在途任务、撤回路由与能力）、`reload`（换代释放旧 ClassLoader）以及 `process-restart` 插件的完整退出重启生效边界。
+
+### 从 SDK 1.x 迁移
+
+SDK 2.x 使用 JDK 25、Spring 7、Servlet 6.1 与 Jackson 3。宿主按 SDK 主版本检查插件，SDK 1.x 包在安装和启动时被拒绝；仅修改 `plugin.requires` 不足以完成迁移，需要更新源码并重新构建。Spring 与 Jackson 类型由宿主提供，不将旧版本复制进插件包。
+
+| 已移除入口 | 使用方式 |
+| --- | --- |
+| `PluginDataSource` | 注入当前 owner 的 `PluginDatabase`，通过中性查询和事务操作私库 |
+| `TableSpec` 的 SQL 字符串 CHECK | 使用 `withCheck(Expression)`；已知旧约束由 `withPreviousChecks` 声明 |
+| `PixivPluginProvider.configurationClasses()` | 在 `plugin.properties` 的 `pixiv.configuration-classes` 声明配置类，并显式注册 `@Bean` |
+| `DesktopUiHost.resolveDatabasePath` | 使用中性 `databaseSettings()` 与工具命令，不假定数据库一定是文件 |
+| 默认语言策略构造入口 | 创建 `ResourceBundleMessageResolver` 时显式提供 `LocaleBundlePolicy` |
+| `X-Pixiv-Cookie`、计划 `authorize-cookie` / `revoke-cookie` | 使用 `X-Acquisition-Credential`；通过 `POST` / `DELETE /api/schedule/tasks/{id}/credential` 管理绑定，绑定时提交来源 `activationToken` |
+| 计划视图的 `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed` | 使用 `sourceType`、`runState`、`lastOutcome` / `outcomeCode` / `outcomeMessage`、`suspendReason` 与 `lastRunTime`；凭据状态读取 `credentialPolicy` |
+
+Jackson 数据绑定与流 API 的包名为 `tools.jackson.*`；注解仍使用 `com.fasterxml.jackson.annotation`。`HttpHeaders` 不再实现 `Map`，需要多值 Map 时调用 `asMultiValueMap()`。完成编译后验证插件装配、JSON 输入输出、持久化读写及停止和换代行为。
 
 ### HTTP 回调与页面表单
 

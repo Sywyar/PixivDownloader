@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -37,10 +37,10 @@ class RecoveryLaunchConfigurationTest {
                 .contains("--pixivdownload.recovery-sentinel.required=true");
         assertThat(xml(idea, "//option[@name='Maven.BeforeRunTask']/@goal"))
                 .contains("pixivdownload-app,pixivdownload-official-plugins", "-Precovery-mode", "process-classes");
-        var mapper = new ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var launches = mapper.readTree(root.resolve(".vscode/launch.json").toFile()).path("configurations");
         var launch = java.util.stream.StreamSupport.stream(launches.spliterator(), false)
-                .filter(node -> node.path("name").asText().equals("Missing Required Plugin")).findFirst().orElseThrow();
+                .filter(node -> node.path("name").asString().equals("Missing Required Plugin")).findFirst().orElseThrow();
         assertThat(launch.path("vmArgs").toString()).contains("-Dpixivdownload.plugin-dev.enabled=true");
         assertThat(launch.path("args").toString()).contains("--pixivdownload.recovery-sentinel.required=true");
         var tasks = mapper.readTree(root.resolve(".vscode/tasks.json").toFile()).path("tasks");

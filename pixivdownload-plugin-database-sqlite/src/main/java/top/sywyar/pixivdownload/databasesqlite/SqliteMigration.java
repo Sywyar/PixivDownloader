@@ -277,7 +277,7 @@ final class SqliteMigration {
             var ddlTable = new TableSpec(table.name(), table.columns().stream().map(c ->
                             new ColumnSpec(c.name(), c.type(), c.notNull(), c.defaultValue(), c.primaryKeyPosition(),
                                     c.autoIncrement() || generatedKey(table).map(k -> k.name().equals(c.name())).orElse(false)))
-                    .toList(), table.indexes(), table.checkExpression(), table.check());
+                    .toList(), table.indexes(), table.check());
             execute(connection, SqliteMigrationSchema.renderCreateTable(ddlTable));
             for (var index : table.indexes())
                 if (index.origin() == IndexOrigin.CREATE_INDEX)

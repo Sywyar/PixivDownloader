@@ -60,7 +60,7 @@ class ThinJarIT {
             assertFalse(entries.stream().anyMatch(name -> name.startsWith("lib/")));
             assertFalse(entries.stream().anyMatch(name -> name.startsWith("org/pf4j/")));
             assertFalse(entries.stream().anyMatch(name -> name.startsWith("org/springframework/")));
-            assertFalse(entries.stream().anyMatch(name -> name.startsWith("com/fasterxml/jackson/")));
+            assertFalse(entries.stream().anyMatch(name -> name.startsWith("com/fasterxml/jackson/") || name.startsWith("tools/jackson/")));
             assertFalse(entries.stream().anyMatch(name ->
                     name.startsWith("top/sywyar/pixivdownload/plugin/api/")));
             assertFalse(entries.stream().anyMatch(name ->
@@ -82,11 +82,14 @@ class ThinJarIT {
             assertInstanceOf(Plugin.class, instance);
             PixivPluginProvider provider = assertInstanceOf(PixivPluginProvider.class, instance);
             assertEquals("example-download", provider.featurePlugin().id());
-            assertEquals(List.of(
-                            "com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration"),
-                    provider.configurationClasses().stream().map(Class::getName).toList());
-            assertTrue(provider.configurationClasses().stream()
-                    .allMatch(configuration -> configuration.getClassLoader() == loader));
+            try (var jar = new JarFile(artifact.toFile());
+                 var reader = new InputStreamReader(jar.getInputStream(jar.getJarEntry("plugin.properties")), StandardCharsets.UTF_8)) {
+                var descriptor = new Properties();
+                descriptor.load(reader);
+                String className = descriptor.getProperty("pixiv.configuration-classes");
+                assertEquals("com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration", className);
+                assertEquals(loader, Class.forName(className, false, loader).getClassLoader());
+            }
             assertEquals(artifact.toUri(),
                     entrypoint.getProtectionDomain().getCodeSource().getLocation().toURI());
         }

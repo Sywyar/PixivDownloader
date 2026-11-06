@@ -1,12 +1,14 @@
 package top.sywyar.pixivdownload.download.schedule.persistence.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskSnapshot;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
@@ -23,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Pixiv 旧计划任务迁移适配器")
 class PixivLegacyScheduledTaskMigrationAdapterTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     private PixivSchedulePersistenceCodec codec;
     private PixivLegacyScheduledTaskMigrationAdapter adapter;
 
@@ -151,9 +153,9 @@ class PixivLegacyScheduledTaskMigrationAdapterTest {
                         top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation.empty());
                 assertThat(item.reasonCode()).isEqualTo(PixivLegacyScheduledTaskMigrationAdapter.LEGACY_PENDING_REASON);
                 try {
-                    assertThat(objectMapper.readTree(item.reasonDetailJson()).path("legacyReason").asText())
+                    assertThat(objectMapper.readTree(item.reasonDetailJson()).path("legacyReason").asString())
                             .isEqualTo("network failed");
-                } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                } catch (JacksonException e) {
                     throw new AssertionError(e);
                 }
                 assertThat(item.attempts()).isEqualTo(3);
@@ -182,24 +184,24 @@ class PixivLegacyScheduledTaskMigrationAdapterTest {
             assertThat(rejected.code())
                     .isEqualTo(PixivLegacyScheduledTaskMigrationAdapter.REJECTION_AMBIGUOUS_WORK_TYPE);
             try {
-                com.fasterxml.jackson.databind.JsonNode detail =
+                tools.jackson.databind.JsonNode detail =
                         objectMapper.readTree(rejected.safeDetailJson());
-                assertThat(detail.path("taskId").asText()).isEqualTo("7");
-                assertThat(detail.path("legacySourceType").asText()).isEqualTo("COLLECTION");
-                assertThat(detail.path("reasonCode").asText())
+                assertThat(detail.path("taskId").asString()).isEqualTo("7");
+                assertThat(detail.path("legacySourceType").asString()).isEqualTo("COLLECTION");
+                assertThat(detail.path("reasonCode").asString())
                         .isEqualTo("collection-pending-work-type-unknown");
                 assertThat(detail.path("legacyDataPreserved").asBoolean()).isTrue();
                 assertThat(detail.path("pendingCount").asInt()).isEqualTo(1);
-                assertThat(detail.path("pending").get(0).path("workId").asText()).isEqualTo("42");
+                assertThat(detail.path("pending").get(0).path("workId").asString()).isEqualTo("42");
                 assertThat(detail.path("pending").get(0).path("attempts").asInt()).isEqualTo(1);
-                assertThat(detail.path("pending").get(0).path("firstSeenTime").asText()).isEqualTo("10");
-                assertThat(detail.path("pending").get(0).path("lastAttemptTime").asText()).isEqualTo("20");
+                assertThat(detail.path("pending").get(0).path("firstSeenTime").asString()).isEqualTo("10");
+                assertThat(detail.path("pending").get(0).path("lastAttemptTime").asString()).isEqualTo("20");
                 assertThat(rejected.safeDetailJson())
                         .doesNotContain(
                                 "definition-secret", "pending-secret", "definitionJson", "collectionId", "opaque");
                 assertThat(detail.has("reason")).isFalse();
                 assertThat(detail.path("pending").get(0).has("reason")).isFalse();
-            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            } catch (JacksonException e) {
                 throw new AssertionError(e);
             }
         });

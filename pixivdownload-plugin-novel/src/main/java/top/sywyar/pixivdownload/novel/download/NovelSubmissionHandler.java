@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
@@ -10,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmissio
 import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
-import java.io.IOException;
 import java.net.URI;
 import java.util.Set;
 
@@ -50,7 +50,7 @@ public final class NovelSubmissionHandler implements DownloadSubmissionHandler {
             request.getOther().setPathOverflowAction(options.get("pathOverflowAction"));
             if (options.containsKey("format")) request.getOther().setFormat(options.get("format"));
             downloads.submit(attempt, request, null);
-        } catch (IOException failure) {
+        } catch (JacksonException failure) {
             throw new DownloadTaskException(DownloadTaskException.Code.REJECTED);
         }
     }

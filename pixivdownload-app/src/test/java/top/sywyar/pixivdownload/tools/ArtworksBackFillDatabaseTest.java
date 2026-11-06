@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
@@ -70,7 +70,7 @@ class ArtworksBackFillDatabaseTest {
             sql.execute("CREATE TABLE absent_plugin(id INTEGER PRIMARY KEY,body TEXT)");
             sql.execute("INSERT INTO absent_plugin VALUES(2,'plugin data')");
         }
-        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), new ObjectMapper());
+        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), JsonMapper.builderWithJackson2Defaults().build());
         try (var database = ArtworksBackFillDatabase.open(target)) {
             assertThat(database.findCandidates(1, unreachable).candidates()).hasSize(1);
         }
@@ -101,8 +101,8 @@ class ArtworksBackFillDatabaseTest {
                     + "VALUES(2,'fixture','folder',1,'png',2,1)");
             sql.executeUpdate("INSERT INTO manga_series(series_id,title,updated_time) VALUES(8,'current-series',1)");
         }
-        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), new ObjectMapper());
-        var result = ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree("""
+        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), JsonMapper.builderWithJackson2Defaults().build());
+        var result = ArtworksBackFillPixivClient.parsePayload(JsonMapper.builderWithJackson2Defaults().build().readTree("""
                 {"userId":42,"description":"filled","xRestrict":0,
                  "seriesNavData":{"seriesId":7,"order":3,"title":"old-series"}}
                 """), null, false);
@@ -278,7 +278,7 @@ class ArtworksBackFillDatabaseTest {
 
         ArtworksBackFillUnreachableStore unreachable = ArtworksBackFillUnreachableStore.load(
                 directory.resolve("unreachable.json"),
-                new ObjectMapper()
+                JsonMapper.builderWithJackson2Defaults().build()
         );
         unreachable.record(1, "HTTP 404");
 

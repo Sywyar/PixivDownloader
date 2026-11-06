@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule.db.migration;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
@@ -525,7 +525,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
     private String serialize(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalArgumentException("schedule migration value is not serializable");
         }
     }
@@ -533,7 +533,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
     private void validateJson(String value, String label) {
         try {
             objectMapper.readTree(value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalArgumentException(label + " is not valid JSON");
         }
     }

@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.core.metadata;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.DeserializationFeature;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -108,9 +108,9 @@ public class WorkDescriptionRepairTask implements MaintenanceTask {
                     || document.path("schemaVersion").intValue() != 1
                     || !document.path("workId").isIntegralNumber() || !document.path("workId").canConvertToLong()
                     || document.path("workId").longValue() != id
-                    || !type.name().equals(document.path("workType").asText())
-                    || !document.path("raw").path("description").isTextual()) return null;
-            String raw = document.path("raw").path("description").textValue();
+                    || !type.name().equals(document.path("workType").asString())
+                    || !document.path("raw").path("description").isString()) return null;
+            String raw = document.path("raw").path("description").stringValue();
             checkInterrupted();
             String replacement = PixivDescriptionHtml.normalizeLinks(raw);
             checkInterrupted();
@@ -121,7 +121,7 @@ public class WorkDescriptionRepairTask implements MaintenanceTask {
             String twice = LegacyDescriptionHtml.normalizeLinks(once);
             checkInterrupted();
             return previous.equals(twice) ? replacement : null;
-        } catch (JsonProcessingException | IllegalArgumentException invalid) {
+        } catch (JacksonException | IllegalArgumentException invalid) {
             return null;
         }
     }

@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.download.state;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution;
 
 import java.io.*;
@@ -13,8 +14,10 @@ import java.util.List;
 /** 只保留工作台的保存偏好与手动队列，恢复后由用户主动开始。 */
 public final class BatchStateTransfer implements EnvironmentFileContribution {
     private static final int MAX_BYTES = 8 * 1024 * 1024;
-    private static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private static final List<String> PREFERENCES = List.of("pixiv_mode", "pixiv_search_filters",
             "pixiv_search_blur_r18", "pixiv_search_submode", "pixiv_user_input");
     private static final List<String> EXECUTION = List.of("taskId", "taskPhase", "taskMissing", "taskObserved",
@@ -54,7 +57,7 @@ public final class BatchStateTransfer implements EnvironmentFileContribution {
                     ObjectNode item = object(node);
                     if (item.path("taskObserved").asBoolean(false)) continue;
                     item.remove(EXECUTION);
-                    if (!List.of("completed", "skipped", "failed").contains(item.path("status").asText()))
+                    if (!List.of("completed", "skipped", "failed").contains(item.path("status").asString()))
                         item.put("status", "idle");
                     items.add(item);
                 }
@@ -64,11 +67,13 @@ public final class BatchStateTransfer implements EnvironmentFileContribution {
                 result.put("pixiv_batch_queue", JSON.writeValueAsString(paused));
             }
             output.write(JSON.writeValueAsBytes(result));
+        } catch (JacksonException invalid) {
+            throw new IOException("transfer.file-invalid", invalid);
         } finally { java.util.Arrays.fill(bytes, (byte) 0); }
     }
 
     private static ObjectNode storedObject(JsonNode node) throws IOException {
-        return object(node.isTextual() ? JSON.readTree(node.textValue()) : node);
+        return object(node.isString() ? JSON.readTree(node.stringValue()) : node);
     }
     private static ObjectNode object(JsonNode node) throws IOException {
         if (!(node instanceof ObjectNode object)) throw new IOException("transfer.file-invalid");

@@ -1,18 +1,19 @@
 package top.sywyar.pixivdownload.sdk.community.format;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.core.exc.StreamConstraintsException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.exc.StreamConstraintsException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SchemaRegistryConfig;
 import com.networknt.schema.SpecificationVersion;
 import org.erdtman.jcs.JsonCanonicalizer;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,14 +33,14 @@ public final class CommunityJson {
     public static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     public static final String SCHEMA_ID = "urn:pixivdownloader:community:v1";
     private static final BigDecimal SAFE = BigDecimal.valueOf(MAX_SAFE_INTEGER);
-    private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    private static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(MAX_DEPTH)
                     .maxStringLength(MAX_STRING_UNITS).maxNameLength(MAX_STRING_UNITS)
-                    .maxNumberLength(1024 * 1024).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .maxNumberLength(1024 * 1024).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
     private static final SchemaRegistry SCHEMAS = schemas();
 
     private CommunityJson() { }
@@ -72,7 +73,7 @@ public final class CommunityJson {
         public String sha256() { return CommunityJson.sha256(bytes); }
         public <T> T as(Class<T> type) {
             try { return JSON.treeToValue(value, type); }
-            catch (IOException e) { throw new ContractException("SCHEMA_INVALID", ""); }
+            catch (JacksonException e) { throw new ContractException("SCHEMA_INVALID", ""); }
         }
     }
 
@@ -91,7 +92,7 @@ public final class CommunityJson {
         JsonNode node = strictTree(bytes, maximumBytes);
         validateStructure(definition, node);
         try { return JSON.treeToValue(node, type); }
-        catch (IOException e) { throw new ContractException("SCHEMA_INVALID", ""); }
+        catch (JacksonException e) { throw new ContractException("SCHEMA_INVALID", ""); }
     }
 
     /** 独立报告的读取预算由执行器提供；共享结构不另设报告条数或文件大小门槛。 */
@@ -119,7 +120,7 @@ public final class CommunityJson {
             return node;
         } catch (StreamConstraintsException e) {
             throw new ContractException("LIMIT_EXCEEDED", "");
-        } catch (IOException | ArithmeticException e) {
+        } catch (IOException | JacksonException | ArithmeticException e) {
             throw new ContractException("SCHEMA_INVALID", "");
         }
     }
@@ -141,7 +142,7 @@ public final class CommunityJson {
             inspect(tree, "");
             return JSON.writeValueAsString(tree).getBytes(StandardCharsets.UTF_8);
         }
-        catch (IOException e) { throw new ContractException("SCHEMA_INVALID", ""); }
+        catch (JacksonException e) { throw new ContractException("SCHEMA_INVALID", ""); }
     }
 
     public static String sha256(byte[] bytes) {
@@ -154,14 +155,14 @@ public final class CommunityJson {
     }
 
     private static void inspect(JsonNode node, String field) {
-        if (node.isTextual()) inspectString(node.textValue(), field);
+        if (node.isString()) inspectString(node.stringValue(), field);
         if (node.isNumber()) {
             BigDecimal value = node.decimalValue();
             if (value.abs().compareTo(SAFE) > 0 || value.stripTrailingZeros().scale() > 0) {
                 throw new ContractException("SCHEMA_INVALID", field, Map.of("expected", "safe-integer"));
             }
         }
-        if (node.isObject()) node.fields().forEachRemaining(entry -> {
+        if (node.isObject()) node.properties().iterator().forEachRemaining(entry -> {
             inspectString(entry.getKey(), field);
             inspect(entry.getValue(), field + "/" + entry.getKey().replace("~", "~0").replace("/", "~1"));
         });

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.credential;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
@@ -127,7 +127,7 @@ class PixivScheduledCredentialPolicyTest {
     @DisplayName("任务展示状态完全由 Pixiv 策略解释并保留已确认事件时间")
     void taskPresentationOwnsPixivCredentialState() {
         PixivSchedulePersistenceCodec codec =
-                new PixivSchedulePersistenceCodec(new ObjectMapper());
+                new PixivSchedulePersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
 
@@ -149,7 +149,7 @@ class PixivScheduledCredentialPolicyTest {
     @DisplayName("忽略风险动作返回纯值 CAS 计划并以最新警告时间确认全部同账号任务")
     void ignoreRiskReturnsStateCasPlan() {
         PixivSchedulePersistenceCodec codec =
-                new PixivSchedulePersistenceCodec(new ObjectMapper());
+                new PixivSchedulePersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
         List<ScheduledCredentialTaskSnapshot> tasks = List.of(
@@ -181,7 +181,7 @@ class PixivScheduledCredentialPolicyTest {
         PixivScheduleSettings settings = new PixivScheduleSettings();
         settings.setOveruseDeferDefaultMinutes(120);
         PixivSchedulePersistenceCodec codec =
-                new PixivSchedulePersistenceCodec(new ObjectMapper());
+                new PixivSchedulePersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, settings);
         List<ScheduledCredentialTaskSnapshot> tasks = List.of(new ScheduledCredentialTaskSnapshot(
@@ -238,7 +238,7 @@ class PixivScheduledCredentialPolicyTest {
     private static PixivScheduledCredentialPolicy policy(OveruseWarningService warningService) {
         return new PixivScheduledCredentialPolicy(
                 warningService,
-                new PixivSchedulePersistenceCodec(new ObjectMapper()),
+                new PixivSchedulePersistenceCodec(JsonMapper.builderWithJackson2Defaults().build()),
                 new PixivScheduleSettings());
     }
 

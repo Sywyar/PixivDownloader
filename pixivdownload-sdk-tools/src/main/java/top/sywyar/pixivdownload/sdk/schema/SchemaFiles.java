@@ -1,14 +1,14 @@
 package top.sywyar.pixivdownload.sdk.schema;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding;
 
 import java.io.IOException;
@@ -23,19 +23,19 @@ import java.util.Set;
 public final class SchemaFiles {
     static final String DIALECT = "https://json-schema.org/draft/2020-12/schema";
     static final int MAX_BYTES = 1024 * 1024;
-    static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
 
     private SchemaFiles() { }
 
     /** 校验独立 JSON 样本；无效数据抛出稳定错误码，不包含样本正文。 */
     public static void check(Path schema, Path data) throws IOException {
         JsonNode definition = read(schema);
-        if (!DIALECT.equals(definition.path("$schema").asText())) throw new IOException("SDK_SCHEMA_DIALECT");
+        if (!DIALECT.equals(definition.path("$schema").asString())) throw new IOException("SDK_SCHEMA_DIALECT");
         new Shape(definition).check();
         var validator = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(definition);
         JsonNode input = read(data);
@@ -47,18 +47,18 @@ public final class SchemaFiles {
     private static void checkEncoding(JsonNode root, JsonNode schema, JsonNode value, int[] nodes, int depth) throws IOException {
         if (++nodes[0] > 16384 || depth > 32) throw new IOException("SDK_SCHEMA_DATA_LIMIT");
         if (value == null || value.isNull()) return;
-        if (schema.has("$ref")) { checkEncoding(root, root.path("$defs").path(schema.path("$ref").asText().substring(8)), value, nodes, depth + 1); return; }
+        if (schema.has("$ref")) { checkEncoding(root, root.path("$defs").path(schema.path("$ref").asString().substring(8)), value, nodes, depth + 1); return; }
         if (schema.has("anyOf")) { checkEncoding(root, schema.path("anyOf").get(0), value, nodes, depth + 1); return; }
         if (schema.has("x-encoding")) {
             try {
-                Object decoded = encoding(schema).decode(value.textValue());
-                if (decoded instanceof Long number && (number < Long.parseLong(schema.path("x-minimum").asText())
-                        || number > Long.parseLong(schema.path("x-maximum").asText()))) throw new IllegalArgumentException();
+                Object decoded = encoding(schema).decode(value.stringValue());
+                if (decoded instanceof Long number && (number < Long.parseLong(schema.path("x-minimum").asString())
+                        || number > Long.parseLong(schema.path("x-maximum").asString()))) throw new IllegalArgumentException();
             } catch (IllegalArgumentException failure) { throw new IOException("SDK_SCHEMA_DATA_INVALID"); }
         } else if (value.isArray()) {
             for (JsonNode item : value) checkEncoding(root, schema.path("items"), item, nodes, depth + 1);
         } else if (value.isObject()) {
-            var fields = value.fields();
+            var fields = value.properties().iterator();
             while (fields.hasNext()) {
                 var field = fields.next();
                 checkEncoding(root, schema.has("properties") ? schema.path("properties").path(field.getKey())
@@ -69,11 +69,11 @@ public final class SchemaFiles {
 
     private static ValueEncoding encoding(JsonNode schema) throws IOException {
         try {
-            ValueEncoding encoding = ValueEncoding.valueOf(schema.path("x-encoding").asText());
+            ValueEncoding encoding = ValueEncoding.valueOf(schema.path("x-encoding").asString());
             if (encoding == ValueEncoding.JSON) throw new IllegalArgumentException();
             if (encoding == ValueEncoding.DECIMAL_STRING) {
-                long min = (Long) encoding.decode(schema.path("x-minimum").asText());
-                long max = (Long) encoding.decode(schema.path("x-maximum").asText());
+                long min = (Long) encoding.decode(schema.path("x-minimum").asString());
+                long max = (Long) encoding.decode(schema.path("x-maximum").asString());
                 if (min > max) throw new IllegalArgumentException();
             } else if (schema.has("x-minimum") || schema.has("x-maximum")) throw new IllegalArgumentException();
             return encoding;
@@ -95,13 +95,13 @@ public final class SchemaFiles {
             for (JsonNode record : definitions) {
                 charge();
                 keys(record, Set.of("type", "properties", "additionalProperties", "required"));
-                if (record.size() != 4 || !record.path("type").asText().equals("object")
+                if (record.size() != 4 || !record.path("type").asString().equals("object")
                         || !record.path("properties").isObject() || !record.path("required").isArray()
                         || !record.path("additionalProperties").isBoolean() || record.path("additionalProperties").booleanValue()) throw invalid();
                 Set<String> required = new HashSet<>();
                 for (JsonNode name : record.path("required")) {
                     charge();
-                    if (!name.isTextual() || !record.path("properties").has(name.textValue()) || !required.add(name.textValue())) throw invalid();
+                    if (!name.isString() || !record.path("properties").has(name.stringValue()) || !required.add(name.stringValue())) throw invalid();
                 }
                 for (JsonNode property : record.path("properties")) value(property, true);
             }
@@ -115,7 +115,7 @@ public final class SchemaFiles {
                 JsonNode alternatives = schema.path("anyOf");
                 if (!nullable || !alternatives.isArray() || alternatives.size() != 2
                         || !alternatives.get(1).isObject() || alternatives.get(1).size() != 1
-                        || !alternatives.get(1).path("type").asText().equals("null")) throw invalid();
+                        || !alternatives.get(1).path("type").asString().equals("null")) throw invalid();
                 value(alternatives.get(0), false);
                 return;
             }
@@ -124,7 +124,7 @@ public final class SchemaFiles {
                 reference(schema.get("$ref"));
                 return;
             }
-            switch (schema.path("type").asText()) {
+            switch (schema.path("type").asString()) {
                 case "string" -> {
                     keys(schema, Set.of("type", "enum", "minLength", "maxLength", "x-encoding", "x-minimum", "x-maximum"));
                     if (schema.has("x-encoding")) encoding(schema);
@@ -132,7 +132,7 @@ public final class SchemaFiles {
                     bounds(schema, "minLength", "maxLength");
                     if (schema.has("enum")) {
                         if (!schema.get("enum").isArray() || schema.get("enum").isEmpty()) throw invalid();
-                        for (JsonNode item : schema.get("enum")) { charge(); if (!item.isTextual()) throw invalid(); }
+                        for (JsonNode item : schema.get("enum")) { charge(); if (!item.isString()) throw invalid(); }
                     }
                 }
                 case "integer" -> {
@@ -156,8 +156,8 @@ public final class SchemaFiles {
         }
 
         private void reference(JsonNode value) throws IOException {
-            if (!value.isTextual() || !value.asText().startsWith("#/$defs/")) throw new IOException("SDK_SCHEMA_REFERENCE");
-            String name = value.asText().substring("#/$defs/".length());
+            if (!value.isString() || !value.asString().startsWith("#/$defs/")) throw new IOException("SDK_SCHEMA_REFERENCE");
+            String name = value.asString().substring("#/$defs/".length());
             if (name.isEmpty() || name.contains("/") || name.contains("~") || name.contains("%") || !definitions.has(name)) {
                 throw new IOException("SDK_SCHEMA_REFERENCE");
             }
@@ -166,7 +166,7 @@ public final class SchemaFiles {
         private void charge() throws IOException { if (++nodes > 16_384) throw new IOException("SDK_SCHEMA_NODE_LIMIT"); }
         private static void keys(JsonNode node, Set<String> allowed) throws IOException {
             if (!node.isObject()) throw invalid();
-            var names = node.fieldNames();
+            var names = node.propertyNames().iterator();
             while (names.hasNext()) if (!allowed.contains(names.next())) throw invalid();
         }
         private static void bounds(JsonNode node, String minimum, String maximum) throws IOException {
@@ -186,7 +186,7 @@ public final class SchemaFiles {
             JsonNode value;
             try {
                 value = JSON.readTree(bytes);
-            } catch (JsonProcessingException failure) {
+            } catch (JacksonException failure) {
                 var location = failure.getLocation();
                 String position = location == null ? "" : ": line=" + Math.max(0, location.getLineNr())
                         + ", column=" + Math.max(0, location.getColumnNr());

@@ -165,8 +165,8 @@ class SchemaGeneratorTest {
         Path project = source("shape", "@ValueSchema public record Request(@ValueProperty(required=true, nullable=true) String value) {}");
         generate(project);
         Path schema = schema(project, "Request");
-        var root = (com.fasterxml.jackson.databind.node.ObjectNode) SchemaFiles.read(schema);
-        var properties = (com.fasterxml.jackson.databind.node.ObjectNode) root.path("$defs").path("unknown.contract.Request").path("properties");
+        var root = (tools.jackson.databind.node.ObjectNode) SchemaFiles.read(schema);
+        var properties = (tools.jackson.databind.node.ObjectNode) root.path("$defs").path("unknown.contract.Request").path("properties");
         for (String invalid : List.of(
                 "{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"boolean\"}]}",
                 "{\"anyOf\":[{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}]},{\"type\":\"null\"}]}",
@@ -176,7 +176,7 @@ class SchemaGeneratorTest {
             assertThatThrownBy(() -> check(schema, "{}")).hasMessageContaining("SDK_SCHEMA_DOCUMENT_INVALID");
         }
         properties.removeAll();
-        ((com.fasterxml.jackson.databind.node.ArrayNode) root.path("$defs").path("unknown.contract.Request").path("required")).removeAll();
+        ((tools.jackson.databind.node.ArrayNode) root.path("$defs").path("unknown.contract.Request").path("required")).removeAll();
         for (int i = 0; i < 16_384; i++) properties.putObject("value" + i).put("type", "boolean");
         Files.writeString(schema, root.toString(), StandardCharsets.UTF_8);
         assertThatThrownBy(() -> check(schema, "{}")).hasMessageContaining("SDK_SCHEMA_NODE_LIMIT");

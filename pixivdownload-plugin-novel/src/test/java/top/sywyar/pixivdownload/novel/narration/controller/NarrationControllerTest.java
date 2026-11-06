@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -251,7 +251,7 @@ class NarrationControllerTest {
                 """);
         when(mapper.findNarrationScript(7L, "")).thenReturn(cached, null);
         var service = new NovelNarrationScriptService(castService, novelDatabase, mapper, audioService,
-                referenceVoiceService, new ObjectMapper());
+                referenceVoiceService, JsonMapper.builderWithJackson2Defaults().build());
         var realController = new NarrationController(service, castService, referenceVoiceService, audioService,
                 novelDatabase, NovelTestMessages.messageResolver(), debugSettings, aiChatClient);
 

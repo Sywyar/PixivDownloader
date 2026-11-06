@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.sdk.schema;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.sun.source.util.Trees;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.contract.remote.*;
 import top.sywyar.pixivdownload.plugin.api.web.*;
 
@@ -45,7 +46,7 @@ final class RemoteSource {
             entry.set("request", input); entry.set("response", output);
             // 逐操作累计，避免同一大 record 在许多操作中复制后才检查整个描述大小。
             try { descriptionBytes += SchemaFiles.JSON.writeValueAsBytes(entry).length; }
-            catch (java.io.IOException failure) { throw invalid(); }
+            catch (JacksonException failure) { throw invalid(); }
             if (descriptionBytes > SchemaFiles.MAX_BYTES) throw new IllegalArgumentException("SDK_REMOTE_OUTPUT_LIMIT");
         }
         if (operations.isEmpty()) throw invalid();
@@ -54,7 +55,7 @@ final class RemoteSource {
 
     private static void check(ObjectNode schema, ProcessingEnvironment environment) {
         if (!schema.has("$ref") || !schema.has("$defs")) throw invalid();
-        var names = schema.path("$defs").fieldNames();
+        var names = schema.path("$defs").propertyNames().iterator();
         while (names.hasNext()) {
             TypeElement record = environment.getElementUtils().getTypeElement(names.next());
             annotations(record);
@@ -83,20 +84,20 @@ final class RemoteSource {
     }
 
     private static void values(JsonNode node) {
-        if (node.isObject() && node.path("type").asText().equals("integer")
+        if (node.isObject() && node.path("type").asString().equals("integer")
                 && (node.path("minimum").bigIntegerValue().compareTo(SAFE.negate()) < 0
                 || node.path("maximum").bigIntegerValue().compareTo(SAFE) > 0))
             throw new IllegalArgumentException("SDK_REMOTE_UNSAFE_INTEGER");
         if (node.has("properties")) {
-            var fields = node.path("properties").fields();
+            var fields = node.path("properties").properties().iterator();
             while (fields.hasNext()) {
                 var field = fields.next();
                 boolean required = false;
-                for (JsonNode name : node.path("required")) if (name.asText().equals(field.getKey())) required = true;
+                for (JsonNode name : node.path("required")) if (name.asString().equals(field.getKey())) required = true;
                 if (!required && !field.getValue().has("anyOf")) throw new IllegalArgumentException("SDK_REMOTE_OPTIONAL_NON_NULL");
             }
         }
-        if (node.isContainerNode()) node.forEach(RemoteSource::values);
+        if (node.isContainer()) node.forEach(RemoteSource::values);
     }
     private static IllegalArgumentException invalid() { return new IllegalArgumentException("SDK_REMOTE_CONTRACT_INVALID"); }
 }

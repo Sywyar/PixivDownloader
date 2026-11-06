@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.resource;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.jsoup.Jsoup;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -127,7 +128,7 @@ class StaticResourceVersioningTest {
     }
 
     private PagePublications.Published publication(String pageId, String title) throws Exception {
-        return published(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+        return published(JsonMapper.builderWithJackson2Defaults().build().createObjectNode()
                 .put("pageId", pageId).put("title", title).toString());
     }
     private PagePublications.Published published(String projection) {

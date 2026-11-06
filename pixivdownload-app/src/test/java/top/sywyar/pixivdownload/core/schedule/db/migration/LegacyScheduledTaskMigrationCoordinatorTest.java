@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.schedule.db.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -888,7 +888,7 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
             DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
             LegacyScheduledTaskMigrationCoordinator coordinator =
                     new LegacyScheduledTaskMigrationCoordinator(
-                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), new ObjectMapper(),
+                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), JsonMapper.builderWithJackson2Defaults().build(),
                             new TransactionTemplate(transactionManager), faultInjector, registry);
             return new AuthorizedMigration(coordinator, registry, reservation);
         }

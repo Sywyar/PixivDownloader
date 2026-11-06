@@ -1,12 +1,11 @@
 package top.sywyar.pixivdownload.translation;
-
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
@@ -59,7 +58,7 @@ class AiNovelTranslationServiceSegmentTest {
         JsonNode second = requestGlossary(requests.getAllValues().get(1));
         assertThat(second.size()).isEqualTo(1000);
         var sources = new java.util.ArrayList<String>();
-        second.forEach(term -> sources.add(term.path("source").asText()));
+        second.forEach(term -> sources.add(term.path("source").asString()));
         assertThat(sources).contains("source-0", "source-" + (initialCount - 1));
         assertThat(sources.contains("new-1")).isEqualTo(firstIncluded);
         assertThat(sources.contains("new-2")).isEqualTo(secondIncluded);
@@ -70,7 +69,7 @@ class AiNovelTranslationServiceSegmentTest {
 
     private static JsonNode requestGlossary(List<AiChatMessage> messages) throws Exception {
         String user = messages.get(1).content();
-        return new ObjectMapper().readTree(user.substring(user.indexOf('['), user.lastIndexOf(']') + 1));
+        return JsonMapper.builderWithJackson2Defaults().build().readTree(user.substring(user.indexOf('['), user.lastIndexOf(']') + 1));
     }
 
     @Test

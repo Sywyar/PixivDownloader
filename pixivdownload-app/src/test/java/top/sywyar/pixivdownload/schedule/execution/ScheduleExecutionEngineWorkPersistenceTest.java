@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
@@ -175,7 +176,7 @@ class ScheduleExecutionEngineWorkPersistenceTest extends ScheduleExecutionEngine
     @DisplayName("来源可先用纯本地终态清理 pending 且不计作品尝试或批次 Guard")
     void sourceClearsLocallyCompletedPendingBeforeReplay() throws Exception {
         ScheduledTaskStore store = storeWithCredential();
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(objectMapper);
         ScheduledWork pendingWork = work("pending-001");
         ScheduledPendingWork pending = codec.toPendingWork(
@@ -217,7 +218,7 @@ class ScheduleExecutionEngineWorkPersistenceTest extends ScheduleExecutionEngine
     void alwaysPendingRunsBeforeSourceFailure() throws Exception {
         ScheduledTaskStore store = storeWithCredential();
         ScheduleWorkPersistenceCodec codec =
-                new ScheduleWorkPersistenceCodec(new ObjectMapper());
+                new ScheduleWorkPersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
         ScheduledWork pendingWork = work("retry-before-source");
         when(store.listPendingWork(1L)).thenReturn(List.of(codec.toPendingWork(
                 1L, pendingWork, "fixture.retry", "{}", 1, 1L, 2L)));
@@ -428,7 +429,7 @@ class ScheduleExecutionEngineWorkPersistenceTest extends ScheduleExecutionEngine
     @DisplayName("pending 跨过重试上限后即使末尾 Guard 失败仍上报事件")
     void pendingExhaustionEventSurvivesLaterFailure() throws Exception {
         ScheduledTaskStore store = storeWithCredential();
-        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(new ObjectMapper());
+        ScheduleWorkPersistenceCodec codec = new ScheduleWorkPersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
         ScheduledPendingWork pending = codec.toPendingWork(
                 1L, work("retry-001"), "fixture.retry", "{}", 4, 1L, 2L);
         when(store.listPendingWork(1L)).thenReturn(List.of(pending));

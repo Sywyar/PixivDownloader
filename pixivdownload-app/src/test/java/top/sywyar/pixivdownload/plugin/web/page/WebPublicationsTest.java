@@ -103,8 +103,8 @@ class WebPublicationsTest {
 
     PagePublications.Change withoutComponent(String page) throws Exception {
         var view = WebPublicationStore.JSON.readTree(change().projection());
-        ((com.fasterxml.jackson.databind.node.ObjectNode) view).put("pageId", page);
-        ((com.fasterxml.jackson.databind.node.ObjectNode) view.path("body").path("children").get(0)).putArray("children");
+        ((tools.jackson.databind.node.ObjectNode) view).put("pageId", page);
+        ((tools.jackson.databind.node.ObjectNode) view.path("body").path("children").get(0)).putArray("children");
         return new PagePublications.Change(page, change().document(), view.toString());
     }
 
@@ -160,19 +160,19 @@ class WebPublicationsTest {
         var fixture = fixture();
         var original = WebPublicationStore.JSON.readTree(change().projection());
         var unsafe = original.deepCopy();
-        var children = (com.fasterxml.jackson.databind.node.ArrayNode) unsafe.path("body").path("children");
+        var children = (tools.jackson.databind.node.ArrayNode) unsafe.path("body").path("children");
         children.addObject().put("type", "page-box").put("role", "script");
         var unsafeChange = new PagePublications.Change(change().page(), change().document(), unsafe.toString());
         assertThatThrownBy(() -> fixture.publications().prepare(0, List.of(unsafeChange))).hasMessage("PAGE_NODE_INVALID");
         var missing = original.deepCopy();
-        ((com.fasterxml.jackson.databind.node.ArrayNode) missing.path("body").path("children")).removeAll();
+        ((tools.jackson.databind.node.ArrayNode) missing.path("body").path("children")).removeAll();
         var missingChange = new PagePublications.Change(change().page(), change().document(), missing.toString());
         assertThatThrownBy(() -> fixture.publications().prepare(0, List.of(missingChange))).hasMessage("PAGE_REQUIRED_REGION");
         var duplicate = original.deepCopy();
-        ((com.fasterxml.jackson.databind.node.ArrayNode) duplicate.path("body").path("children")).add(original.path("body").path("children").get(0).deepCopy());
+        ((tools.jackson.databind.node.ArrayNode) duplicate.path("body").path("children")).add(original.path("body").path("children").get(0).deepCopy());
         var duplicateChange = new PagePublications.Change(change().page(), change().document(), duplicate.toString());
         assertThatThrownBy(() -> fixture.publications().prepare(0, List.of(duplicateChange))).hasMessage("PAGE_REGION_DUPLICATE");
-        var cycle = (com.fasterxml.jackson.databind.node.ObjectNode) original.deepCopy();
+        var cycle = (tools.jackson.databind.node.ObjectNode) original.deepCopy();
         cycle.putArray("connections").addObject().put("from", "one").put("to", "one").put("output", "value").put("input", "value");
         var cycleChange = new PagePublications.Change(change().page(), change().document(), cycle.toString());
         assertThatThrownBy(() -> fixture.publications().prepare(0, List.of(cycleChange))).hasMessage("PAGE_CONNECTION_CYCLE");

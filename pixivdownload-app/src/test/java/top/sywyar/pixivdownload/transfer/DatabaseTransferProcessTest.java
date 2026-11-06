@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures;
@@ -12,7 +13,7 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("数据库归档的真实导出、预览与停机替换")
 class DatabaseTransferProcessTest {
     @TempDir Path root;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
@@ -36,7 +37,7 @@ class DatabaseTransferProcessTest {
         byte[] configBefore = Files.readAllBytes(target.resolve("config/config.yaml"));
         assertRun(target, "preview", archive);
         var preview = json.readTree(target.resolve("preview.json").toFile());
-        assertThat(preview.path("databaseFailure").asText()).isEmpty();
+        assertThat(preview.path("databaseFailure").asString()).isEmpty();
         assertThat(preview.path("databases")).hasSize(privateStore ? 2 : 1);
         assertThat(preview.path("databases").get(0).path("replacesExisting").asBoolean()).isTrue();
         assertThat(Files.readAllBytes(target.resolve("config/config.yaml"))).isEqualTo(configBefore);
@@ -49,11 +50,11 @@ class DatabaseTransferProcessTest {
         assertThat(tag(target.resolve("main.db"))).isEqualTo("目标旧数据");
         assertRun(target, "run", archive);
         var job = json.readTree(target.resolve("data/environment-transfers/pending.json").toFile());
-        assertThat(job.path("status").asText()).isEqualTo("SUCCEEDED");
+        assertThat(job.path("status").asString()).isEqualTo("SUCCEEDED");
         assertThat(tag(target.resolve("main.db"))).isEqualTo("归档 🌸");
         assertThat(json.readTree(target.resolve("state/gui/window-state.json").toFile()).path("width").intValue()).isEqualTo(1280);
         assertThat(Files.readString(target.resolve("state/neutral-migration/preferences.txt"))).isEqualTo("owner-declared state");
-        assertThat(tag(target.resolve("data/environment-transfers").resolve(job.path("id").asText()).resolve("database-backups/host.backup")))
+        assertThat(tag(target.resolve("data/environment-transfers").resolve(job.path("id").asString()).resolve("database-backups/host.backup")))
                 .isEqualTo("目标旧数据");
         assertThat(Files.readString(target.resolve("config/config.yaml"))).contains("server.port: 8111").contains(target.resolve("main.db").toString().replace("\\", "\\\\"));
         assertThat(tag(source.resolve("main.db"))).isEqualTo("归档 🌸");
@@ -71,7 +72,7 @@ class DatabaseTransferProcessTest {
         if (privateStore) {
             assertThat(Files.readString(target.resolve("data/install_identity.txt"))).isEqualTo(targetIdentity);
             assertThat(importedAt(target.resolve("data/pixiv-batch-downloader-import/plugin.db"))).isEqualTo(100);
-            assertThat(importedAt(target.resolve("data/environment-transfers").resolve(job.path("id").asText())
+            assertThat(importedAt(target.resolve("data/environment-transfers").resolve(job.path("id").asString())
                     .resolve("database-backups/pixiv-batch-downloader-import.backup"))).isEqualTo(200);
         }
         assertRun(target, "run", archive);
@@ -88,7 +89,7 @@ class DatabaseTransferProcessTest {
         }
         assertRun(target, "run", archive);
         var job = json.readTree(target.resolve("data/environment-transfers/pending.json").toFile());
-        assertThat(job.path("status").asText()).isEqualTo("FAILED");
+        assertThat(job.path("status").asString()).isEqualTo("FAILED");
         assertThat(tag(target.resolve("main.db"))).isEqualTo("concurrent edit");
         assertThat(Files.readString(target.resolve("config/config.yaml"))).contains("server.port: 8222");
     }
@@ -100,17 +101,17 @@ class DatabaseTransferProcessTest {
         assertRun(source, "export", archive);
         assertRun(target, "prepare", archive);
         Path journal = target.resolve("data/environment-transfers/pending.json");
-        var job = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
+        var job = (tools.jackson.databind.node.ObjectNode) json.readTree(journal.toFile());
         job.put("status", "APPLYING");
         Files.write(journal, json.writeValueAsBytes(job));
         var store = new top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigration.StoreReport("archive", "fixture", "fixture", "fixture",
                 top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigration.Phase.COMMITTING, "", 0, null);
         var report = new top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigration.Report(1, "IN_PROGRESS",
                 Map.of("main", store), "private-row-content-must-not-be-logged", List.of());
-        Files.write(target.resolve("data/environment-transfers").resolve(job.path("id").asText()).resolve("database-report.json"),
+        Files.write(target.resolve("data/environment-transfers").resolve(job.path("id").asString()).resolve("database-report.json"),
                 json.writeValueAsBytes(report));
         assertThat(MigrationProcessHarness.run(target, DatabaseTransferTestEntry.class, "interrupted", "run")).isNotZero();
-        assertThat(json.readTree(journal.toFile()).path("status").asText()).isEqualTo("RECOVERY_REQUIRED");
+        assertThat(json.readTree(journal.toFile()).path("status").asString()).isEqualTo("RECOVERY_REQUIRED");
         assertThat(Files.readString(target.resolve("interrupted.log"))).doesNotContain("private-row-content-must-not-be-logged");
         assertThat(tag(target.resolve("main.db"))).isEqualTo("old");
         assertThat(Files.readString(target.resolve("config/config.yaml"))).contains("server.port: 8222");
@@ -125,7 +126,7 @@ class DatabaseTransferProcessTest {
         Files.writeString(target.resolve("config/config.yaml"), "# changed after preview\n", StandardOpenOption.APPEND);
         assertRun(target, "run", archive);
         var job = json.readTree(target.resolve("data/environment-transfers/pending.json").toFile());
-        assertThat(job.path("status").asText()).isEqualTo("FAILED");
+        assertThat(job.path("status").asString()).isEqualTo("FAILED");
         assertThat(tag(target.resolve("main.db"))).isEqualTo("old");
         assertThat(Files.readString(target.resolve("config/config.yaml"))).contains("# changed after preview");
     }
@@ -201,7 +202,7 @@ class DatabaseTransferProcessTest {
         Path archive = root.resolve("environment.pdbackup");
         assertRun(source, "export", archive);
         assertRun(target, "preview", archive);
-        assertThat(json.readTree(target.resolve("preview.json").toFile()).path("databaseFailure").asText())
+        assertThat(json.readTree(target.resolve("preview.json").toFile()).path("databaseFailure").asString())
                 .isEqualTo("transfer.database-unavailable");
         assertThat(tag(target.resolve("main.db"))).isEqualTo("old");
         assertThat(target.resolve("data/environment-transfers")).doesNotExist();

@@ -183,7 +183,7 @@ class PluginDevelopmentArtifactsTest {
         Files.createDirectories(classesDirectory.resolve("content"));
         String descriptor = "plugin.id=" + PLUGIN_ID + "\n"
                 + "plugin.version=" + PLUGIN_VERSION + "\n"
-                + "plugin.requires=1.0\n"
+                + "plugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=com.example.DevelopmentProbePlugin\n"
                 + "pixiv.execution-mode=host-process-full-trust\n"
                 + "plugin.provider=test\n"

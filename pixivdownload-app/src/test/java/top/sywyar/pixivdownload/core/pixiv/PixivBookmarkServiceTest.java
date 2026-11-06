@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,7 +52,7 @@ class PixivBookmarkServiceTest {
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.US);
-        service = new PixivBookmarkService(restTemplate, new ObjectMapper(), TestI18nBeans.appMessages());
+        service = new PixivBookmarkService(restTemplate, JsonMapper.builderWithJackson2Defaults().build(), TestI18nBeans.appMessages());
     }
 
     @AfterEach
@@ -120,8 +120,8 @@ class PixivBookmarkServiceTest {
             String expectedBody = novel
                     ? "{\"novel_id\":\"12345\",\"restrict\":0,\"comment\":\"\",\"tags\":[]}"
                     : "{\"illust_id\":\"12345\",\"restrict\":0,\"comment\":\"\",\"tags\":[]}";
-            assertThat(new ObjectMapper().readTree(postCaptor.getValue().getBody()))
-                    .isEqualTo(new ObjectMapper().readTree(expectedBody));
+            assertThat(JsonMapper.builderWithJackson2Defaults().build().readTree(postCaptor.getValue().getBody()))
+                    .isEqualTo(JsonMapper.builderWithJackson2Defaults().build().readTree(expectedBody));
         }
 
         @Test
@@ -229,7 +229,7 @@ class PixivBookmarkServiceTest {
         void setUpClient() {
             credentialClient = new RestTemplateConfig(new ProxyConfig()).pixivCredentialRestTemplate();
             server = MockRestServiceServer.bindTo(credentialClient).build();
-            service = new PixivBookmarkService(credentialClient, new ObjectMapper(), TestI18nBeans.appMessages());
+            service = new PixivBookmarkService(credentialClient, JsonMapper.builderWithJackson2Defaults().build(), TestI18nBeans.appMessages());
         }
 
         @AfterEach

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.download.media;
 
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;

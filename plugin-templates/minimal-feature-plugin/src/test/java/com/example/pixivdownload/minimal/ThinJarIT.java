@@ -87,7 +87,6 @@ class ThinJarIT {
             PixivFeaturePlugin feature = provider.featurePlugin();
             assertNotNull(feature);
             assertEquals("example-minimal", feature.id());
-            assertEquals(List.of(), provider.configurationClasses());
             assertEquals(pluginJar.toUri(), entrypoint.getProtectionDomain().getCodeSource().getLocation().toURI());
         }
     }
