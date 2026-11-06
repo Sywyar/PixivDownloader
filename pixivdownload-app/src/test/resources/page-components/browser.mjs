@@ -423,6 +423,8 @@ try {
         await page.locator('.gjs-sm-property__gap input').fill('12');
         await page.locator('.gjs-sm-property__gap input').press('Tab');
         await page.locator('#viewport').selectOption('Mobile');
+        await page.waitForFunction(() => window.grapesjs.editors[0].StyleManager.getSelected()
+            ?.get('mediaText')?.includes('640'));
         await page.locator('.gjs-sm-property__gap input').fill('28');
         await page.locator('.gjs-sm-property__gap input').press('Tab');
         await page.locator('#viewport').selectOption('Desktop');
