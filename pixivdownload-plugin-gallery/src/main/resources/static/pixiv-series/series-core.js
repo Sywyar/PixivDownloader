@@ -22,7 +22,7 @@
     let searchTimer = null;
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
-    // 译后系列名 / 系列简介按语言缓存，避免切语言时反复请求（首次请求 /series/{id}?lang= 获取后塞入）
+    // 系列名与简介按译文身份缓存，切换时保持语言与引擎隔离。
     const seriesTitleByLang = {};
     const seriesDescriptionByLang = {};
     // 译后章节标题按 lang+novelId 缓存：当前页章节切语言时由批量端点一次性填充

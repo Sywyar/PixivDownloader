@@ -6,6 +6,24 @@ function hideNovelCover() {
 
 PixivActions.bind(document, { error: {hideNovelCover} });
 
+const readerMore = document.getElementById('readerMore');
+readerMore.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented || !readerMore.open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    readerMore.open = false;
+    readerMore.querySelector('summary').focus();
+});
+readerMore.addEventListener('focusout', event => {
+    if (event.relatedTarget && !readerMore.contains(event.relatedTarget)) readerMore.open = false;
+});
+readerMore.addEventListener('click', event => {
+    if (event.target.closest('[data-reader-action]')) readerMore.open = false;
+});
+document.addEventListener('pointerdown', event => {
+    if (!readerMore.contains(event.target)) readerMore.open = false;
+});
+
 bindNovelGalleryReturn();
 document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
 document.getElementById('addToCollectionClose').addEventListener('click', closeAddToCollectionModal);
@@ -59,6 +77,15 @@ document.getElementById('modalDeleteNovel').addEventListener('click', e => {
 });
 
 setupAdminMode();
+document.getElementById('exportNovelBtn').addEventListener('click', async () => {
+    if (!novelId || !novelView) return;
+    await window.PixivNovelExport.open({
+        novelId, variants: novelView.translatedLanguages || [], initialVariant: activeContentLang,
+        i18n: pageI18n, toast
+    });
+    if (!document.querySelector('dialog[open]')) readerMore.querySelector('summary').focus();
+});
+
 loadAll();
 
 // ---- PixivNovel facade ----

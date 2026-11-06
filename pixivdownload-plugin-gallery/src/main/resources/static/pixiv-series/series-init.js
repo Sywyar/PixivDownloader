@@ -16,6 +16,7 @@
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
     document.getElementById('downloadMergedBtn').addEventListener('click', openDownloadMergedDialog);
+    window.addEventListener('pagehide', cancelMergedDownload);
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
@@ -39,8 +40,9 @@
                 if (name === 'message') setSeriesMessage(value.message);
                 if (name === 'content-language') return selectSeriesContentLanguage(value.language);
                 if (name !== 'translated') return;
-                if (!seriesTranslatedLangs.includes(value.langCode)) seriesTranslatedLangs = seriesTranslatedLangs.concat([value.langCode]);
-                activeContentLang = value.langCode;
+                if (!seriesTranslatedLangs.includes(value.variantKey)) seriesTranslatedLangs = seriesTranslatedLangs.concat([value.variantKey]);
+                activeContentLang = value.variantKey;
+                try { localStorage.setItem('pixiv.contentLang', activeContentLang); } catch (_) {}
                 window.PixivUiSlots?.update('series-detail-', seriesSlotProperties());
                 delete seriesTitleByLang[activeContentLang];
                 delete seriesDescriptionByLang[activeContentLang];

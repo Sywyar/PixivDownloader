@@ -7,15 +7,18 @@ async function setupAdminMode() {
         document.body.classList.add('admin-mode');
         const btn = document.getElementById('deleteNovelBtn');
         if (btn) btn.style.display = '';
+        document.getElementById('exportNovelBtn').hidden = false;
     } catch (_) { /* not admin */ }
 }
 
 function openDeleteNovelModal() {
     document.getElementById('modalDeleteNovel').classList.add('open');
+    document.getElementById('deleteNovelCancel').focus();
 }
 
 function closeDeleteNovelModal() {
     document.getElementById('modalDeleteNovel').classList.remove('open');
+    document.querySelector('#readerMore summary').focus();
 }
 
 async function confirmDeleteNovel() {

@@ -126,10 +126,11 @@ public final class NovelSchemaContribution {
                                 column("raw_content", "TEXT", true, null, 0),
                                 column("title", "TEXT", false, null, 0),
                                 column("description", "TEXT", false, null, 0),
-                                column("created_time", "INTEGER", true, null, 0)
+                                column("created_time", "INTEGER", true, null, 0),
+                                column("engine", "TEXT", true, "'unknown'", 3)
                         ),
                         List.of()
-                ),
+                ).withPreviousPrimaryKey(List.of("novel_id", "lang_code")),
                 new TableSpec(
                         "novel_series_title_translations",
                         List.of(
@@ -137,10 +138,11 @@ public final class NovelSchemaContribution {
                                 column("lang_code", "TEXT", true, null, 2),
                                 column("title", "TEXT", true, null, 0),
                                 column("description", "TEXT", false, null, 0),
-                                column("created_time", "INTEGER", true, null, 0)
+                                column("created_time", "INTEGER", true, null, 0),
+                                column("engine", "TEXT", true, "'unknown'", 3)
                         ),
                         List.of()
-                ),
+                ).withPreviousPrimaryKey(List.of("series_id", "lang_code")),
                 new TableSpec(
                         "novel_glossaries",
                         List.of(

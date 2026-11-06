@@ -52,15 +52,15 @@ test('页面验收的冻结产物参数保留完整、分组、发布恢复及�
         ...['all', 'operations', 'components', 'custom'].map(group => ['--group', group])]) {
         for (const inputs of [[], ['--frozen-inputs', path.join(root, 'target/frozen-inputs')]]) {
             const copied = [], launched = [], stop = new Error('Java acceptance boundary reached');
-            const plugins = ['page-editor', 'database-sqlite', 'download-workbench', 'ai', 'tts'];
+            const plugins = ['page-editor', 'database-sqlite', 'download-workbench', 'ai', 'tts', 'novel-translation-contract', 'novel', 'translation'];
             const fixtureFs = {
                 existsSync: () => false, mkdirSync() {}, writeFileSync() {},
                 copyFileSync: (from, to) => copied.push([from, to]),
                 readFileSync: () => Buffer.from('fixture bytes'),
                 readdirSync: directory => path.basename(directory) === 'plugins'
-                    ? plugins.map(id => `pixivdownload-plugin-${id}-fixture.jar`)
+                    ? plugins.map(id => `pixivdownload-plugin-${id}-0.0.0-fixture.jar`)
                     : [path.basename(path.dirname(directory)) === 'pixivdownload-app'
-                        ? 'PixivDownload-fixture-boot.jar' : `${path.basename(path.dirname(directory))}-fixture.jar`],
+                        ? 'PixivDownload-fixture-boot.jar' : `${path.basename(path.dirname(directory))}-0.0.0-fixture.jar`],
             };
             assert.throws(() => vm.runInNewContext(source, {
                 path, fs: fixtureFs, fileURLToPath, parseArgs, createHash, assert,
@@ -73,6 +73,9 @@ test('页面验收的冻结产物参数保留完整、分组、发布恢复及�
             }), error => error === stop);
             assert.equal(copied[0][0], inputs.length ? path.join(inputs[1], 'host.jar')
                 : path.join(root, 'pixivdownload-app/target/PixivDownload-fixture-boot.jar'));
+            assert.equal(copied.find(([, to]) => to.endsWith(path.sep + 'novel.jar'))[0], inputs.length
+                ? path.join(inputs[1], 'plugins/pixivdownload-plugin-novel-0.0.0-fixture.jar')
+                : path.join(root, 'pixivdownload-plugin-novel/target/pixivdownload-plugin-novel-0.0.0-fixture.jar'));
             assert.equal(launched.at(-1), mode[0] === '--publication-recovery' ? 'publication-recovery'
                 : mode[0] === '--group' ? mode[1] : mode.length ? 'captcha'
                     : path.join(root, 'pixivdownload-app/src/test/resources/page-components/browser.mjs'));

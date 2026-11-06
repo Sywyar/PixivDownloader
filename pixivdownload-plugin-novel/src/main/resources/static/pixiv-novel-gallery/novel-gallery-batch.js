@@ -236,62 +236,13 @@ async function runBatchDelete() {
 
 function openBatchExportModal() {
     if (batchSelectedCount() === 0) return;
-    const deleteCheck = document.getElementById('batchExportDeleteAfter');
-    deleteCheck.checked = false;
-    document.getElementById('batchExportDeleteHint').hidden = true;
-    document.getElementById('modalBatchExport').classList.add('open');
-}
-
-function closeBatchExportModal() {
-    const modal = document.getElementById('modalBatchExport');
-    if (modal) modal.classList.remove('open');
-}
-
-async function submitBatchExport() {
-    if (batchSelectedCount() === 0) return;
-    const confirmBtn = document.getElementById('batchExportConfirm');
-    const deleteAfter = document.getElementById('batchExportDeleteAfter').checked;
-    confirmBtn.disabled = true;
-    try {
-        const payload = buildBatchPayload();
-        payload.groupBy = document.getElementById('batchExportGroupBy').value;
-        payload.format = document.getElementById('batchExportFormat').value;
-        payload.deleteAfter = deleteAfter;
-        const data = await batchApi('/api/gallery/novels/export', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        closeBatchExportModal();
-        if (!data || !data.archiveToken) {
-            toast(pageI18n.t('novel-gallery:manage.export-empty', '没有可导出的文件'), 'error');
-            return;
-        }
-        toast(pageI18n.t('novel-gallery:manage.export-started', '正在后台打包，可在任务列表中查看进度'), 'success');
-        exitBatchMode();
-        watchExportArchive(data.archiveToken, deleteAfter);
-    } catch (e) {
-        toast(e.message || pageI18n.t('novel-gallery:manage.export-failed', '导出失败'), 'error');
-    } finally {
-        confirmBtn.disabled = false;
-    }
-}
-
-function watchExportArchive(token, reloadWhenReady) {
-    if (!window.PixivSideModules) return;
-    window.PixivSideModules.trackArchive(token, {
-        onReady: () => {
-            toast(pageI18n.t('novel-gallery:manage.export-ready', '压缩包已就绪，已开始下载'), 'success');
-            if (reloadWhenReady) reloadNovels();
-        },
-        onFailed: status => {
-            toast(status === 'empty'
-                ? pageI18n.t('novel-gallery:manage.export-empty', '没有可导出的文件')
-                : pageI18n.t('novel-gallery:manage.export-failed', '导出失败'), 'error');
-        },
+    return window.PixivNovelExport.open({
+        selection: buildBatchPayload(), i18n: pageI18n, toast,
+        onSubmitted: exitBatchMode, onDeleted: reloadNovels
     });
-    window.PixivSideModules.openTasks();
 }
+
+function closeBatchExportModal() { window.PixivNovelExport.cancel(); }
 
 function toggleBatchActionMenu() {
     const menu = document.getElementById('batchActionMenu');
@@ -395,15 +346,6 @@ function wireBatchManage() {
     document.getElementById('batchDeleteConfirm').addEventListener('click', confirmBatchDelete);
     document.getElementById('modalBatchDelete').addEventListener('click', e => {
         if (e.target.id === 'modalBatchDelete') closeBatchDeleteModal();
-    });
-    document.getElementById('batchExportClose').addEventListener('click', closeBatchExportModal);
-    document.getElementById('batchExportCancel').addEventListener('click', closeBatchExportModal);
-    document.getElementById('batchExportConfirm').addEventListener('click', submitBatchExport);
-    document.getElementById('batchExportDeleteAfter').addEventListener('change', e => {
-        document.getElementById('batchExportDeleteHint').hidden = !e.target.checked;
-    });
-    document.getElementById('modalBatchExport').addEventListener('click', e => {
-        if (e.target.id === 'modalBatchExport') closeBatchExportModal();
     });
     document.getElementById('batchCollectionClose').addEventListener('click', closeBatchCollectionModal);
     document.getElementById('batchCollectionCancel').addEventListener('click', closeBatchCollectionModal);

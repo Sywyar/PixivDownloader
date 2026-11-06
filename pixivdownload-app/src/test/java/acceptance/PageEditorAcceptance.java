@@ -49,7 +49,7 @@ public final class PageEditorAcceptance {
         var verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
         try (var installer = new ExternalPluginInstaller(plugins, PluginPackageLimits.defaults(), verifier)) {
             check(installer.recoverPendingTransactions().safeToScan(), "initial recovery");
-            for (String id : List.of("database-sqlite", "download-workbench", "page-editor", "ai", "tts"))
+            for (String id : List.of("database-sqlite", "download-workbench", "page-editor", "ai", "tts", "novel-translation-contract", "novel", "translation"))
                 install(installer, fixed.resolve(id + ".jar"), true);
             install(installer, fixed.resolve("fixture/page-checklist-contract.jar"), false);
         }
@@ -102,6 +102,9 @@ public final class PageEditorAcceptance {
             var aiStatus = request(origin, "/api/admin/ai/status", null, cookie);
             check(aiStatus.statusCode() == 200 && JSON.readTree(aiStatus.body()).path("configured").asBoolean(),
                     "isolated AI fixture configured without external requests");
+            var translationStatus = request(origin, "/api/translation/status", null, cookie);
+            check(translationStatus.statusCode() == 200 && JSON.readTree(translationStatus.body()).path("configured").asBoolean(),
+                    "translation service has the actual content provider and configured engine");
             var contexts = context.getBean(ExternalPluginContextManager.class);
             check(contexts.contextFor("page-editor").isPresent(), "page editor started");
             check(request(origin, "/api/page-editor/catalog", null, null).statusCode() == 401, "anonymous catalog rejected");
@@ -154,12 +157,12 @@ public final class PageEditorAcceptance {
             Process officialSlots = startBrowser(Path.of(args[1]).resolveSibling("official-slot-browser.mjs").toString(),
                     origin, cookie, "official", fixed);
             awaitFile(fixed.resolve("official-slots-loading"), officialSlots);
-            coordinator.stop("ai");
+            coordinator.stop("translation");
             coordinator.stop("tts");
             awaitFile(fixed.resolve("official-slots-withdrawn"), officialSlots);
-            coordinator.start("ai");
+            coordinator.start("translation");
             coordinator.start("tts");
-            check(officialSlots.waitFor() == 0, "real AI and TTS browser lifecycle");
+            check(officialSlots.waitFor() == 0, "real translation and TTS browser lifecycle");
             String oldPublication = fixtureComponents(catalog).get(0).publication();
             browser(args[1], origin, cookie, "active", fixed);
             var publicView = request(origin, "/api/web/page-publications/core:login", null, null);

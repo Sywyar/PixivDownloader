@@ -43,18 +43,36 @@ final class PostgresStorageSchema {
         int created = 0, added = 0, indexed = 0;
         var skipped = new ArrayList<String>();
         for (var table : schema.tables()) {
+            if (primaryKeyUpgrade(table, before.get(table.name())) && connection.getAutoCommit())
+                throw new SQLException("STORAGE_SCHEMA_MISMATCH", "0A000");
             execute(connection, PostgresMigrationSchema.renderCreateTable(table));
             var old = before.get(table.name());
             if (old == null) created++;
             else for (var column : expected.tables().get(table.name()).columns()) {
                 if (old.columns().stream().anyMatch(c -> c.name().equals(column.name()))) continue;
-                if (column.primaryKeyPosition() > 0 || column.notNull() && column.defaultValue() == null) {
+                if (column.primaryKeyPosition() > 0 && !primaryKeyUpgrade(table, old)
+                        || column.notNull() && column.defaultValue() == null) {
                     if (strict) throw new SQLException("STORAGE_UNSAFE_COLUMN_CHANGE: " + table.name() + "." + column.name(), "0A000");
                     skipped.add(table.name() + "." + column.name());
                     continue;
                 }
                 execute(connection, PostgresMigrationSchema.renderAddColumn(table.name(), column));
                 added++;
+            }
+            if (primaryKeyUpgrade(table, old)) {
+                execute(connection, "LOCK TABLE " + quote(table.name()) + " IN ACCESS EXCLUSIVE MODE");
+                var actual = PostgresMigrationSchema.readActualTables(connection).get(table.name());
+                requireSchema(PostgresMigrationSchema.physicalSchema(physical(previousPrimaryKeyTable(table))),
+                        Map.of(table.name(), actual));
+                String constraint = null;
+                try (var keys = connection.getMetaData().getPrimaryKeys(connection.getCatalog(), connection.getSchema(), table.name())) {
+                    if (keys.next()) constraint = keys.getString("PK_NAME");
+                }
+                if (constraint == null) throw new SQLException("STORAGE_SCHEMA_MISMATCH", "0A000");
+                execute(connection, "ALTER TABLE " + quote(table.name()) + " DROP CONSTRAINT " + quote(constraint));
+                execute(connection, "ALTER TABLE " + quote(table.name()) + " ADD PRIMARY KEY ("
+                        + String.join(",", MigrationSchema.primaryKey(table).stream()
+                        .map(top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport::quote).toList()) + ")");
             }
             for (var index : table.indexes()) {
                 if (index.origin() != top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin.CREATE_INDEX) continue;

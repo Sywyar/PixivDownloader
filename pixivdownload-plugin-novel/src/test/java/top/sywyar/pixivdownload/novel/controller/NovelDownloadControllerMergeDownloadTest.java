@@ -93,7 +93,7 @@ class NovelDownloadControllerMergeDownloadTest {
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 3));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    42L, format, null, WorkVisibilityScope.unrestricted());
+                    42L, format, null, null, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
             assertThat(resp.getBody()).isEqualTo(payload);
@@ -107,7 +107,7 @@ class NovelDownloadControllerMergeDownloadTest {
             assertThat(disposition.chars().allMatch(c -> c >= 0x20 && c <= 0x7e)).isTrue();
             assertThat(headers.getCacheControl()).isEqualTo("no-store");
 
-            var merged = controller().mergeSeries(42L, format, " \t ");
+            var merged = controller().mergeSeries(42L, format, " \t ", null);
             assertThat(merged.getStatusCode().value()).isEqualTo(200);
             assertThat(merged.getBody()).isEqualTo(new NovelDownloadController.MergeResponse(
                     true, "ok", tmp.toString(), 3, expected.ext()));
@@ -132,30 +132,37 @@ class NovelDownloadControllerMergeDownloadTest {
                 Arguments.of("unknown", NovelDownloadService.NovelFormat.TXT, "text/plain; charset=UTF-8"));
     }
 
-    @Test
-    @DisplayName("传入 lang 时只重生该语言变体，不再触发原文基准合订")
-    void delegatesToMergeVariantWhenLangProvided() throws Exception {
+    @ParameterizedTest
+    @MethodSource("translationVariants")
+    @DisplayName("合订采用指定语言与引擎，精确译文身份优先于旧语言参数")
+    void delegatesToSelectedVariant(String language, String variant, String expected) throws Exception {
         Path tmp = Files.createTempFile("novel-series-merged-", ".epub");
         Files.write(tmp, new byte[]{1, 2, 3});
         try {
             when(novelMergeService.mergeVariant(
-                    eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN")))
+                    eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq(expected)))
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    7L, "epub", " zh-CN ", WorkVisibilityScope.unrestricted());
+                    7L, "epub", language, variant, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
-            assertThat(controller().mergeSeries(7L, "epub", " zh-CN ").getBody())
+            assertThat(controller().mergeSeries(7L, "epub", language, variant).getBody())
                     .isEqualTo(new NovelDownloadController.MergeResponse(true, "ok", tmp.toString(), 1, "epub"));
             verify(novelMergeService, times(2)).mergeVariant(
-                    eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
+                    eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq(expected));
             verify(novelMergeService, never())
                     .merge(eq(7L), eq(NovelDownloadService.NovelFormat.EPUB));
             verifyNoInteractions(novelDatabase);
         } finally {
             Files.deleteIfExists(tmp);
         }
+    }
+
+    private static Stream<Arguments> translationVariants() {
+        return Stream.of(
+                Arguments.of(" zh-CN ", null, "zh-CN"),
+                Arguments.of("en", "zh-CN@youdao", "zh-CN@youdao"));
     }
 
     @Test
@@ -165,7 +172,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 .thenReturn(new NovelMergeService.MergeResult(false, "no-chapters", null, 0));
 
         ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                9L, null, null, WorkVisibilityScope.unrestricted());
+                9L, null, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         assertThat(resp.getBody()).isNull();
@@ -180,7 +187,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
         ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                11L, null, null, WorkVisibilityScope.unrestricted());
+                11L, null, null, null, WorkVisibilityScope.unrestricted());
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verifyNoInteractions(novelDatabase);
@@ -194,7 +201,7 @@ class NovelDownloadControllerMergeDownloadTest {
         WorkVisibilityScope scope = WorkVisibilityScope.restricted(restriction, restriction);
         when(novelGalleryService.visibleSeriesIds(restriction)).thenReturn(Set.of(8L));
 
-        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, scope);
+        ResponseEntity<byte[]> resp = controller().downloadMergedSeries(7L, null, null, null, scope);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
         verify(novelGalleryService).visibleSeriesIds(restriction);

@@ -33,7 +33,23 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return List.of(new top.sywyar.pixivdownload.novel.narration.NarrationVoiceTransfer());
     }
 
+    @Override
+    public List<top.sywyar.pixivdownload.plugin.api.service.ServiceKey<?>> serviceImports() {
+        return List.of(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.KEY);
+    }
+    @Override
+    public List<top.sywyar.pixivdownload.plugin.api.service.ServiceExport<?>> serviceExports() {
+        return List.of(new top.sywyar.pixivdownload.plugin.api.service.ServiceExport<>(
+                new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>(
+                        top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.CONTRACT_ID,
+                        top.sywyar.pixivdownload.translation.api.NovelTranslationDocuments.class), "novelTranslationDocuments"));
+    }
+
     public static final String ID = "novel";
+
+    @Override public List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> schema() {
+        return List.of(top.sywyar.pixivdownload.novel.translation.TranslationPublications.schema());
+    }
 
     @Override
     public List<String> sharedMainStorage() {
@@ -79,6 +95,9 @@ public class NovelPlugin implements PixivFeaturePlugin {
     // 默认会话/访客分支）。浏览器响应导入仅允许 LOCAL，控制器还会限制为真实 loopback 的 solo 模式。
     // 声明只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
     private static final List<WebRouteContribution> ROUTES = List.of(
+        WebRouteContribution.admin("/api/novel/*/export"),
+        WebRouteContribution.admin("/api/gallery/novels/export"),
+        WebRouteContribution.admin("/api/gallery/novels/export/options"),
         WebRouteContribution.visitor("/api/novel/download"),
         WebRouteContribution.local("/api/novel/browser-import/**"),
         WebRouteContribution.visitor("/api/novel/status/**"),
@@ -193,11 +212,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
         executionConcurrencyField(
                 NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
                 "gui.config.field.download.novel-max-concurrent",
-                100),
-        executionConcurrencyField(
-                NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY,
-                "gui.config.field.download.novel-translate-max-concurrent",
-                110))));
+                100))));
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {

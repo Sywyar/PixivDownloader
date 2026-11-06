@@ -8,6 +8,7 @@ import java.util.List;
 
 /** 小说业务操作；实现通过受限主库契约参与宿主事务。 */
 public interface NovelMapper {
+    void lockTranslationDocument(boolean series, long id);
     record NovelWorkDetailsRow(long novelId, Integer wordCount, Integer textLength,
             Integer readingTimeSeconds, Integer pageCount, String xLanguage, String coverExt) {}
     record NovelWorkDetailValueRow(long novelId, String value) {}
@@ -64,6 +65,7 @@ public interface NovelMapper {
     void deleteGlossary(long id);
 
     List<NovelGlossaryEntry> findGlossaryEntries(long glossaryId);
+    List<NovelGlossaryEntry> findGlossaryEntries(long glossaryId, int offset, int limit);
 
     void deleteGlossaryEntries(long glossaryId);
 

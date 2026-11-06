@@ -241,16 +241,83 @@
   },
   "ai": {
     "defaultLocale": "zh-CN",
-    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
-    "description": { "zh": "提供 OpenAI 兼容模型调用、连接测试、小说自动翻译、系列翻译与听书剧本分析的 AI 能力。", "en": "Adds OpenAI-compatible model calls, connectivity tests, novel auto-translation, series translation, and AI narration analysis." },
+    "documentationSources": {
+      "readme": null,
+      "changelog": null,
+      "releaseNotes": null
+    },
+    "description": {
+      "zh": "统一管理 OpenAI 兼容模型的连接、凭证与配置，为翻译、朗读脚本等业务提供模型调用能力。",
+      "en": "Manages connections, credentials and settings for OpenAI-compatible models used by translation and narration script features."
+    },
     "author": "Sywyar",
     "sourceType": "official",
-    "category": "translate",
-    "tags": ["ai", "translation", "openai-compatible"],
+    "category": "dependency",
+    "tags": [
+      "ai",
+      "translation",
+      "openai-compatible"
+    ],
     "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
     "license": "AGPL-3.0-only",
     "recommended": true,
     "officialRequired": false,
-    "changeNotes": ["首个外置版本"]
+    "changeNotes": [
+      "翻译界面与任务迁入独立翻译插件"
+    ]
+  },
+  "translation": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {
+      "readme": null,
+      "changelog": null,
+      "releaseNotes": null
+    },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/zh-cn/novel",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "description": {
+      "zh": "提供小说手动和自动翻译，支持 AI 模型、有道文本翻译 API，以及用户部署的 LibreTranslate 服务。本地服务和模型需自行准备。",
+      "en": "Provides manual and automatic novel translation using AI models, the Youdao text translation API or a user-managed LibreTranslate service. Local services and models must be installed separately."
+    },
+    "category": "utility",
+    "tags": [
+      "translation",
+      "novel",
+      "ai",
+      "offline"
+    ],
+    "changeNotes": [
+      "翻译功能独立为插件，新增有道与 LibreTranslate 引擎"
+    ]
+  },
+  "novel-translation-contract": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {
+      "readme": null,
+      "changelog": null,
+      "releaseNotes": null
+    },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/zh-cn/novel",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "description": {
+      "zh": "提供小说数据与翻译服务之间的共享契约类型，由依赖它的插件自动安装。",
+      "en": "Provides shared contract types for novel data and translation services, installed as a dependency of the plugins that use it."
+    },
+    "category": "dependency",
+    "tags": [
+      "contract",
+      "translation"
+    ],
+    "changeNotes": [
+      "新增小说翻译契约"
+    ]
   }
 }

@@ -17,11 +17,11 @@ function load(storage) {
         URL, URLSearchParams, Map, Set,
         location: {origin: 'http://localhost', pathname: '/pixiv-novel.html', search: '?id=1'},
         sessionStorage: storage,
-        document: {getElementById(id) {
+        document: {addEventListener() {}, getElementById(id) {
             if (!nodes.has(id)) nodes.set(id, {addEventListener(type, listener) { this[type] = listener; }});
             return nodes.get(id);
         }},
-        setTimeout, clearTimeout
+        setTimeout, clearTimeout, addEventListener() {}
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);

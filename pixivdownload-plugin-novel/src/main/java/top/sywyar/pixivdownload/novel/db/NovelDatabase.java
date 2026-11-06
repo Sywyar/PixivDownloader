@@ -154,16 +154,18 @@ public class NovelDatabase {
         }
     }
 
-    // ── AI translations ──────────────────────────────────────────────────────────
+    // ── Translation variants ─────────────────────────────────────────────────────
 
     /**
-     * 保存（覆盖）某本小说在某语言下的 AI 译文。{@code translatedTitle} / {@code translatedDescription}
+     * 保存（覆盖）某本小说指定语言和引擎的译文；langCode 使用 TranslationVariant.key()。{@code translatedTitle} / {@code translatedDescription}
      * 都可为空——传 {@code null} 表示本次未翻译对应字段，保留 DB 中既有值不变化。这是为了让
      * 「内容已译、标题/简介翻译失败 / 单独触发」时不会被空值抹掉。
      */
+    @Transactional
     public void saveTranslation(long novelId, String langCode, String rawContent,
                                 String translatedTitle, String translatedDescription) {
         if (langCode == null || langCode.isBlank()) return;
+        novelMapper.lockTranslationDocument(false, novelId);
         String lang = langCode.trim();
         String content = rawContent == null ? "" : rawContent;
         String previousContent = novelMapper.findTranslationContent(novelId, lang);
@@ -181,9 +183,11 @@ public class NovelDatabase {
     }
 
     /** 单独覆盖某本小说某语言的译文标题（不动正文），用于内容已译但标题刚翻译成功的回填。 */
+    @Transactional
     public void saveTranslationTitle(long novelId, String langCode, String translatedTitle) {
         if (langCode == null || langCode.isBlank()) return;
         if (translatedTitle == null || translatedTitle.isBlank()) return;
+        novelMapper.lockTranslationDocument(false, novelId);
         novelMapper.updateTranslationTitle(novelId, langCode.trim(), translatedTitle.trim());
     }
 
@@ -192,6 +196,7 @@ public class NovelDatabase {
      * 流程使用：{@link #saveTranslation} 会用调用方传入的正文覆写旧译文正文，本方法则先回填既有正文再走同一 upsert，
      * 避免空正文抹掉已经翻译完成的章节。
      */
+    @Transactional
     public void saveTranslationMetadata(long novelId, String langCode,
                                         String translatedTitle, String translatedDescription) {
         if (langCode == null || langCode.isBlank()) return;
@@ -200,6 +205,7 @@ public class NovelDatabase {
             return;
         }
         String lang = langCode.trim();
+        novelMapper.lockTranslationDocument(false, novelId);
         String existingContent = novelMapper.findTranslationContent(novelId, lang);
         String content = existingContent == null ? "" : existingContent;
         saveTranslation(novelId, lang, content, translatedTitle, translatedDescription);
@@ -228,13 +234,13 @@ public class NovelDatabase {
         return novelMapper.countTranslation(novelId, langCode.trim()) > 0;
     }
 
-    /** 某本小说已有译文的全部语言代码。 */
+    /** 某本小说已有译文的全部 TranslationVariant.key()，包含语言和引擎。 */
     public List<String> getTranslationLangs(long novelId) {
         List<String> langs = novelMapper.findTranslationLangs(novelId);
         return langs == null ? Collections.emptyList() : langs;
     }
 
-    /** 某系列下「至少有一章存在译文」的全部语言代码（变体合订需要逐一重生）。 */
+    /** 某系列下「至少有一章存在译文」的全部译文身份键（变体合订需要逐一重生）。 */
     public List<String> getSeriesTranslatedLangs(long seriesId) {
         if (seriesId <= 0) return Collections.emptyList();
         List<String> langs = novelMapper.findSeriesTranslatedLangs(seriesId);
@@ -245,10 +251,12 @@ public class NovelDatabase {
      * 保存（覆盖）某系列在某语言下的系列名 + 系列简介翻译。{@code translatedDescription} 可为空——传 {@code null}
      * 表示本次未翻译系列简介（保留 DB 中既有简介值不变），与 saveTranslation 的标题/简介 nullability 语义一致。
      */
+    @Transactional
     public void saveSeriesTitleTranslation(long seriesId, String langCode,
                                            String translatedTitle, String translatedDescription) {
         if (seriesId <= 0 || langCode == null || langCode.isBlank()) return;
         if (translatedTitle == null || translatedTitle.isBlank()) return;
+        novelMapper.lockTranslationDocument(true, seriesId);
         String lang = langCode.trim();
         String descriptionToWrite = (translatedDescription != null && !translatedDescription.isBlank())
                 ? translatedDescription.trim()

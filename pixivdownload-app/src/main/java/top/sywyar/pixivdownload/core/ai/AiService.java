@@ -22,6 +22,27 @@ public class AiService implements AiChatClient {
     public AiService(AiChatClientRegistry registry) {
         this.registry = registry;
     }
+    @Override public java.util.Optional<AiChatClient> bind() { return registry.active(); }
+
+    @Override
+    public java.util.Optional<String> configurationFingerprint() {
+        try {
+            return registry.active().flatMap(AiChatClient::configurationFingerprint);
+        } catch (ExternalCapabilityUnavailableException unavailable) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    @Override
+    public AiChatResult chatBound(String expectedFingerprint, String callType,
+                                 List<AiChatMessage> messages, AiChatOptions options) throws AiClientException {
+        AiChatClient client = registry.active().orElseThrow(() -> new AiClientException("AI_UNAVAILABLE"));
+        try {
+            return client.chatBound(expectedFingerprint, callType, messages, options);
+        } catch (ExternalCapabilityUnavailableException unavailable) {
+            throw new AiClientException("AI_UNAVAILABLE");
+        }
+    }
 
     @Override
     public AiChatResult chat(String callType, List<AiChatMessage> messages,

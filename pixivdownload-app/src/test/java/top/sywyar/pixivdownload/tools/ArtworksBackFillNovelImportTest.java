@@ -96,8 +96,8 @@ class ArtworksBackFillNovelImportTest {
                 assertThat(jdbc.queryForObject("SELECT raw_content FROM novels WHERE novel_id=42", String.class)).isEqualTo(stored);
                 var controllerType = loader.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
                 Object controller = controllerType.getConstructors()[0].newInstance(null, null, null, novels,
-                        mock(WorkAssetService.class), mock(WorkVisibilityService.class));
-                var response = (ResponseEntity<?>) call(controller, "getNovelContent", 42L, null, WorkVisibilityScope.unrestricted());
+                        mock(WorkAssetService.class), mock(WorkVisibilityService.class), TestI18nBeans.appMessages());
+                var response = (ResponseEntity<?>) call(controller, "getNovelContent", 42L, null, null, WorkVisibilityScope.unrestricted());
                 assertThat(response.getStatusCode().value()).isEqualTo(200);
                 assertThat((String) call(response.getBody(), "content")).isEqualTo(stored);
                 assertThat(((Set<?>) call(novels, "searchNovelContentIds", "正文")).contains(42L)).isTrue();

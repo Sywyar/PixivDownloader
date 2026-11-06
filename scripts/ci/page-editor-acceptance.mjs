@@ -32,7 +32,8 @@ function artifact(module) {
         ? path.join(frozenInputs, 'plugins') : path.join(repo, module, 'target');
     const files = fs.readdirSync(directory).filter(file => module === 'pixivdownload-app'
         ? file.endsWith('-boot.jar')
-        : file.startsWith(module + '-') && file.endsWith('.jar') && !/-(sources|javadoc|original|processed|plain)\.jar$/.test(file));
+        : file.startsWith(module + '-') && /^\d/.test(file.slice(module.length + 1))
+            && file.endsWith('.jar') && !/-(sources|javadoc|original|processed|plain)\.jar$/.test(file));
     assert.equal(files.length, 1, module + ': expected one primary JAR: ' + files.join(','));
     return path.join(directory, files[0]);
 }
@@ -45,7 +46,7 @@ copy(artifact('pixivdownload-sdk-tools'), path.join(destination, 'sdk-tools.jar'
 for (const module of ['pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api']) {
     const jar = artifact(module); copy(jar, path.join(destination, 'sdk', path.basename(jar)));
 }
-for (const id of ['page-editor', 'database-sqlite', 'download-workbench', 'ai', 'tts']) {
+for (const id of ['page-editor', 'database-sqlite', 'download-workbench', 'ai', 'tts', 'novel-translation-contract', 'novel', 'translation']) {
     copy(artifact('pixivdownload-plugin-' + id), path.join(destination, id + '.jar'));
 }
 fs.writeFileSync(path.join(destination, 'frozen.json'), JSON.stringify(frozen, null, 2), 'utf8');

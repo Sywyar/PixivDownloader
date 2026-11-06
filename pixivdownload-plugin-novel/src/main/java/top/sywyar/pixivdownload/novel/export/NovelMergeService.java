@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.export;
 
+import top.sywyar.pixivdownload.translation.api.TranslationVariant;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -317,7 +319,7 @@ public class NovelMergeService {
         }
         // 变体合订本以译文语言作为 EPUB 语言；标识符附加语言代码，区别于原文基准合订本
         boolean variant = langCode != null && !langCode.isBlank();
-        String epubLang = variant ? langCode : firstLang;
+        String epubLang = variant ? TranslationVariant.parse(langCode).language() : firstLang;
         String identifier = variant
                 ? "urn:pixiv:novel-series:" + seriesId + ":" + langCode
                 : "urn:pixiv:novel-series:" + seriesId;

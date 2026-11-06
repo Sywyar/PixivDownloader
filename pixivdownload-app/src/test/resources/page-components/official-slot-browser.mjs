@@ -47,7 +47,7 @@ try {
     await page.waitForFunction(() => window.officialSlotsReady);
     assert.deepEqual(await page.evaluate(() => officialSlotErrors), ['UI_MOUNT_FAILED']);
     assert.equal(await page.locator('#ttsBar, #modalNarrationCast').count(), 0, 'failed controller load cleans external body nodes');
-    assert.equal(await page.locator('.pt-lang-switch').count(), 2, 'both actual AI instances mounted');
+    assert.equal(await page.locator('.pt-lang-switch').count(), 2, 'both actual translation instances mounted');
 
     mode = 'delay';
     await page.reload();
@@ -56,16 +56,17 @@ try {
         && document.getElementById('translateSeriesBtn')?.style.display === '');
     await page.waitForFunction(() => window.ttsScriptLoading);
     assert.ok(delayed, 'controller script is in flight');
-    await page.evaluate(() => { window.oldAiButtons = [document.getElementById('aiTranslateBtn'), document.getElementById('translateSeriesBtn')]; });
+    await page.evaluate(() => { window.oldTranslationButtons = [document.getElementById('aiTranslateBtn'), document.getElementById('translateSeriesBtn')]; });
     fs.writeFileSync(path.join(work, 'official-slots-loading'), 'loading');
     await page.waitForFunction(() => !document.querySelector('[data-ui-instance]')
         && !document.querySelector('#ttsBar, #modalNarrationCast, .pt-lang-switch'), undefined, {timeout: 30000});
     await delayed.abort().catch(() => {});
     mode = 'pass';
-    const before = requests.filter(url => url.startsWith('/api/admin/')).length;
-    await page.evaluate(() => oldAiButtons.forEach(button => button.click()));
-    assert.equal(await page.locator('.pt-backdrop').count(), 0, 'withdrawn AI button listeners no longer open dialogs');
-    assert.equal(requests.filter(url => url.startsWith('/api/admin/')).length, before);
+    const businessRequests = () => requests.filter(url => url.startsWith('/api/admin/') || url.startsWith('/api/translation/')).length;
+    const before = businessRequests();
+    await page.evaluate(() => oldTranslationButtons.forEach(button => button.click()));
+    assert.equal(await page.locator('.pt-backdrop').count(), 0, 'withdrawn translation button listeners no longer open dialogs');
+    assert.equal(businessRequests(), before);
     assert.deepEqual(await page.evaluate(() => beforeUnloadListeners.filter(item => item.active)
         .map(item => ({signal: !!item.signal, aborted: item.signal?.aborted, listener: String(item.listener).slice(0,160)}))), []);
     assert.deepEqual(await page.evaluate(() => officialSlotErrors), []);
@@ -78,8 +79,12 @@ try {
     assert.equal(await page.locator('#modalNarrationCast').count(), 1);
     assert.equal(await page.locator('.pt-lang-switch').count(), 2);
     assert.equal(await page.evaluate(() => beforeUnloadListeners.filter(item => item.active).length), 2);
-    await page.locator('#novel-language select').selectOption('ja');
-    assert.deepEqual(await page.evaluate(() => officialSlotEvents), [{name: 'content-language', value: {language: 'ja'}}]);
+    await page.locator('#novel-language .pt-version-language select').selectOption('ja');
+    await page.locator('#novel-language .pt-version-engine select').selectOption('youdao');
+    assert.deepEqual(await page.evaluate(() => officialSlotEvents), [
+        {name: 'content-language', value: {language: 'ja@ai'}},
+        {name: 'content-language', value: {language: 'ja@youdao'}}
+    ]);
     await page.locator('#ttsToggle').focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.getElementById('ttsBar').style.display !== 'none');
@@ -106,7 +111,7 @@ try {
     assert.deepEqual(await page.evaluate(() => officialSlotErrors), []);
     assert.deepEqual(errors, []);
     assert.deepEqual(violations, []);
-    console.log('OFFICIAL_AI_TTS_BROWSER_FAILURE_WITHDRAWAL_REENABLE_CLEANUP_PASSED');
+    console.log('OFFICIAL_TRANSLATION_TTS_BROWSER_FAILURE_WITHDRAWAL_REENABLE_CLEANUP_PASSED');
 } catch (error) {
     console.error('OFFICIAL_SLOT_BROWSER_FAILURE', {errors, violations, requests,
         state: await page.evaluate(() => ({ready: window.officialSlotsReady, errors: window.officialSlotErrors}))});

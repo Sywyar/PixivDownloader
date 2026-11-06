@@ -49,9 +49,15 @@ class NovelPluginContributionTest {
     @Test
     @DisplayName("novel 同时声明小说下载核心路由和小说画廊展示路由")
     void routesIncludeDownloadAndDisplay() {
+        assertThat(plugin.routes().stream().filter(route -> route.pathPattern().startsWith("/api/gallery/novels/export")))
+                .hasSize(2).allSatisfy(route -> assertThat(route.accessPolicy())
+                        .isEqualTo(top.sywyar.pixivdownload.plugin.api.web.AccessPolicy.ADMIN));
         assertThat(plugin.routes())
                 .extracting(route -> route.pathPattern())
                 .containsExactlyInAnyOrder(
+                        "/api/novel/*/export",
+                        "/api/gallery/novels/export",
+                        "/api/gallery/novels/export/options",
                         "/api/novel/download",
                         "/api/novel/browser-import/**",
                         "/api/novel/status/**",
@@ -138,10 +144,16 @@ class NovelPluginContributionTest {
                 "novel.translate.invalid-language",
                 "novel.translate.empty",
                 "novel.translate.not-found",
+                "novel.export.invalid-request",
+                "novel.export.failed",
+                "novel.export.unavailable",
+                "novel.export.too-large",
+                "novel.export.single-too-large",
                 "novel.translate.truncated",
                 "novel.translate.missing-language",
                 "novel.translate.no-scope",
                 "novel.translate.unparseable",
+                "novel.translate.unavailable",
                 "narration.error.missing-novel",
                 "narration.error.invalid-voice",
                 "narration.error.invalid-line",
@@ -183,8 +195,7 @@ class NovelPluginContributionTest {
         assertThat(contribution.fields())
                 .extracting(field -> field.key())
                 .containsExactly(
-                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
-                        NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY);
+                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY);
         assertThat(contribution.fields()).allSatisfy(field -> {
             assertThat(field.groupId()).isEqualTo(GuiConfigGroups.DOWNLOAD);
             assertThat(field.i18nNamespace()).isEqualTo(NovelPlugin.ID);

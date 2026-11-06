@@ -21,6 +21,7 @@
     <!-- 全站共享动效层：统一动效令牌与通用微交互，页面自有样式在其后加载、可按需覆盖。 -->
     <link rel="stylesheet" href="/css/pixiv-motion.css">
     <link rel="stylesheet" href="/css/pixiv-feedback.css">
+    <link rel="stylesheet" href="/pixiv-novel/novel-export.css">
     <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
     <link rel="stylesheet" href="/pixiv-novel-gallery/pixiv-novel-gallery.css">
     <link rel="stylesheet" href="/pixiv-novel-gallery/pixiv-novel-gallery-sidebar.css">
@@ -415,40 +416,6 @@
     </div>
 </div>
 
-<div class="modal-backdrop" id="modalBatchExport">
-    <div class="modal layout-dialog">
-        <div class="modal-head">
-            <span class="modal-title" data-i18n="novel-gallery:manage.export-title">导出选中的小说</span>
-            <button class="modal-close layout-touch" id="batchExportClose" type="button">×</button>
-        </div>
-        <div class="modal-body">
-            <div class="export-option-row">
-                <label class="export-option-label" for="batchExportGroupBy" data-i18n="novel-gallery:manage.export-group-by">打包方式</label>
-                <select class="export-option-select" id="batchExportGroupBy">
-                    <option value="author" data-i18n="novel-gallery:manage.export-group-author">按作者 / 作品分类</option>
-                    <option value="id" data-i18n="novel-gallery:manage.export-group-id">以作品 ID 为文件夹名</option>
-                </select>
-            </div>
-            <div class="export-option-row">
-                <label class="export-option-label" for="batchExportFormat" data-i18n="novel-gallery:manage.export-format">打包格式</label>
-                <select class="export-option-select" id="batchExportFormat">
-                    <option value="zip">ZIP</option>
-                </select>
-            </div>
-            <label class="export-delete-check">
-                <input type="checkbox" id="batchExportDeleteAfter">
-                <span data-i18n="novel-gallery:manage.export-delete-source">导出后删除画廊记录与本程序下载的文件</span>
-            </label>
-            <p class="delete-modal-text export-delete-hint" id="batchExportDeleteHint" hidden
-               data-i18n="novel-gallery:manage.export-delete-hint">打包成功后才会删除记录与本程序下载的文件；外部下载器导入的原文件会保留。删除不可恢复，压缩包按归档过期时间保留。</p>
-        </div>
-        <div class="modal-foot">
-            <button class="btn layout-touch" id="batchExportCancel" type="button" data-i18n="novel-gallery:manage.confirm-cancel">取消</button>
-            <button class="btn btn-primary layout-touch" id="batchExportConfirm" type="button" data-i18n="novel-gallery:manage.export-start">开始导出</button>
-        </div>
-    </div>
-</div>
-
 <div class="modal-backdrop" id="modalBatchCollection">
     <div class="modal layout-dialog">
         <div class="modal-head">
@@ -470,6 +437,7 @@
 <script src="/pixiv-novel-gallery/novel-gallery-state.js"></script>
 <script src="/pixiv-novel-gallery/novel-gallery-filters.js"></script>
 <script src="/pixiv-novel-gallery/novel-gallery-collections.js"></script>
+<script src="/pixiv-novel/novel-export.js"></script>
 <script src="/pixiv-novel-gallery/novel-gallery-batch.js"></script>
 <script src="/pixiv-novel-gallery/novel-gallery-views.js"></script>
 <script src="/pixiv-novel-gallery/novel-gallery-sidebar.js"></script>

@@ -10,6 +10,51 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("GUI 配置 contribution 纯数据契约")
 class GuiConfigContributionTest {
+    @Test
+    @DisplayName("缺席配置能力仅替换选项标签，保留默认值、条件与秘密属性")
+    void unavailableOptionsKeepTheirConfigurationContract() {
+        var field = new GuiConfigFieldContribution(
+                "consumer.engine",
+                "consumer",
+                "label",
+                "help",
+                "consumer",
+                GuiConfigFieldType.ENUM,
+                "remote",
+                7,
+                true,
+                GuiConfigEffect.PROCESS_RESTART,
+                List.of("remote", "local"),
+                List.of(GuiConfigCondition.isTrue("consumer.enabled")),
+                List.of(),
+                null,
+                null,
+                true,
+                Map.of("remote", "remote.label", "local", "local.label"),
+                List.of(GuiConfigCondition.isTrue("consumer.enabled"))
+        );
+        var requirement = new GuiConfigOptionRequirement("consumer.engine", "remote", "fixture.configuration", "remote.unavailable");
+        var contribution = new GuiConfigContribution(
+                List.of(),
+                List.of(field),
+                List.of(),
+                java.util.Set.of(),
+                List.of(requirement)
+        );
+        var resolved = contribution.resolveOptions(java.util.Set.of());
+        assertThat(resolved.fields().get(0)).usingRecursiveComparison()
+                .ignoringFields("enumValueLabelKeys").isEqualTo(field);
+        assertThat(resolved.fields().get(0).enumValueLabelKeys())
+                .containsEntry("remote", "remote.unavailable").containsEntry("local", "local.label");
+        assertThat(contribution.resolveOptions(java.util.Set.of("fixture.configuration"))).isSameAs(contribution);
+        assertThat(field.enumValueLabelKeys()).containsEntry("remote", "remote.label");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new GuiConfigContribution(List.of(), List.of(field), List.of(), java.util.Set.of(),
+                        List.of(new GuiConfigOptionRequirement("foreign.engine", "remote", "fixture.configuration", "missing"))));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new GuiConfigContribution(List.of(), List.of(field), List.of(), java.util.Set.of(),
+                        List.of(requirement, requirement)));
+    }
 
     @Test
     @DisplayName("条件必填使用完整草稿，敏感空框仅在有可沿用凭据时通过")

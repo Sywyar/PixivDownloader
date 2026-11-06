@@ -6,18 +6,14 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("AI 设置槽位资源依赖")
+@DisplayName("AI 依赖插件的界面归属")
 class AiPluginUiSlotContributionTest {
     @Test
-    @DisplayName("设置槽位声明插件拥有的命名空间，不依赖宿主硬编码资源清单")
+    @DisplayName("模型配置保留自有资源，不再贡献翻译业务槽位")
     void settingsDeclareOwnedNamespace() {
         var plugin = new AiPlugin();
-        assertThat(plugin.uiSlots()).filteredOn(slot -> slot.target().equals("settings-card"))
-                .singleElement().satisfies(slot -> {
-                    assertThat(slot.i18nNamespace()).isNotBlank();
-                    assertThat(plugin.i18n()).extracting(I18nContribution::namespace)
-                            .contains(slot.i18nNamespace());
-                    assertThat(slot.metadata()).isEmpty();
-                });
+        assertThat(plugin.uiSlots()).isEmpty();
+        assertThat(plugin.guiConfigContributions()).isNotEmpty();
+        assertThat(plugin.i18n()).extracting(I18nContribution::namespace).contains("ai");
     }
 }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.db;
 
+import top.sywyar.pixivdownload.translation.api.TranslationVariant;
+
 import top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import top.sywyar.pixivdownload.novel.db.series.*;
@@ -22,6 +24,10 @@ public class RelationalNovelMapper implements NovelMapper {
                     .stream().map(table -> new StorageFeatures.Dependent(table, "novel_id")).toList());
     private final PluginMainDatabase database;
     public RelationalNovelMapper(PluginMainDatabase database) { this.database = database; }
+    @Override public void lockTranslationDocument(boolean series, long id) {
+        String table = series ? S : N, key = series ? "series_id" : "novel_id";
+        database.transaction(s -> s.update(table, Map.of(key, column(table, key)), eq(table, key, id)));
+    }
 
     private static Object stored(Object v) { return v instanceof Boolean b ? b ? 1L : 0L : v; }
     private static Expression literal(Object v) { return value(stored(v)); }
@@ -108,7 +114,15 @@ public class RelationalNovelMapper implements NovelMapper {
         return call(AND, eq(V, "cast_id", cast), eq(V, "character_id", character));
     }
     private static Expression translation(long novel, String lang) {
-        return call(AND, eq("novel_translations", "novel_id", novel), eq("novel_translations", "lang_code", lang));
+        return translation("novel_translations", "novel_id", novel, lang);
+    }
+    private static Expression translation(String table, String idColumn, long id, String key) {
+        var variant = TranslationVariant.parse(key);
+        return call(AND, eq(table, idColumn, id), eq(table, "lang_code", variant.language()),
+                eq(table, "engine", variant.engine()));
+    }
+    private static String variantKey(Map<String, Object> row) {
+        return new TranslationVariant(text(row, "lang_code"), text(row, "engine")).key();
     }
     private static Query catalogue(String table, String details, String detailKey, Expression where, boolean bound) {
         var projection = fields(table, "id", "name", "series_id", "novel_id", "created_time", "updated_time");
@@ -167,8 +181,9 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public void insertOrReplaceTranslation(long novelId, String langCode, String rawContent, String title, String description, long createdTime) {
-        upsert("novel_translations", List.of("novel_id", "lang_code"),
-                row("novel_id", novelId, "lang_code", langCode, "raw_content", rawContent, "title", title,
+        var variant = TranslationVariant.parse(langCode);
+        upsert("novel_translations", List.of("novel_id", "lang_code", "engine"),
+                row("novel_id", novelId, "lang_code", variant.language(), "engine", variant.engine(), "raw_content", rawContent, "title", title,
                         "description", description, "created_time", createdTime));
     }
 
@@ -199,17 +214,17 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public List<String> findTranslationLangs(long novelId) {
-        return select(query("novel_translations", fields("novel_translations", "lang_code"),
-                eq("novel_translations", "novel_id", novelId), Integer.MAX_VALUE, asc("novel_translations", "lang_code")), r -> text(r, "lang_code"));
+        return select(query("novel_translations", fields("novel_translations", "lang_code", "engine"),
+                eq("novel_translations", "novel_id", novelId), Integer.MAX_VALUE, asc("novel_translations", "lang_code"), asc("novel_translations", "engine")), RelationalNovelMapper::variantKey);
     }
 
     @Override
     public List<String> findSeriesTranslatedLangs(long seriesId) {
         String t = "novel_translations";
-        var q = new Query(new Query.Table(t), List.of(novelJoin(t)), fields(t, "lang_code"),
+        var q = new Query(new Query.Table(t), List.of(novelJoin(t)), fields(t, "lang_code", "engine"),
                 call(AND, active(), eq(N, "series_id", seriesId), call(GREATER, column(N, "series_id"), value(0))),
-                List.of(), null, List.of(asc(t, "lang_code")), true, Integer.MAX_VALUE, 0);
-        return select(q, r -> text(r, "lang_code"));
+                List.of(), null, List.of(asc(t, "lang_code"), asc(t, "engine")), true, Integer.MAX_VALUE, 0);
+        return select(q, RelationalNovelMapper::variantKey);
     }
 
     @Override
@@ -219,18 +234,19 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public void insertOrReplaceSeriesTitleTranslation(long seriesId, String langCode, String title, String description, long createdTime) {
-        upsert("novel_series_title_translations", List.of("series_id", "lang_code"),
-                row("series_id", seriesId, "lang_code", langCode, "title", title, "description", description, "created_time", createdTime));
+        var variant = TranslationVariant.parse(langCode);
+        upsert("novel_series_title_translations", List.of("series_id", "lang_code", "engine"),
+                row("series_id", seriesId, "lang_code", variant.language(), "engine", variant.engine(), "title", title, "description", description, "created_time", createdTime));
     }
 
     @Override
     public String findSeriesTitleTranslation(long seriesId, String langCode) {
-        return (String) scalar("novel_series_title_translations", "title", call(AND, eq("novel_series_title_translations", "series_id", seriesId), eq("novel_series_title_translations", "lang_code", langCode)));
+        return (String) scalar("novel_series_title_translations", "title", translation("novel_series_title_translations", "series_id", seriesId, langCode));
     }
 
     @Override
     public String findSeriesDescriptionTranslation(long seriesId, String langCode) {
-        return (String) scalar("novel_series_title_translations", "description", call(AND, eq("novel_series_title_translations", "series_id", seriesId), eq("novel_series_title_translations", "lang_code", langCode)));
+        return (String) scalar("novel_series_title_translations", "description", translation("novel_series_title_translations", "series_id", seriesId, langCode));
     }
 
     @Override
@@ -282,9 +298,14 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public List<NovelGlossaryEntry> findGlossaryEntries(long glossaryId) {
-        return select(query("novel_glossary_entries", fields("novel_glossary_entries", "source", "lang_code", "target"),
-                eq("novel_glossary_entries", "glossary_id", glossaryId), Integer.MAX_VALUE,
-                asc("novel_glossary_entries", "lang_code"), asc("novel_glossary_entries", "source")),
+        return findGlossaryEntries(glossaryId, 0, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public List<NovelGlossaryEntry> findGlossaryEntries(long glossaryId, int offset, int limit) {
+        return select(new Query("novel_glossary_entries", fields("novel_glossary_entries", "source", "lang_code", "target"),
+                eq("novel_glossary_entries", "glossary_id", glossaryId), List.of(),
+                List.of(asc("novel_glossary_entries", "lang_code"), asc("novel_glossary_entries", "source")), limit, offset),
                 r -> new NovelGlossaryEntry(text(r, "source"), text(r, "lang_code"), text(r, "target")));
     }
 
@@ -503,7 +524,11 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public List<NovelWorkDetailValueRow> findTranslationLangsByIds(Collection<Long> ids) {
-        return detailValues("novel_translations", "lang_code", ids);
+        String table = "novel_translations";
+        return select(new Query(new Query.Table(table), List.of(novelJoin(table)), fields(table, "novel_id", "lang_code", "engine"),
+                call(AND, active(), member(table, "novel_id", ids)), List.of(), null,
+                List.of(asc(table, "novel_id"), asc(table, "lang_code"), asc(table, "engine")), false, Integer.MAX_VALUE, 0),
+                row -> new NovelWorkDetailValueRow(number(row, "novel_id"), variantKey(row)));
     }
 
     @Override

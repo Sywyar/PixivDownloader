@@ -82,7 +82,7 @@ function harness() {
     const mountAi = () => {
         const owner = activation();
         context.PixivBatch.queueTypes.registerUiModule = initializer => initializer(owner);
-        load('pixivdownload-plugin-ai/src/main/resources/static/pixiv-ai/download-novel-ai-settings-slot.js');
+        load('pixivdownload-plugin-translation/src/main/resources/static/pixiv-translation/download-novel-translate-settings-slot.js');
         return owner;
     };
     return {context, document, events, writes, load, dispatchSlots, mountNovel, mountAi,

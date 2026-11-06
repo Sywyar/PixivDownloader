@@ -89,6 +89,61 @@ class PostgresProviderIntegrationTest {
         }
     }
 
+    private top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema keyUpgrade() {
+        var table = new TableSpec("facts", List.of(
+                new ColumnSpec("id", "INTEGER", true, null, 1),
+                new ColumnSpec("lang", "TEXT", true, null, 2),
+                new ColumnSpec("body", "TEXT", true, null, 0),
+                new ColumnSpec("engine", "TEXT", true, "'unknown'", 3)), List.of())
+                .withPreviousPrimaryKey(List.of("id", "lang"));
+        return new top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema(1, List.of(table), List.of(), List.of());
+    }
+
+    @Test @DisplayName("联合主键升级保留旧译文并允许同语言多引擎共存，回滚恢复旧结构")
+    void extendsPrimaryKeyWithoutLosingRows() throws Exception {
+        try (var c = target.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE); var sql = c.createStatement()) {
+            sql.execute("CREATE TABLE facts(id BIGINT NOT NULL,lang TEXT COLLATE \"C\" NOT NULL,body TEXT COLLATE \"C\" NOT NULL,PRIMARY KEY(id,lang))");
+            sql.execute("INSERT INTO facts VALUES(7,'en','原文😀')");
+            assertThatThrownBy(() -> target.applySchema(c, keyUpgrade(), true)).isInstanceOf(SQLException.class);
+            c.setAutoCommit(false);
+            target.applySchema(c, keyUpgrade(), false);
+            c.rollback();
+            try (var rows = sql.executeQuery("SELECT * FROM facts")) {
+                assertThat(rows.getMetaData().getColumnCount()).isEqualTo(3);
+            }
+            target.applySchema(c, keyUpgrade(), true);
+            target.applySchema(c, keyUpgrade(), true);
+            sql.execute("INSERT INTO facts VALUES(7,'en','new','provider')");
+            try (var rows = sql.executeQuery("SELECT body,engine FROM facts ORDER BY engine")) {
+                assertThat(rows.next()).isTrue(); assertThat(rows.getString(1)).isEqualTo("new");
+                assertThat(rows.next()).isTrue(); assertThat(rows.getString(1)).isEqualTo("原文😀");
+                assertThat(rows.getString(2)).isEqualTo("unknown");
+                assertThat(rows.next()).isFalse();
+            }
+            c.commit();
+        }
+    }
+
+    @Test @DisplayName("外键阻止主键升级时保留源数据并回滚新列")
+    void refusesDependentPrimaryKeyUpgrade() throws Exception {
+        try (var c = target.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE); var sql = c.createStatement()) {
+            sql.execute("CREATE TABLE facts(id BIGINT NOT NULL,lang TEXT COLLATE \"C\" NOT NULL,body TEXT COLLATE \"C\" NOT NULL,PRIMARY KEY(id,lang))");
+            sql.execute("INSERT INTO facts VALUES(7,'en','old')");
+            sql.execute("CREATE TABLE child(id BIGINT,lang TEXT,FOREIGN KEY(id,lang) REFERENCES facts(id,lang) ON DELETE CASCADE)");
+            sql.execute("INSERT INTO child VALUES(7,'en')");
+            c.setAutoCommit(false);
+            assertThatThrownBy(() -> target.applySchema(c, keyUpgrade(), true)).isInstanceOfAny(SQLException.class, IllegalStateException.class);
+            try (var rows = sql.executeQuery("SELECT * FROM facts")) {
+                assertThat(rows.getMetaData().getColumnCount()).isEqualTo(3);
+                assertThat(rows.next()).isTrue(); assertThat(rows.getString("body")).isEqualTo("old");
+            }
+            try (var rows = sql.executeQuery("SELECT count(*) FROM child")) {
+                assertThat(rows.next()).isTrue(); assertThat(rows.getInt(1)).isEqualTo(1);
+            }
+            c.rollback();
+        }
+    }
+
     private TableSpec evolvingCheck() {
         return new TableSpec("facts", List.of(new ColumnSpec("id", "INTEGER", true, null, 1),
                 new ColumnSpec("active", "INTEGER", true, "1", 0)), List.of())

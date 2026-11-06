@@ -429,7 +429,8 @@ final class LegacySchemaBaseline {
                         column("raw_content", "TEXT", true, null, 0),
                         column("title", "TEXT", false, null, 0),
                         column("description", "TEXT", false, null, 0),
-                        column("created_time", "INTEGER", true, null, 0)
+                        column("created_time", "INTEGER", true, null, 0),
+                        column("engine", "TEXT", true, "'unknown'", 3)
                 ),
                 List.of()
         ));
@@ -441,7 +442,8 @@ final class LegacySchemaBaseline {
                         column("lang_code", "TEXT", true, null, 2),
                         column("title", "TEXT", true, null, 0),
                         column("description", "TEXT", false, null, 0),
-                        column("created_time", "INTEGER", true, null, 0)
+                        column("created_time", "INTEGER", true, null, 0),
+                        column("engine", "TEXT", true, "'unknown'", 3)
                 ),
                 List.of()
         ));

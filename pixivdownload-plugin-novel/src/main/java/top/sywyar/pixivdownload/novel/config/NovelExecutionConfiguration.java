@@ -27,11 +27,6 @@ public class NovelExecutionConfiguration {
         return fixedPool(settings.getNovelMaxConcurrent(), "pixiv-novel-");
     }
 
-    @Bean("novelTranslateTaskExecutor")
-    public ThreadPoolTaskExecutor novelTranslateTaskExecutor(NovelExecutionSettings settings) {
-        return fixedPool(settings.getNovelTranslateMaxConcurrent(), "pixiv-novel-tr-");
-    }
-
     @Bean(name = "novelStatusTaskScheduler", destroyMethod = "shutdown")
     public ThreadPoolTaskScheduler novelStatusTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();

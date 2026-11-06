@@ -10,7 +10,8 @@ public record NovelBatchRequest(
         Long collectionId,
         String groupBy,
         String format,
-        Boolean deleteAfter
+        Boolean deleteAfter,
+        String variant
 ) {
     public boolean filterMode() {
         return "filter".equalsIgnoreCase(mode) && filter != null;

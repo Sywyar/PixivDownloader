@@ -155,6 +155,45 @@ class PluginContractClassSpaceTest {
         return result;
     }
 
+    @Test
+    @DisplayName("冻结开发目录沿用契约摘要、重复包、隐式类路径和累计条目检查")
+    void developmentSnapshotsRetainContractChecks() throws Exception {
+        Path packaged = contract(Map.of("sample/contract/Api.class", new byte[]{1}), Map.of(), null);
+        Path snapshot = directory.resolve("snapshot");
+        java.nio.file.Files.createDirectories(snapshot.resolve("lib"));
+        java.nio.file.Files.createDirectories(snapshot.resolve("classes/sample/wrapper"));
+        try (var zip = new java.util.zip.ZipFile(packaged.toFile())) {
+            for (String name : java.util.List.of("plugin.properties", "lib/api.jar")) {
+                try (var input = zip.getInputStream(zip.getEntry(name))) {
+                    java.nio.file.Files.copy(input, snapshot.resolve(name));
+                }
+            }
+        }
+        java.nio.file.Files.write(snapshot.resolve("classes/sample/wrapper/Plugin.class"), new byte[]{1});
+        var descriptor = PluginPackageReader.inspectDescriptor(snapshot.resolve("plugin.properties"));
+        var space = PluginPackageVerifier.developmentClassSpace(snapshot, PluginPackageLimits.defaults());
+        assertThat(PluginClassSpaceVerifier.contractPackages(space, descriptor)).containsExactly("sample.contract");
+        assertThat(space.packagesByArchive().get("")).containsExactly("sample.wrapper");
+        Path copy = snapshot.resolve("classes/sample/contract/Copy.class");
+        java.nio.file.Files.createDirectories(copy.getParent());
+        java.nio.file.Files.write(copy, new byte[]{2});
+        assertThatThrownBy(() -> PluginClassSpaceVerifier.contractPackages(
+                PluginPackageVerifier.developmentClassSpace(snapshot, PluginPackageLimits.defaults()), descriptor))
+                .hasMessageContaining("outside the declared API jar");
+        java.nio.file.Files.delete(copy);
+        Path manifest = snapshot.resolve("classes/META-INF/MANIFEST.MF");
+        java.nio.file.Files.createDirectories(manifest.getParent());
+        java.nio.file.Files.writeString(manifest, "Manifest-Version: 1.0\r\nClass-Path: hidden.jar\r\n\r\n");
+        assertThatThrownBy(() -> PluginClassSpaceVerifier.contractPackages(
+                PluginPackageVerifier.developmentClassSpace(snapshot, PluginPackageLimits.defaults()), descriptor))
+                .hasMessageContaining("digest-bound");
+        var limits = PluginPackageLimits.defaults();
+        assertThatThrownBy(() -> PluginPackageVerifier.developmentClassSpace(snapshot,
+                new PluginPackageLimits(limits.maxArchiveBytes(), 1, limits.maxTotalUncompressedBytes(),
+                        limits.maxEntryUncompressedBytes(), limits.maxDescriptorBytes(), limits.maxCompressionRatio())))
+                .isInstanceOf(PluginPackageException.class).hasMessageContaining("too many development entries");
+    }
+
     private PluginPackageInspection inspect(Path artifact) {
         var usage = PluginPackageVerifier.verifyAndMeasure(artifact, PluginPackageLimits.defaults());
         return PluginClassSpaceVerifier.withClassSpace(PluginPackageReader.inspect(artifact), usage.classSpace());

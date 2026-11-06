@@ -26,11 +26,8 @@ class NovelExecutionConfigurationTest {
         NovelExecutionSettings settings = new NovelExecutionSettings();
 
         assertThat(settings.getNovelMaxConcurrent()).isEqualTo(10);
-        assertThat(settings.getNovelTranslateMaxConcurrent()).isEqualTo(10);
         settings.setNovelMaxConcurrent(0);
-        settings.setNovelTranslateMaxConcurrent(-3);
         assertThat(settings.getNovelMaxConcurrent()).isEqualTo(1);
-        assertThat(settings.getNovelTranslateMaxConcurrent()).isEqualTo(1);
     }
 
     @Test
@@ -42,27 +39,20 @@ class NovelExecutionConfigurationTest {
             parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
                     "novel-test-config",
                     Map.of(
-                            NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3",
-                            NovelExecutionSettings.TRANSLATION_CONCURRENCY_KEY, "4")));
+                            NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY, "3")));
             parent.refresh();
             ConfigurableApplicationContext child = factory.create(parent, new PluginContextModule(
                     "novel", getClass().getClassLoader(), List.of(NovelExecutionConfiguration.class)));
             ThreadPoolTaskExecutor download = child.getBean(
                     "novelDownloadTaskExecutor", ThreadPoolTaskExecutor.class);
-            ThreadPoolTaskExecutor translate = child.getBean(
-                    "novelTranslateTaskExecutor", ThreadPoolTaskExecutor.class);
             ThreadPoolTaskScheduler statusScheduler = child.getBean(
                     "novelStatusTaskScheduler", ThreadPoolTaskScheduler.class);
             try {
                 NovelExecutionSettings settings = child.getBean(NovelExecutionSettings.class);
                 assertThat(settings.getNovelMaxConcurrent()).isEqualTo(3);
-                assertThat(settings.getNovelTranslateMaxConcurrent()).isEqualTo(4);
                 assertThat(download.getCorePoolSize()).isEqualTo(3);
                 assertThat(download.getMaxPoolSize()).isEqualTo(3);
                 assertThat(download.getThreadNamePrefix()).isEqualTo("pixiv-novel-");
-                assertThat(translate.getCorePoolSize()).isEqualTo(4);
-                assertThat(translate.getMaxPoolSize()).isEqualTo(4);
-                assertThat(translate.getThreadNamePrefix()).isEqualTo("pixiv-novel-tr-");
                 assertThat(statusScheduler.getScheduledThreadPoolExecutor().getCorePoolSize())
                         .isEqualTo(1);
                 assertThat(statusScheduler.getThreadNamePrefix())
@@ -77,14 +67,12 @@ class NovelExecutionConfigurationTest {
                 assertThat(parent.containsBean("novelTranslateTaskExecutor")).isFalse();
                 assertThat(parent.containsBean("novelStatusTaskScheduler")).isFalse();
                 assertThat(download.getThreadPoolExecutor().isShutdown()).isFalse();
-                assertThat(translate.getThreadPoolExecutor().isShutdown()).isFalse();
                 assertThat(statusScheduler.getScheduledThreadPoolExecutor().isShutdown())
                         .isFalse();
             } finally {
                 child.close();
             }
             assertThat(download.getThreadPoolExecutor().isShutdown()).isTrue();
-            assertThat(translate.getThreadPoolExecutor().isShutdown()).isTrue();
             assertThat(statusScheduler.getScheduledThreadPoolExecutor().isShutdown()).isTrue();
         }
     }

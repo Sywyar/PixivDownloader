@@ -116,7 +116,7 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-plugin-ai/src/main/resources/static/pixiv-ai/pixiv-translate.css": {
+    "pixivdownload-plugin-translation/src/main/resources/static/pixiv-translation/pixiv-translate.css": {
       "hardcodedColors": 43,
       "inlineStyles": 0,
       "inlineHandlers": 0,

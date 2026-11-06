@@ -126,7 +126,13 @@ function Get-OfficialDefaultInstalledPlugins {
             )
         },
         [pscustomobject]@{ Id = "tts"; Module = "pixivdownload-plugin-tts"; Format = "jar"; PrivateLibs = $false },
-        [pscustomobject]@{ Id = "ai"; Module = "pixivdownload-plugin-ai"; Format = "jar"; PrivateLibs = $false }
+        [pscustomobject]@{ Id = "ai"; Module = "pixivdownload-plugin-ai"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "translation"; Module = "pixivdownload-plugin-translation"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{
+            Id = "novel-translation-contract"; Module = "pixivdownload-plugin-novel-translation-contract"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/translation/contract/";
+            RequiredLibPatterns = @("^pixivdownload-novel-translation-api\.jar$")
+        }
     )
     return $plugins
 }
@@ -583,6 +589,7 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/userscripts/pixiv-batch-downloader-import.user.js",
         "BOOT-INF/classes/top/sywyar/pixivdownload/pixivbatchdownloaderimport/",
         "BOOT-INF/classes/static/pixiv-ai",
+        "BOOT-INF/classes/static/pixiv-translation",
         "BOOT-INF/classes/static/pixiv-artwork",
         "BOOT-INF/classes/static/pixiv-batch",
         "BOOT-INF/classes/static/pixiv-douyin-download",

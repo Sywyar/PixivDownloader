@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const I18N = path.join(__dirname, '..', '..', 'main', 'resources', 'i18n', 'web');
 const ZH = fs.readFileSync(path.join(I18N, 'novel.properties'), 'utf8');
@@ -45,4 +46,25 @@ test('小说搜索与翻译状态文案由小说命名空间持有', async () =>
             assert.ok(!batchKeys.has(key), `Workbench ${label} bundle 不得拥有小说状态文案 ${key}`);
         }
     }
+});
+
+test('切换界面语言后继续显示当前译文简介，空译文简介回退原文', async () => {
+    const source = fs.readFileSync(path.join(I18N, '../../static/pixiv-novel/novel-content.js'), 'utf8');
+    const original = {title: 'Original title', description: 'Original description'};
+    const sandbox = {window: {PixivNovel: {}}, novelId: '1', novelView: original,
+        rerenderPayload: {data: original}, cachedSeriesNav: null,
+        fetch: async () => ({ok: true, json: async () => ({content: 'Translated body', translated: true,
+            translatedTitle: 'Translated title', translatedDescription: 'Translated description'})})};
+    vm.createContext(sandbox);
+    vm.runInContext(source, sandbox);
+    let description;
+    Object.assign(sandbox, {renderContent() {}, buildImageResolver() {}, applyTitleForLang() {},
+        renderBadges() {}, renderMetaRow() {}, renderTags() {}, updateHeart() {},
+        renderDescription(value) { description = value; }});
+    await sandbox.loadContent('zh-CN@youdao');
+    sandbox.rerenderDynamic();
+    assert.strictEqual(description, 'Translated description');
+    sandbox.rerenderPayload.translation.translatedDescription = '';
+    sandbox.rerenderDynamic();
+    assert.strictEqual(description, original.description);
 });

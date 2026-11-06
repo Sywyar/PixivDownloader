@@ -114,7 +114,7 @@ PixivUiSlots.registerModule('/pixiv-tts/novel-detail-tts-slot.js', async functio
             i18n: pageI18n, signal: context.signal, fetch: context.fetch,
             contentEl: contentEl,
             toast: toastFn,
-            language: language,
+            language: language.split('@')[0],
             novelId: id,
             narrationLang: context.properties.contentLanguage || ''
         });

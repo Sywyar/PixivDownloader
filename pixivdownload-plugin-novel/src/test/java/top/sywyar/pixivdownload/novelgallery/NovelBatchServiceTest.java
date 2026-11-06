@@ -61,6 +61,9 @@ class NovelBatchServiceTest {
     @Mock
     private ArchiveExportService archiveExportService;
 
+    @Mock
+    private top.sywyar.pixivdownload.novel.export.NovelExportService novelExportService;
+
     private NovelBatchService service;
 
     @BeforeEach
@@ -82,7 +85,7 @@ class NovelBatchServiceTest {
         });
         service = new NovelBatchService(novelGalleryService, workMetadataRepository,
                 novelWorkDetailsRepository, workAssetService, workCollectionMembership,
-                archiveExportService, new ObjectMapper());
+                archiveExportService, new ObjectMapper(), novelExportService);
     }
 
     @Test
@@ -107,7 +110,7 @@ class NovelBatchServiceTest {
     @DisplayName("ids 模式应去重、过滤非法 ID 并应用排除列表")
     void shouldResolveIdsMode() {
         NovelBatchRequest request = new NovelBatchRequest("ids",
-                Arrays.asList(4L, 4L, 0L, null, 5L, 6L), List.of(5L), null, null, null, null, null);
+                Arrays.asList(4L, 4L, 0L, null, 5L, 6L), List.of(5L), null, null, null, null, null, null);
         assertThat(service.resolveNovelIds(request)).containsExactly(4L, 6L);
     }
 
@@ -118,7 +121,7 @@ class NovelBatchServiceTest {
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
         NovelBatchRequest request = new NovelBatchRequest("filter",
-                null, List.of(8L), filter, null, null, null, null);
+                null, List.of(8L), filter, null, null, null, null, null);
         when(novelGalleryService.findNovelIds(any())).thenReturn(List.of(7L, 8L, 9L));
 
         assertThat(service.resolveNovelIds(request)).containsExactly(7L, 9L);
@@ -139,7 +142,7 @@ class NovelBatchServiceTest {
     @Test
     @DisplayName("不支持的打包格式应由核心归档端口校验并透传失败")
     void shouldRejectUnsupportedFormat() {
-        assertThatThrownBy(() -> service.exportNovels(List.of(1L), "author", "7z", false))
+        assertThatThrownBy(() -> service.exportNovels(List.of(1L), "author", "7z", false, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("7z");
         verify(archiveExportService).normalizeFormat("7z");
@@ -170,7 +173,7 @@ class NovelBatchServiceTest {
 
     @Test
     @DisplayName("详情在并发软删除中缺席时跳过该小说且不读取或打包残留文件")
-    void shouldSkipNovelWhoseOwnedDetailsDisappear() {
+    void shouldSkipNovelWhoseOwnedDetailsDisappear() throws Exception {
         WorkMetadata meta = new WorkMetadata(7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", "/n/7",
                 false, null, null, null, null, true);
@@ -178,7 +181,7 @@ class NovelBatchServiceTest {
         when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of());
 
         ArchiveExportResult result =
-                service.exportNovels(List.of(7L), "author", "zip", false);
+                service.exportNovels(List.of(7L), "author", "zip", false, null);
 
         assertThat(result.emptyArchive()).isTrue();
         assertThat(result.workCount()).isEqualTo(1);
@@ -212,7 +215,7 @@ class NovelBatchServiceTest {
                 new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
                         List.of(new WorkAssetFile(0, content, "txt")))));
         ArchiveExportResult result =
-                service.exportNovels(List.of(7L, 8L), "author", "zip", true);
+                service.exportNovels(List.of(7L, 8L), "author", "zip", true, null);
 
         assertThat(result.archiveToken()).isEqualTo("token-2");
         ArgumentCaptor<ArchiveExportRequest> requestCaptor =
@@ -220,6 +223,137 @@ class NovelBatchServiceTest {
         verify(archiveExportService).export(requestCaptor.capture());
         assertThat(requestCaptor.getValue().deleteAfterReady())
                 .isEqualTo(new ArchiveWorkDeletion(WorkType.NOVEL.name(), List.of(7L)));
+    }
+
+    @Test
+    @DisplayName("导出选项只包含全部所选小说共有的精确译文")
+    void commonVariants() {
+        when(novelWorkDetailsRepository.findAll(List.of(7L, 8L))).thenReturn(Map.of(
+                7L, details(7L, List.of("zh-CN@youdao", "zh-CN@ai", "en")),
+                8L, details(8L, List.of("zh-CN@ai", "en"))));
+        assertThat(service.exportOptions(List.of(7L, 8L)).variants()).containsExactly("zh-CN@ai", "en");
+        when(novelWorkDetailsRepository.findAll(List.of(7L, 8L))).thenReturn(Map.of(
+                7L, details(7L, List.of("zh-CN@ai"))));
+        assertThat(service.exportOptions(List.of(7L, 8L)).variants()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("译文复用归档目录和格式，保留源文件且不混入其它引擎")
+    void translatedArchive() throws Exception {
+        Path original = translatedFixture();
+        var rendered = new top.sywyar.pixivdownload.novel.export.NovelExportService.Export(
+                "translated.txt", "youdao text".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(novelExportService.export(7L,
+                top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat.TXT, "zh-CN@youdao"))
+                .thenReturn(rendered);
+        var result = service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao");
+        assertThat(result.archiveToken()).isEqualTo("token-2");
+        var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(captured.capture());
+        var archive = captured.getValue();
+        assertThat(archive.deleteAfterReady()).isNull();
+        assertThat(archive.entries()).extracting(ArchiveExportEntry::entryName)
+                .containsExactly("7/translated.txt", "manifest.json");
+        assertThat(new String(archive.entries().getFirst().bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .isEqualTo("youdao text");
+        assertThat(new String(archive.entries().getLast().bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("zh-CN@youdao");
+        assertThat(Files.readString(original)).isEqualTo("original text");
+    }
+
+    @Test
+    @DisplayName("译文 HTML 归档清单包含有效插图引用及同目录图片")
+    void translatedHtmlArchiveContainsReferencedImage() throws Exception {
+        translatedFixture();
+        Path html = Files.writeString(tempDir.resolve("content.html"), "Original HTML");
+        Path image = Files.write(tempDir.resolve("embed_7.png"), new byte[]{1, 2, 3});
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, tempDir, 1, List.of(
+                        new WorkAssetFile(0, html, "html"), new WorkAssetFile(1, image, "png")))));
+        var novels = org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelDatabase.class);
+        var novel = org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelRecord.class);
+        when(novels.getNovel(7)).thenReturn(novel);
+        when(novel.rawContent()).thenReturn("Original body[uploadedimage:7]");
+        when(novel.title()).thenReturn("Story");
+        when(novel.folder()).thenReturn(tempDir.toString());
+        when(novels.hasTranslation(7, "zh-CN@youdao")).thenReturn(true);
+        when(novels.getTranslationContent(7, "zh-CN@youdao")).thenReturn("Translated body[uploadedimage:7]");
+        when(novels.getNovelImageIds(7)).thenReturn(List.of("7"));
+        when(novels.getNovelImageExt(7, "7")).thenReturn("png");
+        var renderer = new top.sywyar.pixivdownload.novel.export.NovelExportService(novels,
+                workMetadataRepository, workAssetService,
+                top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages.messageResolver());
+        service = new NovelBatchService(novelGalleryService, workMetadataRepository, novelWorkDetailsRepository,
+                workAssetService, workCollectionMembership, archiveExportService, new ObjectMapper(), renderer);
+
+        service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao");
+        var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(captured.capture());
+        var entries = captured.getValue().entries();
+        var document = entries.stream().filter(e -> e.entryName().endsWith(".html")).findFirst().orElseThrow();
+        assertThat(new String(document.bytes(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("Translated body", "<img", "src=\"embed_7.png\"").doesNotContain("Original body");
+        var picture = entries.stream().filter(e -> e.entryName().equals("7/embed_7.png")).findFirst().orElseThrow();
+        assertThat(picture.sourcePath()).isEqualTo(image);
+        assertThat(Files.readAllBytes(picture.sourcePath())).containsExactly(1, 2, 3);
+        assertThat(Files.readString(html)).isEqualTo("Original HTML");
+        assertThat(captured.getValue().deleteAfterReady()).isNull();
+    }
+
+    @Test
+    @DisplayName("译文缺失、强制删除及生成字节超限均不提交归档")
+    void rejectUnsafeOrUnavailableTranslation() throws Exception {
+        translatedFixture();
+        assertThatThrownBy(() -> service.exportNovels(List.of(7L), "id", "zip", true, "zh-CN@youdao"))
+                .isInstanceOf(NovelBatchService.ExportRejected.class).hasMessage("invalid-request");
+        assertThatThrownBy(() -> service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@ai"))
+                .isInstanceOf(NovelBatchService.ExportRejected.class).hasMessage("unavailable");
+        var format = top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat.TXT;
+        when(novelExportService.export(7L, format, "zh-CN@youdao")).thenReturn(null);
+        assertThatThrownBy(() -> service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao"))
+                .hasMessage("unavailable");
+        when(novelExportService.export(7L, format, "zh-CN@youdao")).thenReturn(
+                new top.sywyar.pixivdownload.novel.export.NovelExportService.Export("large.txt",
+                        new byte[(int) NovelBatchService.MAX_GENERATED_BYTES + 1]));
+        assertThatThrownBy(() -> service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao"))
+                .hasMessage("too-large");
+        verify(archiveExportService, org.mockito.Mockito.never()).export(any());
+    }
+
+    @Test
+    @DisplayName("多个文档共用累计生成预算，未超单文件限制也不能超总量")
+    void generatedBudgetIsCumulative() throws Exception {
+        Path original = translatedFixture();
+        Path html = Files.writeString(tempDir.resolve("content.html"), "original html");
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, tempDir, 1, List.of(
+                        new WorkAssetFile(0, original, "txt"), new WorkAssetFile(0, html, "html")))));
+        byte[] halfBudget = new byte[(int) (NovelBatchService.MAX_GENERATED_BYTES / 2) + 1];
+        when(novelExportService.export(org.mockito.ArgumentMatchers.eq(7L),
+                any(top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat.class),
+                org.mockito.ArgumentMatchers.eq("zh-CN@youdao"))).thenReturn(
+                new top.sywyar.pixivdownload.novel.export.NovelExportService.Export("translated.txt", halfBudget));
+        assertThatThrownBy(() -> service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao"))
+                .hasMessage("too-large");
+        verify(archiveExportService, org.mockito.Mockito.never()).export(any());
+    }
+
+    private Path translatedFixture() throws Exception {
+        Path original = Files.writeString(tempDir.resolve("content.txt"), "original text");
+        WorkMetadata meta = new WorkMetadata(7L, "Story", null, 0, false,
+                88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", tempDir.toString(),
+                false, null, null, null, null, null);
+        when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
+        when(novelWorkDetailsRepository.findAll(List.of(7L)))
+                .thenReturn(Map.of(7L, details(7L, List.of("zh-CN@youdao"))));
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, tempDir, 1,
+                        List.of(new WorkAssetFile(0, original, "txt")))));
+        return original;
+    }
+
+    private static NovelWorkDetails details(long id, List<String> variants) {
+        return new NovelWorkDetails(id, 100, 200, 60, 1, "ja", null, List.of(), variants);
     }
 
     private List<ArchiveExportEntry> exportSingleNovel(String groupBy, boolean deleteAfter)
@@ -243,7 +377,7 @@ class NovelBatchServiceTest {
                 new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
                         List.of(new WorkAssetFile(0, content, "txt")))));
         ArchiveExportResult result =
-                service.exportNovels(List.of(7L), groupBy, "zip", deleteAfter);
+                service.exportNovels(List.of(7L), groupBy, "zip", deleteAfter, null);
 
         assertThat(result.archiveToken()).isEqualTo("token-2");
         assertThat(result.fileCount()).isEqualTo(1);

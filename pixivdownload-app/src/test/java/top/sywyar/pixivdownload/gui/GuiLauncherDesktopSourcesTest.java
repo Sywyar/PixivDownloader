@@ -12,6 +12,11 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigOptionRequirement;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -30,6 +35,66 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GuiLauncherDesktopSourcesTest {
+    @Test
+    @DisplayName("配置能力随提供者启停刷新选项提示，不依赖插件名称或设置分组")
+    void projectsConfigurationAvailabilityFromActiveProviders() {
+        var field = new GuiConfigFieldContribution(
+                "consumer.engine",
+                "ai",
+                "engine",
+                "",
+                "consumer",
+                GuiConfigFieldType.ENUM,
+                "remote",
+                1,
+                false,
+                GuiConfigEffect.BACKEND_RESTART,
+                List.of("remote", "local"),
+                List.of(),
+                List.of(),
+                null,
+                null,
+                true,
+                java.util.Map.of("remote", "remote.label")
+        );
+        var consumer = new ConfigPlugin("consumer", new GuiConfigContribution(
+                List.of(),
+                List.of(field),
+                List.of(),
+                java.util.Set.of(),
+                List.of(new GuiConfigOptionRequirement("consumer.engine", "remote", "fixture.configuration", "remote.unavailable"))
+        ));
+        var provider = new ConfigPlugin("independent-provider", new GuiConfigContribution(
+                List.of(),
+                List.of(),
+                List.of(),
+                java.util.Set.of("fixture.configuration"),
+                List.of()
+        ));
+        var discovery = new PluginDiscoveryResult(List.of(consumer, provider).stream()
+                .map(plugin -> new DiscoveredFeaturePlugin(plugin.id(), plugin.id(), plugin, getClass().getClassLoader()))
+                .toList(), List.of());
+        for (boolean enabled : List.of(false, true, false, true)) {
+            var toggles = new PluginToggleProperties();
+            toggles.setEnabled(provider.id(), enabled);
+            var registry = new PluginRegistry(List.of(), toggles, discovery);
+            var snapshots = GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry));
+            var actual = snapshots.stream().filter(plugin -> plugin.id().equals(consumer.id())).findFirst().orElseThrow()
+                    .configContributions().get(0).fields().get(0);
+            assertThat(actual.enumValueLabelKeys()).containsEntry("remote", enabled ? "remote.label" : "remote.unavailable");
+            assertThat(actual.enumValues()).containsExactly("remote", "local");
+            assertThat(actual.defaultValue()).isEqualTo("remote");
+        }
+        assertThat(field.enumValueLabelKeys()).containsEntry("remote", "remote.label");
+    }
+
+    private record ConfigPlugin(String id, GuiConfigContribution contribution) implements PixivFeaturePlugin {
+        @Override public String displayName() { return id; }
+        @Override public String description() { return id; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<GuiConfigContribution> guiConfigContributions() { return List.of(contribution); }
+    }
+
     @Test
     @DisplayName("等价 YAML 层级共享 Spring 平铺规则，重复属性按文件顺序覆盖")
     void yamlToggleShapesFollowSpringFlattening(@TempDir Path temp) throws Exception {

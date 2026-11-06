@@ -37,7 +37,7 @@ for (const hasNeighbors of [false, true]) {
             next: hasNeighbors ? {novelId: '43', seriesOrder: 3, title: 'Third'} : null};
         const requests = [];
         const sandbox = {document, URLSearchParams, novelId: '42', PixivNovel: {},
-            activeContentLang: 'ja-JP', cachedSeriesNav: null,
+            activeContentLang: 'ja-JP@youdao', cachedSeriesNav: null,
             navigator: {language: 'en-US'},
             fetch: async url => {
                 requests.push(url);
@@ -53,7 +53,7 @@ for (const hasNeighbors of [false, true]) {
         sandbox.pageI18n = await sandbox.PixivI18n.create({namespaces: ['novel-gallery']});
         await sandbox.PixivNovel.series.loadSeriesNav();
         assert.deepEqual(requests.filter(url => url.startsWith('/api/gallery/novel/')),
-            ['/api/gallery/novel/42/series?lang=ja-JP']);
+            ['/api/gallery/novel/42/series?variant=ja-JP%40youdao']);
         assert.equal(sandbox.PixivNovel.series.getCachedSeriesNav(), nav);
         const rendered = [...nodes.values()].map(node => node.textContent);
         // 槽位加载和界面语言刷新都会再次调用真实的整页翻译入口。
@@ -67,14 +67,14 @@ for (const hasNeighbors of [false, true]) {
             assert.equal(nodes.get('series-index' + suffix).textContent, 'Contents · Series');
             assert.equal(nodes.get('series-nav' + suffix).style.display, 'grid');
             assert.equal(nodes.get('series-index' + suffix).href,
-                '/pixiv-series.html?type=novel&seriesId=7&currentId=42&seriesTitle=Series&order=2');
+                '/pixiv-series.html?type=novel&seriesId=7&currentId=42&seriesTitle=Series&order=2&variant=ja-JP%40youdao');
             if (hasNeighbors) {
-                assert.equal(nodes.get('series-prev' + suffix).href, '/pixiv-novel.html?id=41');
-                assert.equal(nodes.get('series-next' + suffix).href, '/pixiv-novel.html?id=43');
+                assert.equal(nodes.get('series-prev' + suffix).href, '/pixiv-novel.html?id=41&variant=ja-JP%40youdao');
+                assert.equal(nodes.get('series-next' + suffix).href, '/pixiv-novel.html?id=43&variant=ja-JP%40youdao');
             }
         }
         vm.runInContext(content, sandbox);
-        Object.assign(sandbox, {rerenderPayload: {data: {}},
+        Object.assign(sandbox, {rerenderPayload: {data: {}}, novelView: {},
             renderBadges() {}, renderMetaRow() {}, renderDescription() {}, renderTags() {}, updateHeart() {}});
         const originalI18n = sandbox.pageI18n;
         sandbox.pageI18n = {t: (...args) => 'Changed ' + originalI18n.t(...args)};
