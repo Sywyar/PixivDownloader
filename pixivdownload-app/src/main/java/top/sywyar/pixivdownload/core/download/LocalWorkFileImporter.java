@@ -56,15 +56,23 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
         owners.values().forEach(next::putAll); handlers = Map.copyOf(next);
     }
     @Override public boolean importFiles(WorkFileImportRequest request) throws IOException {
+        return importFiles(new LocalWorkFileImportRequest(request.workType(), request.workId(),
+                request.sourceRoot(), request.pageFiles()), request);
+    }
+    @Override public boolean importLocalFiles(LocalWorkFileImportRequest request) throws IOException {
+        return importFiles(request, null);
+    }
+    private boolean importFiles(LocalWorkFileImportRequest request, WorkFileImportRequest metadata) throws IOException {
         // ponytail: 单次核验和登记，无排队大载荷；需要并行吞吐时再按作品加锁。
         if (!admission.tryLock()) throw new IOException("IMPORT_BUSY");
-        try { return importOne(request); } finally { admission.unlock(); }
+        try { return importOne(request, metadata); } finally { admission.unlock(); }
     }
-    private boolean importOne(WorkFileImportRequest request) throws IOException {
+    private boolean importOne(LocalWorkFileImportRequest request, WorkFileImportRequest metadata) throws IOException {
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(request.workType(), request.workId())) {
             WorkFileImportHandler handler = handlers.get(request.workType());
             if (request.workType() != WorkType.ARTWORK && handler == null) throw new IOException("IMPORT_OWNER_UNAVAILABLE");
-            if (request.workType() == WorkType.ARTWORK && !ArtworkMetadataQuality.isMeaningfulTitle(request.workId(), request.title()))
+            if (metadata != null && request.workType() == WorkType.ARTWORK
+                    && !ArtworkMetadataQuality.isMeaningfulTitle(request.workId(), metadata.title()))
                 throw new IllegalArgumentException("INVALID_WORK_TITLE");
             DownloadAttempt attempt = new DownloadAttempt(UUID.randomUUID(), request.workType().name().toLowerCase(Locale.ROOT), Long.toString(request.workId()));
             lifecycle.checkAdmission(attempt);
@@ -84,7 +92,7 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
                     throw new IOException("IMPORT_SIZE_LIMIT");
                 extensions.add(validateFormat(source, request.workType())); attributes.add(facts);
             }
-            lifecycle.register(attempt, null, "", request.title());
+            lifecycle.register(attempt, null, "", metadata == null ? Long.toString(request.workId()) : metadata.title());
             lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
             lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             try {
@@ -99,8 +107,10 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
                                     || !now.lastModifiedTime().equals(before.lastModifiedTime())) throw new IOException("SOURCE_CHANGED");
                         } catch (IOException changed) { throw new java.io.UncheckedIOException(changed); }
                     }
-                    authors.observe(request.authorId(), request.authorName());
-                    boolean created = request.workType() == WorkType.ARTWORK ? registerArtwork(request, extensions) : handler.register(request);
+                    if (metadata != null) authors.observe(metadata.authorId(), metadata.authorName());
+                    boolean created = request.workType() == WorkType.ARTWORK
+                            ? registerArtwork(request, metadata, extensions)
+                            : metadata == null ? handler.registerLocal(request) : handler.register(metadata);
                     if (created) files.save(request);
                     return created;
                 }));
@@ -113,11 +123,16 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
             }
         }
     }
-    private boolean registerArtwork(WorkFileImportRequest r, Set<String> extensions) {
+    private boolean registerArtwork(LocalWorkFileImportRequest r, WorkFileImportRequest metadata, Set<String> extensions) {
         if (database.getArtwork(r.workId()) != null) return false;
-        history.record(new ArtworkDownloadCompletion(r.workId(), r.title(), r.sourceRoot(), r.pageCount(), extensions,
-                history.allocateRecordTime(System.currentTimeMillis()), r.restriction(), r.aiGenerated(), r.authorId(), r.description(),
-                PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, r.authorName(), r.seriesId(), r.seriesOrder(), r.tags()));
+        // 空标题走历史端口的裸记录语义，分级与 AI 标记保持数据库空值。
+        history.record(new ArtworkDownloadCompletion(r.workId(), metadata == null ? "" : metadata.title(),
+                r.sourceRoot(), r.pageFiles().size(), extensions, history.allocateRecordTime(System.currentTimeMillis()),
+                metadata == null ? 0 : metadata.restriction(), metadata != null && metadata.aiGenerated(),
+                metadata == null ? null : metadata.authorId(), metadata == null ? null : metadata.description(),
+                PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, metadata == null ? null : metadata.authorName(),
+                metadata == null ? null : metadata.seriesId(), metadata == null ? null : metadata.seriesOrder(),
+                metadata == null ? List.of() : metadata.tags()));
         return true;
     }
     private static String validateFormat(Path source, WorkType type) throws IOException {

@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport.history;
 
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImporter;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.pixivbatchdownloaderimport.PixivBatchDownloaderImportStatistics;
@@ -10,8 +8,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 
 import java.io.IOException;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -19,10 +15,9 @@ import java.util.concurrent.*;
 import static top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.*;
 import static org.slf4j.event.Level.*;
 
-/** 浏览器只上传记录和单次元数据响应；文件根目录始终取本机已保存的配置。 */
+/** 浏览器只上传历史记录；文件根目录始终取本机已保存的配置。 */
 public final class BrowserHistoryImport implements AutoCloseable {
     public static final int CHUNK_BYTES = 1024 * 1024;
-    public static final int RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final long IDLE_NANOS = TimeUnit.MINUTES.toNanos(15);
     private final WorkFileImporter importer;
     private final WorkQueryService works;
@@ -30,6 +25,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
     private final PluginRuntimeTaskRegistrar tasks;
     private final Path cache;
     private final ImportDiagnostics diagnostics;
+    private final HistoryImportCompletion completions;
     private final ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, task -> {
         Thread thread = new Thread(task, "pixiv-browser-history");
         thread.setDaemon(true);
@@ -40,8 +36,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
 
     /** 只包含浏览器可读取的状态，不返回本机路径或来源站点凭证。 */
     public record View(String session, String phase, Preview preview, Status status,
-                       MetadataRequest metadata, DesktopUiText error, List<HistoryImportService.WorkResult> results) {}
-    public record MetadataRequest(String id, String kind, String workId) {}
+                       DesktopUiText error, List<HistoryImportService.WorkResult> results) {}
 
     private final class Session {
         final String id = UUID.randomUUID().toString();
@@ -55,12 +50,10 @@ public final class BrowserHistoryImport implements AutoCloseable {
         Thread inspector;
         Preview preview;
         DesktopUiText error;
-        MetadataRequest metadata;
-        CompletableFuture<String> response;
 
         Session(Path upload, Path root) {
             this.upload = upload; this.root = root;
-            service = new HistoryImportService(importer, works, (uri, ignored) -> metadata(this, uri),
+            service = new HistoryImportService(importer, works, completions,
                     tasks, statistics, cache.resolve("plans"), diagnostics);
         }
         boolean active() { return inspecting || service.status().active(); }
@@ -68,8 +61,10 @@ public final class BrowserHistoryImport implements AutoCloseable {
 
     public BrowserHistoryImport(WorkFileImporter importer, WorkQueryService works,
                                 PixivBatchDownloaderImportStatistics statistics,
-                                PluginRuntimeTaskRegistrar tasks, Path cache, ImportDiagnostics diagnostics) {
+                                PluginRuntimeTaskRegistrar tasks, Path cache, ImportDiagnostics diagnostics,
+                                HistoryImportCompletion completions) {
         this.diagnostics = diagnostics;
+        this.completions = completions;
         this.importer = importer; this.works = works; this.statistics = statistics;
         this.tasks = tasks; this.cache = cache.toAbsolutePath().normalize();
         executor.setRemoveOnCancelPolicy(true);
@@ -156,45 +151,6 @@ public final class BrowserHistoryImport implements AutoCloseable {
 
     public synchronized View status(String id) { return view(require(id)); }
 
-    public synchronized View reply(String id, String requestId, int status, byte[] body) {
-        Session value = require(id);
-        if (value.cancelled || value.response == null || !value.metadata.id().equals(requestId)
-                || body.length > RESPONSE_BYTES || status != 0 && (status < 100 || status > 599)) reject("stale");
-        CompletableFuture<String> response = value.response;
-        value.response = null; value.metadata = null;
-        if (status == 200) response.complete(new String(body, StandardCharsets.UTF_8));
-        else response.completeExceptionally(new PixivAjaxException(
-                status == 0 ? PixivAjaxFailure.TRANSPORT : PixivAjaxFailure.HTTP_STATUS, status));
-        return view(value);
-    }
-
-    private String metadata(Session value, URI uri) {
-        CompletableFuture<String> response = new CompletableFuture<>();
-        synchronized (this) {
-            if (closed || value != session || value.cancelled) throw transport();
-            String[] parts = uri.getPath().split("/");
-            if (parts.length != 4 || !(parts[2].equals("illust") || parts[2].equals("novel"))
-                    || !parts[3].matches("[1-9][0-9]{0,15}")) throw transport();
-            value.metadata = new MetadataRequest(UUID.randomUUID().toString(), parts[2], parts[3]);
-            value.response = response;
-        }
-        try { return response.get(90, TimeUnit.SECONDS); }
-        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw transport(); }
-        catch (TimeoutException timeout) {
-            diagnostics.failure(WARN, "browser/metadata-wait", value.service.diagnosticId(), "-",
-                    "METADATA_REPLY_TIMEOUT", timeout);
-            throw transport();
-        }
-        catch (ExecutionException failure) {
-            if (failure.getCause() instanceof PixivAjaxException pixiv) throw pixiv;
-            throw transport();
-        } finally {
-            synchronized (this) {
-                if (value.response == response) { value.response = null; value.metadata = null; }
-            }
-        }
-    }
-
     public synchronized View cancel(String id) {
         Session value = require(id);
         cancel(value);
@@ -207,10 +163,6 @@ public final class BrowserHistoryImport implements AutoCloseable {
         value.cancelled = true;
         if (value.inspector != null) value.inspector.interrupt();
         value.service.cancel();
-        if (value.response != null) {
-            value.response.completeExceptionally(transport());
-            value.response = null; value.metadata = null;
-        }
         if (!value.active()) dispose(value);
     }
 
@@ -226,7 +178,7 @@ public final class BrowserHistoryImport implements AutoCloseable {
         String phase = value.cancelled ? (value.active() ? "CANCELLING" : "CANCELLED")
                 : value.inspecting ? "INSPECTING" : value.error != null ? "FAILED"
                 : status.phase() == Phase.IDLE ? "UPLOADING" : status.phase().name();
-        return new View(value.id, phase, value.preview, status, value.metadata, value.error, progress.results());
+        return new View(value.id, phase, value.preview, status, value.error, progress.results());
     }
 
     private boolean terminal(Session value) {
@@ -267,7 +219,6 @@ public final class BrowserHistoryImport implements AutoCloseable {
         executor.shutdownNow();
     }
 
-    private static PixivAjaxException transport() { return new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 0); }
     private static DesktopUiText text(String code) {
         if (code.equals("limit")) return new DesktopUiText("pixiv-batch-downloader-import", "history.error.limit", "history.error.limit",
                 List.of(Long.toString(HistoryRecords.MAX_BYTES / (1024 * 1024)),

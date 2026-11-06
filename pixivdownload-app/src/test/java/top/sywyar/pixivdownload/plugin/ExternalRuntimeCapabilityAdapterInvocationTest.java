@@ -78,12 +78,18 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
                 return new DesktopFileImportTool.Status(DesktopFileImportTool.Phase.IDLE, 0, 0, 0, 0, 0, List.of());
             }
             public void cancel() {}
+            public java.util.Optional<DesktopFileImportTool.Completion> pendingCompletion() {
+                return java.util.Optional.of(new DesktopFileImportTool.Completion("finished", 2));
+            }
+            public void acknowledgeCompletion(String id) { assertThat(id).isEqualTo("finished"); }
         };
         try (var child = child(DesktopFileImportTool.Source.class, target)) {
             var registrar = registrar(invocation, adapter);
             var publication = publish(registrar, child, "unknown-importer", 3);
             var identity = registry.tools().get(0).identity();
             var proxy = registry.source(identity);
+            assertThat(proxy.pendingCompletion().orElseThrow().imported()).isEqualTo(2);
+            proxy.acknowledgeCompletion("finished");
             assertThat(proxy.start("token", "private").error().key()).isEqualTo("fixture.unavailable");
             var previousDrain = drainBlocking(registrar, publication, gate, () -> {
                 var result = proxy.inspect(new DesktopFileImportTool.Request("/records.json", "/source"));
@@ -91,6 +97,8 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
             });
             assertThat(registry.tools()).isEmpty();
             org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, proxy::status);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, proxy::pendingCompletion);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> proxy.acknowledgeCompletion("finished"));
             registrar.acknowledgeRetired(previousDrain);
             child.close();
             assertThat(registrar.releaseRetirementProof(previousDrain)).isTrue();

@@ -1,8 +1,6 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport.history;
 
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
-import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImporter;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.pixivbatchdownloaderimport.PixivBatchDownloaderImportStatistics;
@@ -30,7 +28,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
     private final Object lock = new Object();
     private final WorkFileImporter importer;
     private final WorkQueryService works;
-    private final HistoryMetadata metadata;
+    private final HistoryImportCompletion completions;
     private final PluginRuntimeTaskRegistrar tasks;
     private final PixivBatchDownloaderImportStatistics statistics;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
@@ -52,21 +50,23 @@ public final class HistoryImportService implements Source, AutoCloseable {
 
     private record Plan(String token, Path root, HistoryRecords records, int candidates) {}
 
-    public HistoryImportService(WorkFileImporter importer, WorkQueryService works, PixivAjaxClient pixiv,
+    public HistoryImportService(WorkFileImporter importer, WorkQueryService works, HistoryImportCompletion completions,
                                 PluginRuntimeTaskRegistrar tasks, PixivBatchDownloaderImportStatistics statistics, Path cache,
                                 ImportDiagnostics diagnostics) {
         this.diagnostics = diagnostics;
         this.cache = cache.toAbsolutePath().normalize();
         this.importer = importer;
         this.works = works;
-        this.metadata = new HistoryMetadata(pixiv);
+        this.completions = completions;
         this.tasks = tasks;
         this.statistics = statistics;
     }
 
     @Override public Description description() {
-        return new Description(text("history.title"), text("history.help"));
+        return new Description(text("history.title"), text("history.help"), false);
     }
+    @Override public Optional<Completion> pendingCompletion() { return completions.pending(); }
+    @Override public void acknowledgeCompletion(String id) { completions.acknowledge(id); }
 
     public String diagnosticId() { return diagnosticId; }
 
@@ -150,8 +150,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
         synchronized (lock) {
             if (closed || status.active()) return failure("busy");
             if (plan == null || !plan.token().equals(token)) return failure("stale");
-            if (credential != null && (credential.length() > 16_384 || credential.chars().anyMatch(Character::isISOControl)))
-                return failure("credential");
+            if (credential != null && !credential.isEmpty()) return failure("credential");
             Plan selected = plan;
             plan = null;
             runningPlan = selected;
@@ -159,7 +158,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
             status = status(Phase.RUNNING, selected.candidates(), 0, 0, 0, List.of());
             diagnostics.event(INFO, "log.history.start", diagnosticId, selected.candidates());
             top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask task;
-            try { task = tasks.registerOneShot(() -> execute(selected, credential)); }
+            try { task = tasks.registerOneShot(() -> execute(selected)); }
             catch (RuntimeException unavailable) {
                 cleanup(selected.records());
                 runningPlan = null;
@@ -180,14 +179,13 @@ public final class HistoryImportService implements Source, AutoCloseable {
         }
     }
 
-    private void execute(Plan selected, String credential) {
+    private void execute(Plan selected) {
         int imported = 0, skipped = 0, failed = 0;
         List<Problem> problems = new ArrayList<>();
         Phase terminal = Phase.COMPLETED;
         long started = System.nanoTime();
         synchronized (lock) { activeThread = Thread.currentThread(); }
         try (var input = HistoryRecords.input(selected.records().candidates())) {
-            boolean queried = false;
             HistoryRecords.Work work;
             while ((work = selected.records().readCandidate(input)) != null) {
                 checkCancelled();
@@ -204,22 +202,19 @@ public final class HistoryImportService implements Source, AutoCloseable {
                         skipped++;
                         outcome = "SKIPPED";
                     } else {
-                        if (queried) Thread.sleep(1000);
                         checkCancelled();
-                        queried = true;
-                        stage = "metadata";
-                        var request = metadata.fetch(work, selected.root(), credential);
-                        checkCancelled();
+                        var request = new LocalWorkFileImportRequest(work.key.type(), work.key.id(),
+                                selected.root(), work.files.values().stream().map(selected.root()::resolve).toList());
                         stage = "register";
-                        committed = importer.importFiles(request);
+                        committed = importer.importLocalFiles(request);
                         outcome = committed ? "IMPORTED" : "SKIPPED";
                         if (committed) {
                             imported++;
                             stage = "statistics";
-                            statistics.recordImported(request);
+                            statistics.recordImported(request.workType(), request.workId());
                         } else skipped++;
                     }
-                } catch (InterruptedException | InterruptedIOException interrupted) {
+                } catch (InterruptedIOException interrupted) {
                     terminal = Phase.CANCELLED;
                     break;
                 } catch (SQLException unavailable) {
@@ -240,29 +235,17 @@ public final class HistoryImportService implements Source, AutoCloseable {
                     outcome = "FAILED";
                     error = text("history.error.file");
                     problem(problems, work, "file", stage, unavailable);
-                } catch (PixivAjaxException unavailable) {
-                    checkCancelled();
-                    failed++;
-                    outcome = "FAILED";
-                    error = text("history.error.metadata");
-                    problem(problems, work, "metadata", stage, unavailable);
-                    if (unavailable.failure() == PixivAjaxFailure.TRANSPORT
-                            || unavailable.statusCode() == 401 || unavailable.statusCode() == 403
-                            || unavailable.statusCode() == 429 || unavailable.statusCode() >= 500) {
-                        terminal = Phase.FAILED;
-                        break;
-                    }
                 } catch (RuntimeException failure) {
                     checkCancelled();
                     outcome = committed ? "IMPORTED" : "FAILED";
-                    error = text(committed ? "history.error.statistics" : "history.error.metadata");
+                    error = text(committed ? "history.error.statistics" : "history.error.file");
                     if (committed) {
                         problem(problems, work, "statistics", stage, failure);
                         terminal = Phase.FAILED;
                         break;
                     }
                     failed++;
-                    problem(problems, work, "metadata", stage, failure);
+                    problem(problems, work, "file", stage, failure);
                 } finally {
                     synchronized (lock) {
                         updateResult(work, outcome, error);
@@ -301,6 +284,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
                 activeThread = null;
                 runningPlan = null;
                 status = finished;
+                completions.completed(imported);
             }
             Thread.interrupted();
         }
@@ -356,7 +340,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
     private void problem(List<Problem> problems, HistoryRecords.Work work, String code, String stage, Throwable failure) {
         if (problems.size() < DETAIL_LIMIT) {
             problems.add(new Problem(work.key.display(), text("history.error." + code)));
-            diagnostics.failure(failure instanceof RuntimeException && !(failure instanceof PixivAjaxException) ? ERROR : WARN,
+            diagnostics.failure(failure instanceof RuntimeException ? ERROR : WARN,
                     stage, diagnosticId, work.key.display(), "history.error." + code, failure);
         }
     }

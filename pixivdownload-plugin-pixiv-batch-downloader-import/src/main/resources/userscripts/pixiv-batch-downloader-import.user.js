@@ -73,7 +73,8 @@
         return 'http://localhost:6999';
     }
     function keys() { return GM_listValues().filter(key => key.startsWith(PREFIX)).sort(); }
-    function warn(message) { lastError = message; if (!warned) { warned = true; alert(message); } }
+    function menuHint(menu) { return historyText[51].replace('{menu}', menu); }
+    function warn(message) { lastError = message; if (!warned) { warned = true; alert(message + '\n\n' + menuHint(messages[1])); } }
     function save(key, work) {
         const encoded = JSON.stringify(work);
         // ponytail: 扫描最多 1000 个、总计 8 MiB 的持久条目；提高容量前改用独立索引。
@@ -241,7 +242,7 @@
         "已取消，已登记的作品保留。",
         "导入未完成",
         "通信中断，结果尚未确认。已登记的作品保留；请检查本机服务后重新读取历史。",
-        "请登录 Pixiv 后重试；元数据请求失败。",
+        "已登记本地作品。可在桌面软件中启动数据回填，补充标题、作者等资料。",
         "此浏览器没有可读取的下载历史库。请在使用 PixivBatchDownloader 的浏览器和用户配置中打开原来的 Pixiv 网站。",
         "无法读取下载历史。请关闭此窗口，确认外部下载已暂停、数据库未被其他页面升级后重试。",
         "下载历史格式无法识别，已停止读取；原记录未修改。",
@@ -272,8 +273,12 @@
         "读取期间请暂停下载，并保持此页打开。",
         "请保持此页打开，勿移动原文件或更改下载根目录。",
         "导入期间请保持此页打开，勿移动原文件。",
-        "仅使用当前浏览器的 Pixiv 登录状态，Cookie 不会发送到本机软件。原文件保持不变。",
-        "正在结束当前操作，请保持此页打开。"
+        "仅将下载历史发送到本机软件，不请求 Pixiv 元数据或发送 Cookie。原文件保持不变。",
+        "正在结束当前操作，请保持此页打开。",
+        "之后可从油猴菜单中选择“{menu}”，重新进行操作。",
+        "发现下载历史",
+        "此浏览器保存了 PixivBatchDownloader 下载历史。您可以读取并检查，将已有的本地作品导入画廊。",
+        "稍后"
     ],
     "zh-Hant": [
         "讀取瀏覽器下載歷史",
@@ -294,7 +299,7 @@
         "已取消，已登記的作品會保留。",
         "匯入未完成",
         "通訊中斷，結果尚未確認。已登記的作品會保留；請檢查本機服務後重新讀取歷史。",
-        "請登入 Pixiv 後重試；中繼資料請求失敗。",
+        "已登記本機作品。可在桌面軟體中啟動資料回填，補充標題、作者等資料。",
         "此瀏覽器沒有可讀取的下載歷史資料庫。請在使用 PixivBatchDownloader 的瀏覽器和使用者設定檔中開啟原來的 Pixiv 網站。",
         "無法讀取下載歷史。請關閉此視窗，確認外部下載已暫停、資料庫未被其他頁面升級後重試。",
         "無法辨識下載歷史格式，已停止讀取；原始記錄未修改。",
@@ -325,8 +330,12 @@
         "讀取期間請暫停下載，並保持此頁開啟。",
         "請保持此頁開啟，勿移動原始檔案或變更下載根目錄。",
         "匯入期間請保持此頁開啟，勿移動原始檔案。",
-        "僅使用目前瀏覽器的 Pixiv 登入狀態，Cookie 不會傳送到本機軟體。原始檔案保持不變。",
-        "正在結束目前的操作，請保持此頁開啟。"
+        "僅將下載歷史傳送到本機軟體，不請求 Pixiv 中繼資料或傳送 Cookie。原始檔案保持不變。",
+        "正在結束目前的操作，請保持此頁開啟。",
+        "之後可從腳本選單中選擇「{menu}」，重新進行操作。",
+        "發現下載歷史",
+        "此瀏覽器儲存了 PixivBatchDownloader 下載歷史。您可以讀取並檢查，將現有的本機作品匯入圖庫。",
+        "稍後"
     ],
     "en": [
         "Read browser download history",
@@ -347,7 +356,7 @@
         "Cancelled. Registered works are retained.",
         "Import incomplete",
         "Connection interrupted; the result is unconfirmed. Registered works are retained. Check the local server, then read the history again.",
-        "Metadata request failed. Sign in to Pixiv and try again.",
+        "Local works have been registered. Start data backfill in the desktop app to add titles, authors and other details.",
         "No download history database was found. Open the original Pixiv site in the browser and profile you use for PixivBatchDownloader.",
         "Cannot read download history. Close this dialog, pause external downloads and wait for any database upgrade in other tabs, then try again.",
         "Unrecognized download history format. Reading stopped; the original records were not changed.",
@@ -378,8 +387,12 @@
         "Pause downloads and keep this page open while reading.",
         "Keep this page open. Do not move the original files or change the download root folder.",
         "Keep this page open during import. Do not move the original files.",
-        "Your current Pixiv sign-in is used only in this browser. Cookies are not sent to the local app. Original files remain unchanged.",
-        "Finishing the current operation. Keep this page open."
+        "Only download history is sent to the local app. Import does not request Pixiv metadata or send cookies. Original files stay unchanged.",
+        "Finishing the current operation. Keep this page open.",
+        "To try again later, choose “{menu}” from the userscript menu.",
+        "Download history found",
+        "This browser has PixivBatchDownloader download history. Read and check it to import your existing local works into the gallery.",
+        "Later"
     ],
     "ja": [
         "ブラウザーのダウンロード履歴を読み込む",
@@ -400,7 +413,7 @@
         "キャンセルしました。登録済みの作品は保持されます。",
         "インポート未完了",
         "通信が途切れ、結果を確認できません。登録済みの作品は保持されます。ローカルサーバーを確認し、履歴を読み直してください。",
-        "作品情報の取得に失敗しました。Pixiv にログインして再試行してください。",
+        "ローカルの作品を登録しました。デスクトップアプリのデータ補完でタイトルや作者などを追加できます。",
         "履歴データベースが見つかりません。PixivBatchDownloader を使用しているブラウザーとプロファイルで、元の Pixiv サイトを開いてください。",
         "履歴を読み込めません。この画面を閉じ、外部ダウンロードを一時停止して、他のタブでのデータベース更新が終わってから再試行してください。",
         "履歴の形式を認識できないため読み込みを停止しました。元の記録は変更されていません。",
@@ -431,8 +444,12 @@
         "読み込み中はダウンロードを一時停止し、このページを開いたままにしてください。",
         "このページを開いたまま、元ファイルの移動やダウンロードのルートフォルダーの変更はしないでください。",
         "インポート中はこのページを開いたままにし、元ファイルを移動しないでください。",
-        "現在の Pixiv ログイン状態はブラウザー内でのみ使用します。Cookie はローカルアプリに送信しません。元ファイルは変更されません。",
-        "現在の操作を終了しています。このページを開いたままお待ちください。"
+        "ダウンロード履歴のみをローカルアプリへ送信します。Pixiv のメタデータ取得や Cookie の送信は行わず、元のファイルも変更しません。",
+        "現在の操作を終了しています。このページを開いたままお待ちください。",
+        "後からやり直すには、ユーザースクリプトのメニューで「{menu}」を選んでください。",
+        "ダウンロード履歴が見つかりました",
+        "このブラウザーには PixivBatchDownloader のダウンロード履歴があります。読み込んで確認し、既存のローカル作品をギャラリーにインポートできます。",
+        "後で"
     ],
     "ko": [
         "브라우저 다운로드 기록 읽기",
@@ -453,7 +470,7 @@
         "취소되었습니다. 등록된 작품은 유지됩니다.",
         "가져오기 미완료",
         "연결이 끊겨 결과를 확인할 수 없습니다. 등록된 작품은 유지됩니다. 로컬 서버를 확인한 뒤 기록을 다시 읽으세요.",
-        "작품 정보 요청에 실패했습니다. Pixiv에 로그인한 뒤 다시 시도하세요.",
+        "로컬 작품을 등록했습니다. 데스크톱 앱에서 데이터 보완을 시작하여 제목, 작가 등의 정보를 추가할 수 있습니다.",
         "다운로드 기록 데이터베이스를 찾지 못했습니다. PixivBatchDownloader를 사용하던 브라우저와 프로필에서 원래 Pixiv 사이트를 여세요.",
         "기록을 읽을 수 없습니다. 이 창을 닫고 외부 다운로드를 일시 중지한 다음 다른 탭의 데이터베이스 업데이트가 끝나면 다시 시도하세요.",
         "기록 형식을 인식하지 못해 읽기를 중지했습니다. 원래 기록은 변경되지 않았습니다.",
@@ -484,11 +501,17 @@
         "기록을 읽는 동안 다운로드를 일시 중지하고 이 페이지를 열어 두세요.",
         "이 페이지를 열어 두세요. 원본 파일을 이동하거나 다운로드 루트 폴더를 변경하지 마세요.",
         "가져오는 동안 이 페이지를 열어 두고 원본 파일을 이동하지 마세요.",
-        "현재 Pixiv 로그인 상태는 브라우저 안에서만 사용합니다. 쿠키는 로컬 앱으로 보내지 않으며 원본 파일도 변경하지 않습니다.",
-        "현재 작업을 마무리하고 있습니다. 이 페이지를 열어 두세요."
+        "다운로드 기록만 로컬 앱으로 전송합니다. Pixiv 메타데이터를 요청하거나 쿠키를 보내지 않으며 원본 파일도 변경하지 않습니다.",
+        "현재 작업을 마무리하고 있습니다. 이 페이지를 열어 두세요.",
+        "나중에 다시 시도하려면 유저스크립트 메뉴에서 ‘{menu}’를 선택하세요.",
+        "다운로드 기록을 찾았습니다",
+        "이 브라우저에 PixivBatchDownloader 다운로드 기록이 있습니다. 기록을 읽고 확인하여 기존 로컬 작품을 갤러리로 가져올 수 있습니다.",
+        "나중에"
     ]
 }[language];
-    let historyWindow = null;
+    let historyWindow = null, historyDiscovery = null, historyVisited = false, discoveryFailed = false;
+    const historyDiscoveryKey = 'pixiv-batch-downloader-import.history-discovery.' + window.location.origin;
+    const historyStores = Array.from({length: 9}, (_, index) => 'record' + (index + 1));
     const historyTerminal = phase => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(phase);
     function openHistoryDatabase(operation) {
         return new Promise((resolve, reject) => {
@@ -503,14 +526,13 @@
             const timer = setTimeout(() => finish(new Error(historyText[20])), 10000);
             operation.abortRead = () => finish(new Error('REQUEST_ABORTED'));
             // 不传版本号；不存在时中止创建，绝不升级或初始化上游数据库。
-            request.onupgradeneeded = () => { request.transaction.abort(); finish(new Error(historyText[19])); };
+            request.onupgradeneeded = () => { request.transaction.abort(); finish(Object.assign(new Error(historyText[19]), {code: 'HISTORY_NOT_FOUND'})); };
             request.onerror = () => finish(new Error(historyText[20]));
             request.onblocked = () => finish(new Error(historyText[20]));
             request.onsuccess = () => {
                 const db = request.result;
                 if (settled) { db.close(); return; }
-                if (!Array.from({length: 9}, (_, index) => 'record' + (index + 1))
-                    .every(name => db.objectStoreNames.contains(name))) { finish(new Error(historyText[21]), db); return; }
+                if (!historyStores.every(name => db.objectStoreNames.contains(name))) { finish(new Error(historyText[21]), db); return; }
                 db.onversionchange = () => {
                     operation.readError = Object.assign(new Error(historyText[20]), {rejected: true});
                     operation.abortRead?.(); db.close();
@@ -518,6 +540,71 @@
                 finish(null, db);
             };
         });
+    }
+    function hasHistoryRecords(operation, db) {
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(historyStores, 'readonly');
+            let found = false, failure;
+            const fail = error => { failure = error; transaction.abort(); };
+            const timer = setTimeout(() => fail(new Error('HISTORY_READ_TIMEOUT')), 10000);
+            operation.abortRead = () => fail(new Error('REQUEST_ABORTED'));
+            const finish = () => { clearTimeout(timer); operation.abortRead = null; };
+            transaction.onabort = () => { finish(); reject(failure || new Error('HISTORY_READ_FAILED')); };
+            transaction.oncomplete = () => { finish(); resolve(found); };
+            for (const name of historyStores) {
+                const store = transaction.objectStore(name);
+                if (store.keyPath !== 'id') { fail(new Error('HISTORY_SCHEMA')); return; }
+                // 只探测首个键，不读取作品内容或扫描整库。
+                const request = store.openKeyCursor();
+                request.onsuccess = () => { found ||= request.result !== null; };
+            }
+        });
+    }
+    async function discoverHistory() {
+        if (window.top !== window.self || stopped || historyVisited || historyDiscovery || discoveryFailed
+            || document.visibilityState === 'hidden' || GM_getValue(historyDiscoveryKey, false)) return;
+        const operation = {};
+        historyDiscovery = operation;
+        let db, outcome = 'DEFERRED';
+        console.info('[PixivBatchDownloader import] History discovery started.');
+        try {
+            db = await openHistoryDatabase(operation);
+            if (operation.cancelled) return;
+            const found = await hasHistoryRecords(operation, db);
+            if (operation.readError) throw operation.readError;
+            db.close(); db = null;
+            const offer = () => {
+                if (stopped || operation.cancelled || historyVisited || document.visibilityState === 'hidden'
+                    || GM_getValue(historyDiscoveryKey, false)) return;
+                if (found) openHistory(true);
+                else GM_setValue(historyDiscoveryKey, true);
+                outcome = found ? 'HISTORY_FOUND' : 'HISTORY_EMPTY';
+            };
+            // 同源标签页共用一次提醒；旧浏览器仍在展示前复核持久标记。
+            if (navigator.locks) await navigator.locks.request(historyDiscoveryKey, {ifAvailable: true}, lock => { if (lock) offer(); });
+            else offer();
+        } catch (error) {
+            if (operation.cancelled) return;
+            if (error.code === 'HISTORY_NOT_FOUND') {
+                GM_setValue(historyDiscoveryKey, true);
+                outcome = 'HISTORY_NOT_FOUND';
+            } else {
+                discoveryFailed = true;
+                outcome = operation.readError ? 'HISTORY_CHANGED'
+                    : error.message === historyText[21] ? 'HISTORY_SCHEMA'
+                    : ['HISTORY_READ_TIMEOUT', 'HISTORY_SCHEMA', 'HISTORY_READ_FAILED'].includes(error.message) ? error.message : 'HISTORY_UNAVAILABLE';
+                console.warn('[PixivBatchDownloader import] History discovery unavailable; retry from the userscript menu:', outcome);
+            }
+        } finally {
+            db?.close();
+            if (historyDiscovery === operation) historyDiscovery = null;
+            if (!discoveryFailed) console.info('[PixivBatchDownloader import] History discovery finished:', operation.cancelled ? 'CANCELLED' : outcome);
+        }
+    }
+    function stopHistoryDiscovery() {
+        if (!historyDiscovery) return;
+        historyDiscovery.cancelled = true;
+        historyDiscovery.abortRead?.();
     }
     function readHistoryBatch(operation, db, store, after) {
         return new Promise((resolve, reject) => {
@@ -603,39 +690,6 @@
         if (result.status !== 200) throw Object.assign(new Error(result.body.error || `HTTP_${result.status}`), {rejected: true});
         return result.body;
     }
-    async function historyMetadata(operation, metadata) {
-        if (!['illust', 'novel'].includes(metadata.kind) || !/^[1-9][0-9]{0,15}$/.test(metadata.workId))
-            throw new Error(historyText[18]);
-        const abort = new AbortController();
-        operation.fetch = abort;
-        const timeout = setTimeout(() => abort.abort(), 60000);
-        let status = 0, data = new Blob([]);
-        try {
-            const response = await fetch(`/ajax/${metadata.kind}/${metadata.workId}`, {
-                credentials: 'same-origin', redirect: 'error', signal: abort.signal, headers: {Accept: 'application/json'}
-            });
-            status = response.status;
-            if (status === 200) {
-                const limit = 4 * 1024 * 1024;
-                if (Number(response.headers.get('Content-Length')) > limit) throw new Error(historyText[18]);
-                const reader = response.body.getReader(), chunks = [];
-                let size = 0;
-                try {
-                    while (true) {
-                        const {value, done} = await reader.read();
-                        if (done) break;
-                        size += value.byteLength;
-                        if (size > limit) throw new Error(historyText[18]);
-                        chunks.push(value);
-                    }
-                    data = new Blob(chunks);
-                } finally { await reader.cancel(); reader.releaseLock(); }
-            } else if (response.body) await response.body.cancel();
-        } catch (_) { status = 0; }
-        finally { clearTimeout(timeout); operation.fetch = null; }
-        if (operation.cancelled) throw new Error('REQUEST_ABORTED');
-        return historyCall(operation, 'reply', data, {request: metadata.id, status: String(status)});
-    }
     function historyWait(operation) {
         return new Promise(resolve => {
             const timer = setTimeout(() => { operation.wake = null; resolve(); }, 1000);
@@ -646,7 +700,7 @@
         const current = historyWindow, operation = current?.operation;
         if (!operation || operation.cancelled || operation.done) return;
         operation.cancelled = true;
-        operation.request?.cancel(); operation.fetch?.abort(); operation.wake?.(); operation.abortRead?.();
+        operation.request?.cancel(); operation.wake?.(); operation.abortRead?.();
         current.start.disabled = true; current.cancel.disabled = true;
         current.progress.textContent = historyText[13];
         current.guidance('CANCELLING');
@@ -674,7 +728,9 @@
             if (historyWindow === current) { current.cancel.disabled = false; current.cancel.textContent = historyText[5]; }
         }
     }
-    function openHistory() {
+    function openHistory(discovered = false) {
+        historyVisited = true;
+        if (!discovered) stopHistoryDiscovery();
         if (historyWindow) { historyWindow.dialog.focus(); return; }
         const host = document.createElement('div'), shadow = host.attachShadow({mode: 'closed'});
         const style = document.createElement('style');
@@ -714,7 +770,7 @@
         shadow.append(style);
         const dialog = document.createElement('dialog'); shadow.append(dialog); document.body.append(host);
         const add = (parent, tag, text) => { const node = document.createElement(tag); if (text) node.textContent = text; parent.append(node); return node; };
-        const heading = add(dialog, 'h2', historyText[0]); heading.id = 'history-title'; dialog.setAttribute('aria-labelledby', heading.id);
+        const heading = add(dialog, 'h2', historyText[discovered ? 52 : 0]); heading.id = 'history-title'; dialog.setAttribute('aria-labelledby', heading.id);
         const status = add(dialog, 'div'); status.className = 'status';
         const ring = add(status, 'div'); ring.className = 'ring'; ring.hidden = true;
         ring.setAttribute('role', 'progressbar'); ring.setAttribute('aria-label', historyText[29]);
@@ -722,6 +778,7 @@
         const percentage = add(ring, 'span'); percentage.setAttribute('aria-hidden', 'true');
         const badge = add(status, 'div'); badge.className = 'badge'; badge.hidden = true; badge.setAttribute('aria-hidden', 'true');
         const progress = add(status, 'p', historyText[11]); progress.setAttribute('role', 'status'); progress.setAttribute('aria-live', 'polite');
+        status.hidden = discovered;
         const body = add(dialog, 'div'); body.className = 'body';
         const metrics = add(body, 'dl'); metrics.className = 'metrics'; metrics.hidden = true;
         const counts = Array.from({length: 5}, () => { const group = add(metrics, 'div'); return {group, label: add(group, 'dt'), value: add(group, 'dd')}; });
@@ -732,11 +789,13 @@
             noticeReason.textContent = reason; noticeAction.textContent = actions.join('\n');
             noticeAction.hidden = !noticeAction.textContent; notice.hidden = !message;
         };
-        const intro = add(body, 'p', historyText[1]); intro.className = 'intro';
+        const intro = add(body, 'p', historyText[discovered ? 53 : 1]); intro.className = 'intro';
+        const recovery = add(body, 'p', menuHint(historyText[0])); recovery.className = 'intro';
         const caution = add(body, 'p'); caution.className = 'caution'; caution.setAttribute('aria-live', 'polite');
         const help = add(body, 'details'); add(help, 'summary', historyText[30]); add(help, 'p', historyText[49]);
         const guidance = phase => {
             intro.hidden = help.hidden = phase !== 'IDLE';
+            recovery.hidden = !['IDLE', 'DONE', 'COMPLETED', 'FAILED', 'CANCELLED'].includes(phase);
             const key = {IDLE: 46, UPLOADING: 46, INSPECTING: 47, READY: 47, RUNNING: 48, CANCELLING: 50}[phase];
             caution.hidden = key === undefined; caution.textContent = key === undefined ? '' : historyText[key];
         };
@@ -747,9 +806,11 @@
         const problems = add(body, 'details'); problems.hidden = true; add(problems, 'summary', historyText[42]);
         const problemText = add(problems, 'p');
         const footer = add(dialog, 'footer');
-        const check = add(footer, 'button', historyText[2]), start = add(footer, 'button', historyText[3]), cancel = add(footer, 'button', historyText[5]);
+        const check = add(footer, 'button', historyText[2]), start = add(footer, 'button', historyText[3]), cancel = add(footer, 'button', historyText[discovered ? 54 : 5]);
         start.disabled = true;
+        start.hidden = discovered;
         check.className = 'primary';
+        check.autofocus = true;
         const current = {dialog, start, cancel, progress, guidance, operation: null, render(view) {
             const phases = {UPLOADING: 7, INSPECTING: 8, READY: 11, RUNNING: 12, CANCELLING: 13, COMPLETED: 14, CANCELLED: 15, FAILED: 16};
             const p = view.preview;
@@ -766,6 +827,7 @@
                 ring.setAttribute('aria-valuetext', `${view.processed} / ${view.total}`);
             }
             const successful = view.phase === 'COMPLETED' && !view.failed && !view.error && !view.problems?.length;
+            if (terminal && view.imported > 0) { intro.hidden = false; intro.textContent = historyText[18]; }
             badge.hidden = !terminal;
             badge.className = 'badge ' + (successful ? 'success' : 'warning');
             badge.textContent = successful ? '✓' : view.phase === 'CANCELLED' ? '−' : '!';
@@ -818,6 +880,7 @@
             start.disabled = true; current.operation.startRequested = true; current.operation.wake?.();
         });
         check.addEventListener('click', async () => {
+            heading.textContent = historyText[0]; status.hidden = false; start.hidden = false;
             const operation = {base: '', session: '', request: null, done: false, cancelled: false, startRequested: false};
             current.operation = operation;
             ring.hidden = true; badge.hidden = true; metrics.hidden = true; details.hidden = true; problems.hidden = true; notice.hidden = true;
@@ -841,7 +904,6 @@
                         break;
                     }
                     if (view.phase === 'READY' && operation.startRequested) view = await historyCall(operation, 'start');
-                    else if (view.metadata) view = await historyMetadata(operation, view.metadata);
                     else { await historyWait(operation); view = await historyCall(operation, 'status'); }
                 }
                 if (!operation.cancelled) operation.done = true;
@@ -866,8 +928,9 @@
             }
         });
         dialog.showModal();
+        GM_setValue(historyDiscoveryKey, true);
     }
-    GM_registerMenuCommand(historyText[0], openHistory);
+    GM_registerMenuCommand(historyText[0], () => openHistory());
     window.addEventListener('addResult', captureMetadata);
     window.addEventListener('downloadSuccess', captureSuccess);
     window.addEventListener('crawlStart', () => {
@@ -881,6 +944,7 @@
     window.addEventListener('downloadPause', () => { paused = true; });
     window.addEventListener('downloadStop', () => { paused = false; });
     window.addEventListener('pagehide', () => {
+        stopHistoryDiscovery();
         void cancelHistory();
         stopped = true; clearTimeout(timer); timer = null;
         const operation = active;
@@ -891,6 +955,7 @@
         if (!stopped) return;
         stopped = false;
         drain();
+        void discoverHistory();
     });
     GM_registerMenuCommand(messages[0], () => {
         const value = prompt(messages[2].replace('{server}', DEFAULT_SERVER), GM_getValue('pixiv-batch-downloader-import.server', DEFAULT_SERVER));
@@ -898,7 +963,7 @@
         const previous = GM_getValue('pixiv-batch-downloader-import.server', DEFAULT_SERVER);
         GM_setValue('pixiv-batch-downloader-import.server',value.trim());
         try { server(); if (value.trim() !== previous) void cancelHistory(); backoff = 1000; nextAttempt = 0; drain(); }
-        catch (_) { GM_setValue('pixiv-batch-downloader-import.server',previous); alert(messages[3]); }
+        catch (_) { GM_setValue('pixiv-batch-downloader-import.server',previous); alert(messages[3] + '\n\n' + menuHint(messages[0])); }
     });
     GM_registerMenuCommand(messages[1], () => {
         let pending = 0, incomplete = 0, errors = 0;
@@ -907,8 +972,12 @@
                 if (work.error) errors++; else if (work.files.length === work.metadata.pageCount) pending++; else incomplete++;
             } catch (_) { errors++; }
         }
-        alert(`${messages[4]}: ${pending} / ${incomplete} / ${errors}${lastError ? '\n' + lastError : ''}`);
+        alert(`${messages[4]}: ${pending} / ${incomplete} / ${errors}${lastError ? '\n' + lastError : ''}`
+            + (pending || incomplete || errors || lastError ? '\n\n' + menuHint(messages[1]) : ''));
         backoff = 1000; nextAttempt = 0; drain();
     });
     drain();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', discoverHistory, {once: true});
+    else void discoverHistory();
+    document.addEventListener('visibilitychange', discoverHistory);
 })();

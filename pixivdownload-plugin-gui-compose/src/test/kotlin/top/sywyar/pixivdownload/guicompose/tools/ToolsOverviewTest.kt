@@ -63,9 +63,46 @@ class ToolsOverviewTest {
         runOnIdle { activity = ToolActivity("backfill", false, false, TextToken.raw("Processed 12 records")) }
         onNodeWithTag("tools.result").assertTextEquals("Processed 12 records")
         onNodeWithTag("tools.done").performClick()
+        onNodeWithTag("tools.current").assertDoesNotExist()
         onNodeWithTag("tools.entry.backfill").performClick()
-        onNodeWithTag("tools.edit").performClick()
+        onNodeWithTag("tools.result").assertDoesNotExist()
+        onNodeWithTag("tools.backfill.run").assertIsDisplayed().assertIsEnabled()
         onNodeWithTag("tools.backfill.proxy-host.field").assertExists()
+    }
+
+    @Test
+    @DisplayName("顶部只保留运行任务，多个导入和媒体任务各自结束后撤回，维护历史仍可查阅")
+    fun activeTasks() = runComposeUiTest {
+        var activity by mutableStateOf<ToolActivity?>(ToolActivity("backfill", true, false, TextToken.raw("Backfilling")))
+        var imports by mutableStateOf(listOf(activeTool("import.first"), activeTool("import.second")))
+        var media by mutableStateOf(listOf(activeTool("media.preview"), activeTool("media.convert")))
+        setContent {
+            PixivDownloaderTheme("dark") {
+                Box(Modifier.size(1200.dp, 1000.dp)) {
+                    ToolsOverview(sample(activity = activity, mediaTools = media, fileImports = imports), ::resolve, {})
+                }
+            }
+        }
+        onNodeWithTag("tools.current").assertExists()
+        onNodeWithTag("tools.current.import.first").assertExists()
+        onNodeWithTag("tools.current.import.second").assertExists()
+        onNodeWithTag("tools.current.media.convert").assertExists()
+        onNodeWithTag("tools.current.media.convert").performClick()
+        onNodeWithTag("tools.media.tab.media.convert").assertIsSelected()
+        onNodeWithTag("tools.media.back").performClick()
+        onNodeWithTag("tools.entry.migration").assertDoesNotExist()
+        runOnIdle {
+            activity = ToolActivity("backfill", false, false, TextToken.raw("Completed"))
+            imports = imports.drop(1)
+            media = emptyList()
+        }
+        onNodeWithTag("tools.current").assertDoesNotExist()
+        onNodeWithTag("tools.current.import.first").assertDoesNotExist()
+        onNodeWithTag("tools.current.media.convert").assertDoesNotExist()
+        onNodeWithTag("tools.current.import.second").assertExists()
+        runOnIdle { imports = emptyList() }
+        onNodeWithTag("tools.current.import.second").assertDoesNotExist()
+        onNodeWithTag("tools.history.history.1").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -98,8 +135,26 @@ class ToolsOverviewTest {
             ToolsOverviewTest::class.java.getResourceAsStream("/i18n/web/gui-compose_en.properties")!!.reader(Charsets.UTF_8).use(::load)
         }
         private fun resolve(token: TextToken) = if (token.key().isBlank()) token.fallback() else messages.getProperty(token.key(), token.key())
+        private fun activeTool(id: String) = Group(
+            id,
+            TextToken.raw(id),
+            Container(
+                "$id.content",
+                ContainerLayout.COLUMN,
+                1,
+                12,
+                Alignment.START,
+                listOf(
+                    Progress("$id.progress", 0.25, false, TextToken.raw("Processing")),
+                    Text("$id.state", TextToken.raw("Running"), TextStyle.BODY, true, false),
+                    Button("$id.cancel", "$id.cancel", TextToken.raw("Cancel"), null, ButtonStyle.NORMAL, true),
+                ),
+            ),
+            false,
+        )
         private fun sample(values: Map<String, String> = mapOf("db" to "artworks.db", "proxy-host" to "localhost", "proxy-port" to "7890", "delay" to "800", "limit" to "0"),
-                           activity: ToolActivity? = null, mediaTools: List<DesktopUiNode> = emptyList()): DesktopUiNode.ToolsOverview {
+                           activity: ToolActivity? = null, mediaTools: List<DesktopUiNode> = emptyList(),
+                           fileImports: List<DesktopUiNode> = emptyList()): DesktopUiNode.ToolsOverview {
             fun button(id: String) = Button(id, id, TextToken.raw(id.substringAfterLast('.')), null, ButtonStyle.NORMAL, true)
             fun column(id: String, children: List<DesktopUiNode>) = Container(id, ContainerLayout.COLUMN, 1, 12, Alignment.START, children)
             fun content(id: String, form: Form? = null) = Group("tools.$id", TextToken.raw(id), column("tools.$id.body", listOfNotNull(form, button("tools.$id.run"))), false)
@@ -112,7 +167,7 @@ class ToolsOverviewTest {
             val history = Table("history", "history.selection", listOf("tool", "outcome", "start", "end", "processed").map { TableColumn(it, TextToken.raw(it), 80) },
                 listOf(TableRow("history.1", listOf("Backfill", "Succeeded", "09:01", "09:02", "2"))), SelectionMode.SINGLE, emptyList(), false)
             return DesktopUiNode.ToolsOverview("tools.workspace", Text("backend", TextToken.raw("Service running"), TextStyle.CAPTION, true, false),
-                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, emptyList(), history, activity, null)
+                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, fileImports, history, activity, null)
         }
     }
 }

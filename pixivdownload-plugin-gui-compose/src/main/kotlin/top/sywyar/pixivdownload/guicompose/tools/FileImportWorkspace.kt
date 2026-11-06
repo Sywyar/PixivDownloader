@@ -28,10 +28,6 @@ internal fun FileImportWorkspace(
     val palette = LocalExperiencePalette.current
     val buttons = nodes.filterIsInstance<Button>()
     val leave = buttons.first { it.id().endsWith(".leave") }
-    val close = {
-        emit(Event(EventType.ACTIVATE, leave.id(), Value.empty()))
-        back()
-    }
     val leavePage by rememberUpdatedState { emit(Event(EventType.ACTIVATE, leave.id(), Value.empty())) }
     DisposableEffect(tool.id()) { onDispose { leavePage() } }
     Box(modifier.fillMaxSize().testTag("tools.import.workspace")) {
@@ -39,9 +35,10 @@ internal fun FileImportWorkspace(
             title = text(tool.title()),
             description = "",
             icon = Icons.AutoMirrored.Filled.ArrowBack,
-            close = close,
-            closeLabel = text(leave.label()),
+            close = back,
+            closeLabel = workspaceText(text, "back"),
             tagPrefix = "tools.import",
+            backNavigation = true,
             footer = {
                 buttons.filterNot { it === leave }.forEach { ToolAction(it, text, emit, primary = it.id().endsWith(".start")) }
             },

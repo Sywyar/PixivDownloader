@@ -28,11 +28,18 @@ public record DesktopFileImportTool(Identity identity, Description description) 
     /**
      * @param title 工具名称
      * @param help 输入格式与导入行为说明
+     * @param requiresCredential 是否接受本次操作使用的来源站点凭据
      */
-    public record Description(DesktopUiText title, DesktopUiText help) {
+    public record Description(DesktopUiText title, DesktopUiText help, boolean requiresCredential) {
+        /** 保留需要临时凭据的来源描述。
+         * @param title 工具名称
+         * @param help 工具说明
+         */
+        public Description(DesktopUiText title, DesktopUiText help) { this(title, help, true); }
         /** 校验纯值边界。
          * @param title 工具名称
          * @param help 输入与行为说明
+         * @param requiresCredential 是否接受临时来源凭据
          */
         public Description { Objects.requireNonNull(title); Objects.requireNonNull(help); }
     }
@@ -65,6 +72,34 @@ public record DesktopFileImportTool(Identity identity, Description description) 
          * 请求取消；运行线程退出前仍报告正在取消，已登记作品保留。
          */
         void cancel();
+
+        /**
+         * 可选辅助提示，供 GUI 在导入结束后询问是否运行数据回填；不自动启动任务。
+         * 缺席返回空，撤回后旧代理拒绝访问，不影响已导入记录。
+         * @return 待确认的纯值计数，提供者只保留一条合并提示
+         */
+        default java.util.Optional<Completion> pendingCompletion() { return java.util.Optional.empty(); }
+
+        /**
+         * 确认已经展示的提示；迟到确认不能清除更新的提示。
+         * @param id 提示身份
+         * @throws UnsupportedOperationException 来源没有完成提示能力
+         */
+        default void acknowledgeCompletion(String id) { throw new UnsupportedOperationException("IMPORT_COMPLETION_UNAVAILABLE"); }
+    }
+    /**
+     * @param id 单次提示身份
+     * @param imported 已导入且待询问回填的作品数
+     */
+    public record Completion(String id, long imported) {
+        /** 校验提示边界。
+         * @param id 提示身份
+         * @param imported 已导入数量
+         */
+        public Completion {
+            if (id == null || id.isBlank() || id.length() > 128 || imported < 1)
+                throw new IllegalArgumentException("INVALID_IMPORT_COMPLETION");
+        }
     }
     /**
      * @param recordFile 用户选择的记录文件或分片目录绝对路径
@@ -85,7 +120,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         }
     }
     /**
-     * 预览条目的确定状态；候选仍需获取元数据并校验完整文件集合。
+     * 预览条目的确定状态；候选在登记前仍需复核本地文件。
      */
     public enum Disposition {
         /** 本地文件可供下一步核验。 */ CANDIDATE,
@@ -114,7 +149,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      * @param token 单次启动凭据
      * @param records 原始记录数
      * @param works 去重作品数
-     * @param candidates 待联网核验数
+     * @param candidates 待导入数
      * @param skipped 已登记数
      * @param unavailable 缺文件或冲突数
      * @param samples 前若干作品；最多 100 项

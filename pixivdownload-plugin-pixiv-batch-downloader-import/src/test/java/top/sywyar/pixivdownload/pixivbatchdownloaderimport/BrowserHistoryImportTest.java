@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
+import top.sywyar.pixivdownload.core.work.importing.*;
+import top.sywyar.pixivdownload.pixivbatchdownloaderimport.history.HistoryImportCompletion;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.pixivbatchdownloaderimport.history.BrowserHistoryImport;
 import top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.OperationException;
@@ -19,9 +20,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class BrowserHistoryImportTest {
     private final ImportLogCapture logs = new ImportLogCapture();
     @TempDir(factory = HistoryTestDirectory.class) Path temporary;
-    private final List<WorkFileImportRequest> imported = new CopyOnWriteArrayList<>();
+    private final List<LocalWorkFileImportRequest> imported = new CopyOnWriteArrayList<>();
     private final Set<String> present = ConcurrentHashMap.newKeySet();
     private final List<PluginRuntimeTask> registered = new CopyOnWriteArrayList<>();
+    private final HistoryImportCompletion completions = new HistoryImportCompletion();
     private Path root;
     private BrowserHistoryImport history;
     private PixivBatchDownloaderImportController controller;
@@ -52,9 +54,13 @@ class BrowserHistoryImportTest {
                 registered.add(task); return task;
             }
         };
-        history = new BrowserHistoryImport(value -> {
-            imported.add(value); return present.add(value.workType() + ":" + value.workId());
-        }, queries, statistics, tasks, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")), logs.diagnostics);
+        history = new BrowserHistoryImport(new WorkFileImporter() {
+            public boolean importFiles(WorkFileImportRequest value) { throw new AssertionError("network metadata import called"); }
+            public boolean importLocalFiles(LocalWorkFileImportRequest value) {
+                imported.add(value); return present.add(value.workType() + ":" + value.workId());
+            }
+        }, queries, statistics, tasks, Path.of("").toAbsolutePath().relativize(temporary.resolve("cache")), logs.diagnostics, completions);
+
         directory = new PixivBatchDownloaderImportDirectory(temporary.resolve("settings.properties"));
         Files.writeString(temporary.resolve("settings.properties"), PixivBatchDownloaderImportDirectory.KEY + "=" + root.toString().replace("\\", "/"));
         controller = new PixivBatchDownloaderImportController(value -> { throw new AssertionError("not a live observation"); },
@@ -66,22 +72,18 @@ class BrowserHistoryImportTest {
         finally { logs.close(); }
     }
 
-    @Test @DisplayName("多分片预览无副作用，浏览器元数据匹配后登记原文件，重复检查跳过")
+    @Test @DisplayName("多分片预览无副作用，开始后直接登记原文件，重复检查跳过")
     void importsShards() throws Exception {
         String first = "[{\"id\":\"42_p1\",\"n\":\"1.png\"}]", second = "[{\"id\":\"42_p0\",\"n\":\"0.png\"}]";
         String id = upload(first, second);
         history.inspect(id);
         var ready = await(id, view -> view.phase().equals("READY"));
         assertEquals(2, ready.preview().records()); assertEquals(1, ready.preview().candidates());
-        assertNull(ready.metadata()); assertTrue(imported.isEmpty());
+        assertTrue(imported.isEmpty());
         history.start(id, root.toString());
-        var pending = await(id, view -> view.metadata() != null).metadata();
-        assertEquals("illust", pending.kind()); assertEquals("42", pending.workId());
-        assertThrows(OperationException.class, () -> history.reply(id, "wrong", 200, metadata("42", 2)));
-        history.reply(id, pending.id(), 200, metadata("42", 2));
-        assertThrows(OperationException.class, () -> history.reply(id, pending.id(), 200, metadata("42", 2)));
         var done = await(id, view -> view.phase().equals("COMPLETED"));
         assertEquals(1, done.status().imported());
+        assertEquals(1, completions.pending().orElseThrow().imported());
         assertEquals("artwork:42", done.results().get(0).workKey());
         assertEquals("IMPORTED", done.results().get(0).state());
         var headers = new HashMap<>(Map.of("Host", "localhost:6999", "X-Pixiv-Collector", "1",
@@ -93,7 +95,7 @@ class BrowserHistoryImportTest {
         assertEquals("artwork:42", result.workKey());
         assertEquals("IMPORTED", result.state());
         assertNull(result.error());
-        assertTrue(logs.messages().stream().noneMatch(line -> line.contains(id) || line.contains(pending.id())));
+        assertTrue(logs.messages().stream().noneMatch(line -> line.contains(id)));
         assertTrue(logs.messages().stream().anyMatch(line -> line.contains("phase=COMPLETED") && line.contains("imported=1")));
         int count = logs.events.size();
         for (int i = 0; i < 20; i++) history.status(id);
@@ -109,34 +111,24 @@ class BrowserHistoryImportTest {
         try (var paths = Files.walk(temporary.resolve("cache"))) { assertTrue(paths.noneMatch(Files::isRegularFile)); }
     }
 
-    @Test @DisplayName("取消待返回元数据，迟到响应不能登记或进入下一会话")
+    @Test @DisplayName("取消预览后旧会话不能开始登记或进入下一会话")
     void cancellation() throws Exception {
         String id = ready("[{\"id\":\"42_p0\",\"n\":\"0.png\"}]");
-        history.start(id, root.toString());
-        var pending = await(id, view -> view.metadata() != null).metadata();
         history.cancel(id);
         await(id, view -> view.phase().equals("CANCELLED"));
-        assertThrows(OperationException.class, () -> history.reply(id, pending.id(), 200, metadata("42", 1)));
+        assertThrows(OperationException.class, () -> history.start(id, root.toString()));
         assertTrue(imported.isEmpty());
         String next = upload("[]");
-        assertThrows(OperationException.class, () -> history.reply(id, pending.id(), 200, metadata("42", 1)));
+        assertThrows(OperationException.class, () -> history.start(id, root.toString()));
         assertEquals("UPLOADING", history.status(next).phase());
+        assertTrue(completions.pending().isEmpty());
     }
 
-    @Test @DisplayName("限流停止后续作品；身份错误不会登记")
-    void rateLimitAndWrongIdentity() throws Exception {
-        String records = "[{\"id\":\"42_p0\",\"n\":\"0.png\"},{\"id\":\"43_p0\",\"n\":\"1.png\"}]";
-        String id = ready(records);
-        history.start(id, root.toString());
-        var pending = await(id, view -> view.metadata() != null).metadata();
-        history.reply(id, pending.id(), 429, new byte[0]);
-        assertEquals(1, await(id, view -> view.phase().equals("FAILED")).status().failed());
-        assertTrue(imported.isEmpty());
-        String next = ready("[{\"id\":\"42_p0\",\"n\":\"0.png\"}]");
-        history.start(next, root.toString());
-        pending = await(next, view -> view.metadata() != null).metadata();
-        history.reply(next, pending.id(), 200, metadata("999", 1));
-        assertEquals(1, await(next, view -> view.phase().equals("COMPLETED")).status().failed());
+    @Test @DisplayName("浏览器不能再提交网络元数据")
+    void rejectsMetadataReply() throws Exception {
+        var headers = new HashMap<>(Map.of("Host", "localhost:6999", "X-Pixiv-Collector", "1", "Origin", "https://www.pixiv.net"));
+        headers.put("X-Import-Token", token(headers));
+        assertEquals(400, controller.history(http("{}", headers, Map.of("action", "reply"), "127.0.0.1")).getStatusCode().value());
         assertTrue(imported.isEmpty());
     }
 
@@ -206,7 +198,7 @@ class BrowserHistoryImportTest {
         assertTrue(imported.isEmpty());
     }
 
-    @Test @DisplayName("失联上传在空闲期限后清理；关闭会中断等待且不登记作品")
+    @Test @DisplayName("失联上传在空闲期限后清理；关闭会清理预览且不登记作品")
     void expirationAndClose() throws Exception {
         String abandoned = upload("[]");
         var sessionField = BrowserHistoryImport.class.getDeclaredField("session"); sessionField.setAccessible(true);
@@ -216,7 +208,6 @@ class BrowserHistoryImportTest {
         registered.get(0).run();
         assertThrows(OperationException.class, () -> history.status(abandoned));
         String id = ready("[{\"id\":\"42_p0\",\"n\":\"0.png\"}]");
-        history.start(id, root.toString()); await(id, view -> view.metadata() != null);
         history.close();
         assertThrows(OperationException.class, () -> history.status(id));
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
@@ -272,10 +263,6 @@ class BrowserHistoryImportTest {
         return assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
             while (true) { var view = history.status(id); if (condition.test(view)) return view; Thread.sleep(10); }
         });
-    }
-    private byte[] metadata(String id, int pages) {
-        return ("{\"error\":false,\"body\":{\"id\":\"" + id + "\",\"illustType\":1,\"pageCount\":" + pages
-                + ",\"aiType\":1,\"xRestrict\":0,\"title\":\"作品\",\"userId\":\"90\",\"tags\":{\"tags\":[]}}}").getBytes(StandardCharsets.UTF_8);
     }
     private PluginDatabase database() throws Exception {
         Path file = temporary.resolve("stats.db");

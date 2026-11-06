@@ -8,23 +8,40 @@ const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve()
 
 class Element {
     constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.disabled = false; this.textContent = ''; this.files = []; this.style = {}; }
-    append(...nodes) { this.children.push(...nodes); }
+    append(...nodes) { for (const node of nodes) node.parent = this; this.children.push(...nodes); }
     replaceChildren(...nodes) { this.children = nodes; }
     attachShadow() { this.shadow = new Element('shadow'); return this.shadow; }
     setAttribute(name, value) { this[name] = value; }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     showModal() { this.open = true; }
     close() { this.open = false; }
-    remove() { this.removed = true; }
+    remove() { this.removed = true; if (this.parent) this.parent.children = this.parent.children.filter(node => node !== this); }
     focus() {}
     click() { if (!this.disabled) return this.listeners.click?.(); }
     all(tag) { return [...this.children, ...(this.shadow ? [this.shadow] : [])].flatMap(node => [...(node.tag === tag ? [node] : []), ...node.all(tag)]); }
 }
 function historyDatabase(options) {
-    const reads = [], state = {closed: false, abortedCreation: false};
+    const reads = [], state = {closed: false, abortedCreation: false, probes: 0, opens: 0};
     const db = {objectStoreNames: {contains: () => !options.missingStore}, close: () => state.closed = true,
         transaction(name, mode) {
             assert.equal(mode, 'readonly'); assert.equal(state.closed, false); reads.push(name);
+            if (Array.isArray(name)) {
+                let pending = name.length, aborted = false;
+                const tx = {abort() { aborted = true; queueMicrotask(() => tx.onabort?.()); },
+                    objectStore: store => ({keyPath: options.badKey ? 'other' : 'id', openKeyCursor() {
+                        state.probes++;
+                        const request = {};
+                        const complete = () => queueMicrotask(() => {
+                            if (aborted) return;
+                            request.result = store === (options.populatedStore || 'record1') && options.rows?.length !== 0 ? {key: '42_p0'} : null;
+                            request.onsuccess();
+                            if (--pending === 0) tx.oncomplete?.();
+                        });
+                        if (options.deferProbe) (state.pendingProbes ||= []).push(complete); else complete();
+                        return request;
+                    }})};
+                return tx;
+            }
             let aborted = false;
             const tx = {abort() { aborted = true; queueMicrotask(() => tx.onabort?.()); },
                 objectStore: () => ({keyPath: options.badKey ? 'other' : 'id',
@@ -45,25 +62,30 @@ function historyDatabase(options) {
         }};
     return {reads, state, db, indexedDB: {open(name, version) {
         assert.equal(name, 'DLRecord'); assert.equal(version, undefined);
+        state.opens++;
         state.closed = false;
         const request = {result: db, transaction: {abort: () => state.abortedCreation = true}};
-        queueMicrotask(() => options.absent ? request.onupgradeneeded() : request.onsuccess());
+        const complete = () => queueMicrotask(() => options.absent ? request.onupgradeneeded() : options.blocked ? request.onblocked() : request.onsuccess());
+        if (options.deferOpen) state.releaseOpen = complete; else complete();
         return request;
     }}};
 }
 function browser(options = {}) {
     const database = historyDatabase(options);
     const failCancellation = options.cancelFails;
-    const body = new Element('body'), menus = new Map(), events = {}, calls = [], fetches = [], prompts = [], timers = new Map(), storage = new Map(options.storage);
-    let nextTimer = 0, phase = 'UPLOADING', deferredFetch, fetchResponse, responseFactory, rejectCreate;
+    const body = new Element('body'), menus = new Map(), events = {}, calls = [], fetches = [], prompts = [], timers = new Map(), storage = options.storage instanceof Map ? options.storage : new Map(options.storage), logs = [];
+    const document = {body, readyState: 'loading', visibilityState: options.hidden ? 'hidden' : 'visible',
+        createElement: tag => new Element(tag), addEventListener: (name, fn) => events[name] = fn};
+    const window = {location: {origin: options.origin || 'https://www.pixiv.net'}, addEventListener: (name, fn) => events[name] = fn};
+    window.self = window; window.top = options.frame ? {} : window;
+    let nextTimer = 0, phase = 'UPLOADING', deferredImport, rejectCreate;
     const view = () => ({session: 'job', phase, total: 1, processed: phase === 'COMPLETED' ? 1 : 0,
         imported: phase === 'COMPLETED' ? 1 : 0, skipped: 0, failed: 0, problems: [],
         preview: ['READY', 'RUNNING', 'COMPLETED'].includes(phase) ? (options.preview ?? {records: 2, works: 1, candidates: 1, skipped: 0, unavailable: 0}) : null,
-        metadata: phase === 'RUNNING' ? {id: 'metadata-1', kind: 'illust', workId: '42'} : null,
         ...options.execution?.[phase]});
-    const context = vm.createContext({indexedDB: database.indexedDB, IDBKeyRange: {lowerBound: after => ({after})}, URL, URLSearchParams, TextEncoder, Blob, AbortController, navigator: {language: 'en-US'},
-        crypto: {randomUUID: () => 'tab'}, document: {body, createElement: tag => new Element(tag)},
-        window: {location: {origin: 'https://www.pixiv.net'}, addEventListener: (name, fn) => events[name] = fn},
+    const context = vm.createContext({indexedDB: database.indexedDB, IDBKeyRange: {lowerBound: after => ({after})}, URL, URLSearchParams, TextEncoder, Blob, AbortController, navigator: {language: options.language || 'en-US', locks: options.locks},
+        crypto: {randomUUID: () => 'tab'}, document, window,
+        console: {info: (...args) => logs.push(['info', ...args]), warn: (...args) => logs.push(['warn', ...args])},
         GM_info: options.info, GM_registerMenuCommand: (name, fn) => menus.set(name, fn),
         GM_getValue: (key, fallback) => storage.get(key) ?? fallback, GM_setValue: (key, value) => storage.set(key, value),
         GM_deleteValue: key => storage.delete(key), GM_listValues: () => [...storage.keys()], alert() {},
@@ -71,11 +93,7 @@ function browser(options = {}) {
         setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, {fn, ms}); return id; }, clearTimeout: id => timers.delete(id),
         fetch: (url, options) => {
             fetches.push({url, options});
-            if (deferredFetch) return new Promise((resolve, reject) => {
-                fetchResponse = resolve;
-                options.signal.addEventListener('abort', () => reject(new Error('aborted')));
-            });
-            return Promise.resolve(responseFactory ? responseFactory() : new Response('{"error":false,"body":{"id":"42"}}', {status: 200}));
+            throw new Error('History import must not access Pixiv');
         },
         GM_xmlhttpRequest: options => {
             calls.push(options);
@@ -93,8 +111,7 @@ function browser(options = {}) {
                     return {abort: () => options.onabort()};
                 }
                 if (action === 'inspect') phase = 'READY';
-                if (action === 'start') phase = 'RUNNING';
-                if (action === 'reply') phase = new URL(options.url).searchParams.get('status') === '200' ? 'COMPLETED' : 'FAILED';
+                if (action === 'start') phase = deferredImport ? 'RUNNING' : 'COMPLETED';
                 if (action === 'cancel') phase = 'CANCELLED';
                 result = view();
             }
@@ -103,16 +120,141 @@ function browser(options = {}) {
         }
     });
     vm.runInContext(source, context);
-    menus.get('Read browser download history')();
-    const buttons = body.all('button'), input = body.all('input')[0];
-    return {database, body, buttons, input, calls, fetches, prompts, timers, storage, events, menus,
-        deferFetch: () => deferredFetch = true, releaseFetch: () => fetchResponse?.(new Response('{}')),
-        response: factory => responseFactory = factory,
+    if (!options.auto) menus.get('Read browser download history')();
+    return {database, body, get buttons() { return body.all('button'); }, calls, fetches, prompts, timers, storage, events, menus, document, logs,
+        ready: async () => { document.readyState = 'complete'; events.DOMContentLoaded(); await flush(); },
+        deferImport: () => deferredImport = true,
+        releaseImport: () => {
+            if (phase === 'RUNNING') phase = 'COMPLETED';
+            const entry = [...timers.entries()].filter(([, timer]) => timer.ms === 1000).at(-1);
+            if (entry) { timers.delete(entry[0]); entry[1].fn(); }
+        },
         rejectCreate: () => rejectCreate = true,
         tick: async () => { const entry = [...timers.entries()].find(([, timer]) => timer.ms === 1000); timers.delete(entry[0]); entry[1].fn(); await flush(); }};
 }
 const actions = b => b.calls.filter(call => call.method === 'POST').map(call => new URL(call.url).searchParams.get('action'));
 const statusText = b => b.body.all('p').find(node => node.role === 'status').textContent;
+const recoveryHint = b => b.body.all('p').find(node => node.textContent.includes('userscript menu') && node.textContent.includes('Read browser download history'));
+
+test('首次打开异步探测九个表的键，有记录才提醒且不传输数据，稍后仍可从菜单进入', async () => {
+    const b = browser({auto: true, populatedStore: 'record9'});
+    assert.equal(b.database.state.opens, 0);
+    await b.ready();
+    assert.equal(b.database.state.probes, 9);
+    assert.equal(b.database.state.closed, true);
+    assert.equal(b.database.reads.length, 1);
+    assert.equal(b.calls.length, 0);
+    assert.equal(b.fetches.length, 0);
+    assert.equal(b.body.all('dialog').filter(node => node.open).length, 1);
+    assert.equal(b.buttons.filter(node => !node.hidden).length, 2);
+    assert.equal(recoveryHint(b).hidden, false);
+    assert.deepEqual([...b.storage.values()], [true]);
+    assert.match(b.logs.at(-1).join(' '), /HISTORY_FOUND/);
+    b.buttons[2].click();
+    assert.equal(b.body.all('dialog').length, 0);
+    const reload = browser({auto: true, storage: b.storage});
+    await reload.ready();
+    assert.equal(reload.database.state.opens, 0);
+    assert.equal(reload.body.all('dialog').length, 0);
+    reload.menus.get('Read browser download history')();
+    assert.equal(reload.body.all('dialog')[0].open, true);
+    assert.equal(reload.buttons[0].disabled, false);
+});
+
+test('首次提醒直接进入既有检查与导入流程，只有点击后才上传', async () => {
+    const b = browser({auto: true}); await b.ready();
+    const done = b.buttons[0].click(); await flush();
+    assert.equal(b.buttons[1].disabled, false);
+    assert.equal(recoveryHint(b).hidden, true);
+    assert.ok(actions(b).includes('inspect'));
+    assert.equal(b.fetches.length, 0);
+    b.buttons[1].click(); await flush(); await done;
+    assert.ok(actions(b).includes('start'));
+    assert.equal(recoveryHint(b).hidden, false);
+});
+
+test('没有库或没有记录时不弹窗，缺库不创建，标记按 Pixiv origin 隔离', async () => {
+    for (const options of [{absent: true}, {rows: []}]) {
+        const b = browser({auto: true, ...options}); await b.ready();
+        assert.equal(b.body.all('dialog').length, 0);
+        assert.equal(b.calls.length, 0);
+        assert.deepEqual([...b.storage.values()], [true]);
+        if (options.absent) assert.equal(b.database.state.abortedCreation, true);
+        else assert.equal(b.database.state.closed, true);
+        const originalSite = browser({auto: true, storage: b.storage, origin: 'https://pixiv.net'});
+        await originalSite.ready();
+        assert.equal(originalSite.body.all('dialog')[0].open, true);
+    }
+});
+
+test('后台标签页等待可见，子框架不弹窗，手动入口不被自动提醒覆盖', async () => {
+    const hidden = browser({auto: true, hidden: true}); await hidden.ready();
+    assert.equal(hidden.database.state.opens, 0);
+    hidden.document.visibilityState = 'visible'; await hidden.events.visibilitychange();
+    assert.equal(hidden.body.all('dialog')[0].open, true);
+    const frame = browser({auto: true, frame: true}); await frame.ready();
+    assert.equal(frame.database.state.opens, 0);
+    const manual = browser({auto: true, deferOpen: true});
+    const pending = manual.ready();
+    manual.menus.get('Read browser download history')();
+    manual.database.state.releaseOpen(); await pending;
+    assert.equal(manual.body.all('dialog').length, 1);
+    assert.equal(manual.database.state.closed, true);
+    assert.equal(manual.database.state.probes, 0);
+});
+
+test('探测失败不标记完成且本页不忙重试，重新打开页面可再检查', async () => {
+    for (const failure of [{blocked: true}, {badKey: true}, {missingStore: true}]) {
+        const b = browser({auto: true, ...failure}); await b.ready();
+        assert.equal(b.body.all('dialog').length, 0);
+        assert.equal(b.storage.size, 0);
+        assert.ok(b.logs.some(log => log[0] === 'warn'));
+        await b.events.visibilitychange();
+        assert.equal(b.database.state.opens, 1);
+        const retry = browser({auto: true, storage: b.storage}); await retry.ready();
+        assert.equal(retry.body.all('dialog')[0].open, true);
+    }
+});
+
+test('探测超时、离页和升级均释放资源，不弹迟到提醒或消耗首次标记', async () => {
+    for (const action of ['timeout', 'pagehide', 'upgrade']) {
+        const b = browser({auto: true, deferProbe: true}); await b.ready();
+        if (action === 'timeout') {
+            const [id, timer] = [...b.timers].find(([, timer]) => timer.ms === 10000);
+            b.timers.delete(id); timer.fn();
+        } else if (action === 'pagehide') b.events.pagehide();
+        else b.database.db.onversionchange();
+        await flush();
+        for (const complete of b.database.state.pendingProbes) complete();
+        await flush();
+        assert.equal(b.body.all('dialog').length, 0);
+        assert.equal(b.storage.size, 0);
+        assert.equal(b.database.state.closed, true);
+        assert.equal([...b.timers.values()].filter(timer => timer.ms === 10000).length, 0);
+    }
+});
+
+test('同源并行探测在提醒前重新检查标记，只展示一次', async () => {
+    const storage = new Map(), waiting = [];
+    const locks = {request: (name, options, callback) => new Promise(resolve => waiting.push(() => resolve(callback({name}))))};
+    const a = browser({auto: true, storage, locks}), b = browser({auto: true, storage, locks});
+    await Promise.all([a.ready(), b.ready()]);
+    assert.equal(waiting.length, 2);
+    waiting[0](); await flush(); waiting[1](); await flush();
+    assert.equal(a.body.all('dialog').length + b.body.all('dialog').length, 1);
+});
+
+test('五种语言的首次提醒与恢复提示使用实际菜单名称', async () => {
+    for (const language of ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR']) {
+        const b = browser({auto: true, language}); await b.ready();
+        const menu = [...b.menus.keys()][0];
+        const hint = b.body.all('p').find(node => node.textContent.includes(menu));
+        assert.ok(hint && !hint.hidden);
+        assert.ok(b.buttons[2].textContent);
+        assert.equal(b.body.all('h2')[0].textContent.includes('undefined'), false);
+        assert.equal(b.logs.every(log => !log.join(' ').includes(menu)), true);
+    }
+});
 
 test('进度圆环使用处理数，终态切换结果标记，预览不伪造百分比', async () => {
     const b = browser({execution: {
@@ -121,7 +263,7 @@ test('进度圆环使用处理数，终态切换结果标记，预览不伪造�
     }});
     const ring = b.body.all('div').find(node => node.role === 'progressbar');
     assert.equal(ring.hidden, true);
-    b.deferFetch();
+    b.deferImport();
     const done = b.buttons[0].click(); await flush();
     assert.equal(ring.hidden, true);
     b.buttons[1].click(); await flush();
@@ -129,7 +271,7 @@ test('进度圆环使用处理数，终态切换结果标记，预览不伪造�
     assert.equal(ring['aria-valuenow'], '66');
     assert.equal(ring['aria-valuetext'], '2 / 3');
     assert.equal(ring.all('span')[0].textContent, '66%');
-    b.releaseFetch(); await flush(); await done;
+    b.releaseImport(); await flush(); await done;
     assert.equal(ring.hidden, true);
     assert.match(statusText(b), /3 \/ 3/);
     assert.deepEqual(b.body.all('dd').slice(0, 3).map(node => node.textContent), ['2', '0', '1']);
@@ -145,7 +287,7 @@ test('明细默认收起，导入结果逐项更新且保留展开状态和节�
                 error: index === 2 ? 'File validation failed' : index === 3 ? 'Statistics unavailable' : null
             }))}
         }});
-    b.deferFetch();
+    b.deferImport();
     const done = b.buttons[0].click(); await flush();
     const details = b.body.all('details')[1], rows = b.body.all('li');
     assert.equal(details.open, false);
@@ -153,7 +295,7 @@ test('明细默认收起，导入结果逐项更新且保留展开状态和节�
     b.buttons[1].click(); await flush();
     assert.equal(b.buttons[0].hidden, true);
     assert.equal(b.buttons[1].hidden, true);
-    b.releaseFetch(); await flush(); await done;
+    b.releaseImport(); await flush(); await done;
     assert.equal(details.open, true);
     assert.deepEqual(b.body.all('li'), rows);
     assert.deepEqual(rows.map(row => row.all('span')[1]['data-state']), ['IMPORTED', 'SKIPPED', 'FAILED', 'IMPORTED', 'IMPORTED']);
@@ -167,14 +309,15 @@ test('取消后的待处理作品不显示为成功，未知结果也不猜测�
     const preview = {records: 1, works: 1, candidates: 1, skipped: 0, unavailable: 0,
         samples: [{workKey: 'artwork:42', files: 1, disposition: 'CANDIDATE'}]};
     const b = browser({preview, execution: {CANCELLED: {preview, results: [{workKey: 'artwork:42', state: 'WAITING'}]}}});
-    b.deferFetch();
+    b.deferImport();
     const done = b.buttons[0].click(); await flush(); b.buttons[1].click(); await flush();
     const row = b.body.all('li')[0];
     assert.equal(row.all('span')[1]['data-state'], 'CANDIDATE');
     b.buttons[2].click(); await flush(); await done;
     assert.equal(row.all('span')[1]['data-state'], 'WAITING');
+    assert.equal(recoveryHint(b).hidden, false);
     assert.equal(b.body.all('div').find(node => node.className === 'badge warning').hidden, false);
-    assert.equal(b.fetches[0].options.signal.aborted, true);
+    assert.equal(b.fetches.length, 0);
 });
 
 test('无候选预览显示逐作品原因，释放会话并允许重新检查', async () => {
@@ -199,12 +342,13 @@ test('无候选预览显示逐作品原因，释放会话并允许重新检查',
     assert.deepEqual(details.map(row => row.all('span')[1]['data-state']), ['ALREADY_PRESENT', 'MISSING_FILES', 'CONFLICT']);
     assert.ok(b.body.all('summary').some(node => node.textContent.includes('3 / 8')));
     assert.match(statusText(b), /Check complete/);
+    assert.equal(recoveryHint(b).hidden, false);
     options.preview = {records: 2, works: 1, candidates: 1, skipped: 0, unavailable: 0, samples: []};
     const retry = b.buttons[0].click(); await flush();
     assert.equal(b.buttons[1].disabled, false);
     b.buttons[1].click(); await flush(); await retry;
     assert.equal(actions(b).filter(action => action === 'start').length, 1);
-    assert.equal(b.fetches.length, 1);
+    assert.equal(b.fetches.length, 0);
 });
 
 test('空历史和全部已存在均结束检查，不等待导入或请求元数据', async () => {
@@ -231,6 +375,7 @@ test('无候选会话释放失败时保留未确认提示，不能直接重试',
     assert.equal(b.buttons[0].disabled, true);
     assert.equal(b.buttons[1].disabled, true);
     assert.match(statusText(b), /unconfirmed/);
+    assert.equal(recoveryHint(b).hidden, false);
     assert.deepEqual([...b.timers], idleTimers);
 });
 
@@ -280,49 +425,46 @@ test('直接安装源文件时使用本机缺省地址', async () => {
     assert.ok(b.calls.every(call => new URL(call.url).origin === 'http://localhost:6999'));
 });
 
-test('直接只读扫描浏览器历史，确认前不请求元数据，登录 Cookie 不发送本机', async () => {
+test('历史导入全程仅访问本机服务，不请求 Pixiv 或发送登录 Cookie', async () => {
     const b = browser(); await flush();
 
     const done = b.buttons[0].click(); await flush();
     assert.deepEqual(actions(b), ['create', 'upload', 'upload', 'inspect']);
     assert.equal(b.fetches.length, 0); assert.equal(b.buttons[1].disabled, false);
-    assert.equal(b.storage.size, 0);
+    assert.deepEqual([...b.storage.values()], [true]);
     const chunks = b.calls.filter(call => new URL(call.url).searchParams.get('action') === 'upload');
     assert.equal(b.input, undefined);
     assert.deepEqual(JSON.parse(await new Blob(chunks.map(call => call.data)).text()), [{id: '42_p0', n: '0.png'}, {id: '42_p1', n: '1.png'}]);
     assert.equal(b.database.reads.length, 9); assert.equal(b.database.state.closed, true);
     assert.equal(new URL(chunks[1].url).searchParams.get('offset'), String(chunks[0].data.size));
     b.buttons[1].click(); await flush(); await done;
-    assert.equal(b.fetches.length, 1); assert.equal(b.fetches[0].url, '/ajax/illust/42');
-    assert.equal(b.fetches[0].options.credentials, 'same-origin');
-    assert.equal(b.fetches[0].options.redirect, 'error');
+    assert.equal(b.fetches.length, 0);
+    assert.ok(!actions(b).includes('reply'));
     assert.ok(b.calls.every(call => call.anonymous && !Object.keys(call.headers).some(key => key.toLowerCase() === 'cookie')));
-    const reply = b.calls.find(call => new URL(call.url).searchParams.get('action') === 'reply');
-    assert.equal(new URL(reply.url).searchParams.get('request'), 'metadata-1');
-    assert.match(await reply.data.text(), /"id":"42"/);
     assert.match(statusText(b), /Import complete/);
     assert.equal(b.buttons[2].textContent, 'Close');
+    assert.equal(recoveryHint(b).hidden, false);
 });
 
-test('取消浏览器元数据等待后不发送迟到响应，后端确认后才显示取消', async () => {
-    const b = browser(); await flush(); b.deferFetch();
+test('取消正在导入的本机任务，后端确认后才显示取消', async () => {
+    const b = browser(); await flush(); b.deferImport();
 
     const done = b.buttons[0].click(); await flush();
     b.buttons[1].click(); await flush();
-    assert.equal(b.fetches.length, 1);
+    assert.equal(b.fetches.length, 0);
     b.buttons[2].click(); await flush(); await done;
-    assert.equal(b.fetches[0].options.signal.aborted, true);
+    assert.equal(b.fetches.length, 0);
     assert.ok(actions(b).includes('cancel')); assert.ok(!actions(b).includes('reply'));
     assert.match(statusText(b), /Cancelled/);
-    b.releaseFetch(); await flush(); assert.ok(!actions(b).includes('reply'));
+    b.releaseImport(); await flush(); assert.ok(!actions(b).includes('reply'));
 });
 
 test('切换服务地址只向原地址取消历史会话，新地址不接收旧数据', async () => {
-    const b = browser(); await flush(); b.deferFetch();
+    const b = browser(); await flush(); b.deferImport();
 
     const done = b.buttons[0].click(); await flush(); b.buttons[1].click(); await flush();
     b.menus.get('Set local server address')(); await flush(); await done;
-    assert.equal(b.fetches[0].options.signal.aborted, true);
+    assert.equal(b.fetches.length, 0);
     assert.ok(b.calls.every(call => new URL(call.url).origin === 'http://localhost:6999'));
     assert.ok(actions(b).includes('cancel')); assert.ok(!actions(b).includes('reply'));
 });
@@ -336,21 +478,6 @@ test('离页取消预览，不自动启动', async () => {
     assert.ok(actions(b).includes('cancel')); assert.ok(!actions(b).includes('start'));
     assert.equal(b.fetches.length, 0);
 });
-
-for (const declared of [true, false]) {
-    test(`元数据${declared ? '声明长度' : '实际响应流'}超过 4 MiB 时不转发正文`, async () => {
-        const b = browser(); await flush();
-        b.response(() => declared ? new Response('{}', {headers: {'Content-Length': String(4 * 1024 * 1024 + 1)}})
-            : new Response(new Uint8Array(4 * 1024 * 1024 + 1)));
-
-        const done = b.buttons[0].click(); await flush(); b.buttons[1].click(); await done;
-        const reply = b.calls.find(call => new URL(call.url).searchParams.get('action') === 'reply');
-        assert.equal(new URL(reply.url).searchParams.get('status'), '0');
-        assert.equal(reply.data.size, 0);
-        assert.match(statusText(b), /Import incomplete/);
-        assert.ok(b.calls.every(call => call.redirect === 'error'));
-    });
-}
 
 test('本机明确拒绝创建时显示设置提示，不误报为未知结果或继续上传', async () => {
     const b = browser(); await flush(); b.rejectCreate();
@@ -367,7 +494,7 @@ test('本机明确拒绝创建时显示设置提示，不误报为未知结果�
 });
 
 test('引导随读取检查导入阶段更新，结束后仅保留结果', async () => {
-    const b = browser(); await flush(); b.deferFetch();
+    const b = browser(); await flush(); b.deferImport();
     const intro = b.body.all('p').find(node => node.className === 'intro');
     const caution = b.body.all('p').find(node => node.className === 'caution');
     const help = b.body.all('details')[0];
@@ -387,8 +514,9 @@ test('引导随读取检查导入阶段更新，结束后仅保留结果', async
     b.buttons[1].click(); await flush();
     assert.notEqual(caution.textContent, readyWarning);
     assert.ok(caution.textContent);
-    b.releaseFetch(); await flush(); await done;
-    assert.equal(intro.hidden, true);
+    b.releaseImport(); await flush(); await done;
+    assert.equal(intro.hidden, false);
+    assert.ok(intro.textContent.includes('desktop app'));
     assert.equal(help.hidden, true);
     assert.equal(caution.hidden, true);
     assert.equal(caution.textContent, '');
@@ -399,6 +527,7 @@ for (const options of [{absent: true}, {missingStore: true}, {badKey: true}, {ro
         const b = browser(options); await flush(); await b.buttons[0].click();
         assert.ok(!actions(b).includes('inspect')); assert.ok(!actions(b).includes('start'));
         assert.equal(b.fetches.length, 0);
+        assert.equal(recoveryHint(b).hidden, false);
         if (options.absent) {
             assert.equal(b.database.state.abortedCreation, true); assert.equal(b.calls.length, 0);
         } else assert.equal(b.database.state.closed, true);
@@ -413,7 +542,7 @@ test('多批读取完整保留 Unicode 和分表记录，每次上传有界且�
     const chunks = b.calls.filter(call => new URL(call.url).searchParams.get('action') === 'upload');
     assert.ok(chunks.length > 3); assert.ok(chunks.every(call => call.data.size <= 1024 * 1024));
     assert.deepEqual(JSON.parse(await new Blob(chunks.map(call => call.data)).text()), rows);
-    assert.ok(b.database.reads.length > 9); assert.equal(b.storage.size, 0);
+    assert.ok(b.database.reads.length > 9); assert.deepEqual([...b.storage.values()], [true]);
     b.buttons[2].click(); await flush(); await done;
 });
 test('读取时页面触发数据库升级会关闭连接并取消会话，不继续检查或导入', async () => {

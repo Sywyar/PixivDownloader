@@ -31,8 +31,11 @@ public final class PixivBatchDownloaderImportStatistics implements DesktopDashbo
     }
 
     public synchronized void recordImported(WorkFileImportRequest request) throws SQLException {
+        recordImported(request.workType(), request.workId());
+    }
+    public synchronized void recordImported(WorkType type, long id) throws SQLException {
         flushPending();
-        pending = new ImportedWork(request.workType(), request.workId(), System.currentTimeMillis());
+        pending = new ImportedWork(type, id, System.currentTimeMillis());
         flushPending();
     }
 

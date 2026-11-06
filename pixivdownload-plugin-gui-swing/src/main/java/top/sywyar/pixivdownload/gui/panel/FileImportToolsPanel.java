@@ -18,8 +18,9 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
     private final DesktopUiContext context;
     private final Map<DesktopFileImportTool.Identity, ImportForm> forms = new LinkedHashMap<>();
     private final javax.swing.Timer timer = new javax.swing.Timer(1000, event ->
-            forms.values().forEach(form -> { if (form.dialog != null && form.dialog.isShowing()) form.refresh(); }));
+            forms.values().forEach(ImportForm::refresh));
     private boolean closed;
+    private boolean completionDialogVisible;
 
     FileImportToolsPanel(DesktopUiContext context) {
         this.context = context;
@@ -67,6 +68,7 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
         DesktopFileImportTool.Status status;
         JDialog dialog;
         boolean busy, querying, cancelling, detached;
+        String shownCompletion;
         long revision;
 
         ImportForm(DesktopFileImportTool tool) {
@@ -80,8 +82,10 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             fields.add(field("file", file, chooseFile));
             fields.add(field("root", root, chooseRoot));
             fields.add(help(message("root-help")));
-            fields.add(field("credential", credential, null));
-            fields.add(help(message("credential-help")));
+            if (tool.description().requiresCredential()) {
+                fields.add(field("credential", credential, null));
+                fields.add(help(message("credential-help")));
+            }
             fields.add(state);
             fields.add(notice);
             fields.add(progress);
@@ -194,8 +198,10 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             querying = true;
             long current = revision;
             new SwingWorker<DesktopFileImportTool.Status, Void>() {
+                DesktopFileImportTool.Completion completion;
                 protected DesktopFileImportTool.Status doInBackground() {
                     var current = source().status();
+                    completion = source().pendingCompletion().orElse(null);
                     if (cancelling && current.active()) source().cancel();
                     return current;
                 }
@@ -205,6 +211,47 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
                     try { status = get(); if (!busy && !status.active()) cancelling = false; }
                     catch (Exception failure) { error(failure); }
                     update();
+                    if (completion != null) offerBackfill(completion);
+                }
+            }.execute();
+        }
+        private void offerBackfill(DesktopFileImportTool.Completion completion) {
+            if (closed || detached || busy || running() || completionDialogVisible || completion.id().equals(shownCompletion)) return;
+            Window window = SwingUtilities.getWindowAncestor(FileImportToolsPanel.this);
+            if (window == null) return;
+            if (Arrays.stream(Window.getWindows()).anyMatch(w -> w instanceof Dialog d && d.isModal() && d.isVisible())) return;
+            completionDialogVisible = true;
+            shownCompletion = completion.id();
+            if (window instanceof Frame frame) frame.setExtendedState(frame.getExtendedState() & ~Frame.ICONIFIED);
+            window.setVisible(true);
+            window.toFront();
+            window.requestFocus();
+            int answer;
+            try {
+                answer = JOptionPane.showOptionDialog(window,
+                        new Object[]{message("backfill-message", completion.imported()), message("backfill-later-help")},
+                        message("backfill-title"), JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
+                        new Object[]{message("backfill-later"), message("backfill-start")}, message("backfill-start"));
+            } finally { completionDialogVisible = false; }
+            boolean startBackfill = answer == 1;
+            new SwingWorker<Void, Void>() {
+                protected Void doInBackground() throws Exception {
+                    try { source().acknowledgeCompletion(completion.id()); }
+                    catch (RuntimeException failure) {
+                        org.slf4j.LoggerFactory.getLogger(FileImportToolsPanel.class)
+                                .warn("Import completion acknowledgement failed: source={}", tool.identity(), failure);
+                    }
+                    if (startBackfill) context.host().startBackfill(context.host().defaultBackfillOptions());
+                    return null;
+                }
+                protected void done() {
+                    if (detached) return;
+                    try { get(); }
+                    catch (Exception failure) {
+                        error(failure);
+                        JOptionPane.showMessageDialog(window, notice.getText(),
+                                message("backfill-title"), JOptionPane.ERROR_MESSAGE);
+                    }
                 }
             }.execute();
         }

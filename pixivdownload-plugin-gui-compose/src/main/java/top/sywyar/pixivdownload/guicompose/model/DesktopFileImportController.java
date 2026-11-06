@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
@@ -12,6 +13,7 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
 /** Compose 拥有导入表单；凭据仅留在临时草稿，绝不进入视图快照。 */
 final class DesktopFileImportController implements AutoCloseable {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DesktopFileImportController.class);
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
     private final Map<DesktopFileImportTool.Identity, State> states = new ConcurrentHashMap<>();
@@ -70,7 +72,7 @@ final class DesktopFileImportController implements AutoCloseable {
         body.add(new Text(s.id + ".help", token(s.tool.description().help()), TextStyle.SECONDARY, true, false));
         body.add(input(s.id + ".file", s.id + ".file", "gui.import.file", null, InputKind.FILE_OR_DIRECTORY, s.file, editable));
         body.add(input(s.id + ".root", s.id + ".root", "gui.import.root", "gui.import.root-help", InputKind.DIRECTORY, s.root, editable));
-        body.add(new TextInput(s.id + ".credential", s.id + ".credential", key("gui.import.credential"),
+        if (s.tool.description().requiresCredential()) body.add(new TextInput(s.id + ".credential", s.id + ".credential", key("gui.import.credential"),
                 key("gui.import.credential-help"), InputKind.PASSWORD, "", 32, 1, editable, s.secretRevision));
         if (s.preview != null) {
             var p = s.preview;
@@ -149,15 +151,20 @@ final class DesktopFileImportController implements AutoCloseable {
     private void refresh(State s) {
         if (!active(s)) return;
         long revision = s.revision;
+        var previous = s.status;
+        var previousNotice = s.notice;
+        boolean wasCancelling = s.cancelling;
         try {
             var status = source(s).status();
             if (!active(s) || revision != s.revision) return;
             s.status = status;
+            source(s).pendingCompletion().ifPresent(completion -> offerBackfill(s, completion));
             if (s.cancelling && status.active()) source(s).cancel();
             if (!s.busy && !status.active()) s.cancelling = false;
-            if (s.busy || status.active()) schedule(s);
         } catch (RuntimeException failure) { fail(s, failure); }
-        if (active(s)) owner.rebuild();
+        finally { schedule(s); }
+        if (active(s) && (!Objects.equals(previous, s.status) || !Objects.equals(previousNotice, s.notice)
+                || wasCancelling != s.cancelling)) owner.rebuild();
     }
     private void schedule(State s) {
         if (!active(s) || !s.polling.compareAndSet(false, true)) return;
@@ -169,6 +176,30 @@ final class DesktopFileImportController implements AutoCloseable {
         } catch (RejectedExecutionException rejected) { s.polling.set(false); if (!closed) throw rejected; }
     }
     private DesktopFileImportTool.Source source(State s) { return host.fileImportTool(s.tool.identity()); }
+    private void offerBackfill(State s, DesktopFileImportTool.Completion completion) {
+        synchronized (owner) {
+            if (!active(s) || s.busy || s.running() || completion.id().equals(s.shownCompletion)
+                    || owner.hasDialog() || owner.busy()) return;
+            s.shownCompletion = completion.id();
+            owner.showDialog("import-completion", "gui.import.backfill-title", DesktopUiDocument.DialogStyle.QUESTION,
+                    (actions, dismissId, dismiss) -> {
+                        actions.put("import-completion.start", () -> {
+                            dismiss.run();
+                            owner.startImportedBackfill();
+                        });
+                        return dialogContent("import-completion.content", column("import-completion.body", List.of(
+                                new Text("import-completion.message", key("gui.import.backfill-message", completion.imported()),
+                                        TextStyle.BODY, true, false),
+                                new Text("import-completion.later-help", key("gui.import.backfill-later-help"),
+                                        TextStyle.SECONDARY, true, false))),
+                                row("import-completion.actions",
+                                        new Button("import-completion.later", dismissId, key("gui.import.backfill-later"), null, ButtonStyle.NORMAL, true),
+                                        new Button("import-completion.start", "import-completion.start", key("gui.import.backfill-start"), null, ButtonStyle.PRIMARY, true)));
+                    }, 480, 0);
+        }
+        try { source(s).acknowledgeCompletion(completion.id()); }
+        catch (RuntimeException unavailable) { LOG.warn("Import completion acknowledgement failed: source={}", s.tool.identity(), unavailable); }
+    }
     private boolean active(State s) { return !closed && states.get(s.tool.identity()) == s; }
     private static TextToken token(DesktopUiText value) { return new TextToken(value.namespace(), value.key(), value.fallback(), value.arguments()); }
     private static TextToken key(String key, Object... args) {
@@ -193,6 +224,7 @@ final class DesktopFileImportController implements AutoCloseable {
         volatile DesktopFileImportTool.Preview preview;
         volatile DesktopFileImportTool.Status status;
         volatile TextToken notice;
+        volatile String shownCompletion;
         final AtomicBoolean polling = new AtomicBoolean();
         State(DesktopFileImportTool tool) { this.tool = tool; id = "import." + tool.identity().pluginId() + "." + tool.identity().publication(); }
         boolean running() { return status != null && status.active(); }

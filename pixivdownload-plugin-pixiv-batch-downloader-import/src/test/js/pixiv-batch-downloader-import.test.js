@@ -6,16 +6,17 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../../main/resources/userscripts/pixiv-batch-downloader-import.user.js'), 'utf8');
 const flush = async () => { for (let i=0;i<20;i++) await Promise.resolve(); };
 function browser(storage = new Map(), info) {
-    const listeners = {}, calls = [], alerts = [], timers = new Map();
+    const listeners = {}, calls = [], alerts = [], timers = new Map(), menus = new Map();
     let offline = false, deferred = false, nextTimer = 0, aborts = 0, now = Date.now();
     class Clock extends Date { static now() { return now; } }
     const respond = (options, body = options.method === 'GET' ? {token:'once'} : {code:'IMPORTED'}) =>
         options.onload({status:200, finalUrl:options.url, responseText:JSON.stringify(body)});
     const context = vm.createContext({URL, TextEncoder, Date:Clock, navigator:{language:'en-US'}, crypto:{randomUUID:()=> 'session'},
         window:{location:{origin:'https://www.pixiv.net'},addEventListener:(name,callback)=>listeners[name]=callback},
+        document:{readyState:'loading',addEventListener:()=>{}},
         GM_info:info, GM_getValue:(key,fallback)=>storage.has(key)?storage.get(key):fallback,
         GM_setValue:(key,value)=>storage.set(key,value), GM_deleteValue:key=>storage.delete(key), GM_listValues:()=>[...storage.keys()],
-        GM_registerMenuCommand:()=>{}, alert:text=>alerts.push(text), prompt:()=>null,
+        GM_registerMenuCommand:(name, callback)=>menus.set(name, callback), alert:text=>alerts.push(text), prompt:()=>null,
         setTimeout:fn=>{ const id = ++nextTimer; timers.set(id, fn); return id; },
         clearTimeout:id=>timers.delete(id),
         GM_xmlhttpRequest:options=>{
@@ -26,7 +27,7 @@ function browser(storage = new Map(), info) {
         }
     });
     vm.runInContext(source,context);
-    return {storage, calls, alerts, timers, respond, aborts:()=>aborts,
+    return {storage, calls, alerts, timers, menus, respond, aborts:()=>aborts,
         offline:()=>offline=true, online:()=>offline=false, defer:()=>deferred=true,
         advance:milliseconds=>now+=milliseconds,
         tick:async()=>{ const [id, callback]=timers.entries().next().value; timers.delete(id); await callback(); await flush(); },
@@ -36,6 +37,17 @@ const meta = (id=42,type=0,pages=1)=>({idNum:id,type,title:'Title',pageCount:pag
     userId:'84',user:'Author',tags:['tag'],novelMeta:{content:'Novel content'}});
 // 上游成功事件只携带作品、标签页和实际路径，不回传下载请求的 taskBatch。
 const success = (id='42_p0',name='/downloads/custom.png')=>({id,tabId:2,blobURLFront:'blob:https://www.pixiv.net/download',browserSetFilename:name});
+
+test('自动采集无法继续时提示对应油猴菜单，状态入口仍可重新检查', async () => {
+    const b = browser();
+    b.event('downloadStart', {}); b.event('downloadSuccess', success()); await flush();
+    const menu = [...b.menus.keys()].find(name => name === 'Automatic import status');
+    assert.ok(menu);
+    assert.ok(b.alerts[0].includes(menu));
+    b.menus.get(menu)();
+    assert.ok(b.alerts.at(-1).includes(menu));
+    assert.equal(b.calls.length, 0);
+});
 test('自动导入沿用安装来源的主机、协议和端口，已保存地址优先', async () => {
     for (const origin of ['http://localhost:17319', 'http://127.0.0.1:18427', 'http://[::1]:19531', 'https://localhost:16443']) {
         for (const saved of [undefined, 'http://127.0.0.1:18222']) {

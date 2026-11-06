@@ -14,6 +14,58 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FileImportToolsPanelTest {
+    @Test @DisplayName("未打开导入表单也能提示完成，稍后不会启动回填，确认才启动")
+    void completionPrompt() throws Exception {
+        for (boolean confirm : List.of(false, true)) {
+            var tool = new DesktopFileImportTool(new Identity("local", "local", 1, 1),
+                    new Description(DesktopUiText.raw("Local import"), DesktopUiText.raw("Local files"), false));
+            var pending = new AtomicReference<Completion>();
+            var starts = new AtomicInteger();
+            Source source = new Source() {
+                public Description description() { return tool.description(); }
+                public Result<Preview> inspect(Request request) { throw new AssertionError(); }
+                public Result<Status> start(String token, String credential) { throw new AssertionError(); }
+                public Status status() { return new Status(Phase.IDLE, 0, 0, 0, 0, 0, List.of()); }
+                public void cancel() { throw new AssertionError(); }
+                public Optional<Completion> pendingCompletion() { return Optional.ofNullable(pending.get()); }
+                public void acknowledgeCompletion(String id) { pending.set(null); }
+            };
+            var host = (DesktopUiHost) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                    new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                        case "fileImportTools" -> List.of(tool);
+                        case "fileImportTool" -> source;
+                        case "message" -> args[0];
+                        case "defaultBackfillOptions" -> null;
+                        case "startBackfill" -> { starts.incrementAndGet(); yield UUID.randomUUID(); }
+                        default -> throw new AssertionError(method.getName());
+                    });
+            var context = new DesktopUiContext(false, 8080, ".", Path.of("config.yaml"), "swing", host,
+                    List.of(), List::of, DesktopUiText::fallback, () -> "system");
+            var panel = new AtomicReference<FileImportToolsPanel>();
+            var frame = new AtomicReference<JFrame>();
+            SwingUtilities.invokeAndWait(() -> {
+                panel.set(new FileImportToolsPanel(context));
+                frame.set(new JFrame("Import completion fixture"));
+                frame.get().setContentPane(panel.get()); frame.get().setSize(500, 400); frame.get().setVisible(true);
+                pending.set(new Completion("done", 2));
+            });
+            try {
+                await(() -> Arrays.stream(frame.get().getOwnedWindows()).anyMatch(Window::isVisible));
+                SwingUtilities.invokeAndWait(() -> {
+                    assertEquals(0, starts.get());
+                    var dialog = Arrays.stream(frame.get().getOwnedWindows()).filter(Window::isVisible).findFirst().orElseThrow();
+                    var option = descendants(dialog).filter(JButton.class::isInstance).map(JButton.class::cast)
+                            .filter(b -> b.getText().equals("gui.import.backfill-" + (confirm ? "start" : "later")))
+                            .findFirst().orElseThrow();
+                    option.doClick();
+                });
+                await(() -> pending.get() == null && starts.get() == (confirm ? 1 : 0));
+            } finally {
+                SwingUtilities.invokeAndWait(() -> { panel.get().close(); frame.get().dispose(); });
+            }
+        }
+    }
+
     @Test @DisplayName("原生表单检查、修改、提交、取消和撤回；窄窗口主操作保持可见")
     void nativeImportWorkflow() throws Exception {
         var tool = new DesktopFileImportTool(new Identity("fixture", "fixture", 1, 1),

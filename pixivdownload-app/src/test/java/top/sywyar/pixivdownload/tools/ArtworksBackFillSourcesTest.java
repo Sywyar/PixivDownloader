@@ -172,7 +172,8 @@ class ArtworksBackFillSourcesTest {
         unreachable.save();
         var network = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(BODY.replace("local", "network")), 4567L, true);
         var client = mock(ArtworksBackFillPixivClient.class);
-        when(client.query(2)).thenReturn(network);
+        when(client.query(2)).thenReturn(network.withMetadata(new WorkMetaCurator(mapper)
+                .curateArtwork(2, mapper.readTree(BODY.replace("\"1\"", "\"2\"")), null, "backfill")));
         try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 invocation -> invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(unreachablePath);
@@ -289,7 +290,11 @@ class ArtworksBackFillSourcesTest {
         unreachable.save();
         var network = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(BODY.replace("local", "network")), 4567L, true);
         var client = mock(ArtworksBackFillPixivClient.class);
-        when(client.query(anyLong())).thenReturn(network);
+        when(client.query(anyLong())).thenAnswer(call -> {
+            long id = call.getArgument(0);
+            return network.withMetadata(new WorkMetaCurator(mapper)
+                    .curateArtwork(id, mapper.readTree(BODY.replace("\"1\"", "\"" + id + "\"")), null, "backfill"));
+        });
         try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 invocation -> invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(unreachablePath);
@@ -397,7 +402,10 @@ class ArtworksBackFillSourcesTest {
         Files.writeString(directory.resolve("3.meta.json"), new WorkMetaCurator(mapper).curateNovel(3,
                 mapper.readTree("{\"id\":3,\"uploadDate\":\"2020-02-03T12:00:00+09:00\"}"), "forward").document().toString());
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-            sql.executeUpdate("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'novel','{0}',1,'txt',1)");
+            sql.executeUpdate("INSERT INTO novels(novel_id,title,folder,count,extensions,time,author_id,r18,is_ai,description,series_id)"
+                    + " VALUES(3,'novel','{0}',1,'txt',1,0,0,0,'',0)");
+            sql.executeUpdate("INSERT INTO tags(tag_id,name) VALUES(99,'known')");
+            sql.executeUpdate("INSERT INTO novel_tags(novel_id,tag_id) VALUES(3,99)");
         }
         var network = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(BODY.replace("local", "network")), 4567L, true);
         var client = mock(ArtworksBackFillPixivClient.class);

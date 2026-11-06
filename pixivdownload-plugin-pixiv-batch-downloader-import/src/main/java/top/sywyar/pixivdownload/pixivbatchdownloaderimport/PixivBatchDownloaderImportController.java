@@ -143,15 +143,14 @@ public final class PixivBatchDownloaderImportController {
         if (!claim(request.getHeader("X-Import-Token"))) return error(request, 401, "INVALID_IMPORT_TOKEN");
         String action = Objects.toString(request.getParameter("action"), "");
         String stage = switch (action) {
-            case "create", "upload", "inspect", "start", "status", "cancel", "reply" -> "browser/" + action;
+            case "create", "upload", "inspect", "start", "status", "cancel" -> "browser/" + action;
             default -> "browser/unknown";
         };
-        boolean bulk = action.equals("upload") || action.equals("reply");
+        boolean bulk = action.equals("upload");
         // 大请求的读取不能阻塞状态和取消，也不占用实时采集的准入槽。
         if (bulk && !historyBodies.tryAcquire()) return error(request, 409, "IMPORT_BUSY");
         try {
-            int limit = action.equals("upload") ? BrowserHistoryImport.CHUNK_BYTES
-                    : action.equals("reply") ? BrowserHistoryImport.RESPONSE_BYTES : 4096;
+            int limit = action.equals("upload") ? BrowserHistoryImport.CHUNK_BYTES : 4096;
             if (request.getContentLengthLong() > limit) return error(request, 413, "IMPORT_TOO_LARGE");
             byte[] body = request.getInputStream().readNBytes(limit + 1);
             if (body.length > limit) return error(request, 413, "IMPORT_TOO_LARGE");
@@ -170,14 +169,12 @@ public final class PixivBatchDownloaderImportController {
                 case "start" -> view = history.start(id, directory.configuredRoot());
                 case "status" -> view = history.status(id);
                 case "cancel" -> view = history.cancel(id);
-                case "reply" -> view = history.reply(id, request.getParameter("request"),
-                        Integer.parseInt(request.getParameter("status")), body);
                 default -> { return error(request, 400, "IMPORT_REJECTED"); }
             }
             var status = view.status();
             return ResponseEntity.ok().header("Cache-Control", "no-store").body(new HistoryResponse(
                     view.session(), view.phase(), view.preview(), status.total(), status.processed(), status.imported(),
-                    status.skipped(), status.failed(), view.metadata(), localized(view.error(), request.getLocale()),
+                    status.skipped(), status.failed(), localized(view.error(), request.getLocale()),
                     status.problems().stream().map(problem -> new HistoryProblem(problem.workKey(),
                             localized(problem.reason(), request.getLocale()))).toList(),
                     view.results().stream().map(result -> new HistoryWorkResult(result.workKey(), result.state(),
@@ -202,7 +199,7 @@ public final class PixivBatchDownloaderImportController {
     public record HistoryWorkResult(String workKey, String state, String error) {}
     public record HistoryResponse(String session, String phase, DesktopFileImportTool.Preview preview,
                                   int total, int processed, int imported, int skipped, int failed,
-                                  BrowserHistoryImport.MetadataRequest metadata, String error, List<HistoryProblem> problems,
+                                  String error, List<HistoryProblem> problems,
                                   List<HistoryWorkResult> results) {}
 
     private String localized(DesktopUiText text, Locale locale) {

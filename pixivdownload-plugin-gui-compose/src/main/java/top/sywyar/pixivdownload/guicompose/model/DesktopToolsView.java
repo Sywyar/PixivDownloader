@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Selectio
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -693,6 +694,17 @@ final class DesktopToolsView {
         return List.copyOf(cards);
     }
 
+    private String toolLogLocation(String fileName) {
+        if (fileName == null) return "—";
+        try {
+            return model.host.findToolLog(fileName)
+                    .map(path -> path.toAbsolutePath().normalize().toString())
+                    .orElse(fileName);
+        } catch (IOException | IllegalArgumentException | UnsupportedOperationException failure) {
+            return fileName + "\n" + model.host.message("desktop.ui.tools.log-open-failed");
+        }
+    }
+
     private DesktopUiNode toolHistoryContent() {
         List<DesktopUiToolHost.ToolHistoryEntry> entries = model.host.toolHistory();
         if (entries.isEmpty()) {
@@ -711,7 +723,7 @@ final class DesktopToolsView {
                             countCell(entry.processedCount()),
                             countCell(entry.changedCount()),
                             countCell(entry.failedCount()),
-                            entry.logFileName() == null ? "—" : entry.logFileName()
+                            toolLogLocation(entry.logFileName())
                     )
             ));
         }

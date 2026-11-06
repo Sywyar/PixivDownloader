@@ -92,6 +92,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     ) {}
     private long interactionRevisionSequence;
     private volatile DesktopUiSnapshot snapshot;
+    private java.util.UUID requestedBackfill;
     private volatile DesktopUiHost.BackendSnapshot backend;
     volatile String statusNotice = "";
     private volatile long backendStateChangedAt = System.currentTimeMillis();
@@ -422,14 +423,16 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             eventEndpoints = nextEventEndpoints;
             var automaticBackfillNotice = tools.automaticBackfillNotice();
             if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())
-                    || !Objects.equals(automaticBackfillNotice, snapshot.automaticBackfillNotice())) {
+                    || !Objects.equals(automaticBackfillNotice, snapshot.automaticBackfillNotice())
+                    || !Objects.equals(requestedBackfill, snapshot.requestedBackfill())) {
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
                 snapshot = new DesktopUiSnapshot(
                         candidateRevision,
                         nextDocument,
                         nextInteractionRevisions,
-                        automaticBackfillNotice
+                        automaticBackfillNotice,
+                        requestedBackfill
                 );
                 published = snapshot;
             }
@@ -749,6 +752,23 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     }
 
     boolean hasDialog() { return closed || dialogState != null; }
+
+    void startImportedBackfill() { tools.runImportedBackfill(); }
+
+    synchronized void showBackfill(java.util.UUID executionId) {
+        if (closed) return;
+        requestedBackfill = executionId;
+        rebuildStatus();
+    }
+
+    /** 消费本次导航请求，避免进度刷新重新打开已收起的面板。 */
+    public synchronized boolean consumeBackfillNavigation(java.util.UUID executionId) {
+        if (closed || dialogState != null || executionId == null
+                || !executionId.equals(requestedBackfill)) return false;
+        requestedBackfill = null;
+        rebuildStatus();
+        return true;
+    }
 
     /** 只收起指定执行的自动提示，不停止回填或改变表单。 */
     public synchronized boolean dismissAutomaticBackfill(java.util.UUID executionId) {
