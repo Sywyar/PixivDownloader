@@ -8,8 +8,10 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.WriteProperties
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
@@ -20,6 +22,30 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+
+abstract class VerifyMavenClasspath : DefaultTask() {
+    // InputFiles 允许缺失文件进入任务，由统一诊断指导首次 Maven 构建。
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.ABSOLUTE)
+    abstract val manifest: ConfigurableFileCollection
+
+    @TaskAction
+    fun verify() {
+        val entries = manifest.singleFile.takeIf(File::isFile)
+            ?.readText(Charsets.UTF_8)
+            ?.split(File.pathSeparatorChar)
+            ?.filter(String::isNotBlank)
+            ?.map(::File)
+            ?: emptyList()
+        check(entries.isNotEmpty()) {
+            "Missing Maven-owned SDK classpath; invoke this module through Maven before running build tasks."
+        }
+        val missingEntries = entries.filterNot(File::exists)
+        check(missingEntries.isEmpty()) {
+            "Maven-owned SDK classpath contains missing entries: $missingEntries"
+        }
+    }
+}
 
 buildscript {
     repositories {
@@ -39,6 +65,7 @@ abstract class VerifyPluginArtifact : DefaultTask() {
         ZipFile(pluginArtifact.get().asFile).use { zip ->
             val entries = zip.entries().asSequence().map { it.name }.toSet()
             check("plugin.properties" in entries) { "plugin.properties must be at the artifact root" }
+            check("META-INF/pixivdownload-proguard.properties" in entries) { "ProGuard processing marker is missing" }
             check(entries.any { it == "top/sywyar/pixivdownload/guicompose/GuiComposePf4jPlugin.class" }) {
                 "PF4J entry class is missing"
             }
@@ -185,9 +212,10 @@ val idePf4jVersion = if (mavenClasspathReady) null else {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(JavaVersion.current().majorVersion.toInt())
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xjdk-release=17")
         val configuredLanguageVersion = providers.gradleProperty("kotlinLanguageVersion")
             .map(KotlinVersion::fromVersion)
         languageVersion.set(configuredLanguageVersion)
@@ -195,8 +223,8 @@ kotlin {
     }
 }
 
-java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
 }
 
 configurations.configureEach {
@@ -231,27 +259,10 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-val verifyMavenClasspath = tasks.register("verifyMavenClasspath") {
+val verifyMavenClasspath = tasks.register<VerifyMavenClasspath>("verifyMavenClasspath") {
     group = "verification"
     description = "Fails build tasks unless Maven supplied the exact SDK classpath."
-    inputs.property("mavenClasspathFile", mavenClasspathFile.absolutePath)
-    notCompatibleWithConfigurationCache("Reads the Maven-generated classpath at task execution time.")
-    doLast {
-        val classpathFile = File(inputs.properties.getValue("mavenClasspathFile").toString())
-        val entries = classpathFile.takeIf(File::isFile)
-            ?.readText(Charsets.UTF_8)
-            ?.split(File.pathSeparatorChar)
-            ?.filter(String::isNotBlank)
-            ?.map(::File)
-            ?: emptyList()
-        check(entries.isNotEmpty()) {
-            "Missing Maven-owned SDK classpath; invoke this module through Maven before running build tasks."
-        }
-        val missingEntries = entries.filterNot(File::exists)
-        check(missingEntries.isEmpty()) {
-            "Maven-owned SDK classpath contains missing entries: $missingEntries"
-        }
-    }
+    manifest.from(mavenClasspathFile)
 }
 
 tasks.named("compileKotlin") { dependsOn(verifyMavenClasspath) }
@@ -259,6 +270,8 @@ tasks.named("compileJava") { dependsOn(verifyMavenClasspath) }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // 构建缓存可以复用编译输出，质量门禁仍须在本次 runner 实际执行测试。
+    outputs.cacheIf { false }
     testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     systemProperty("user.language", "en")
     systemProperty("user.country", "US")
@@ -267,6 +280,12 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.named<Jar>("jar") { enabled = false }
+
+tasks.register<Sync>("warmBuildDependencies") {
+    from(configurations.runtimeClasspath, configurations.testRuntimeClasspath)
+    into(layout.buildDirectory.dir("dependency-warmup"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
 
 val proguardInputJar = tasks.register<Jar>("proguardInputJar") {
     dependsOn(tasks.named("classes"))
@@ -293,13 +312,32 @@ val proguardRuntimeJars = configurations.runtimeClasspath.map { runtimeClasspath
 val proguardRuntimeOutputs = proguardRuntimeJars.map { files ->
     files.map { proguardRawLibraries.resolve(it.name) }
 }
+val proguardLibraries = files()
+mavenClasspath.files.sortedBy(File::getAbsolutePath).forEachIndexed { index, library ->
+    if (library.extension.equals("jar", ignoreCase = true)) {
+        val normalized = tasks.register<Zip>("normalizeProguardLibrary$index") {
+            // library pool 不读取 Maven 发布元数据；源码身份变化不应使相同类重新优化。
+            from(zipTree(library)) { exclude("META-INF/maven/**/pom.xml", "META-INF/maven/**/pom.properties") }
+            archiveFileName.set(library.name)
+            destinationDirectory.set(mavenBuildDirectory.resolve("proguard/library/$index"))
+            duplicatesStrategy = DuplicatesStrategy.FAIL
+            isPreserveFileTimestamps = false
+            isReproducibleFileOrder = true
+        }
+        proguardLibraries.from(normalized.flatMap { it.archiveFile })
+    } else {
+        proguardLibraries.from(library)
+    }
+}
 val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
     group = "build"
     description = "Shrinks and optimizes the Compose plugin artifact without obfuscation."
     dependsOn(proguardInputJar, verifyMavenClasspath)
-    inputs.file(proguardInputJar.flatMap(Jar::getArchiveFile))
-    inputs.files(configurations.runtimeClasspath, mavenClasspath)
-    inputs.files(baseProguardRules, composeProguardRules)
+    dependsOn(proguardLibraries)
+    // ProGuardTask 已按内容声明 JAR、JDK 库和规则；不要重复添加含绝对路径的输入。
+    inputs.property("operatingSystem", System.getProperty("os.name"))
+    inputs.property("architecture", System.getProperty("os.arch"))
+    inputs.property("javaRuntime", System.getProperty("java.runtime.version"))
     outputs.dir(proguardRawDirectory)
     configuration(baseProguardRules.asFile)
     configuration(composeProguardRules.asFile)
@@ -313,7 +351,7 @@ val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
         injars(runtimeJar)
         outjars(proguardRawLibraries.resolve(runtimeJar.name))
     }
-    mavenClasspath.files.sortedBy(File::getAbsolutePath).forEach(::libraryjars)
+    libraryjars(proguardLibraries)
     File(System.getProperty("java.home"), "jmods").listFiles()
         .orEmpty()
         .filter { it.isFile && it.extension.equals("jmod", ignoreCase = true) }
@@ -330,6 +368,16 @@ val normalizeProguardLibraries = tasks.register<NormalizeProguardArchives>("norm
     outputDirectory.set(normalizedProguardLibraries)
 }
 
+val proguardMarker = tasks.register<WriteProperties>("proguardMarker") {
+    encoding = "UTF-8"
+    destinationFile.set(layout.buildDirectory.file("generated/proguard/pixivdownload-proguard.properties"))
+    property("formatVersion", "1")
+    property("proguard.version", proguardVersion)
+    property("shrink", "true")
+    property("optimize", "true")
+    property("obfuscate", "false")
+}
+
 val pluginJar = tasks.register<Jar>("pluginJar") {
     group = "build"
     description = "Builds the reproducible PF4J JAR-with-lib artifact."
@@ -341,14 +389,7 @@ val pluginJar = tasks.register<Jar>("pluginJar") {
     isReproducibleFileOrder = true
     from(zipTree(proguardRawDirectory.resolve("plugin-code.jar")))
     into("META-INF") {
-        from(resources.text.fromString("""formatVersion=1
-proguard.version=$proguardVersion
-shrink=true
-optimize=true
-obfuscate=false
-""")) {
-            rename { "pixivdownload-proguard.properties" }
-        }
+        from(proguardMarker)
     }
     into("lib") {
         from(normalizedProguardLibraries)

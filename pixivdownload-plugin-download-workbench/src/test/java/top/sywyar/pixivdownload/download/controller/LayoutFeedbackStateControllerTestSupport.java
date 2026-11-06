@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download.controller;
 
 import jakarta.servlet.ServletInputStream;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateFiles;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -54,6 +56,11 @@ abstract class LayoutFeedbackStateControllerTestSupport {
 
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void cleanupDirectory() throws IOException {
+        TestDirectoryCleanup.delete(tempDir);
+    }
 
     protected LayoutFeedbackStateStore store() {
         return new LayoutFeedbackStateStore(new LayoutFeedbackStateFiles(stateDir()));

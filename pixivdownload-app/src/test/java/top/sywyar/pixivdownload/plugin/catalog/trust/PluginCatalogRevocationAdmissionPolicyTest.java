@@ -1,12 +1,14 @@
 package top.sywyar.pixivdownload.plugin.catalog.trust;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.security.PluginCatalogStrictJson;
 import top.sywyar.pixivdownload.plugin.runtime.admission.PluginArtifactAdmissionRequest;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -19,6 +21,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginCatalogRevocationAdmissionPolicyTest {
 
     @TempDir Path tempDir;
+
+    @AfterEach
+    void cleanupDirectory() throws java.io.IOException {
+        TestDirectoryCleanup.delete(tempDir);
+    }
 
     @Test
     @DisplayName("社区恢复投影可由既有撤销解析器读取且保留独立限制")

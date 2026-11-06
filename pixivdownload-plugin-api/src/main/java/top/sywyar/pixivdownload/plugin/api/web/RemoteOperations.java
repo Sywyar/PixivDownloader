@@ -23,6 +23,7 @@ public interface RemoteOperations {
     Response invoke(ServiceKey<?> service, String operation, String identity);
 
     /**
+     * 与当前契约身份绑定的 HTTP 结果。
      * @param status HTTP 状态
      * @param json UTF-8 JSON 文本
      * @param identity 当前契约身份

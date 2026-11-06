@@ -1,0 +1,37 @@
+name: Restore SDK verification inputs
+description: Verify and restore immutable SDK inputs produced in this workflow run
+inputs:
+  artifact_id:
+    description: Immutable artifact ID from the SDK build job
+    required: true
+  sha256:
+    description: SHA-256 of the exact verification archive
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Require exact verification input identity
+      shell: bash
+      env:
+        ARTIFACT_ID: ${{ inputs.artifact_id }}
+        INPUT_SHA256: ${{ inputs.sha256 }}
+      run: |
+        [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]] && [[ "$INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+    - name: Download this run's SDK verification inputs
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ inputs.artifact_id }}
+        merge-multiple: true
+        path: ${{ runner.temp }}/sdk-verification
+    - name: Verify archive digest and restore exact SDK inputs
+      shell: bash
+      env:
+        INPUT_SHA256: ${{ inputs.sha256 }}
+        SOURCE_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/sdk-verification/sdk-verification.tar"
+        printf '%s  %s\n' "$INPUT_SHA256" "$archive" | sha256sum --check --strict
+        tar -xf "$archive" -C "$GITHUB_WORKSPACE"
+        node scripts/ci/sdk-publication-inputs.mjs restore "$SOURCE_SHA"
+        node scripts/ci/sdk-release.mjs --repo-root . --verify-directory target/sdk-release --source-sha "$SOURCE_SHA"

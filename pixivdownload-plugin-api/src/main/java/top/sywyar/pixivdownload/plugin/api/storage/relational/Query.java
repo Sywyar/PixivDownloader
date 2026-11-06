@@ -3,7 +3,19 @@ package top.sywyar.pixivdownload.plugin.api.storage.relational;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema;
 import java.util.*;
 
-/** 同一受管存储内的投影、关联、过滤和有界分页。 */
+/**
+ * 同一受管存储内的投影、关联、过滤和有界分页。
+ * @param from 主查询来源
+ * @param joins 按声明顺序执行的关联
+ * @param select 按投影名称组织的表达式
+ * @param where 过滤条件，null 表示不限制
+ * @param groupBy 分组表达式，空集合表示不分组
+ * @param having 分组过滤条件，null 表示不限制
+ * @param orderBy 排序规则；分页需要稳定顺序时须由调用方显式提供
+ * @param distinct 是否对投影结果去重
+ * @param limit 最多返回的行数，必须大于零
+ * @param offset 跳过的行数，不能为负数
+ */
 public record Query(Source from, List<Join> joins, Map<String, Expression> select, Expression where,
                     List<Expression> groupBy, Expression having, List<Order> orderBy,
                     boolean distinct, int limit, long offset) {
@@ -52,7 +64,11 @@ public record Query(Source from, List<Join> joins, Map<String, Expression> selec
          */
         String alias();
     }
-    /** 对已声明表的引用。 */
+    /**
+     * 对已声明表的引用。
+     * @param name 符合标识符规则的逻辑名称
+     * @param alias 当前查询作用域的引用别名
+     */
     public record Table(String name, String alias) implements Source {
         /**
          * 校验表名和别名。
@@ -66,7 +82,11 @@ public record Query(Source from, List<Join> joins, Map<String, Expression> selec
          */
         public Table(String name) { this(name, name); }
     }
-    /** 对子查询结果的命名引用。 */
+    /**
+     * 对子查询结果的命名引用。
+     * @param query 受当前声明范围限制的查询
+     * @param alias 当前查询作用域的引用别名
+     */
     public record Derived(Query query, String alias) implements Source {
         /**
          * 固定子查询并校验别名。
@@ -75,7 +95,12 @@ public record Query(Source from, List<Join> joins, Map<String, Expression> selec
          */
         public Derived { Objects.requireNonNull(query); MigrationSchema.identifier(alias); }
     }
-    /** 各分支按投影顺序合并，名称和类型必须相同。 */
+    /**
+     * 各分支按投影顺序合并，名称和类型必须相同。
+     * @param queries 投影名称、顺序和类型一致的查询分支
+     * @param all 是否保留重复行
+     * @param alias 当前查询作用域的引用别名
+     */
     public record Union(List<Query> queries, boolean all, String alias) implements Source {
         /**
          * 固定至少两个分支并校验别名。
@@ -96,7 +121,12 @@ public record Query(Source from, List<Join> joins, Map<String, Expression> selec
         /** 保留左侧全部行，右侧未匹配列为空。 */
         LEFT
     }
-    /** 关联来源及其匹配条件。 */
+    /**
+     * 关联来源及其匹配条件。
+     * @param kind 关联类型
+     * @param source 参与关联的查询来源
+     * @param on 关联匹配条件
+     */
     public record Join(JoinKind kind, Source source, Expression on) {
         /**
          * 拒绝缺失的关联类型、来源或条件。
@@ -106,7 +136,12 @@ public record Query(Source from, List<Join> joins, Map<String, Expression> selec
          */
         public Join { Objects.requireNonNull(kind); Objects.requireNonNull(source); Objects.requireNonNull(on); }
     }
-    /** NULL 位置显式声明，不依赖引擎默认值。 */
+    /**
+     * NULL 位置显式声明，不依赖引擎默认值。
+     * @param expression 待计算的表达式
+     * @param descending 是否按降序排列
+     * @param nullsFirst 是否将空值排在非空值之前
+     */
     public record Order(Expression expression, boolean descending, boolean nullsFirst) {
         /**
          * 拒绝缺失的排序表达式。

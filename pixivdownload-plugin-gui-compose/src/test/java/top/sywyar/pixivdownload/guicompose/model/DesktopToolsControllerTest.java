@@ -149,7 +149,7 @@ class DesktopToolsControllerTest {
     @Test
     @DisplayName("查看日志只打开已有页面，不新建或覆盖日志会话")
     void viewingLogsDoesNotCreateSessions() throws Exception {
-        var opened = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var opened = new java.util.concurrent.LinkedBlockingQueue<String>();
         var created = new ArrayList<Path>();
         var overrides = new HashMap<String, Function<Object[], Object>>();
         overrides.put("findToolLog", args -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath()));
@@ -169,11 +169,12 @@ class DesktopToolsControllerTest {
             }
             try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
                 awaitMediaReady(model);
+                DesktopSnapshotAwaiter.awaitEnabled(model, "tools.backfill.log");
                 activate(model, "tools.backfill.log");
-                DesktopConfigurationControllerTest.awaitReady(model);
+                assertEquals("backfill-fixture.html", opened.poll(5, java.util.concurrent.TimeUnit.SECONDS));
                 activate(model, "tools.migration.log");
-                DesktopConfigurationControllerTest.awaitReady(model);
-                assertEquals(List.of("backfill-fixture.html", "json-to-sqlite-migration-latest.html"), opened);
+                assertEquals("json-to-sqlite-migration-latest.html", opened.poll(5, java.util.concurrent.TimeUnit.SECONDS));
+                assertTrue(opened.isEmpty());
             }
         } finally {
             for (Path log : created) {

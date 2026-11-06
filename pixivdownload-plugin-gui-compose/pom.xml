@@ -17,6 +17,7 @@
         <skipTests>false</skipTests>
         <maven.test.skip>false</maven.test.skip>
         <gradle.plugin.skip>false</gradle.plugin.skip>
+        <gradle.daemon.argument>--no-daemon</gradle.daemon.argument>
     </properties>
 
     <dependencies>
@@ -125,7 +126,7 @@
                     <executable>${gradle.executable}</executable>
                     <workingDirectory>${project.basedir}</workingDirectory>
                     <arguments>
-                        <argument>--no-daemon</argument>
+                        <argument>${gradle.daemon.argument}</argument>
                         <argument>-PmavenVersion=${project.version}</argument>
                         <argument>-PmavenFinalName=${project.build.finalName}</argument>
                         <argument>-PmavenBuildDirectory=${project.build.directory}</argument>
@@ -198,6 +199,11 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>gradle-ci-daemon</id>
+            <activation><property><name>env.CI</name><value>true</value></property></activation>
+            <properties><gradle.daemon.argument>--daemon</gradle.daemon.argument></properties>
+        </profile>
         <profile>
             <id>gradle-wrapper-windows</id>
             <activation><os><family>Windows</family></os></activation>

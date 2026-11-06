@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.7</version>
+        <version>3.5.16</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>top.sywyar.lovepopup</groupId>
@@ -117,7 +117,7 @@
         <layout-survey.official-release-enabled>false</layout-survey.official-release-enabled>
         <multi-mode-decision-survey.official-release-enabled>false</multi-mode-decision-survey.official-release-enabled>
         <powershell.executable>pwsh</powershell.executable>
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.16</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
         <postgresql.version>42.7.13</postgresql.version>

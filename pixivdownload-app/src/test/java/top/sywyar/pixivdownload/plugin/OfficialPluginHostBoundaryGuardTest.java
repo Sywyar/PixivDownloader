@@ -64,7 +64,7 @@ class OfficialPluginHostBoundaryGuardTest {
                     + "(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+");
     private static final Pattern IMPORT_DECLARATION = Pattern.compile(
             "(?m)^[\\t ]*import\\s+(?:static\\s+)?([A-Za-z0-9_$.*]+)\\s*;?");
-    private static final Pattern QUALIFIED_NAME_SEPARATOR = Pattern.compile("\\s*\\.\\s*");
+    private static final Pattern DECLARATION_WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern TOP_LEVEL_TYPE_DECLARATION = Pattern.compile(
             "(?<![\\p{Alnum}_$])(?:class|interface|enum|record|object)\\s+"
                     + "([A-Za-z_$][A-Za-z0-9_$]*)");
@@ -314,6 +314,22 @@ class OfficialPluginHostBoundaryGuardTest {
                 appType)).isFalse();
         assertThat(topLevelTypeNames(topLevelTypes))
                 .containsExactly("Primary", "Secondary", "Marker");
+    }
+
+    @Test
+    @DisplayName("长注释后的限定名仍按原声明边界识别")
+    void qualifiedNamesAfterLongCommentsPreserveDeclarationBoundaries() {
+        String source = "/*" + "padding ".repeat(5_000) + "*/\n"
+                + "package example \t.\n host;\n"
+                + "import example . shared . *;\n"
+                + "class Probe { AppOwnedType value; }";
+        String declarations = normalizedDeclarationCode(source);
+
+        assertThat(packageName(declarations)).isEqualTo("example.host");
+        assertThat(importedNames(declarations)).containsExactly("example.shared.*");
+        assertThat(samePackageSimpleReference(
+                referenceCode(source), packageName(declarations), "example.host.AppOwnedType"))
+                .isTrue();
     }
 
     @Test
@@ -910,8 +926,12 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     private static String normalizedDeclarationCode(String source) {
-        return QUALIFIED_NAME_SEPARATOR.matcher(maskCommentsAndLiterals(source))
-                .replaceAll(".");
+        String code = maskCommentsAndLiterals(source);
+        // 按完整空白段扫描，避免从被遮蔽文本的每个空白位置重复搜索点号。
+        return DECLARATION_WHITESPACE.matcher(code).replaceAll(match ->
+                (match.start() > 0 && code.charAt(match.start() - 1) == '.')
+                        || (match.end() < code.length() && code.charAt(match.end()) == '.')
+                        ? "" : match.group());
     }
 
     private static String referenceCode(String source) {

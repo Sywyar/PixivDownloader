@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -54,12 +55,13 @@ class CollectionIconServiceTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws IOException {
         try {
             top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close();
         } finally {
             System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
         }
+        TestDirectoryCleanup.delete(tempDir);
     }
 
     @Test

@@ -196,7 +196,7 @@ public class UgoiraService {
         Path zipPath = downloadPath.resolve("_ugoira_frames" + localSuffix + ".zip");
         Path tempDir = downloadPath.resolve("_frames_tmp" + localSuffix);
         int maxAttempts = 3;
-        cleanup(zipPath, tempDir);
+        cleanup(artworkId, zipPath, tempDir);
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             UgoiraTemporaryBudget.Lease workspace = null;
@@ -307,7 +307,7 @@ public class UgoiraService {
                 log.error(message("ugoira.log.processing.failed", id(artworkId), e.getMessage()), e);
                 break; // 非ZIP格式异常不重试
             } finally {
-                cleanup(zipPath, tempDir);
+                cleanup(artworkId, zipPath, tempDir);
                 if (workspace != null) workspace.close();
             }
 
@@ -804,17 +804,52 @@ public class UgoiraService {
         return new UgoiraResourceLimitException(message(code, args));
     }
 
-    private void cleanup(Path zipPath, Path tempDir) {
-        try { Files.deleteIfExists(zipPath); } catch (Exception ignored) {}
+    void cleanup(Long artworkId, Path zipPath, Path tempDir) {
+        Exception failure = null;
+        int failures = 0;
+        try { deleteTemporaryPath(zipPath); } catch (IOException | SecurityException e) {
+            failure = e;
+            failures++;
+        }
         try {
             if (Files.exists(tempDir)) {
                 try (var paths = Files.walk(tempDir)) {
-                    paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-                        try { Files.deleteIfExists(path); } catch (Exception ignored) {}
-                    });
+                    for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                        try { deleteTemporaryPath(path); } catch (IOException | SecurityException e) {
+                            failure = e;
+                            failures++;
+                        }
+                    }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IOException | UncheckedIOException | SecurityException e) {
+            failure = e;
+            failures++;
+        }
+        if (failure != null) {
+            log.warn("Ugoira temporary cleanup incomplete: artworkId={}, failures={}, reason={}",
+                    artworkId, failures, failure.getClass().getSimpleName());
+        }
+    }
+
+    static void deleteTemporaryPath(Path path) throws IOException {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                Files.deleteIfExists(path);
+                return;
+            } catch (DirectoryNotEmptyException failure) {
+                if (attempt == 9 || !System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows")) {
+                    throw failure;
+                }
+                // Windows 已删除的子项可能短暂可枚举；只重试目录，不重新删除后来出现的文件。
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while removing Ugoira temporary directory", interrupted);
+                }
+            }
+        }
     }
 
     private static final class UgoiraResourceLimitException extends RuntimeException {

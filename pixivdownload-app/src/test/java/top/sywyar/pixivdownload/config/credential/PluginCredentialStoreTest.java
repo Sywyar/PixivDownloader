@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,8 +43,9 @@ class PluginCredentialStoreTest {
     Path tempDir;
 
     @AfterEach
-    void restoreConfigDirectory() {
+    void restoreConfigDirectory() throws IOException {
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        TestDirectoryCleanup.delete(tempDir);
     }
 
     @Test

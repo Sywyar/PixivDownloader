@@ -12,6 +12,11 @@ import java.util.stream.Collectors;
 /**
  * 已合并的中性结构与数据不变量，不携带引擎 DDL。支持 INTEGER、REAL、TEXT、BLOB，时间值不换单位。
  * seed 只补入规范化副本中缺失的主键；引用警告只核对、不删除孤儿或添加外键。
+ *
+ * @param formatVersion 交换格式版本
+ * @param tables 完整声明表
+ * @param seeds 仅补齐缺失主键的初始数据
+ * @param references 仅核对的引用
  */
 public record MigrationSchema(int formatVersion, List<TableSpec> tables, List<Seed> seeds,
                               List<Reference> references) {
@@ -98,7 +103,11 @@ public record MigrationSchema(int formatVersion, List<TableSpec> tables, List<Se
     }
     private static IllegalArgumentException invalid() { return new IllegalArgumentException("MIGRATION_SCHEMA_INVALID"); }
 
-    /** 以主键判断是否缺失；不会覆盖已有同主键数据。 */
+    /**
+     * 以主键判断是否缺失；不会覆盖已有同主键数据。
+     * @param table 声明表名
+     * @param values 声明列名到中性值
+     */
     public record Seed(String table, Map<String, Object> values) {
         /**
          * 复制初始数据，不覆盖同主键源行。
@@ -107,7 +116,14 @@ public record MigrationSchema(int formatVersion, List<TableSpec> tables, List<Se
          */
         public Seed { values = java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(values)); }
     }
-    /** 精确值引用，或字符串开头 {整数} 的引用（0 为符号根、无需目标行）。 */
+    /**
+     * 精确值引用，或字符串开头 {整数} 的引用（0 为符号根、无需目标行）。
+     * @param table 引用表
+     * @param column 引用列
+     * @param targetTable 目标表
+     * @param targetColumn 目标列
+     * @param encoding 引用编码
+     */
     public record Reference(String table, String column, String targetTable, String targetColumn, Encoding encoding) {
         /**
          * 固定引用编码。

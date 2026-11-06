@@ -14,6 +14,6 @@ import java.lang.annotation.*;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.SOURCE)
 public @interface RemoteService {
-    /** @return 服务键的中性契约 owner */
+    /** {@return 服务键的中性契约 owner} */
     String owner();
 }

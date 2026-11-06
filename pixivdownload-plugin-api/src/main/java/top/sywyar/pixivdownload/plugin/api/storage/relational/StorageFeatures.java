@@ -7,7 +7,15 @@ import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema;
 public final class StorageFeatures {
     private StorageFeatures() {}
 
-    /** 整数单列主键正文的字面子串搜索；activeValue 以外的记录不可见。 */
+    /**
+     * 整数单列主键正文的字面子串搜索；activeValue 以外的记录不可见。
+     * @param name 符合标识符规则的逻辑名称
+     * @param table 当前作用域中已声明的表或引用别名
+     * @param key 已声明的身份列
+     * @param content 权威正文列
+     * @param activeColumn 可见状态列
+     * @param activeValue 可见记录的状态值
+     */
     public record TextIndex(String name, String table, String key, String content, String activeColumn, long activeValue) {
         /**
          * 校验正文索引使用的逻辑标识符。
@@ -30,7 +38,15 @@ public final class StorageFeatures {
         SOURCE_QUERY
     }
 
-    /** 指定列被更新为给定值时，在同一数据库语句内删除匹配主键的关联行。 */
+    /**
+     * 指定列被更新为给定值时，在同一数据库语句内删除匹配主键的关联行。
+     * @param name 符合标识符规则的逻辑名称
+     * @param table 当前作用域中已声明的表或引用别名
+     * @param key 已声明的身份列
+     * @param changedColumn 触发清理的状态列
+     * @param value 触发关联清理的状态值
+     * @param dependents 按主记录身份清理的关联表和列
+     */
     public record Cleanup(String name, String table, String key, String changedColumn, long value,
                           List<Dependent> dependents) {
         /**
@@ -49,7 +65,11 @@ public final class StorageFeatures {
                 throw new IllegalArgumentException("STORAGE_CLEANUP_INVALID");
         }
     }
-    /** 按主记录身份匹配待删除关联行的表和列。 */
+    /**
+     * 按主记录身份匹配待删除关联行的表和列。
+     * @param table 当前作用域中已声明的表或引用别名
+     * @param key 已声明的身份列
+     */
     public record Dependent(String table, String key) {
         /**
          * 校验关联表和身份列。

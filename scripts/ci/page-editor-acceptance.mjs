@@ -4,12 +4,20 @@ import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
+import {parseArgs} from 'node:util';
 import assert from 'node:assert/strict';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const destination = path.resolve(process.argv[2] || path.join(repo, 'target/page-editor-acceptance'));
-const phase = process.argv[3] === '--publication-recovery' ? 'publication-recovery' : null;
-const captcha = process.argv[3] && !phase ? path.resolve(process.argv[3]) : null;
+const {values, positionals} = parseArgs({args: process.argv.slice(3), allowPositionals: true, options: {
+    'publication-recovery': {type: 'boolean'}, 'frozen-inputs': {type: 'string'}, 'group': {type: 'string'},
+}});
+assert.ok(values.group === undefined || ['all', 'operations', 'components', 'custom'].includes(values.group), 'Unknown page acceptance group');
+assert.ok(positionals.length <= 1 && !(values.group && (values['publication-recovery'] || positionals.length)),
+    'Page acceptance group cannot be combined with a separate acceptance mode');
+const phase = values['publication-recovery'] ? 'publication-recovery' : values.group;
+const captcha = positionals[0] && !phase ? path.resolve(positionals[0]) : null;
+const frozenInputs = values['frozen-inputs'] ? path.resolve(values['frozen-inputs']) : undefined;
 assert.ok(destination.startsWith(path.join(repo, 'target') + path.sep) && !fs.existsSync(destination), 'Use a new target directory');
 fs.mkdirSync(destination, {recursive: true});
 const frozen = {};
@@ -18,17 +26,20 @@ function copy(source, target) {
     fs.mkdirSync(path.dirname(target), {recursive: true}); fs.copyFileSync(source, target); frozen[target] = hash(target);
 }
 function artifact(module) {
-    const files = fs.readdirSync(path.join(repo, module, 'target')).filter(file => module === 'pixivdownload-app'
+    if (frozenInputs && module === 'pixivdownload-app') return path.join(frozenInputs, 'host.jar');
+    if (frozenInputs && module === 'pixivdownload-sdk-tools') return path.join(repo, 'target/sdk-tools.jar');
+    const directory = frozenInputs && module.startsWith('pixivdownload-plugin-') && module !== 'pixivdownload-plugin-api'
+        ? path.join(frozenInputs, 'plugins') : path.join(repo, module, 'target');
+    const files = fs.readdirSync(directory).filter(file => module === 'pixivdownload-app'
         ? file.endsWith('-boot.jar')
-        : file.endsWith('.jar') && !/-(sources|javadoc|original|processed|plain)\.jar$/.test(file));
+        : file.startsWith(module + '-') && file.endsWith('.jar') && !/-(sources|javadoc|original|processed|plain)\.jar$/.test(file));
     assert.equal(files.length, 1, module + ': expected one primary JAR: ' + files.join(','));
-    return path.join(repo, module, 'target', files[0]);
+    return path.join(directory, files[0]);
 }
 function run(command, args, cwd = repo) {
     const result = spawnSync(command, args, {cwd, stdio: 'inherit', windowsHide: true});
     assert.equal(result.status, 0, command + ' failed: ' + (result.error?.message || result.status));
 }
-run(process.execPath, [path.join(repo, 'scripts/ci/page-bfcache-acceptance.mjs')]);
 copy(artifact('pixivdownload-app'), path.join(destination, 'host.jar'));
 copy(artifact('pixivdownload-sdk-tools'), path.join(destination, 'sdk-tools.jar'));
 for (const module of ['pixivdownload-sdk-info', 'pixivdownload-plugin-api', 'pixivdownload-core-api']) {
@@ -84,7 +95,13 @@ function verifyRecoveryCli() {
             ...(snapshot.configuration?.requirements || [])];
         for (const hook of hooks) {
             hook.definition.phases.sort();
-            hook.targetAnchors.sort();
+            for (const anchor of hook.targetAnchors) {
+                for (const field of ['routes', 'paths', 'methods', 'alternatives']) anchor[field].sort();
+            }
+            hook.targetAnchors.sort((left, right) => {
+                const a = JSON.stringify(left), b = JSON.stringify(right);
+                return a < b ? -1 : a > b ? 1 : 0;
+            });
         }
     }
     assert.deepEqual(after.pages, before.pages, 'recovery preserves page, operation and resource facts');

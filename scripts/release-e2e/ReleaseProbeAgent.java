@@ -70,7 +70,6 @@ public final class ReleaseProbeAgent {
                 Path request = directory.resolve("request.txt");
                 if (Files.isRegularFile(request)) {
                     List<String> lines = Files.readAllLines(request, StandardCharsets.UTF_8);
-                    Files.delete(request);
                     String nonce = lines.get(0);
                     try {
                         String result = execute(lines.get(1), lines.size() > 2 ? lines.get(2) : "");
@@ -80,6 +79,8 @@ public final class ReleaseProbeAgent {
                                 ? ",\"code\":\"EDT_TIMEOUT\",\"taskStarted\":" + timeout.taskStarted : "";
                         respond(nonce, "\"ok\":false,\"error\":" + quote(stack(failure)) + status);
                     }
+                    // 回复发布后才接纳下一请求，避免超时后的迟到回复与新轮询重叠。
+                    Files.delete(request);
                 }
                 Thread.sleep(50);
             }

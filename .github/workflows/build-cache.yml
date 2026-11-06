@@ -1,0 +1,48 @@
+name: Warm build dependencies
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '**/pom.xml'
+      - '.mvn/**'
+      - '**/*.gradle.kts'
+      - '**/gradle.properties'
+      - '**/gradle-wrapper.properties'
+      - '.github/actions/setup-build-cache/**'
+      - '.github/workflows/build-cache.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-dependencies-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          verify-signature: true
+          java-version: '25'
+          check-latest: true
+          distribution: temurin
+      - uses: ./.github/actions/setup-build-cache
+      - name: Resolve third-party Maven dependencies
+        shell: bash
+        run: mvn -B -ntp dependency:go-offline -DexcludeReactor=true -DexcludeGroupIds=io.github.sywyar.pixivdownloader,top.sywyar.lovepopup
+      - name: Resolve Compose dependencies
+        shell: bash
+        working-directory: pixivdownload-plugin-gui-compose
+        run: ./gradlew --daemon warmBuildDependencies

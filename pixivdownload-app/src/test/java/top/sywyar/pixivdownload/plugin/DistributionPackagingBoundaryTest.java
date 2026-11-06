@@ -546,6 +546,17 @@ class DistributionPackagingBoundaryTest {
             assertThat(loader.loadClass(consoleClass).getMethod("install")).isNotNull();
             assertThat(java.util.Collections.list(loader.getResources(consoleClass.replace('.', '/') + ".class")))
                     .hasSize(1);
+            for (var entry : java.util.Map.of(
+                    "http.PluginRestTemplateAdapter", "open",
+                    "download.queue.QueueStatusRetention", "schedule").entrySet()) {
+                Class<?> adapter = loader.loadClass("top.sywyar.pixivdownload.plugin.runtime." + entry.getKey());
+                assertThat(adapter.getClassLoader()).isSameAs(loader);
+                assertThat(adapter.getDeclaredMethods()).anySatisfy(method -> {
+                    assertThat(method.getName()).isEqualTo(entry.getValue());
+                    assertThat(java.lang.reflect.Modifier.isPublic(method.getModifiers())).isTrue();
+                    assertThat(java.lang.reflect.Modifier.isStatic(method.getModifiers())).isTrue();
+                });
+            }
             Class<?> messages = loader.loadClass("top.sywyar.pixivdownload.i18n.MessageBundles");
             String key = "gui.dialog.warning.title";
             Object rendered = messages.getMethod("get", java.util.Locale.class, String.class, Object[].class)
@@ -580,6 +591,29 @@ class DistributionPackagingBoundaryTest {
             String serialized = (String) mapperType.getMethod("writeValueAsString", Object.class).invoke(mapper, inventory);
             var verifier = new com.fasterxml.jackson.databind.ObjectMapper();
             assertThat(verifier.readTree(serialized)).isEqualTo(verifier.readTree(inventoryJson));
+        }
+    }
+
+    @Test
+    @DisplayName("宿主产物能按日志 XML 初始化自定义扩展且没有配置错误")
+    void bootJarInitializesLoggingExtensions() throws Exception {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
+        try (URLClassLoader loader = bootArtifactClassLoader(bootJar, tempDir.resolve("logging"))) {
+            Object context = loader.loadClass("org.slf4j.LoggerFactory")
+                    .getMethod("getILoggerFactory").invoke(null);
+            assertThat(context.getClass().getClassLoader()).isSameAs(loader);
+            try {
+                Object manager = context.getClass().getMethod("getStatusManager").invoke(context);
+                var statuses = (List<?>) manager.getClass().getMethod("getCopyOfStatusList").invoke(manager);
+                assertThat(statuses).as("实际日志配置应产生初始化记录").isNotEmpty();
+                for (Object status : statuses) {
+                    assertThat((int) status.getClass().getMethod("getLevel").invoke(status))
+                            .as("产物日志配置：%s", status).isLessThan(2);
+                }
+            } finally {
+                context.getClass().getMethod("stop").invoke(context);
+            }
         }
     }
 
@@ -1419,6 +1453,9 @@ class DistributionPackagingBoundaryTest {
             try (DirectoryStream<Path> libs = Files.newDirectoryStream(materialized.resolve("lib"), "*.jar")) {
                 for (Path lib : libs) {
                     urls.add(lib.toUri().toURL());
+                    if (lib.getFileName().toString().startsWith("material-icons-extended-desktop-")) {
+                        assertIconClassesHaveMethods(lib);
+                    }
                 }
             }
             try (URLClassLoader loader = new GuiComposeJarClassLoader(urls.toArray(URL[]::new))) {
@@ -1440,13 +1477,18 @@ class DistributionPackagingBoundaryTest {
                     // 必须使用插件私有 Jackson，宿主完整版不能掩盖 ProGuard 删除枚举反射成员的问题。
                     Class<?> mapper = Class.forName("com.fasterxml.jackson.databind.ObjectMapper", true, loader);
                     assertThat(mapper.getClassLoader()).isSameAs(loader);
-                    Class<?> resources = Class.forName(
-                            "top.sywyar.pixivdownload.guicompose.model.DesktopApplicationResources", true, loader);
-                    var maintainers = resources.getDeclaredMethod("loadMaintainers");
+                    Object privateMapper = mapper.getConstructor().newInstance();
+                    var readValue = mapper.getMethod("readValue", InputStream.class, Class.class);
+                    Class<?> catalogType = Class.forName(
+                            "top.sywyar.pixivdownload.guicompose.model.DesktopApplicationResources$MaintainerCatalog",
+                            true, loader);
+                    assertThat(catalogType.getClassLoader()).isSameAs(loader);
+                    var maintainers = catalogType.getDeclaredMethod("maintainers");
                     maintainers.setAccessible(true);
                     try (var catalogStream = loader.getResourceAsStream("pixivdownload/maintainers.json")) {
                         assertThat(catalogStream).as("构建必须提供目录或明确不可用状态").isNotNull();
-                        var catalog = new com.fasterxml.jackson.databind.ObjectMapper().readTree(catalogStream);
+                        byte[] catalogBytes = catalogStream.readAllBytes();
+                        var catalog = new com.fasterxml.jackson.databind.ObjectMapper().readTree(catalogBytes);
                         assertThat(catalog.path("maintainers").isArray()).isTrue();
                         if (catalog.path("unavailable").asBoolean()) {
                             assertThat(catalog.path("unavailable").isBoolean()).isTrue();
@@ -1454,19 +1496,24 @@ class DistributionPackagingBoundaryTest {
                         } else {
                             assertThat(catalog.path("maintainers").size()).isPositive();
                         }
-                        assertThat((List<?>) maintainers.invoke(null)).hasSize(catalog.path("maintainers").size());
+                        Object decoded = readValue.invoke(privateMapper,
+                                new java.io.ByteArrayInputStream(catalogBytes), catalogType);
+                        assertThat((List<?>) maintainers.invoke(decoded)).hasSize(catalog.path("maintainers").size());
                     }
-                    var parseMaintainers = resources.getDeclaredMethod("loadMaintainers", InputStream.class);
-                    parseMaintainers.setAccessible(true);
                     String fixture = """
                             {"maintainers":[{"id":1,"login":"fixture","role":"author-core",
                             "avatarUrl":"https://avatars.githubusercontent.com/u/1","profileUrl":"https://github.com/fixture",
                             "avatarMediaType":"image/png","avatarBase64":"AAEC"}]}
                             """;
-                    assertThat((List<?>) parseMaintainers.invoke(null, new java.io.ByteArrayInputStream(
-                            fixture.getBytes(StandardCharsets.UTF_8)))).hasSize(1);
-                    assertThat((List<?>) parseMaintainers.invoke(null, new java.io.ByteArrayInputStream(
-                            "{\"maintainers\":[],\"unavailable\":true}".getBytes(StandardCharsets.UTF_8)))).isEmpty();
+                    Object decoded = readValue.invoke(privateMapper, new java.io.ByteArrayInputStream(
+                            fixture.getBytes(StandardCharsets.UTF_8)), catalogType);
+                    assertThat((List<?>) maintainers.invoke(decoded)).hasSize(1);
+                    assertThatThrownBy(() -> readValue.invoke(privateMapper, new java.io.ByteArrayInputStream(
+                            fixture.replace("AAEC", "bad!").getBytes(StandardCharsets.UTF_8)), catalogType))
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class);
+                    Object unavailable = readValue.invoke(privateMapper, new java.io.ByteArrayInputStream(
+                            "{\"maintainers\":[],\"unavailable\":true}".getBytes(StandardCharsets.UTF_8)), catalogType);
+                    assertThat((List<?>) maintainers.invoke(unavailable)).isEmpty();
                     Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
                     Object companion = imageType.getField("Companion").get(null);
                     byte[] pixel = Base64.getDecoder().decode(
@@ -1487,6 +1534,22 @@ class DistributionPackagingBoundaryTest {
             }
         } catch (Exception e) {
             throw new IllegalStateException("无法从 gui-compose 真实插件 artifact 初始化 Skiko: " + jar, e);
+        }
+    }
+
+    private static void assertIconClassesHaveMethods(Path library) throws IOException {
+        var metadata = new SimpleMetadataReaderFactory();
+        try (JarFile jar = new JarFile(library.toFile())) {
+            var icons = jar.stream().filter(entry -> entry.getName().startsWith("androidx/compose/material/icons/")
+                    && entry.getName().endsWith("Kt.class")).toList();
+            assertThat(icons).as("实际使用的图标仍须保留").isNotEmpty();
+            for (var icon : icons) {
+                try (var input = jar.getInputStream(icon)) {
+                    assertThat(metadata.getMetadataReader(new ByteArrayResource(input.readAllBytes()))
+                            .getAnnotationMetadata().getDeclaredMethods())
+                            .as("无方法的图标类应被收缩删除：%s", icon.getName()).isNotEmpty();
+                }
+            }
         }
     }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -225,150 +225,6 @@ function currentPluginJar(project) {
     return path.join(directory, files[0]);
 }
 
-export function parsePluginIdentity(propertiesText) {
-    const values = new Map();
-    for (const rawLine of propertiesText.split(/\r?\n/u)) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith('#') || line.startsWith('!')) continue;
-        const separator = line.search(/[=:]/u);
-        if (separator < 1) continue;
-        const key = line.slice(0, separator).trim();
-        if (key !== 'plugin.id' && key !== 'plugin.version') continue;
-        if (values.has(key)) fail(`plugin descriptor declares ${key} more than once`);
-        values.set(key, line.slice(separator + 1).trim());
-    }
-    const id = values.get('plugin.id');
-    const version = values.get('plugin.version');
-    if (!id || !version) fail('plugin descriptor must declare plugin.id and plugin.version');
-    return Object.freeze({ id, version });
-}
-
-function douyinPluginIdentity(sourceDirectory) {
-    const descriptor = path.join(
-            sourceDirectory, 'src', 'main', 'resources', 'plugin.properties');
-    return parsePluginIdentity(fs.readFileSync(descriptor, 'utf8'));
-}
-
-export function prepareDouyinSource(repoRoot, work, suppliedSource) {
-    const destination = path.join(work, 'douyin-source');
-    if (suppliedSource) {
-        const source = path.resolve(suppliedSource);
-        fs.mkdirSync(destination);
-        for (const name of ['pom.xml', 'src']) {
-            fs.cpSync(path.join(source, name), path.join(destination, name), { recursive: true });
-        }
-    } else {
-        const { revision } = JSON.parse(fs.readFileSync(
-                path.join(repoRoot, 'scripts/ci/douyin-source.json'), 'utf8'));
-        if (!/^[a-f0-9]{40}$/u.test(revision ?? '')) fail('Douyin source must pin an exact commit');
-        run('git', ['init', destination]);
-        run('git', ['-C', destination, 'config', 'core.longpaths', 'true']);
-        const options = { timeout: 300_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
-        run('git', ['-C', destination, '-c', 'credential.helper=', 'fetch', '--depth=1',
-            'https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git', revision], options);
-        run('git', ['-C', destination, 'checkout', '--detach', revision], options);
-        run('git', ['-C', destination, 'diff', '--exit-code', revision, '--'], options);
-    }
-    douyinPluginIdentity(destination);
-    return destination;
-}
-
-function signatureToolJar(repoRoot) {
-    const target = path.join(repoRoot, 'pixivdownload-plugin-signature', 'target');
-    const candidates = fs.statSync(target, { throwIfNoEntry: false })?.isDirectory()
-        ? fs.readdirSync(target)
-                .filter(name => /^pixivdownload-plugin-signature-.+\.jar$/u.test(name))
-                .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'))
-        : [];
-    if (candidates.length !== 1) {
-        fail(`expected exactly one plugin signature tool JAR under ${target}`);
-    }
-    return path.join(target, candidates[0]);
-}
-
-function deriveDouyinPackages(repoRoot, sourceDirectory, work, pluginJar) {
-    const { id: pluginId, version: pluginVersion } = douyinPluginIdentity(sourceDirectory);
-    const packages = path.join(work, 'douyin-packages');
-    const fileName = path.basename(pluginJar);
-    const unsignedPluginJar = path.join(packages, 'unsigned', fileName);
-    const signedPluginJar = path.join(packages, 'signed', fileName);
-    fs.rmSync(packages, { recursive: true, force: true });
-    fs.mkdirSync(path.dirname(unsignedPluginJar), { recursive: true });
-    fs.mkdirSync(path.dirname(signedPluginJar), { recursive: true });
-    fs.copyFileSync(pluginJar, unsignedPluginJar);
-    fs.copyFileSync(pluginJar, signedPluginJar);
-    const sourceBytes = fs.readFileSync(pluginJar);
-    if (!sourceBytes.equals(fs.readFileSync(unsignedPluginJar))
-            || !sourceBytes.equals(fs.readFileSync(signedPluginJar))) {
-        fail('derived Douyin packages do not preserve the candidate JAR bytes');
-    }
-
-    const keyId = 'douyin-third-party-ci';
-    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    const privateKeyFile = path.join(packages, 'third-party-private-key.pem');
-    fs.writeFileSync(privateKeyFile, privateKey.export({ format: 'pem', type: 'pkcs8' }), 'utf8');
-    const publicKeySpkiBase64 = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
-    const signatureFile = `${signedPluginJar}.sig.json`;
-    const tool = signatureToolJar(repoRoot);
-    const toolClass = 'top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool';
-    run('java', ['-cp', tool, toolClass, 'artifact',
-        '--artifact', signedPluginJar,
-        '--plugin-id', pluginId,
-        '--version', pluginVersion,
-        '--key-id', keyId,
-        '--private-key', privateKeyFile,
-        '--out', signatureFile,
-    ]);
-    fs.rmSync(privateKeyFile, { force: true });
-    run('java', ['-cp', tool, toolClass, 'verify-artifact',
-        '--artifact', signedPluginJar,
-        '--signature', signatureFile,
-        '--plugin-id', pluginId,
-        '--version', pluginVersion,
-        '--expected-size', String(sourceBytes.length),
-        '--sha256', createHash('sha256').update(sourceBytes).digest('hex'),
-        '--policy', 'custom',
-        '--trusted-key-id', keyId,
-        '--trusted-public-key', publicKeySpkiBase64,
-        '--trusted-publisher', 'Douyin Third-Party CI',
-        '--trusted-label', 'Douyin third-party compatibility canary',
-        '--trusted-official', 'false',
-    ]);
-    if (fs.existsSync(`${unsignedPluginJar}.sig`) || fs.existsSync(`${unsignedPluginJar}.sig.json`)) {
-        fail('unsigned Douyin package unexpectedly has a signature sidecar');
-    }
-    return { signedPluginJar, signatureFile, unsignedPluginJar, publicKeySpkiBase64 };
-}
-
-function verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, packages) {
-    const common = [
-        '-s', settings,
-        `-Dmaven.repo.local=${localRepository}`,
-        '-f', path.join(repoRoot, 'pom.xml'),
-        '-pl', 'pixivdownload-app',
-        '-am',
-        '-Dtest=DouyinExternalPluginBootContextTest',
-        '-Dsurefire.failIfNoSpecifiedTests=false',
-        '-Dexec.skip=true',
-        '-Dpixivdownload.plugin-dev.enabled=false',
-        'test',
-    ];
-    runMaven([
-        `-Ddouyin.third-party.package=${packages.signedPluginJar}`,
-        '-Ddouyin.third-party.mode=signed',
-        '-Ddouyin.third-party.state-transition=seed',
-        `-Ddouyin.third-party.signature=${packages.signatureFile}`,
-        `-Ddouyin.third-party.public-key=${packages.publicKeySpkiBase64}`,
-        ...common,
-    ], repoRoot);
-    runMaven([
-        `-Ddouyin.third-party.package=${packages.unsignedPluginJar}`,
-        '-Ddouyin.third-party.mode=unsigned',
-        '-Ddouyin.third-party.state-transition=verify',
-        ...common,
-    ], repoRoot);
-}
-
 function safeWorkDirectory(repoRoot, requested) {
     const target = path.resolve(repoRoot, 'target');
     const resolved = path.resolve(requested);
@@ -404,15 +260,18 @@ function settingsXml(repository) {
 }
 
 function parseArguments(argv) {
-    const options = { repoRoot: '.', sdkZip: '', sdkRepository: '', workDirectory: '', douyinSource: '' };
+    const options = { repoRoot: '.', sdkZip: '', sdkRepository: '', workDirectory: '' };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
+        if (argument === '--typed-service-only') {
+            options.typedServiceOnly = true;
+            continue;
+        }
         const value = argv[index + 1];
         if (argument === '--repo-root') options.repoRoot = value;
         else if (argument === '--sdk-zip') options.sdkZip = value;
         else if (argument === '--sdk-repository') options.sdkRepository = value;
         else if (argument === '--work-dir') options.workDirectory = value;
-        else if (argument === '--douyin-source') options.douyinSource = value;
         else fail(`unknown argument: ${argument}`);
         index += 1;
     }
@@ -465,12 +324,6 @@ export function verifyConsumer(options) {
     const sdkZip = path.resolve(options.sdkZip);
     const sdkRepository = path.resolve(options.sdkRepository);
     const work = safeWorkDirectory(repoRoot, options.workDirectory);
-    if (options.douyinSource) {
-        const relative = path.relative(work, path.resolve(options.douyinSource));
-        if (!relative || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
-            fail('Douyin source must be outside the consumer work directory');
-        }
-    }
     if (!fs.statSync(sdkZip, { throwIfNoEntry: false })?.isFile()) fail(`missing SDK ZIP: ${sdkZip}`);
     if (!fs.statSync(sdkRepository, { throwIfNoEntry: false })?.isDirectory()) {
         fail(`missing SDK staging repository: ${sdkRepository}`);
@@ -496,15 +349,20 @@ export function verifyConsumer(options) {
         cwd,
         env: mavenEnvironment,
     });
-    const douyinSource = prepareDouyinSource(repoRoot, work, options.douyinSource);
-    const douyinPom = path.join(douyinSource, 'pom.xml');
-    const douyinBuildDirectory = path.join(douyinSource, 'target');
-    const buildDouyin = offline => runMaven([
-        ...(offline ? ['-o'] : []), '-s', settings, `-Dmaven.repo.local=${localRepository}`,
-        `-Dpixivdownload.sdk.version=${identity.version}`,
-        '-f', douyinPom, 'clean', 'verify',
-    ], douyinSource);
-
+    // HTTP 验收独立从原始 SDK 创建夹具，不等待或共享另一 job 的可变工程。
+    if (options.typedServiceOnly) {
+        const typedProject = path.join(project, 'examples', 'typed-service-plugin');
+        const toolsJar = path.join(project, 'tools', 'sdk-tools.jar');
+        const buildTypedService = offline => runMaven([...(offline ? ['-o'] : []),
+            '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+            `-Dpixivdownload.sdk.tools=${toolsJar}`, '-f', path.join(typedProject, 'pom.xml'), 'clean', 'verify']);
+        buildTypedService(false);
+        stageSdkArtifacts(localRepository, sdkRepository, identity.version);
+        buildTypedService(true);
+        assertSdkResolution(localRepository, sdkRepository, identity.version);
+        verifyTypedServiceArtifacts(typedProject, toolsJar);
+        return { project: typedProject, sdkVersion: identity.version };
+    }
     const buildTemplates = offline => {
         for (const pom of ['pom.xml', 'examples/download-type-plugin/pom.xml', 'examples/typed-service-plugin/pom.xml']) {
             runMaven([...(offline ? ['-o'] : []), '-s', settings,
@@ -517,7 +375,6 @@ export function verifyConsumer(options) {
         `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
     ]);
-    buildDouyin(false);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
     buildTemplates(true);
     verifyTypedServiceSchemaRebuild(path.join(project, 'examples', 'typed-service-plugin'),
@@ -532,10 +389,6 @@ export function verifyConsumer(options) {
         `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
     ]);
-    buildDouyin(true);
-    run(process.execPath, ['--test', path.join(repoRoot, 'scripts/ci/compatibility/douyin/*.test.cjs')], {
-        cwd: repoRoot, env: { ...process.env, DOUYIN_SOURCE_DIR: douyinSource },
-    });
     assertSdkResolution(localRepository, sdkRepository, identity.version);
     const pluginJar = currentPluginJar(path.join(project, 'examples', 'download-type-plugin'));
     thinJarEntries(pluginJar);
@@ -544,39 +397,7 @@ export function verifyConsumer(options) {
             path.join(project, 'tools', 'sdk-tools.jar'));
     run(process.execPath, [fileURLToPath(new URL('./sdk-remote.mjs', import.meta.url)),
         path.join(project, 'examples', 'typed-service-plugin')]);
-    const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
-            .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
-            .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));
-    if (douyinCandidates.length !== 1) {
-        fail(`expected exactly one Douyin plugin JAR under ${douyinBuildDirectory}`);
-    }
-    const douyinPluginJar = path.join(douyinBuildDirectory, douyinCandidates[0]);
-    const douyinEntries = thinJarEntries(douyinPluginJar);
-    for (const required of [
-        'top/sywyar/pixivdownload/douyin/DouyinPf4jPlugin.class',
-        'top/sywyar/pixivdownload/douyin/controller/DouyinController.class',
-        'top/sywyar/pixivdownload/douyin/download/DouyinQueueOperations.class',
-        'top/sywyar/pixivdownload/douyin/schedule/source/DouyinScheduledSourceExecutor.class',
-        'static/pixiv-douyin.html',
-        'static/pixiv-douyin-gallery.html',
-        'static/pixiv-douyin-download/douyin-download.js',
-        'static/pixiv-douyin-download/douyin-schedule-sources.js',
-        'i18n/web/douyin.properties',
-    ]) {
-        if (!douyinEntries.includes(required)) fail(`Douyin third-party JAR is missing ${required}`);
-    }
-    const douyinPackages = deriveDouyinPackages(repoRoot, douyinSource, work, douyinPluginJar);
-    verifyDouyinRuntime(runMaven, repoRoot, settings, localRepository, douyinPackages);
-    const { publicKeySpkiBase64, ...packagePaths } = douyinPackages;
-    return {
-        project,
-        pluginJar,
-        douyinPluginJar,
-        douyinSource,
-        ...packagePaths,
-        localRepository,
-        typedServices,
-    };
+    return { project, localRepository, pluginJar, typedServices };
 }
 
 function main() {

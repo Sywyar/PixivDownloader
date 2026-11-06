@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -9,6 +10,7 @@ import top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +23,11 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("桌面主数据库草稿与运行目标")
 class DatabaseSettingsServiceTest {
     @TempDir Path directory;
+
+    @AfterEach
+    void cleanupDirectory() throws java.io.IOException {
+        TestDirectoryCleanup.delete(directory);
+    }
 
     private DesktopUiHost.ConfigFile file() { return new ConfigFileEditor(directory.resolve("config.yaml")).asConfigFile(); }
 

@@ -457,6 +457,20 @@ try {
     }
 
     Start-BlockedDesktop
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'desktop' -TimeoutSeconds 1 } 'did not answer'
+    $pendingRequest = Join-Path $startupProbe 'request.txt'
+    if (-not (Test-Path -LiteralPath $pendingRequest)) {
+        throw 'The observer released an in-flight request before publishing its response.'
+    }
+    $pending = [IO.File]::ReadAllText($pendingRequest)
+    Assert-Rejected { Invoke-ReleaseProbe $child $startupProbe 'ping' -TimeoutSeconds 1 } 'did not answer'
+    if ([IO.File]::ReadAllText($pendingRequest) -cne $pending) {
+        throw 'A subsequent request replaced a command still running in the observer.'
+    }
+    New-Item -ItemType File -Path (Join-Path $startupProbe 'release') | Out-Null
+    Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 15 | Out-Null
+
+    Start-BlockedDesktop
     $elapsed.Restart()
     Assert-Rejected { Wait-ReleaseDesktop $child $startupProbe '' -BootstrapPrompt -TimeoutSeconds 7 } 'did not answer desktop'
     if ($elapsed.Elapsed.TotalSeconds -lt 7 -or $elapsed.Elapsed.TotalSeconds -gt 9) {

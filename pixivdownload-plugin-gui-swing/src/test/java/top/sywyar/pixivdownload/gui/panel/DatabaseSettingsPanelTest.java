@@ -113,6 +113,7 @@ class DatabaseSettingsPanelTest {
                     .findFirst().orElseThrow()).doClick();
         });
         awaitText(panel.get(), "gui.config.database.error.authentication");
+        awaitText(panel.get(), "gui.config.database.current");
         SwingUtilities.invokeAndWait(() -> {
             var texts = descendants(panel.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast).toList();
             assertFalse(texts.stream().anyMatch(area -> area.getText().contains("gui.config.database.next")));

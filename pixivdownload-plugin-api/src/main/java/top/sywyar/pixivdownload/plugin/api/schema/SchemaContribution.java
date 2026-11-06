@@ -9,6 +9,7 @@ import java.util.List;
  * @param tables           插件拥有的表
  * @param columnMigrations 对本插件自有表的安全补列规则
  * @param pathColumns      含路径前缀编码的列（须纳入符号根 {@code {0}} 折叠与迁移改写）
+ * @param sharedAccess 核心授予的公开存储域；未公开时为 null
  */
 public record SchemaContribution(
         List<TableSpec> tables,
@@ -27,7 +28,11 @@ public record SchemaContribution(
         this(tables, columnMigrations, pathColumns, null);
     }
 
-    /** 宿主公开的逻辑存储域；仅可信核心声明可授予访问，不构成其它插件私有表的授权。 */
+    /**
+     * 宿主公开的逻辑存储域；仅可信核心声明可授予访问，不构成其它插件私有表的授权。
+     * @param storageId 公开存储域的稳定身份
+     * @param readOnly 是否只授予读取权限
+     */
     public record SharedAccess(String storageId, boolean readOnly) {
         /**
          * 校验公开存储域的稳定身份。
