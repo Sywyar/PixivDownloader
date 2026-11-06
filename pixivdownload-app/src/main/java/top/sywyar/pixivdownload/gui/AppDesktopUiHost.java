@@ -35,6 +35,26 @@ import java.util.function.Supplier;
 /** 应用拥有的稳定桌面界面宿主契约实现。 */
 final class AppDesktopUiHost implements DesktopUiHost {
     @Override
+    public List<top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool> fileImportTools() {
+        try {
+            return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.importing.DesktopFileImportToolRegistry.class).tools();
+        } catch (IllegalStateException unavailable) {
+            return List.of();
+        }
+    }
+
+    @Override
+    public top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Source fileImportTool(
+            top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Identity identity) {
+        try {
+            return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.importing.DesktopFileImportToolRegistry.class).source(identity);
+        } catch (IllegalStateException unavailable) {
+            throw new top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.OperationException(
+                    top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("gui.message.backend-busy"));
+        }
+    }
+
+    @Override
     public List<top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool> mediaTools() {
         try {
             return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class).tools();

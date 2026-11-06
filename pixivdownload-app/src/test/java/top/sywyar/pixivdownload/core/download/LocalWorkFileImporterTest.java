@@ -71,6 +71,23 @@ class LocalWorkFileImporterTest {
     private LocalWorkFileImporter importer(ArtworkDownloadHistory target) {
         return new LocalWorkFileImporter(target, database, externalFiles, new DataSourceTransactionManager(dataSource), lifecycle, authors::observe);
     }
+    @Test @DisplayName("纯本地登记保存文件引用，未知元数据保持为空且重复执行不覆盖")
+    void importsLocalFactsWithoutMetadata() throws Exception {
+        Path original = source.resolve("custom.png");
+        byte[] bytes = Files.readAllBytes(original);
+        var request = new LocalWorkFileImportRequest(WorkType.ARTWORK, 42, source, List.of(original));
+        var importer = importer(history);
+        assertThat(importer.importLocalFiles(request)).isTrue();
+        var row = new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForMap(
+                "SELECT title,author_id,r18,is_ai,description,metadata_json FROM artworks WHERE artwork_id=42");
+        assertThat(row.get("title")).isEqualTo("");
+        for (String field : List.of("author_id", "r18", "is_ai", "description", "metadata_json"))
+            assertThat(row.get(field)).as(field).isNull();
+        assertThat(externalFiles.file(WorkType.ARTWORK, 42, 0)).isEqualTo(original);
+        assertThat(importer.importLocalFiles(request)).isFalse();
+        assertThat(Files.readAllBytes(original)).isEqualTo(bytes);
+        try (var files = Files.list(output)) { assertThat(files.count()).isZero(); }
+    }
     @Test @DisplayName("任意源文件名直接登记并定位，删除记录保留源文件且重试不复活软删除作品")
     void referencesAndRetainsOriginals() throws Exception {
         Path original = source.resolve("custom.png");

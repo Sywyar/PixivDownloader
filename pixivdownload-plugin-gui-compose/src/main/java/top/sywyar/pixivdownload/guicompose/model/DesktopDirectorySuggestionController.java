@@ -6,7 +6,7 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import java.util.Map;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
-/** Provider-owned confirmation state; candidates never become settings drafts automatically. */
+/** 候选目录只进入弹窗草稿，确认后才保存到设置。 */
 final class DesktopDirectorySuggestionController {
     static final String ID = "directory-suggestion";
     private final ComposeDesktopUiModel owner;
@@ -53,20 +53,28 @@ final class DesktopDirectorySuggestionController {
         owner.showDialog(ID, "gui.directory-suggestion.title", DesktopUiDocument.DialogStyle.INFO,
                 (actions, dismissAction, dismiss) -> {
                     actions.put(dismissAction, () -> resolve(true));
+                    var content = new java.util.ArrayList<DesktopUiNode>();
+                    content.add(new DesktopUiNode.Text(ID + ".plugin", guiToken(current.path("displayName")),
+                            DesktopUiNode.TextStyle.CAPTION, true, false));
+                    content.add(input(ID + ".path", ID + ".path", "gui.directory-suggestion.directory", null,
+                            DesktopUiNode.InputKind.DIRECTORY, form.getOrDefault(ID + ".path", ""), !saving));
+                    content.add(text(ID + ".rule", "gui.directory-suggestion.rule", DesktopUiNode.TextStyle.ERROR));
+                    if (current.path("help").isObject()) {
+                        content.add(new DesktopUiNode.Text(ID + ".guidance", guiToken(current.path("help")),
+                                DesktopUiNode.TextStyle.BODY, true, true));
+                    }
+                    content.add(text(ID + ".notice", failed ? "gui.directory-suggestion.failed" : "gui.directory-suggestion.readonly",
+                            failed ? DesktopUiNode.TextStyle.ERROR : DesktopUiNode.TextStyle.CAPTION));
+                    actions.put(ID + ".confirm", () -> resolve(false));
                     return new DesktopUiNode.Dock(ID + ".layout", 12, null,
-                            scroll(ID + ".scroll", column(ID + ".content",
-                            new DesktopUiNode.Text(ID + ".plugin", guiToken(current.path("displayName")),
-                                    DesktopUiNode.TextStyle.EMPHASIS, true, false),
-                            text(ID + ".help", "gui.directory-suggestion.help", DesktopUiNode.TextStyle.BODY),
-                            input(ID + ".path", ID + ".path", "gui.directory-suggestion.directory", null,
-                                    DesktopUiNode.InputKind.DIRECTORY, form.getOrDefault(ID + ".path", ""), !saving),
-                            text(ID + ".notice", failed ? "gui.directory-suggestion.failed" : "gui.directory-suggestion.readonly",
-                                    failed ? DesktopUiNode.TextStyle.ERROR : DesktopUiNode.TextStyle.CAPTION))),
+                            scroll(ID + ".scroll", column(ID + ".content", content)),
                             endRow(ID + ".actions",
                                     button(ID + ".cancel", dismissAction, "desktop.ui.action.cancel", !saving, actions, () -> resolve(true)),
-                                    button(ID + ".confirm", ID + ".confirm", "gui.directory-suggestion.confirm",
-                                            !saving && !form.getOrDefault(ID + ".path", "").isBlank(), actions, () -> resolve(false))), null, null);
-                }, !saving, 560, 420);
+                                    new DesktopUiNode.Button(ID + ".confirm", ID + ".confirm",
+                                            key(saving ? "gui.directory-suggestion.saving" : "gui.directory-suggestion.confirm"),
+                                            null, DesktopUiNode.ButtonStyle.PRIMARY,
+                                            !saving && !form.getOrDefault(ID + ".path", "").isBlank())), null, null);
+                }, !saving, 580, 560);
     }
 
     private void resolve(boolean dismiss) {

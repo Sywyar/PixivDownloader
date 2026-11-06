@@ -86,8 +86,9 @@ final class DesktopToolsController {
         selectedFolderRow = value.isBlank() ? null : value;
     }
 
-    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media, List<DesktopUiNode> mediaTools) {
-        return view.controlCenterPage(nextActions, media, mediaTools);
+    DesktopUiNode controlCenterPage(Map<String, Runnable> nextActions, DesktopUiNode.Group media,
+                                   List<DesktopUiNode> mediaTools, List<DesktopUiNode> fileImports) {
+        return view.controlCenterPage(nextActions, media, mediaTools, fileImports);
     }
 
     String exclusiveToolName() {
@@ -281,6 +282,20 @@ final class DesktopToolsController {
                 LOG.error(host.message("gui.tools.log.backfill.failed"), failure);
                 backfillNotice = host.message("desktop.ui.tools.operation-failed");
                 owner.showDialog("backfill.start-failed", "gui.dialog.error.title", "desktop.ui.tools.operation-failed", DesktopUiDocument.DialogStyle.ERROR);
+            }
+        });
+    }
+
+    void runImportedBackfill() {
+        owner.runBusy(() -> {
+            try {
+                var executionId = host.startBackfill(host.defaultBackfillOptions());
+                refreshBackfill();
+                owner.showBackfill(executionId);
+            } catch (Exception failure) {
+                LOG.error("Unable to start backfill after local import", failure);
+                owner.showDialog("backfill.start-failed", "gui.dialog.error.title",
+                        "desktop.ui.tools.operation-failed", DesktopUiDocument.DialogStyle.ERROR);
             }
         });
     }

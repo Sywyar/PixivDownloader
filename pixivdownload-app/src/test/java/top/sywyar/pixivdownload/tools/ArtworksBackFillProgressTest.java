@@ -81,10 +81,10 @@ class ArtworksBackFillProgressTest {
             assertEquals(concurrentR18 || softDeleted ? 0 : 1, last.changed());
             assertEquals(localDescription ? 1 : 0, result.filledDescription());
             assertEquals(0, result.filledAi());
-            assertEquals(missingAi ? 1 : 0, last.remaining());
+            assertEquals(softDeleted || localDescription ? 0 : 1, last.remaining());
             verify(client).query(1);
             try (var database = ArtworksBackFillDatabase.open(pool, target)) {
-                assertEquals(dryRun || missingAi, database.currentCandidate(1).hasMissing());
+                assertEquals(dryRun || !softDeleted && !localDescription, database.currentCandidate(1).hasMissing());
             }
             try (var connection = pool.getConnection(); var statement = connection.createStatement();
                  var row = statement.executeQuery("SELECT r18,is_ai,description,deleted FROM artworks WHERE artwork_id=1")) {
@@ -130,6 +130,11 @@ class ArtworksBackFillProgressTest {
                         statement.executeUpdate();
                     }
                 }
+            }
+            try (var connection = pool.getConnection(); var sql = connection.createStatement()) {
+                sql.execute("UPDATE novels SET author_id=0,r18=0,is_ai=0,description='',series_id=0");
+                sql.execute("INSERT INTO tags(tag_id,name) VALUES(99,'known')");
+                sql.execute("INSERT INTO novel_tags(novel_id,tag_id) SELECT novel_id,99 FROM novels");
             }
             var progress = new java.util.ArrayList<ArtworksBackFill.Progress>();
             var options = new ArtworksBackFill.Options(path.toString(), "", 0, false, 0, 1, dryRun, target)

@@ -50,9 +50,12 @@ internal fun ToolsOverview(
 ) {
     val palette = LocalExperiencePalette.current
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var mediaSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var openTaskResult by rememberSaveable { mutableStateOf(false) }
     val openBackfill = LocalOpenBackfill.current
     LaunchedEffect(openBackfill) {
         if (openBackfill != null) {
+            openTaskResult = true
             selected = "backfill"
             openBackfill()
         }
@@ -61,9 +64,20 @@ internal fun ToolsOverview(
     val anchors = remember { mutableMapOf<String, FocusRequester>() }
     val tools = node.tools().map { it as Group }
     val mediaTools = node.mediaTools().filterIsInstance<Group>()
+    val fileImports = node.fileImports().filterIsInstance<Group>()
+    val selectedImport = fileImports.firstOrNull { it.id() == selected }
+    LaunchedEffect(fileImports.map { it.id() }) {
+        anchors.keys.removeAll { id -> id.startsWith("import.") && fileImports.none { it.id() == id } }
+        if (selected?.startsWith("import.") == true && selectedImport == null) {
+            restoreFocus = "backfill"
+            selected = null
+        }
+    }
     fun label(key: String) = workspaceText(text, key)
-    fun select(id: String) {
+    fun select(id: String, section: String? = null) {
         restoreFocus = id
+        openTaskResult = false
+        if (id == "media") mediaSection = section
         if (id == "classifier" || id == "folder") {
             val button = descendants(tools[toolIds.indexOf(id)]).filterIsInstance<Button>().first()
             if (button.enabled()) emit(Event(EventType.ACTIVATE, button.id(), Value.empty()))
@@ -73,10 +87,18 @@ internal fun ToolsOverview(
         if (button.enabled()) emit(Event(EventType.ACTIVATE, button.id(), Value.empty()))
     }
     val activity = node.activity()
-    val mediaProgress = descendants(node.media()).filterIsInstance<Progress>().firstOrNull()
-        ?: mediaTools.asSequence().flatMap(::descendants).filterIsInstance<Progress>().firstOrNull { it.id().endsWith(".progress") }
-    if (selected == "media") {
-        FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { selected = null }, modifier)
+    val runningActivity = activity?.takeIf { it.running() }
+    val activeMedia = (listOf(node.media()) + mediaTools).mapNotNull { tool ->
+        descendants(tool).filterIsInstance<Progress>().firstOrNull()?.let { tool to it }
+    }
+    val activeImports = fileImports.mapNotNull { tool ->
+        descendants(tool).filterIsInstance<Progress>().firstOrNull()?.let { tool to it }
+    }
+    val mediaProgress = activeMedia.firstOrNull()?.second
+    if (selectedImport != null) {
+        FileImportWorkspace(selectedImport, text, emit, { selected = null }, modifier)
+    } else if (selected == "media") {
+        FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { selected = null }, modifier, mediaSection)
     } else {
         BoxWithConstraints(modifier.fillMaxSize().testTag("tools.overview")) {
             val wide = maxWidth >= 760.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
@@ -96,17 +118,51 @@ internal fun ToolsOverview(
                         }
                         CupertinoText(text(node.backend().text()), fontSize = 12.sp, color = palette.secondaryText)
                     }
-                    AnimatedVisibility(activity != null || mediaProgress != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                        val id = if (mediaProgress != null) "media" else activity?.toolId().orEmpty()
-                        ToolRow(
-                            if (id == "media") label("media-title") else label("$id.title"),
-                            if (id == "media") mediaProgress?.text()?.let(text).orEmpty() else activity?.message()?.let(text).orEmpty(),
-                            label("show-task"), Icons.Default.Schedule, "tools.current", Modifier.fillMaxWidth(),
-                        ) { select(id) }
+                    if (runningActivity != null || activeMedia.isNotEmpty() || activeImports.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            runningActivity?.let { current ->
+                                ToolRow(
+                                    title = label("${current.toolId()}.title"),
+                                    description = text(current.message()),
+                                    impact = label("show-task"),
+                                    icon = Icons.Default.Schedule,
+                                    tag = "tools.current",
+                                    modifier = Modifier.fillMaxWidth(),
+                                    running = true,
+                                ) { select(current.toolId()) }
+                            }
+                            activeMedia.forEach { (tool, progress) ->
+                                key(tool.id()) {
+                                    ToolRow(
+                                        title = if (tool === node.media()) label("media-title") else text(tool.title()),
+                                        description = text(progress.text()),
+                                        impact = label("show-task"),
+                                        icon = Icons.Default.Movie,
+                                        tag = "tools.current.${tool.id()}",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        running = true,
+                                    ) { select("media", if (tool === node.media()) "ffmpeg" else tool.id()) }
+                                }
+                            }
+                            activeImports.forEach { (tool, progress) ->
+                                key(tool.id()) {
+                                    ToolRow(
+                                        title = text(tool.title()),
+                                        description = text(progress.text()),
+                                        impact = label("show-task"),
+                                        icon = Icons.Default.FileDownload,
+                                        tag = "tools.current.${tool.id()}",
+                                        modifier = Modifier.fillMaxWidth(),
+                                        running = true,
+                                    ) { select(tool.id()) }
+                                }
+                            }
+                        }
                     }
-                    @Composable fun category(indices: IntRange, title: String, modifier: Modifier = Modifier) {
+                    @Composable fun category(maintenance: Boolean, modifier: Modifier = Modifier) {
+                        val indices = if (maintenance) 2..2 else 0..1
                         Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CupertinoText(title, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            CupertinoText(label(if (maintenance) "maintain" else "organize"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
                                 color = palette.secondaryText, modifier = Modifier.semantics { heading() })
                             indices.forEach { index ->
                                 val id = toolIds[index]
@@ -114,14 +170,28 @@ internal fun ToolsOverview(
                                 ToolRow(label("$id.title"), label("$id.description"), label("$id.impact"), toolIcons[index],
                                     "tools.entry.$id", Modifier.fillMaxWidth().focusRequester(focus)) { select(id) }
                             }
+                            if (maintenance) fileImports.forEach { tool ->
+                                key(tool.id()) {
+                                    val help = descendants(tool).filterIsInstance<Text>().firstOrNull { it.id().endsWith(".help") }
+                                    ToolRow(
+                                        title = text(tool.title()),
+                                        description = help?.text()?.let(text).orEmpty(),
+                                        impact = "",
+                                        icon = Icons.Default.FileDownload,
+                                        tag = "tools.entry.${tool.id()}",
+                                        modifier = Modifier.fillMaxWidth()
+                                            .focusRequester(anchors.getOrPut(tool.id()) { FocusRequester() }),
+                                    ) { select(tool.id()) }
+                                }
+                            }
                         }
                     }
                     if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-                        category(0..1, label("organize"), Modifier.weight(1f))
-                        category(2..3, label("maintain"), Modifier.weight(1f))
+                        category(false, Modifier.weight(1f))
+                        category(true, Modifier.weight(1f))
                     } else Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                        category(0..1, label("organize"))
-                        category(2..3, label("maintain"))
+                        category(false)
+                        category(true)
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         CupertinoText(label("media-group"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
@@ -149,12 +219,14 @@ internal fun ToolsOverview(
         }
     }
     LaunchedEffect(selected) {
-        if (selected == null && restoreFocus == "media") anchors["media"]?.requestFocus()
+        if (selected == null) restoreFocus?.let { anchors[it]?.requestFocus() }
     }
     var retainedWorkspace by remember { mutableStateOf<ToolWorkspace?>(null) }
     node.workspace()?.let { retainedWorkspace = it }
     val workspace = node.workspace()
-    val current = workspace?.toolId() ?: selected?.takeUnless { it == "media" }
+    val current = workspace?.toolId() ?: selected?.takeIf {
+        it in toolIds || it == "history" || it.startsWith("history.")
+    }
     val close = {
         if (workspace != null) activate(workspace.close()) else selected = null
     }
@@ -177,7 +249,7 @@ internal fun ToolsOverview(
                     label("$id.description"),
                     toolIcons[index],
                     tools[index],
-                    activity?.takeIf { it.toolId() == id }, node.backend(), text, emit, close)
+                    activity?.takeIf { it.toolId() == id }, node.backend(), text, emit, close, openTaskResult)
             }
         }
     }
@@ -191,7 +263,7 @@ internal fun descendants(node: DesktopUiNode): Sequence<DesktopUiNode> =
 
 @Composable
 private fun ToolRow(title: String, description: String, impact: String, icon: ImageVector, tag: String,
-                    modifier: Modifier = Modifier, onClick: () -> Unit) {
+                    modifier: Modifier = Modifier, running: Boolean = false, onClick: () -> Unit) {
     val palette = LocalExperiencePalette.current
     val interaction = remember { MutableInteractionSource() }
     val hover by interaction.collectIsHoveredAsState()
@@ -203,6 +275,10 @@ private fun ToolRow(title: String, description: String, impact: String, icon: Im
     Row(modifier.testTag(tag).graphicsLayer { scaleX = scale; scaleY = scale }
         .clip(RoundedCornerShape(14.dp)).background(background)
         .border(if (focused && keyboard) 2.dp else 0.dp, if (focused && keyboard) palette.link else Color.Transparent, RoundedCornerShape(14.dp))
+        .toolRunningBorder(running)
+        .semantics {
+            if (running) progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
+        }
         .pointerHoverIcon(PointerIcon.Hand).clickable(interaction, null, role = Role.Button, onClick = onClick)
         .padding(horizontal = 16.dp, vertical = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {

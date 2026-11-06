@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.gui.config.PropertiesConfigFileEditor;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestionSource;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -21,10 +23,11 @@ public final class PluginDirectorySuggestion implements DirectorySuggestionCapab
     private final DesktopDirectorySuggestionSource source;
     private final PropertiesConfigFileEditor config;
     private final Set<String> keys;
+    private final Map<String, DesktopUiText> help;
     private DesktopDirectorySuggestion offered;
     private String dismissed;
 
-    public PluginDirectorySuggestion(String owner, DesktopDirectorySuggestionSource source,
+    public PluginDirectorySuggestion(String owner, String displayNamespace, DesktopDirectorySuggestionSource source,
                                      Path configPath, List<GuiConfigFieldContribution> fields) {
         this.source = source;
         this.config = new PropertiesConfigFileEditor(configPath);
@@ -33,7 +36,14 @@ public final class PluginDirectorySuggestion implements DirectorySuggestionCapab
                 && field.effect() == GuiConfigEffect.HOT_RELOAD && field.defaultValue().isBlank()
                 && field.enabledWhen().isEmpty() && field.visibleWhen().isEmpty()
                 && field.requiredWhen().isEmpty()).map(GuiConfigFieldContribution::key).collect(Collectors.toUnmodifiableSet());
+        this.help = fields.stream().filter(field -> keys.contains(field.key()) && !field.helpKey().isBlank())
+                .collect(Collectors.toUnmodifiableMap(GuiConfigFieldContribution::key,
+                        field -> DesktopUiText.plugin(field.i18nNamespace() == null ? displayNamespace : field.i18nNamespace(),
+                                field.helpKey(), "")));
     }
+
+    @Override
+    public DesktopUiText help(String configurationKey) { return help.get(configurationKey); }
 
     @Override
     public synchronized Optional<DesktopDirectorySuggestion> suggestion() {

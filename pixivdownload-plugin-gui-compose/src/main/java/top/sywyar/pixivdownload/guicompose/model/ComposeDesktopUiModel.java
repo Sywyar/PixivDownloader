@@ -50,6 +50,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final DesktopUiHost host;
     private final DesktopToolsController tools;
     private final DesktopMediaToolsController mediaTools;
+    private final DesktopFileImportController fileImports;
     private final DesktopOnboardingController onboarding;
     private final DesktopStatusController statusController;
     final DesktopNavigationView navigation;
@@ -91,6 +92,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     ) {}
     private long interactionRevisionSequence;
     private volatile DesktopUiSnapshot snapshot;
+    private java.util.UUID requestedBackfill;
     private volatile DesktopUiHost.BackendSnapshot backend;
     volatile String statusNotice = "";
     private volatile long backendStateChangedAt = System.currentTimeMillis();
@@ -116,6 +118,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.selectedProviderId = Objects.requireNonNull(selectedProviderId, "selectedProviderId");
         this.host = Objects.requireNonNull(host, "host");
         this.mediaTools = new DesktopMediaToolsController(this, host);
+        this.fileImports = new DesktopFileImportController(this, host);
         this.tools = new DesktopToolsController(
                 this,
                 host,
@@ -286,7 +289,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             return;
         }
         String value = event.value().values().stream().findFirst().orElse("");
-        if (mediaTools.accept(targetId, value)) {
+        if (fileImports.accept(targetId, value) || mediaTools.accept(targetId, value)) {
             rebuild();
             return;
         }
@@ -420,14 +423,16 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             eventEndpoints = nextEventEndpoints;
             var automaticBackfillNotice = tools.automaticBackfillNotice();
             if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())
-                    || !Objects.equals(automaticBackfillNotice, snapshot.automaticBackfillNotice())) {
+                    || !Objects.equals(automaticBackfillNotice, snapshot.automaticBackfillNotice())
+                    || !Objects.equals(requestedBackfill, snapshot.requestedBackfill())) {
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
                 snapshot = new DesktopUiSnapshot(
                         candidateRevision,
                         nextDocument,
                         nextInteractionRevisions,
-                        automaticBackfillNotice
+                        automaticBackfillNotice,
+                        requestedBackfill
                 );
                 published = snapshot;
             }
@@ -478,7 +483,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 "tools",
                 DesktopUiIcon.TOOLS,
                 tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions),
-                        mediaTools.panels(nextSelections, nextActions)),
+                        mediaTools.panels(nextSelections, nextActions), fileImports.panels(nextActions)),
                 DesktopUiNode.Insets.NONE
         ));
         var platformFacts = platformFacts();
@@ -748,6 +753,23 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
 
     boolean hasDialog() { return closed || dialogState != null; }
 
+    void startImportedBackfill() { tools.runImportedBackfill(); }
+
+    synchronized void showBackfill(java.util.UUID executionId) {
+        if (closed) return;
+        requestedBackfill = executionId;
+        rebuildStatus();
+    }
+
+    /** 消费本次导航请求，避免进度刷新重新打开已收起的面板。 */
+    public synchronized boolean consumeBackfillNavigation(java.util.UUID executionId) {
+        if (closed || dialogState != null || executionId == null
+                || !executionId.equals(requestedBackfill)) return false;
+        requestedBackfill = null;
+        rebuildStatus();
+        return true;
+    }
+
     /** 只收起指定执行的自动提示，不停止回填或改变表单。 */
     public synchronized boolean dismissAutomaticBackfill(java.util.UUID executionId) {
         if (closed || dialogState != null) return false;
@@ -872,6 +894,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         security.clearSecrets();
         configuration.transfer.clear();
         mediaTools.close();
+        fileImports.close();
         configuration.invalidatePage();
         stablePages = null;
         pageEventIndexes.clear();

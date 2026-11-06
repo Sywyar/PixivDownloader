@@ -39,7 +39,11 @@ class HeadlessBackfillRuntimeTest {
         config.setMaximumPoolSize(2);
         try (var pool = new HikariDataSource(config)) {
             var metadata = new WorkMetaCurator(new ObjectMapper()).curateNovel(1,
-                    new ObjectMapper().readTree("{\"id\":1,\"uploadDate\":\"2020-02-03T12:00:00+09:00\"}"), "forward");
+                    new ObjectMapper().readTree("""
+                            {"id":1,"userId":42,"userName":"fixture author","xRestrict":0,"aiType":1,
+                             "description":"fixture description","tags":{"tags":[{"tag":"fixture tag"}]},
+                             "seriesNavData":null,"uploadDate":"2020-02-03T12:00:00+09:00"}
+                            """), "forward");
             try (var connection = pool.getConnection()) {
                 DatabaseInitializer.prepareOffline(connection, target);
                 try (var statement = connection.prepareStatement(
@@ -90,6 +94,7 @@ class HeadlessBackfillRuntimeTest {
                 release.countDown();
                 assertTrue(completed.await(10, TimeUnit.SECONDS));
                 assertNotNull(result.get());
+                assertEquals(1, result.get().processed());
                 assertEquals(1, result.get().filledUploadTime());
                 assertEquals(0, pool.getHikariPoolMXBean().getActiveConnections());
                 try (var connection = pool.getConnection(); var statement = connection.createStatement();

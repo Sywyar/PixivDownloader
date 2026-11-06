@@ -888,12 +888,13 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
     record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media, List<DesktopUiNode> mediaTools,
-                         DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
+                         List<DesktopUiNode> fileImports, DesktopUiNode history, ToolActivity activity, ToolWorkspace workspace) implements DesktopUiNode {
         public ToolsOverview {
             id = requireId(id, "id");
             Objects.requireNonNull(backend, "backend");
             tools = copyBounded(tools, "tools");
             mediaTools = copyBounded(mediaTools, "mediaTools");
+            fileImports = copyBounded(fileImports, "fileImports");
             Objects.requireNonNull(media, "media");
             Objects.requireNonNull(history, "history");
         }
@@ -904,6 +905,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             nodes.add(backend);
             nodes.add(media);
             nodes.addAll(mediaTools);
+            nodes.addAll(fileImports);
             nodes.add(history);
             if (workspace != null) {
                 nodes.add(workspace.content());
@@ -1714,6 +1716,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 日期与时间。 */ DATE_TIME,
         /** 文件路径。 */ FILE,
         /** 新文件的保存路径。 */ FILE_SAVE,
+        /** 文件或目录路径。 */ FILE_OR_DIRECTORY,
         /** 目录路径。 */ DIRECTORY
     }
     /** 布尔输入呈现样式。 */

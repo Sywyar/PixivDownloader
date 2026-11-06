@@ -1287,6 +1287,7 @@ object ComposeDesktopUiNodeRenderer {
                 }
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
                     || node.inputKind() == DesktopUiNode.InputKind.FILE_SAVE
+                    || node.inputKind() == DesktopUiNode.InputKind.FILE_OR_DIRECTORY
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
                     CupertinoButton(
                         colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
@@ -1928,8 +1929,11 @@ object ComposeDesktopUiNodeRenderer {
 
     internal fun choosePath(kind: DesktopUiNode.InputKind, value: String): String? {
         val chooser = JFileChooser(value.ifBlank { "." })
-        chooser.fileSelectionMode = if (kind == DesktopUiNode.InputKind.DIRECTORY)
-            JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
+        chooser.fileSelectionMode = when (kind) {
+            DesktopUiNode.InputKind.DIRECTORY -> JFileChooser.DIRECTORIES_ONLY
+            DesktopUiNode.InputKind.FILE_OR_DIRECTORY -> JFileChooser.FILES_AND_DIRECTORIES
+            else -> JFileChooser.FILES_ONLY
+        }
         if (kind == DesktopUiNode.InputKind.FILE_SAVE) chooser.selectedFile = java.io.File(value.ifBlank { "PixivDownloader.pdbackup" })
         val result = if (kind == DesktopUiNode.InputKind.FILE_SAVE) chooser.showSaveDialog(null) else chooser.showOpenDialog(null)
         return if (result == JFileChooser.APPROVE_OPTION)

@@ -49,7 +49,7 @@ class ToolsConfigurationTest {
                     case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "message" -> args[0];
@@ -93,7 +93,7 @@ class ToolsConfigurationTest {
                     case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "runMigration" -> summary;
@@ -172,7 +172,7 @@ class ToolsConfigurationTest {
                         var locale = new DesktopUiHost.UiLocale(requested.equals("ja") ? "ja-JP" : "en-US", requested, requested);
                         yield new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     }
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "stopBackend", "startBackend" -> {
@@ -257,7 +257,7 @@ class ToolsConfigurationTest {
                     case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "message" -> "desktop.ui.tools.operation-failed".equals(args[0])
@@ -301,7 +301,7 @@ class ToolsConfigurationTest {
                     case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "findToolLog" -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath());
@@ -350,7 +350,7 @@ class ToolsConfigurationTest {
                     case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     default -> throw new AssertionError("Unexpected host operation: " + method.getName());

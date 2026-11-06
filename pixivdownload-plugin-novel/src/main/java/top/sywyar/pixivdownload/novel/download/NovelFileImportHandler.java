@@ -13,6 +13,17 @@ public final class NovelFileImportHandler implements WorkFileImportHandler {
         this.database = database; this.names = names;
     }
     @Override public WorkType workType() { return WorkType.NOVEL; }
+    @Override public boolean registerLocal(LocalWorkFileImportRequest r) {
+        if (database.getNovel(r.workId()) != null) return false;
+        String name = r.pageFiles().get(0).getFileName().toString();
+        String ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase(java.util.Locale.ROOT);
+        String content = NovelLocalContent.read(r.sourceRoot().resolve(r.pageFiles().getFirst()).normalize(), ext);
+        database.insertNovel(r.workId(), "", r.sourceRoot().toString(), 1, ext,
+                database.getUniqueTime(), null, null, null, null,
+                names.getOrCreateTemplateId("{id}_p{page}"), null, null, null,
+                null, content.length(), null, 1, null, null, content, null);
+        return true;
+    }
     @Override public boolean register(WorkFileImportRequest r) {
         if (database.getNovel(r.workId()) != null) return false;
         String name = r.pageFiles().get(0).getFileName().toString();

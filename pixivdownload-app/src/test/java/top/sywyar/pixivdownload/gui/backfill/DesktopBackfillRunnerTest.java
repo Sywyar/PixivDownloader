@@ -26,7 +26,7 @@ class DesktopBackfillRunnerTest {
         var terminal = new AtomicReference<BackfillTask>();
         var finished = new CountDownLatch(1);
         var summary = new ArtworksBackFill.Summary(1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-                false, expected == BackfillState.RATE_LIMITED, 1);
+                false, expected == BackfillState.RATE_LIMITED, 1, 0);
         var runner = new DesktopBackfillRunner((options, progress) -> {
             progress.accept(new ArtworksBackFill.Progress(ArtworksBackFill.Phase.LOCAL, 1, 1, 1,
                     expected == BackfillState.INCOMPLETE ? 1 : 0, 0, null, null, summary));
@@ -112,7 +112,7 @@ class DesktopBackfillRunnerTest {
         var terminal = new AtomicReference<BackfillTask>();
         var done = new CountDownLatch(1);
         var runner = new DesktopBackfillRunner((options, progress) ->
-                new ArtworksBackFill.Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0),
+                new ArtworksBackFill.Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0, 0),
                 () -> { throw new java.io.IOException("fixture"); });
         runner.start();
         try {

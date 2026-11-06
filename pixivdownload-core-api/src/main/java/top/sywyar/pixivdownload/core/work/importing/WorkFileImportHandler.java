@@ -19,4 +19,14 @@ public interface WorkFileImportHandler {
      * @return 本次创建记录时为 true
      */
     boolean register(WorkFileImportRequest request);
+
+    /**
+     * 在宿主事务内登记待回填作品，未知字段保持缺失；不复制或修改原文件。
+     * @param request 已通过宿主文件核验的本地事实
+     * @return 本次创建记录时为 true
+     * @throws UnsupportedOperationException 当前 owner 不支持本地登记
+     */
+    default boolean registerLocal(LocalWorkFileImportRequest request) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
 }

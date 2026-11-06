@@ -43,6 +43,11 @@ class ArtworksBackFillCliTest {
                 statement.setString(1, metadata.document().toString());
                 statement.executeUpdate();
             }
+            try (var statement = connection.createStatement()) {
+                statement.execute("UPDATE novels SET author_id=0,r18=0,is_ai=0,description='',series_id=0");
+                statement.execute("INSERT INTO tags(tag_id,name) VALUES(99,'known')");
+                statement.execute("INSERT INTO novel_tags(novel_id,tag_id) VALUES(1,99)");
+            }
         }
         var applicationLogger = (Logger) LoggerFactory.getLogger(ArtworksBackFill.class);
         var output = new ListAppender<ILoggingEvent>();

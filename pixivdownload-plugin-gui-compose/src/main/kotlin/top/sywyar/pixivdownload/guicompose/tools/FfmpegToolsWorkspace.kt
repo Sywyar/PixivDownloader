@@ -34,9 +34,12 @@ internal fun FfmpegToolsWorkspace(
     emit: (Event) -> Unit,
     back: () -> Unit,
     modifier: Modifier = Modifier,
+    initialSection: String? = null,
 ) {
     val palette = LocalExperiencePalette.current
-    var section by rememberSaveable { mutableStateOf(if (tools.isEmpty()) "ffmpeg" else tools.first().id()) }
+    var section by rememberSaveable {
+        mutableStateOf(initialSection ?: if (tools.isEmpty()) "ffmpeg" else tools.first().id())
+    }
     val selected = tools.firstOrNull { it.id() == section }
     LaunchedEffect(tools.map { it.id() }) {
         if (section != "ffmpeg" && selected == null) section = "ffmpeg"

@@ -4,6 +4,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.gui.importing.DesktopFileImportToolRegistry;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
+import top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.DesktopFileImportToolCapabilityAdapter;
 import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
@@ -51,6 +55,70 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ExternalRuntimeCapabilityAdapterInvocationTest {
 
     private static final PushChannelId PUSH_CHANNEL_ID = new PushChannelId("test-channel");
+
+    @Test
+    @DisplayName("未知导入提供者通过公共入口发布，撤回排空预览且旧句柄拒绝命令")
+    void fileImportPublicationDrains() throws Exception {
+        var invocation = new ExternalCapabilityInvocationRegistry();
+        var registry = new DesktopFileImportToolRegistry();
+        var adapter = new DesktopFileImportToolCapabilityAdapter(registry, invocation);
+        var gate = new BlockingGate();
+        var target = new DesktopFileImportTool.Source() {
+            public DesktopFileImportTool.Description description() {
+                return new DesktopFileImportTool.Description(DesktopUiText.raw("Fixture"), DesktopUiText.raw("Help"));
+            }
+            public DesktopFileImportTool.Result<DesktopFileImportTool.Preview> inspect(DesktopFileImportTool.Request request) {
+                gate.block();
+                return DesktopFileImportTool.Result.success(new DesktopFileImportTool.Preview("token", 0, 0, 0, 0, 0, List.of()));
+            }
+            public DesktopFileImportTool.Result<DesktopFileImportTool.Status> start(String token, String secret) {
+                return DesktopFileImportTool.Result.failure(DesktopUiText.key("fixture.unavailable"));
+            }
+            public DesktopFileImportTool.Status status() {
+                return new DesktopFileImportTool.Status(DesktopFileImportTool.Phase.IDLE, 0, 0, 0, 0, 0, List.of());
+            }
+            public void cancel() {}
+            public java.util.Optional<DesktopFileImportTool.Completion> pendingCompletion() {
+                return java.util.Optional.of(new DesktopFileImportTool.Completion("finished", 2));
+            }
+            public void acknowledgeCompletion(String id) { assertThat(id).isEqualTo("finished"); }
+        };
+        try (var child = child(DesktopFileImportTool.Source.class, target)) {
+            var registrar = registrar(invocation, adapter);
+            var publication = publish(registrar, child, "unknown-importer", 3);
+            var identity = registry.tools().get(0).identity();
+            var proxy = registry.source(identity);
+            assertThat(proxy.pendingCompletion().orElseThrow().imported()).isEqualTo(2);
+            proxy.acknowledgeCompletion("finished");
+            assertThat(proxy.start("token", "private").error().key()).isEqualTo("fixture.unavailable");
+            var previousDrain = drainBlocking(registrar, publication, gate, () -> {
+                var result = proxy.inspect(new DesktopFileImportTool.Request("/records.json", "/source"));
+                assertThat(result.value().records()).isZero();
+            });
+            assertThat(registry.tools()).isEmpty();
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, proxy::status);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, proxy::pendingCompletion);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> proxy.acknowledgeCompletion("finished"));
+            registrar.acknowledgeRetired(previousDrain);
+            child.close();
+            assertThat(registrar.releaseRetirementProof(previousDrain)).isTrue();
+            try (var replacement = child(DesktopFileImportTool.Source.class, target)) {
+                var next = publish(registrar, replacement, "unknown-importer", 4);
+                try {
+                assertThat(registry.tools().get(0).identity()).isNotEqualTo(identity);
+                org.junit.jupiter.api.Assertions.assertThrows(DesktopFileImportTool.OperationException.class, () -> registry.source(identity));
+                org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () -> proxy.start("token", ""));
+                } finally {
+                var drain = registrar.withdraw(next).orElseThrow();
+                assertThat(drain.await(Duration.ofSeconds(1))).isTrue();
+                registrar.retireDrained(drain);
+                registrar.acknowledgeRetired(drain);
+                replacement.close();
+                assertThat(registrar.releaseRetirementProof(drain)).isTrue();
+                }
+            }
+        }
+    }
 
     @Test
     @DisplayName("阻塞 AI 调用在 publication 撤回后被真实 drain")
@@ -201,7 +269,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
         return child;
     }
 
-    private static void drainBlocking(
+    private static ExternalCapabilityDrain drainBlocking(
             PluginCapabilityContributionRegistrar registrar,
             ExternalCapabilityPublication publication,
             BlockingGate gate,
@@ -228,6 +296,7 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
         assertThat(failure.get()).isNull();
         assertThat(drain.await(Duration.ofSeconds(1))).isTrue();
         registrar.retireDrained(drain);
+        return drain;
     }
 
     private static RenderedMessage message() {

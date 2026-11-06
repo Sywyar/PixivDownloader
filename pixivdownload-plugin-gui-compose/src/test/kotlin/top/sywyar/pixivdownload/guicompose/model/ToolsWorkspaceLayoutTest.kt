@@ -83,7 +83,7 @@ class ToolsWorkspaceLayoutTest {
                                         ).format(token.arguments().toTypedArray())
                                         else if (token.namespace() == HomeTips.NAMESPACE) HomeOverviewTest.resolve(token)
                                         else resolve(token)
-                                    }, task, { task = null; true }, {})
+                                    }, task, { task = null; true }, dispatch = {})
                                 }
                             }
                         }
@@ -178,6 +178,9 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("backfill.notice").assertDoesNotExist()
                 onNodeWithTag("tools.done").assertIsDisplayed().performClick()
                 onNodeWithTag("backfill.notice").assertDoesNotExist()
+                onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+                onNodeWithTag("tools.result").assertDoesNotExist()
+                onNodeWithTag("tools.backfill.run").assertIsDisplayed()
             }
         }
     }
@@ -232,6 +235,61 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("tools.done").assertIsDisplayed()
                 screenshot("backfill-$theme-stopped")
                 assertEquals(1, cancellations.get())
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("回填各终态后从工具卡片重新进入表单，快速完成的新执行仍显示本轮结果")
+    fun completedBackfillReopensForm() = runComposeUiTest {
+        fun task(state: DesktopUiToolHost.BackfillState) = DesktopUiToolHost.BackfillTask(
+            java.util.UUID.randomUUID(), 0, state, DesktopUiToolHost.BackfillPhase.NETWORK, false, false,
+            1, 2, 0, 0, 0, 0, 0, null, null, null, "fixture.html")
+        val current = AtomicReference(task(DesktopUiToolHost.BackfillState.COMPLETED))
+        val starts = AtomicInteger()
+        val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
+            "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
+            "backfillTask" to Function { Optional.of(current.get()) },
+            "backendSnapshot" to Function { top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BackendSnapshot(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BackendState.RUNNING, null) },
+            "startBackfill" to Function {
+                starts.incrementAndGet()
+                // 无候选时可能在下一次界面刷新之前完成，不能依赖先观察到 RUNNING。
+                current.set(task(DesktopUiToolHost.BackfillState.COMPLETED))
+                current.get().executionId()
+            },
+        )
+        DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+            var snapshot by mutableStateOf(model.snapshot())
+            model.subscribeSnapshots { snapshot = it }.use {
+                setContent {
+                    PixivDownloaderTheme("dark") {
+                        DesktopShell(snapshot.document(), snapshot.revision(), ::resolve) { model.dispatch(snapshot, it) }
+                    }
+                }
+                onNodeWithText(message("desktop.ui.page.tools")).performClick()
+                val outcomes = listOf(DesktopUiToolHost.BackfillState.COMPLETED, DesktopUiToolHost.BackfillState.FAILED,
+                    DesktopUiToolHost.BackfillState.CANCELLED, DesktopUiToolHost.BackfillState.INCOMPLETE)
+                outcomes.forEachIndexed { index, outcome ->
+                    runOnIdle { current.set(task(outcome)); model.rebuildStatus() }
+                    waitUntil(timeoutMillis = 5_000) {
+                        descendants(snapshot.document().pages().first { it.id() == "tools" }.content())
+                            .filterIsInstance<ToolsOverview>().single()
+                            .activity()?.executionId() == current.get().executionId().toString()
+                    }
+                    onNodeWithTag("tools.current").assertDoesNotExist()
+                    onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+                    onNodeWithTag("tools.result").assertDoesNotExist()
+                    onNodeWithTag("tools.backfill.db").assertExists()
+                    assertEquals(index, starts.get())
+                    onNodeWithTag("tools.backfill.run").assertIsDisplayed().assertIsEnabled().performClick()
+                    waitUntil(timeoutMillis = 5_000) { starts.get() == index + 1 }
+                    waitUntilExactlyOneExists(hasTestTag("tools.result") and hasText(message("gui.tools.backfill.state.completed")), timeoutMillis = 5_000)
+                    onNodeWithTag("tools.done").performClick()
+                }
+                onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+                onNodeWithTag("tools.result").assertDoesNotExist()
+                onNodeWithTag("tools.backfill.run").assertIsEnabled()
+                assertEquals(outcomes.size, starts.get())
             }
         }
     }
@@ -556,11 +614,7 @@ class ToolsWorkspaceLayoutTest {
                 screenshot("actual-backfill-source")
                 onNodeWithTag("tools.backfill.run").assertIsDisplayed()
                 onNodeWithTag("tools.sheet.close").performClick()
-                onNodeWithTag("tools.entry.migration").performClick()
-                compactField("tools.migration.db")
-                compactField("tools.migration.root")
-                screenshot("actual-migration")
-                onNodeWithTag("tools.sheet.close").performClick()
+                onNodeWithTag("tools.entry.migration").assertDoesNotExist()
                 onNodeWithTag("tools.entry.classifier").performClick()
                 onNodeWithTag("classifier.default-folder.input").assertIsDisplayed().performTextReplacement(temp.toString())
                 onNodeWithTag("classifier.open").performClick()
@@ -670,11 +724,11 @@ class ToolsWorkspaceLayoutTest {
                     }
                 }
             }
-            onNodeWithTag("tools.entry.migration").performScrollTo().performClick()
-            onNodeWithTag("tools.migration.root").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+            onNodeWithTag("tools.backfill.db").performScrollTo().assertIsDisplayed()
             onNodeWithTag("tools.sheet.close").assertIsDisplayed()
-            onNodeWithTag("tools.migration.run").assertIsDisplayed()
-            screenshot("actual-migration-compact")
+            onNodeWithTag("tools.backfill.run").assertIsDisplayed()
+            screenshot("actual-backfill-compact")
         }
     }
 

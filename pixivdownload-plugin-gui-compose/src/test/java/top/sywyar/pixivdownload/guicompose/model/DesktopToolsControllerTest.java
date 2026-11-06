@@ -185,6 +185,34 @@ class DesktopToolsControllerTest {
     }
 
     @Test
+    @DisplayName("维护历史显示宿主解析的完整日志路径，缺失或读取失败不阻断历史")
+    void historyShowsResolvedLogLocation() throws Exception {
+        Path resolved = Path.of("target", "history-log-fixture", "existing.html").toAbsolutePath();
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        var entries = new ArrayList<DesktopUiHost.ToolHistoryEntry>();
+        for (String fileName : java.util.Arrays.asList("existing.html", "missing.html", "unreadable.html", "unsupported.html", null)) {
+            entries.add(new DesktopUiHost.ToolHistoryEntry(DesktopUiHost.ToolId.ARTWORKS_BACKFILL,
+                    1, 2, DesktopUiHost.ToolOutcome.FAILED, 0, 0, null, fileName));
+        }
+        overrides.put("toolHistory", args -> entries);
+        overrides.put("findToolLog", args -> switch ((String) args[0]) {
+            case "existing.html" -> java.util.Optional.of(resolved);
+            case "missing.html" -> java.util.Optional.empty();
+            case "unreadable.html" -> throw new java.io.UncheckedIOException(new java.io.IOException("unavailable"));
+            case "unsupported.html" -> throw new UnsupportedOperationException();
+            default -> throw new AssertionError("Unexpected log lookup");
+        });
+        overrides.put("openToolLog", args -> { throw new AssertionError("History must not create logs"); });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            var table = (DesktopUiNode.Table) overview(model).history();
+            var locations = table.rows().stream().map(row -> row.cells().get(row.cells().size() - 1)).toList();
+            assertEquals(List.of(resolved.toString(), "missing.html",
+                    "unreadable.html\ndesktop.ui.tools.log-open-failed",
+                    "unsupported.html\ndesktop.ui.tools.log-open-failed", "—"), locations);
+        }
+    }
+
+    @Test
     @DisplayName("回填跟随已保存代理，临时覆盖不写配置且后续保存不覆盖临时草稿")
     void backfillInheritsConfigurationAndKeepsTemporaryOverrides() throws Exception {
         Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>(Map.of(

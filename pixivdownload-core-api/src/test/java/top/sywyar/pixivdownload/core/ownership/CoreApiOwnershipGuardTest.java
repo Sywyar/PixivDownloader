@@ -158,7 +158,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
-                    types("top.sywyar.pixivdownload.core.work.importing", "WorkFileImporter", "WorkFileImportHandler", "WorkFileImportRequest"),
+                    types("top.sywyar.pixivdownload.core.work.importing", "WorkFileImporter", "WorkFileImportHandler", "WorkFileImportRequest", "LocalWorkFileImportRequest"),
                     types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler", "FileTransactionService"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",

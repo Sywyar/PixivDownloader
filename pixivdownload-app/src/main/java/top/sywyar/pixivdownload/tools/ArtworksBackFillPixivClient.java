@@ -9,6 +9,8 @@ import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.HttpEntity;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator;
 import org.apache.hc.core5.util.Timeout;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -75,7 +77,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             return http.execute(request, response -> parseResponse(
                     response.getCode(),
                     readResponse(response.getEntity()),
-                    mapper, type
+                    mapper, type, artworkId
             ));
         } catch (IOException e) {
             throw new IOException(type.name() + "=" + artworkId + " "
@@ -98,6 +100,10 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
     }
 
     static LookupResult parseResponse(int status, String body, ObjectMapper mapper, WorkType type) throws IOException {
+        return parseResponse(status, body, mapper, type, 0);
+    }
+
+    static LookupResult parseResponse(int status, String body, ObjectMapper mapper, WorkType type, long expectedId) throws IOException {
         if (status == 429) {
             return LookupResult.rateLimited();
         }
@@ -139,10 +145,12 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         if (authorId <= 0) {
             return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
         }
-        Long uploadTime = type == WorkType.NOVEL
-                ? new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
-                        .curateNovel(1, payload, "backfill").uploadTime() : null;
-        return parsePayload(payload, uploadTime, true);
+        long id = payload.path("id").asLong(0);
+        if (expectedId > 0 && id != expectedId) throw new IOException("PIXIV_METADATA_IDENTITY_MISMATCH");
+        CuratedWorkMeta meta = id <= 0 ? null : type == WorkType.NOVEL
+                ? new WorkMetaCurator(mapper).curateNovel(id, payload, "backfill")
+                : new WorkMetaCurator(mapper).curateArtwork(id, payload, null, "backfill");
+        return parsePayload(payload, meta == null ? null : meta.uploadTime(), true).withMetadata(meta);
     }
 
     static LookupResult parsePayload(JsonNode payload, Long uploadTime, boolean completeResponse) {
@@ -187,7 +195,8 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 seriesTitle,
                 null,
                 uploadTime,
-                navigation.isNull() || seriesId > 0 || (completeResponse && navigation.isMissingNode())
+                navigation.isNull() || seriesId > 0 || (completeResponse && navigation.isMissingNode()),
+                payload.path("title").isTextual() ? payload.path("title").textValue() : null, null
         );
     }
 
@@ -247,6 +256,8 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         final String message;
         final Long uploadTime;
         final boolean seriesKnown;
+        final String title;
+        final CuratedWorkMeta metadata;
 
         private LookupResult(
                 ResultType type,
@@ -263,6 +274,13 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 Long uploadTime,
                 boolean seriesKnown
         ) {
+            this(type, authorId, authorName, xRestrict, isAi, description, tags, seriesId, seriesOrder,
+                    seriesTitle, message, uploadTime, seriesKnown, null, null);
+        }
+
+        private LookupResult(ResultType type, long authorId, String authorName, Integer xRestrict, Boolean isAi,
+                String description, List<TagEntry> tags, long seriesId, Long seriesOrder, String seriesTitle,
+                String message, Long uploadTime, boolean seriesKnown, String title, CuratedWorkMeta metadata) {
             this.type = type;
             this.authorId = authorId;
             this.authorName = authorName;
@@ -276,6 +294,13 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             this.message = message;
             this.uploadTime = uploadTime;
             this.seriesKnown = seriesKnown;
+            this.title = title;
+            this.metadata = metadata;
+        }
+
+        LookupResult withMetadata(CuratedWorkMeta metadata) {
+            return new LookupResult(type, authorId, authorName, xRestrict, isAi, description, tags,
+                    seriesId, seriesOrder, seriesTitle, message, uploadTime, seriesKnown, title, metadata);
         }
 
         static LookupResult found(

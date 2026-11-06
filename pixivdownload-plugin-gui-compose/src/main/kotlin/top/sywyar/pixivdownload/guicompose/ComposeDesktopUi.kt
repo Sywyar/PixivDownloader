@@ -165,9 +165,11 @@ internal object ComposeDesktopUi {
                     exit.set { exitApplication() }
                     val observed = rememberDesktopDocument(model)
                     val document = observed.document()
-                    val directoryConfirmation = document.dialogs().any { it.id() == "directory-suggestion" }
-                    LaunchedEffect(directoryConfirmation) {
-                        if (directoryConfirmation) activateWindow(visible, windowRef)
+                    val attentionDialog = document.dialogs().firstOrNull {
+                        it.id() == "directory-suggestion" || it.id() == "import-completion"
+                    }?.id()
+                    LaunchedEffect(attentionDialog) {
+                        if (attentionDialog != null) activateWindow(visible, windowRef)
                     }
                     val messages = remember(context, observed.revision()) { ComposeMessages(context) }
                     val tray = document.tray().orElse(null)
@@ -400,6 +402,7 @@ private fun rememberDesktopDocument(model: ComposeDesktopUiModel): DesktopUiSnap
 private fun activateWindow(visible: MutableState<Boolean>, window: AtomicReference<ComposeWindow>) {
     visible.value = true
     window.get()?.apply {
+        extendedState = extendedState and java.awt.Frame.ICONIFIED.inv()
         isVisible = true
         toFront()
         requestFocus()
@@ -589,6 +592,8 @@ private fun ComposeDesktopRoot(
         resolveText = messages::resolve,
         automaticBackfillNotice = snapshot.automaticBackfillNotice(),
         dismissAutomaticBackfill = model::dismissAutomaticBackfill,
+        requestedBackfill = snapshot.requestedBackfill(),
+        consumeBackfillNavigation = model::consumeBackfillNavigation,
         dispatch = { event -> model.dispatch(snapshot, event) },
     )
     document.dialogs().forEach { dialog ->
@@ -612,7 +617,7 @@ internal fun DesktopShell(
     documentRevision: Long,
     resolveText: (DesktopUiNode.TextToken) -> String,
     dispatch: (DesktopUiNode.Event) -> Unit,
-) = DesktopShell(document, documentRevision, resolveText, null, { false }, dispatch)
+) = DesktopShell(document, documentRevision, resolveText, null, { false }, dispatch = dispatch)
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalAnimationApi::class)
 @Composable
@@ -622,6 +627,8 @@ internal fun DesktopShell(
     resolveText: (DesktopUiNode.TextToken) -> String,
     automaticBackfillNotice: BackfillTask?,
     dismissAutomaticBackfill: (UUID) -> Boolean,
+    requestedBackfill: UUID? = null,
+    consumeBackfillNavigation: (UUID) -> Boolean = { false },
     dispatch: (DesktopUiNode.Event) -> Unit,
 ) {
     val pageIds = document.pages().map { it.id() }
@@ -636,6 +643,14 @@ internal fun DesktopShell(
     val sceneIds = document.pages().map(::pageSceneId)
     val retainedSceneIds = remember { linkedSetOf<String>() }
     val focusManager = LocalFocusManager.current
+    LaunchedEffect(requestedBackfill, document.dialogs().isEmpty()) {
+        if (requestedBackfill != null && "tools" in pageIds && document.dialogs().isEmpty()
+            && consumeBackfillNavigation(requestedBackfill)) {
+            focusManager.clearFocus()
+            selected = "tools"
+            openBackfill = true
+        }
+    }
     LaunchedEffect(activePage) { selected = activePage }
     LaunchedEffect(sceneIds) {
         removedPageIds(retainedSceneIds, sceneIds).forEach(pageStates::removeState)
@@ -873,8 +888,11 @@ internal fun DocumentDialog(
         ) {
             val targetSize = dialogWindowSize(dialog, DpSize(maxWidth, maxHeight))
             val editor = (dialog.content() as? DesktopUiNode.Surface)?.content() as? DesktopUiNode.RepositoryEditor
+            val directory = if (dialog.id() == "directory-suggestion")
+                (dialog.content() as? DesktopUiNode.Surface)?.content() as? DesktopUiNode.Dock else null
+            val fitContent = editor != null || directory != null
             CupertinoSurface(
-                modifier = (if (editor != null) Modifier.width(targetSize.width).heightIn(max = targetSize.height)
+                modifier = (if (fitContent) Modifier.width(targetSize.width).heightIn(max = targetSize.height)
                     else Modifier.size(targetSize))
                     .border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium)
                     .semantics { paneTitle = title },
@@ -895,7 +913,9 @@ internal fun DocumentDialog(
                             }
                         }
                     }
-                    ComposeDesktopUiNodeRenderer.Render(
+                    if (directory != null) top.sywyar.pixivdownload.guicompose.settings.DirectorySuggestionContent(
+                        directory, text, emit, Modifier.fillMaxWidth().weight(1f, fill = false),
+                    ) else ComposeDesktopUiNodeRenderer.Render(
                         root = editor ?: dialog.content(),
                         textResolver = text,
                         eventSink = emit,

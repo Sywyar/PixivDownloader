@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Compose 模型一次发布的完整桌面界面快照。
@@ -13,15 +14,17 @@ import java.util.Objects;
  * @param document 与修订号同代的完整文档
  * @param interactionRevisions 各交互节点当前的契约修订号
  * @param automaticBackfillNotice 当前尚未收起的自动回填提示，没有时为 null
+ * @param requestedBackfill 等待打开进度面板的执行，没有时为 null
  */
 public record DesktopUiSnapshot(
         long revision,
         DesktopUiDocument document,
         Map<String, Long> interactionRevisions,
-        BackfillTask automaticBackfillNotice
+        BackfillTask automaticBackfillNotice,
+        UUID requestedBackfill
 ) {
     public DesktopUiSnapshot(long revision, DesktopUiDocument document, Map<String, Long> interactionRevisions) {
-        this(revision, document, interactionRevisions, null);
+        this(revision, document, interactionRevisions, null, null);
     }
 
     /**
@@ -31,6 +34,7 @@ public record DesktopUiSnapshot(
      * @param document 与修订号同代的完整文档
      * @param interactionRevisions 各交互节点当前的契约修订号
      * @param automaticBackfillNotice 当前尚未收起的自动回填提示
+     * @param requestedBackfill 等待打开进度面板的执行
      */
     public DesktopUiSnapshot {
         if (revision < 0L) throw new IllegalArgumentException("revision must not be negative");

@@ -35,6 +35,7 @@ class ArtworksBackFillNovelsTest {
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
             sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(4,'four','{0}',1,'txt',4),(5,'five','{0}',1,'txt',5)");
         }
+        completeNovelFields(target);
         for (long id = 3; id <= 5; id++) {
             String snapshot = new WorkMetaCurator(mapper).curateNovel(id,
                     mapper.readTree("{\"id\":" + id + ",\"uploadTimestamp\":1580698800}"), "forward").document().toString();
@@ -152,7 +153,7 @@ class ArtworksBackFillNovelsTest {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var summary = ArtworksBackFill.run(options(target, true, false, 1));
             assertThat(summary.processed()).isEqualTo(1);
-            assertThat(summary.skipped()).isEqualTo(1);
+            assertThat(summary.skipped()).isEqualTo(deleted ? 1 : 0);
             assertThat(summary.filledUploadTime()).isZero();
             assertThat(uploadTime(target, 3)).isEqualTo(deleted ? null : 1234L);
         }
@@ -287,7 +288,16 @@ class ArtworksBackFillNovelsTest {
             DatabaseInitializer.prepareOffline(connection, target);
             sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'novel','{0}',1,'txt',1)");
         }
+        completeNovelFields(target);
         return target;
+    }
+
+    private static void completeNovelFields(DatabaseTarget target) throws Exception {
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            sql.execute("UPDATE novels SET author_id=0,r18=0,is_ai=0,description='',series_id=0");
+            sql.execute("INSERT OR IGNORE INTO tags(tag_id,name) VALUES(99,'known')");
+            sql.execute("INSERT OR IGNORE INTO novel_tags(novel_id,tag_id) SELECT novel_id,99 FROM novels");
+        }
     }
 
     private ArtworksBackFill.Options options(DatabaseTarget target, boolean alwaysNetwork, boolean dryRun, int limit) {

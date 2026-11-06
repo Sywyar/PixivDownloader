@@ -17,8 +17,8 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 从本地元数据或 Pixiv 详情补齐插画资料与小说上传时间，只填当前缺失的值。
- * 插画同时维护作者、标签与系列关联；小说只更新上传时间。
+ * 从本地元数据或 Pixiv 详情补齐作品资料和快照，只填当前缺失的值。
+ * 插画与小说同时维护标题、作者、标签与系列关联。
  *
  * <p>用法：
  * <pre>
@@ -43,6 +43,16 @@ public class ArtworksBackFill {
             new DatabaseColumn("artworks", "series_id"),
             new DatabaseColumn("artworks", "series_order"),
             new DatabaseColumn("artworks", "upload_time"),
+            new DatabaseColumn("artworks", "title"),
+            new DatabaseColumn("artworks", "metadata_json"),
+            new DatabaseColumn("novels", "title"),
+            new DatabaseColumn("novels", "metadata_json"),
+            new DatabaseColumn("novels", "author_id"),
+            new DatabaseColumn("novels", "R18"),
+            new DatabaseColumn("novels", "is_ai"),
+            new DatabaseColumn("novels", "description"),
+            new DatabaseColumn("novels", "series_id"),
+            new DatabaseColumn("novels", "series_order"),
             new DatabaseColumn("novels", "upload_time")
     );
 
@@ -175,7 +185,7 @@ public class ArtworksBackFill {
                     reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
                     database.requireAvailable();
                     int before = counts.filled() + counts.deleted + counts.previouslyUnreachable;
-                    int authorBefore = counts.author, seriesBefore = counts.series;
+                    int authorBefore = counts.author, seriesBefore = counts.series, detailsBefore = counts.details;
                     var remaining = candidate;
                     boolean networkFound = false;
                     if (!options.alwaysNetwork()) {
@@ -238,6 +248,7 @@ public class ArtworksBackFill {
                     // 同一作品的本地与网络分段补齐只计一次字段组。
                     counts.author = Math.min(counts.author, authorBefore + 1);
                     counts.series = Math.min(counts.series, seriesBefore + 1);
+                    counts.details = Math.min(counts.details, detailsBefore + 1);
                     if (counts.filled() > counts.workStartFilled) counts.changed++;
                     if (remaining.hasMissing()) counts.remaining++;
                     if (before == counts.filled() + counts.deleted + counts.previouslyUnreachable) counts.skipped++;
@@ -264,6 +275,7 @@ public class ArtworksBackFill {
         boolean author = available.authorMissing(), r18 = available.r18Missing(), ai = available.aiMissing();
         boolean description = available.descriptionMissing(), tags = available.tagsMissing();
         boolean series = available.seriesMissing(), uploadTime = available.uploadTimeMissing();
+        boolean details = available.detailsMissing();
         if (available.hasMissing()) {
             if (!dryRun) {
                 var applied = database.applyUpdates(candidate, result, author, r18, ai, description, tags, series, uploadTime);
@@ -274,6 +286,7 @@ public class ArtworksBackFill {
                 tags = tags && applied.tags();
                 series = series && applied.series();
                 uploadTime = uploadTime && applied.uploadTime();
+                details = applied.details();
             }
             if (author) counts.author++;
             if (r18) counts.r18++;
@@ -282,7 +295,9 @@ public class ArtworksBackFill {
             if (tags) counts.tags++;
             if (series) counts.series++;
             if (uploadTime) counts.uploadTime++;
-            var applied = new ArtworksBackFillDatabase.Candidate(candidate.artworkId(), author, r18, ai, description, tags, series, uploadTime);
+            if (details) counts.details++;
+            var applied = new ArtworksBackFillDatabase.Candidate(candidate.artworkId(), author, r18, ai, description, tags, series, uploadTime)
+                    .withDetails(details && available.titleMissing(), details && available.metadataMissing());
             if (applied.hasMissing())
                 log.debug(logMessage("artworks-backfill.log.changes", candidate.workType().name() + ":" + candidate.artworkId(), describeMissing(applied)));
         }
@@ -296,18 +311,20 @@ public class ArtworksBackFill {
                 candidate.authorMissing() && (authorId == null || nameMissing), candidate.r18Missing() && !r18,
                 candidate.aiMissing() && !ai, candidate.descriptionMissing() && !description,
                 candidate.tagsMissing() && !tags, candidate.seriesMissing() && (seriesId == null || orderMissing || titleMissing),
-                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing).withType(candidate.workType());
+                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing)
+                .withType(candidate.workType()).withDetails(candidate.titleMissing() && !available.titleMissing(),
+                        candidate.metadataMissing() && !available.metadataMissing());
     }
 
     private static final class Counts {
         int processed, author, r18, ai, description, tags, series, uploadTime, deleted, skipped,
                 previouslyUnreachable, newlyUnreachable;
-        int changed, remaining, unavailable, workStartFilled;
+        int changed, remaining, unavailable, workStartFilled, details;
         ArtworksBackFillDatabase.Candidate current;
-        int filled() { return author + r18 + ai + description + tags + series + uploadTime; }
+        int filled() { return author + r18 + ai + description + tags + series + uploadTime + details; }
         Summary summary(int total, boolean dryRun, boolean rateLimited) {
             return new Summary(total, processed, author, r18, ai, description, tags, series, deleted, skipped,
-                    previouslyUnreachable, newlyUnreachable, dryRun, rateLimited, uploadTime);
+                    previouslyUnreachable, newlyUnreachable, dryRun, rateLimited, uploadTime, details);
         }
     }
 
@@ -351,7 +368,8 @@ public class ArtworksBackFill {
                 summary.skipped(),
                 summary.previouslyUnreachable(),
                 summary.newlyUnreachable(),
-                summary.filledUploadTime()
+                summary.filledUploadTime(),
+                summary.filledDetails()
         ));
         if (summary.dryRun()) {
             log.info(logMessage("artworks-backfill.log.dry-run"));
@@ -367,6 +385,8 @@ public class ArtworksBackFill {
         if (candidate.tagsMissing()) parts.add("tags");
         if (candidate.seriesMissing()) parts.add("series");
         if (candidate.uploadTimeMissing()) parts.add("upload_time");
+        if (candidate.titleMissing()) parts.add("title");
+        if (candidate.metadataMissing()) parts.add("metadata_json");
         return String.join("+", parts);
     }
 
@@ -488,7 +508,8 @@ public class ArtworksBackFill {
                           int newlyUnreachable,
                           boolean dryRun,
                           boolean rateLimited,
-                          int filledUploadTime) {}
+                          int filledUploadTime,
+                          int filledDetails) {}
 
     private static String message(String code, Object... args) {
         return MessageBundles.get(code, args);

@@ -12,4 +12,14 @@ public interface WorkFileImporter {
      * @throws IllegalArgumentException 元数据不完整或不满足作品登记要求
      */
     boolean importFiles(WorkFileImportRequest request) throws IOException;
+
+    /**
+     * 原子登记本地文件引用与待回填作品，不访问来源站点，不覆盖已有记录。
+     * @param request 已授权的本地文件事实
+     * @return 本次创建记录时为 true
+     * @throws IOException 文件不安全、导入忙或类型 owner 不支持本地登记
+     */
+    default boolean importLocalFiles(LocalWorkFileImportRequest request) throws IOException {
+        throw new IOException("LOCAL_IMPORT_UNAVAILABLE");
+    }
 }

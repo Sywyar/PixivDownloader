@@ -13,6 +13,22 @@ import java.util.function.Consumer;
  * 桌面界面可消费的稳定、工具包无关宿主业务契约。
  */
 public interface DesktopUiHost extends DesktopUiToolHost {
+    /** {@return 活动文件导入能力；缺席时不显示入口} */
+    default List<top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool> fileImportTools() {
+        return List.of();
+    }
+
+    /**
+     * 取得绑定到精确文件导入工具发布身份的可撤回代理。
+     * @param identity 精确发布身份
+     * @return 可撤回命令；缺席或换代时明确拒绝
+     */
+    default top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Source fileImportTool(
+            top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Identity identity) {
+        throw new top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.OperationException(
+                DesktopUiText.key("gui.message.backend-busy"));
+    }
+
     /**
      * {@return 活动媒体维护能力的纯值快照；缺席时不显示工具入口}
      */

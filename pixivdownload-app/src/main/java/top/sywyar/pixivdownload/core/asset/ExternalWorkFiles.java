@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
+import top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import java.nio.file.Path;
 import java.util.*;
@@ -56,6 +57,9 @@ public class ExternalWorkFiles {
         return matches.isEmpty() ? null : matches.get(0);
     }
     public void save(WorkFileImportRequest request) {
+        save(new LocalWorkFileImportRequest(request.workType(), request.workId(), request.sourceRoot(), request.pageFiles()));
+    }
+    public void save(LocalWorkFileImportRequest request) {
         database.transaction(s -> {
             s.delete(TABLE, identity(request.workType(), request.workId()));
             var records = s.query(recordTime(request.workType(), request.workId()));
