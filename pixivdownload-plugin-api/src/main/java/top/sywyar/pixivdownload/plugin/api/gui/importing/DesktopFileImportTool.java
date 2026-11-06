@@ -19,6 +19,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      */
     public DesktopFileImportTool { Objects.requireNonNull(identity); Objects.requireNonNull(description); }
     /**
+     * 区分插件、运行代际与单次发布的精确工具身份。
      * @param pluginId 可信插件身份
      * @param packageId 包身份
      * @param generation 运行代际
@@ -26,6 +27,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      */
     public record Identity(String pluginId, String packageId, long generation, long publication) {}
     /**
+     * 工具发现时可供界面展示的说明与凭据要求。
      * @param title 工具名称
      * @param help 输入格式与导入行为说明
      * @param requiresCredential 是否接受本次操作使用的来源站点凭据
@@ -49,10 +51,12 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      */
     public interface Source {
         /**
+         * 取得工具发布时的说明。
          * @return 注册时冻结的说明
          */
         Description description();
         /**
+         * 检查记录与本地文件，生成供后续启动使用的预览。
          * @param request 本次输入
          * @return 不产生持久化副作用的检查结果；新检查使旧凭据失效
          */
@@ -65,6 +69,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
          */
         Result<Status> start(String token, String credential);
         /**
+         * 查询任务的执行状态。
          * @return 当前实际状态；离开界面不取消执行
          */
         Status status();
@@ -88,6 +93,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         default void acknowledgeCompletion(String id) { throw new UnsupportedOperationException("IMPORT_COMPLETION_UNAVAILABLE"); }
     }
     /**
+     * 等待 GUI 展示并确认的导入完成提示。
      * @param id 单次提示身份
      * @param imported 已导入且待询问回填的作品数
      */
@@ -102,6 +108,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         }
     }
     /**
+     * 本次检查使用的记录文件与原文件根目录。
      * @param recordFile 用户选择的记录文件或分片目录绝对路径
      * @param sourceRoot 用户批准的源目录绝对路径
      */
@@ -129,6 +136,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         /** 路径或记录冲突。 */ CONFLICT
     }
     /**
+     * 单部作品的本地文件检查结果。
      * @param workKey 来源内的作品身份
      * @param files 记录中的文件数
      * @param disposition 本地检查结果
@@ -185,6 +193,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         /** 任务未能完成。 */ FAILED
     }
     /**
+     * 可供界面展示的单项或任务级失败。
      * @param workKey 失败作品身份
      * @param reason 可本地化失败说明，不携带凭据或原始异常
      */
@@ -199,6 +208,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         }
     }
     /**
+     * 导入任务的阶段、累计计数与有界失败样本。
      * @param phase 当前阶段
      * @param total 候选数
      * @param processed 已处理数
@@ -225,11 +235,13 @@ public record DesktopFileImportTool(Identity identity, Description description) 
             if (problems.size() > 100) throw new IllegalArgumentException("too many import problems");
         }
         /**
+         * 判断检查或导入任务是否仍未退出。
          * @return 尚未实际退出的任务状态
          */
         public boolean active() { return phase == Phase.INSPECTING || phase == Phase.RUNNING || phase == Phase.CANCELLING; }
     }
     /**
+     * 命令的成功值或可本地化失败说明。
      * @param <T> 结果类型
      * @param value 成功结果
      * @param error 失败说明；二者必须恰有一个非空
@@ -243,18 +255,21 @@ public record DesktopFileImportTool(Identity identity, Description description) 
             if ((value == null) == (error == null)) throw new IllegalArgumentException("result requires value or error");
         }
         /**
+         * 创建携带非空结果的成功响应。
          * @param value 成功结果
          * @param <T> 结果类型
          * @return 成功
          */
         public static <T> Result<T> success(T value) { return new Result<>(Objects.requireNonNull(value), null); }
         /**
+         * 创建携带非空说明的失败响应。
          * @param error 失败说明
          * @param <T> 结果类型
          * @return 失败
          */
         public static <T> Result<T> failure(DesktopUiText error) { return new Result<>(null, Objects.requireNonNull(error)); }
         /**
+         * 取得成功值，失败时抛出界面边界异常。
          * @return 成功结果
          * @throws OperationException 操作失败
          */
@@ -270,10 +285,12 @@ public record DesktopFileImportTool(Identity identity, Description description) 
         /** 不携带插件异常对象的纯值说明。 */
         private final DesktopUiText text;
         /**
+         * 将可本地化失败说明包装为界面边界异常。
          * @param text 可本地化说明
          */
         public OperationException(DesktopUiText text) { super(text.key()); this.text = text; }
         /**
+         * 取得供界面本地化的失败说明。
          * @return 失败说明
          */
         public DesktopUiText text() { return text; }

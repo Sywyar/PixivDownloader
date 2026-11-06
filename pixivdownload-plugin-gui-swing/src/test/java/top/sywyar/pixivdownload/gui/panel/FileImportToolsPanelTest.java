@@ -14,6 +14,11 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FileImportToolsPanelTest {
+    @BeforeEach
+    void requireDesktop() {
+        Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "需要桌面图形环境创建真实窗口");
+    }
+
     @Test @DisplayName("未打开导入表单也能提示完成，稍后不会启动回填，确认才启动")
     void completionPrompt() throws Exception {
         for (boolean confirm : List.of(false, true)) {
@@ -94,7 +99,11 @@ class FileImportToolsPanelTest {
                 (proxy, method, args) -> switch (method.getName()) {
                     case "fileImportTools" -> tools.get();
                     case "fileImportTool" -> source;
-                    case "message" -> java.text.MessageFormat.format(messages.getProperty((String) args[0], (String) args[0]), (Object[]) args[1]);
+                    case "message" -> {
+                        String pattern = messages.getProperty((String) args[0]);
+                        assertNotNull(pattern, "宿主必须提供导入表单文案: " + args[0]);
+                        yield java.text.MessageFormat.format(pattern, (Object[]) args[1]);
+                    }
                     default -> throw new AssertionError(method.getName());
                 });
         var context = new DesktopUiContext(false, 8080, ".", Path.of("config.yaml"), "swing", host,

@@ -24,6 +24,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class DirectorySuggestionDialogTest {
     @TempDir Path temporary;
 
+    @org.junit.jupiter.api.BeforeEach
+    void requireDesktop() {
+        org.junit.jupiter.api.Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "需要桌面图形环境创建真实窗口");
+    }
+
     @Test @DisplayName("目录提示显示插件红字说明，矮窗口中确认和取消始终可见")
     void guidanceAndActionsRemainAccessible() throws Exception {
         var messages = new Properties();

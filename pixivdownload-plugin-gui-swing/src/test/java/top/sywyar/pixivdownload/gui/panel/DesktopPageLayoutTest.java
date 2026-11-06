@@ -29,7 +29,7 @@ class DesktopPageLayoutTest {
                 (proxy, method, args) -> switch (method.getName()) {
                     case "mediaTools" -> List.of(new DesktopMediaTool(identity, description));
                     case "mediaTool" -> source;
-                    case "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "resolveLocale" -> {
                         var locale = new DesktopUiHost.UiLocale("en-US", "English", "en");
                         yield new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));

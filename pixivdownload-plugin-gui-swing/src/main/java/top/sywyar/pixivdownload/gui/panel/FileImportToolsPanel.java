@@ -81,10 +81,10 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             fields.add(help(context.resolveText(tool.description().help())));
             fields.add(field("file", file, chooseFile));
             fields.add(field("root", root, chooseRoot));
-            fields.add(help(message("root-help")));
+            fields.add(help(context.host().message("gui.import.root-help")));
             if (tool.description().requiresCredential()) {
                 fields.add(field("credential", credential, null));
-                fields.add(help(message("credential-help")));
+                fields.add(help(context.host().message("gui.import.credential-help")));
             }
             fields.add(state);
             fields.add(notice);
@@ -163,7 +163,7 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
         }
         private JPanel field(String key, JTextField input, JButton browse) {
             JPanel row = new JPanel(new BorderLayout(8, 4));
-            JLabel label = new JLabel(message(key));
+            JLabel label = new JLabel(context.host().message("gui.import." + key));
             label.setLabelFor(input);
             input.setName("import." + key);
             row.add(label, BorderLayout.NORTH);
@@ -229,9 +229,9 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             int answer;
             try {
                 answer = JOptionPane.showOptionDialog(window,
-                        new Object[]{message("backfill-message", completion.imported()), message("backfill-later-help")},
-                        message("backfill-title"), JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
-                        new Object[]{message("backfill-later"), message("backfill-start")}, message("backfill-start"));
+                        new Object[]{context.host().message("gui.import.backfill-message", completion.imported()), context.host().message("gui.import.backfill-later-help")},
+                        context.host().message("gui.import.backfill-title"), JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null,
+                        new Object[]{context.host().message("gui.import.backfill-later"), context.host().message("gui.import.backfill-start")}, context.host().message("gui.import.backfill-start"));
             } finally { completionDialogVisible = false; }
             boolean startBackfill = answer == 1;
             new SwingWorker<Void, Void>() {
@@ -250,7 +250,7 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
                     catch (Exception failure) {
                         error(failure);
                         JOptionPane.showMessageDialog(window, notice.getText(),
-                                message("backfill-title"), JOptionPane.ERROR_MESSAGE);
+                                context.host().message("gui.import.backfill-title"), JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }.execute();
@@ -264,17 +264,17 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             cancel.setEnabled((busy || running()) && !cancelling);
             StringBuilder content = new StringBuilder();
             if (preview != null) {
-                content.append(message("preview-summary", preview.records(), preview.works(), preview.candidates(), preview.skipped(), preview.unavailable())).append('\n');
-                content.append(message("samples", preview.samples().size(), preview.works())).append('\n');
-                for (var item : preview.samples()) content.append(message("item", item.workKey(), item.files(),
-                        message("disposition." + item.disposition().name().toLowerCase(Locale.ROOT)))).append('\n');
+                content.append(context.host().message("gui.import.preview-summary", preview.records(), preview.works(), preview.candidates(), preview.skipped(), preview.unavailable())).append('\n');
+                content.append(context.host().message("gui.import.samples", preview.samples().size(), preview.works())).append('\n');
+                for (var item : preview.samples()) content.append(context.host().message("gui.import.item", item.workKey(), item.files(),
+                        context.host().message("gui.import.disposition." + item.disposition().name().toLowerCase(Locale.ROOT)))).append('\n');
             }
             if (status != null) {
-                state.setText(message("phase." + status.phase().name().toLowerCase(Locale.ROOT)));
+                state.setText(context.host().message("gui.import.phase." + status.phase().name().toLowerCase(Locale.ROOT)));
                 progress.setMaximum(Math.max(1, status.total()));
                 progress.setValue(status.processed());
                 progress.setStringPainted(true);
-                progress.setString(message("progress", status.processed(), status.total(), status.imported(), status.skipped(), status.failed()));
+                progress.setString(context.host().message("gui.import.progress", status.processed(), status.total(), status.imported(), status.skipped(), status.failed()));
                 for (var problem : status.problems()) content.append(problem.workKey()).append(": ")
                         .append(context.resolveText(problem.reason())).append('\n');
             }
@@ -290,11 +290,11 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             preview = null;
         }
         private JButton button(String key) {
-            JButton result = new JButton(message(key));
+            JButton result = new JButton(context.host().message("gui.import." + key));
             result.setName("import." + key);
             return result;
         }
-        private String message(String key, Object... args) { return context.host().message("gui.import." + key, args); }
+
         void dispose() { detached = true; credential.setText(""); if (dialog != null) dialog.dispose(); }
     }
     private static JLabel help(String value) {
