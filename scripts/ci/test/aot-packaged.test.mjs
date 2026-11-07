@@ -9,7 +9,7 @@ import test from 'node:test';
 const source = fileURLToPath(new URL('../../aot-packaged.ps1', import.meta.url));
 const shells = process.platform === 'win32' ? ['powershell.exe', 'pwsh'] : ['pwsh'];
 for (const shell of shells) test(`完整 AOT 准备与运行编排保留旧实例并复用产物 (${shell})`, async t => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aot packaged [test] ')));
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aot packaged 中文 [test] ')));
     const scripts = path.join(root, 'scripts');
     const runtime = path.join(root, 'target/runtime');
     const jar = path.join(root, 'app/target/host.jar');
@@ -25,6 +25,7 @@ for (const shell of shells) test(`完整 AOT 准备与运行编排保留旧实�
     write('global settings.xml', '<settings/>');
     write('build.mjs', `import fs from 'node:fs';
 fs.appendFileSync('builds.log',JSON.stringify(process.argv.slice(2))+'\\n');
+fs.writeFileSync('build-env.json',JSON.stringify({maven:process.env.MAVEN_OPTS}));
 if(fs.existsSync('build-fail')) process.exit(7);
 const s=JSON.parse(fs.readFileSync('sources.json','utf8'));
 fs.mkdirSync('app/target',{recursive:true});
@@ -65,17 +66,28 @@ if(command==='run'){
     const args = command => ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(scripts, 'aot-packaged.ps1'),
         '-Command', command, '-Jar', jar, '-RuntimeDirectory', runtime, '-Offline:true', '-LocalRepository', path.join(root, 'local repo'),
         `-UserSettings:${path.join(root, 'user settings.xml')}`, `-GlobalSettings:${path.join(root, 'global settings.xml')}`];
-    const invoke = (command, success = true) => {
-        const result = spawnSync(shell, args(command), { encoding: 'utf8', windowsHide: true });
+    const invoke = (command, success = true, environment = {}) => {
+        const result = spawnSync(shell, args(command), { encoding: 'utf8', windowsHide: true,
+            env: { ...process.env, ...environment } });
+        assert.ok(!`${result.stdout}${result.stderr}`.includes('\uFFFD'), 'Console diagnostics must preserve UTF-8 paths');
         assert.equal(result.status === 0, success, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
         return result;
     };
+    for (const name of ['MAVEN_OPTS', 'MAVEN_DEBUG_OPTS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS']) {
+        const result = invoke('prepare', false, { [name]: '-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=0' });
+        assert.match(result.stderr, /JDWP/);
+        assert.equal(fs.existsSync(runtime), false, 'Debug rejection must not acquire the lock or start a build');
+    }
+    invoke('run', false, { MAVEN_OPTS: '-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=0' });
+    assert.equal(fs.existsSync(runtime), false);
     invoke('run', false);
     write('build-fail', '');
     invoke('prepare', false);
     assert.equal(fs.existsSync(stateFile), false);
     fs.unlinkSync(path.join(root, 'build-fail'));
-    invoke('prepare');
+    const ordinaryOptions = '-Xmx512m -Dhttps.proxyHost=build-proxy.invalid -Dfile.encoding=UTF-8';
+    invoke('prepare', true, { MAVEN_OPTS: ordinaryOptions });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'build-env.json'), 'utf8')).maven, ordinaryOptions);
     const first = fs.readFileSync(stateFile, 'utf8');
     const state = JSON.parse(first);
     assert.equal(fs.readFileSync(path.join(runtime, 'artifacts', state.bundle, 'plugins/fixture-plugin.jar'), 'utf8'), sources.plugin);
@@ -126,7 +138,7 @@ if(command==='run'){
     try {
         for (let i = 0; i < 200 && !fs.existsSync(path.join(root, 'run.json')); i++) await new Promise(resolve => setTimeout(resolve, 50));
         assert.ok(fs.existsSync(path.join(root, 'run.json')), 'Run must start before checking its lock');
-        assert.match(invoke('prepare', false).stderr, /busy/);
+        invoke('prepare', false);
     } finally { write('release-run', ''); assert.equal(await closed, 0); }
     const buildArgs = JSON.parse(fs.readFileSync(path.join(root, 'builds.log'), 'utf8').trim().split('\n')[0]);
     assert.ok(buildArgs.includes('verify'));

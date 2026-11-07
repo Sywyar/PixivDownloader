@@ -10,13 +10,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$Utf8 = New-Object Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $Utf8
+$OutputEncoding = $Utf8
+foreach ($name in @('MAVEN_OPTS', 'MAVEN_DEBUG_OPTS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS')) {
+    if ([Environment]::GetEnvironmentVariable($name) -match '(?i)(?:^|\s|["''])-(?:agentlib:jdwp(?:=|$)|Xrunjdwp:)') {
+        throw "AOT cannot inherit JDWP from $name. Use Run for AOT Prepare/Packaged Run; use Developer Mode for debugging."
+    }
+}
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     $env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 }
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Jar = [IO.Path]::GetFullPath($Jar)
 $RuntimeDirectory = [IO.Path]::GetFullPath($RuntimeDirectory)
-$Utf8 = New-Object Text.UTF8Encoding($false)
 $Tool = Join-Path $PSScriptRoot 'aot-cache.mjs'
 . (Join-Path $PSScriptRoot 'package-local-plugin-staging.ps1')
 
@@ -69,7 +76,7 @@ if (Test-Path -LiteralPath $RuntimeDirectory) {
 }
 Assert-PlainPath (Join-Path $RuntimeDirectory '.lock')
 try { $lock = [IO.File]::Open((Join-Path $RuntimeDirectory '.lock'), 'OpenOrCreate', 'ReadWrite', 'None') }
-catch { throw 'AOT runtime is busy; stop its running application or Prepare before retrying.' }
+catch { throw "Cannot acquire AOT runtime lock '$RuntimeDirectory': $($_.Exception.GetBaseException().Message) Close another AOT Prepare/Packaged Run if it is still active." }
 
 $staging = $null
 $temporaryState = $null
