@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, isDeepStrictEqual } from 'node:util';
 import { sha256 } from './ci/sdk-release.mjs';
@@ -50,6 +50,12 @@ function javaIdentity(javaHome) {
         files: Object.fromEntries(['release', 'lib/modules', path.relative(home, executable), vm]
             .map(name => [name, sha256(regularFile(path.join(home, name)))])),
     };
+}
+
+export function cacheKey({ jar, javaHome }) {
+    return createHash('sha256').update(JSON.stringify({
+        source: sha256(packagedJar(jar)), java: javaIdentity(javaHome),
+    })).digest('hex');
 }
 
 function runJava(executable, args, { cwd, env = process.env, training = false } = {}) {
@@ -166,23 +172,30 @@ export function validateCache({ jar, javaHome, cacheDir }) {
 export async function main(args = process.argv.slice(2)) {
     const command = args.shift();
     if (!command || command === '--help') {
-        console.log('Usage: node scripts/aot-cache.mjs <prepare|run> --jar <boot.jar> [--java-home <JDK25>] --cache-dir <directory> [--strict] [-- <application args>]');
+        console.log('Usage: node scripts/aot-cache.mjs <prepare|run|key> --jar <boot.jar> [--java-home <JDK25>] [--cache-dir <directory>] [--plugins-dir <directory>] [--instance-dir <directory>] [--strict] [-- <application args>]');
         console.log('JDK: --java-home overrides JAVA_HOME. Maven supplies its selected JDK toolchain as JAVA_HOME.');
         console.log('Prepare reuses a verified cache or creates a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
         return;
     }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
-        jar: { type: 'string' }, 'java-home': { type: 'string' }, 'cache-dir': { type: 'string' }, strict: { type: 'boolean' },
+        jar: { type: 'string' }, 'java-home': { type: 'string' }, 'cache-dir': { type: 'string' },
+        'plugins-dir': { type: 'string' }, 'instance-dir': { type: 'string' }, strict: { type: 'boolean' },
     } });
     const javaHome = values['java-home'] ?? process.env.JAVA_HOME;
     if (!javaHome) throw new Error('Select an existing JDK 25 with --java-home or JAVA_HOME; Maven users can register it in ~/.m2/toolchains.xml.');
-    if (!['prepare', 'run'].includes(command) || !values.jar || !values['cache-dir']
-        || (command === 'prepare' && (values.strict || positionals.length))) throw new Error('Invalid arguments; use --help');
+    if (!['prepare', 'run', 'key'].includes(command) || !values.jar || (command !== 'key' && !values['cache-dir'])
+        || (command !== 'run' && (values.strict || positionals.length || values['plugins-dir'] || values['instance-dir']))) throw new Error('Invalid arguments; use --help');
+    if (command === 'key') {
+        console.log(cacheKey({ jar: path.resolve(values.jar), javaHome: path.resolve(javaHome) }));
+        return;
+    }
     const options = { jar: path.resolve(values.jar), javaHome: path.resolve(javaHome), cacheDir: path.resolve(values['cache-dir']) };
     if (command === 'prepare') return prepareCache(options);
     const validated = validateCache(options);
     console.log('AOT run: content verified; JVM cache diagnostics follow');
-    await runJava(validated.java, [`-XX:AOTMode=${values.strict ? 'on' : 'auto'}`, `-XX:AOTCache=${validated.cache}`,
+    const pluginArgs = values['plugins-dir'] ? [`-Dpixivdownload.plugins-dir=${fs.realpathSync(values['plugins-dir'])}`] : [];
+    const instanceArgs = values['instance-dir'] ? [`-Dpixivdownload.instance-dir=${path.resolve(values['instance-dir'])}`] : [];
+    await runJava(validated.java, [...pluginArgs, ...instanceArgs, `-XX:AOTMode=${values.strict ? 'on' : 'auto'}`, `-XX:AOTCache=${validated.cache}`,
         '-Xlog:aot=info', '-jar', validated.jar, ...positionals]);
 }
 

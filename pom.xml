@@ -372,8 +372,8 @@ obfuscate=false
             <properties>
                 <aot.command>run</aot.command>
                 <aot.jar>${maven.multiModuleProjectDirectory}/pixivdownload-app/target/PixivDownload-${project.version}-boot.jar</aot.jar>
-                <aot.cache.directory>${maven.multiModuleProjectDirectory}/target/aot-cache</aot.cache.directory>
-                <aot.working.directory>${maven.multiModuleProjectDirectory}</aot.working.directory>
+                <aot.runtime.directory>${maven.multiModuleProjectDirectory}/target/aot-runtime</aot.runtime.directory>
+                <aot.shell>pwsh</aot.shell>
             </properties>
             <build>
                 <plugins>
@@ -388,13 +388,18 @@ obfuscate=false
                                 <phase>validate</phase>
                                 <goals><goal>exec</goal></goals>
                                 <configuration>
-                                    <executable>node</executable>
-                                    <workingDirectory>${aot.working.directory}</workingDirectory>
+                                    <executable>${aot.shell}</executable>
+                                    <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
                                     <arguments>
-                                        <argument>${maven.multiModuleProjectDirectory}/scripts/aot-cache.mjs</argument>
-                                        <argument>${aot.command}</argument>
-                                        <argument>--jar</argument><argument>${aot.jar}</argument>
-                                        <argument>--cache-dir</argument><argument>${aot.cache.directory}</argument>
+                                        <argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument>
+                                        <argument>-File</argument><argument>${maven.multiModuleProjectDirectory}/scripts/aot-packaged.ps1</argument>
+                                        <argument>-Command</argument><argument>${aot.command}</argument>
+                                        <argument>-Jar</argument><argument>${aot.jar}</argument>
+                                        <argument>-RuntimeDirectory</argument><argument>${aot.runtime.directory}</argument>
+                                        <argument>-Offline:${settings.offline}</argument>
+                                        <argument>-LocalRepository</argument><argument>${settings.localRepository}</argument>
+                                        <argument>-UserSettings:${session.request.userSettingsFile}</argument>
+                                        <argument>-GlobalSettings:${session.request.globalSettingsFile}</argument>
                                     </arguments>
                                 </configuration>
                             </execution>
@@ -402,6 +407,11 @@ obfuscate=false
                     </plugin>
                 </plugins>
             </build>
+        </profile>
+        <profile>
+            <id>aot-windows-shell</id>
+            <activation><os><family>Windows</family></os></activation>
+            <properties><aot.shell>powershell</aot.shell></properties>
         </profile>
         <profile>
             <id>sdk-central</id>

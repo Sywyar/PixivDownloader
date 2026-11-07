@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { isolatedEnvironment, main, prepareCache, validateCache } from '../../aot-cache.mjs';
+import { cacheKey, isolatedEnvironment, main, prepareCache, validateCache } from '../../aot-cache.mjs';
 
 test('训练与验收共用隔离环境，保留系统路径并排除 JVM、应用配置与凭据', () => {
     assert.deepEqual(isolatedEnvironment({
@@ -45,6 +45,23 @@ function fixture(t) {
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
     return { root, jar, javaHome, cacheDir, manifestFile, manifest };
 }
+
+test('缓存标识复用相同 JAR 字节并随 JDK 或程序内容变化', t => {
+    const options = fixture(t);
+    const key = cacheKey(options);
+    assert.match(key, /^[a-f0-9]{64}$/);
+    const copy = path.join(options.root, 'copy.jar');
+    fs.copyFileSync(options.jar, copy);
+    assert.equal(cacheKey({ ...options, jar: copy }), key);
+    fs.appendFileSync(copy, 'changed');
+    assert.notEqual(cacheKey({ ...options, jar: copy }), key);
+    fs.appendFileSync(path.join(options.javaHome, 'lib/modules'), 'patched');
+    assert.notEqual(cacheKey(options), key);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'key', '--jar', options.jar, '--java-home', options.javaHome], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), cacheKey(options));
+});
 
 test('缓存校验接受相同内容，拒绝保留大小和时间的应用、JDK 与缓存变更', t => {
     const options = fixture(t);
