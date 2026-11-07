@@ -13,13 +13,38 @@ $ErrorActionPreference = 'Stop'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $Utf8
 $OutputEncoding = $Utf8
+if ($Command -eq 'prepare' -and $env:OS -eq 'Windows_NT' -and $PSVersionTable.PSVersion.Major -ge 6) {
+    # Use the same Windows host as Maven for consistent process-tree ownership.
+    . (Join-Path $PSScriptRoot 'aot-prepare-process.ps1')
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    $forwarded = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
+        '-Command', $Command, '-Jar', $Jar, '-RuntimeDirectory', $RuntimeDirectory, '-Offline', $Offline)
+    foreach ($name in @('LocalRepository', 'UserSettings', 'GlobalSettings')) {
+        $value = Get-Variable -Name $name -ValueOnly
+        if ($value) { $forwarded += @("-$name", $value) }
+    }
+    & $windowsPowerShell @forwarded
+    exit $LASTEXITCODE
+}
 foreach ($name in @('MAVEN_OPTS', 'MAVEN_DEBUG_OPTS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS')) {
-    if ([Environment]::GetEnvironmentVariable($name) -match '(?i)(?:^|\s|["''])-(?:agentlib:jdwp(?:=|$)|Xrunjdwp:)') {
-        throw "AOT cannot inherit JDWP from $name. Use Run for AOT Prepare/Packaged Run; use Developer Mode for debugging."
+    $options = [Environment]::GetEnvironmentVariable($name)
+    if (-not $options) { continue }
+    $filtered = [regex]::Replace($options, '(?:"[^"]*"|''[^'']*''|[^\s"''])+', {
+        param($token)
+        $argument = $token.Value -replace '["'']', ''
+        if ($argument -match '^(?i)-(?:agentlib:jdwp(?:=|$)|Xrunjdwp:|javaagent:.*[/\\]debugger-agent\.jar(?:=|$))') { return '' }
+        return $token.Value
+    })
+    if ($filtered -cne $options) {
+        [Environment]::SetEnvironmentVariable($name, $filtered.Trim(), 'Process')
+        Write-Host "AOT: isolated debugger options from $name; child processes run without JDWP."
     }
 }
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     $env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
+}
+if ($Command -eq 'prepare' -and $env:OS -eq 'Windows_NT') {
+    . (Join-Path $PSScriptRoot 'aot-prepare-process.ps1')
 }
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Jar = [IO.Path]::GetFullPath($Jar)
