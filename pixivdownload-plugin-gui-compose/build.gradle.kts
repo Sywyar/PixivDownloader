@@ -215,7 +215,7 @@ val idePf4jVersion = if (mavenClasspathReady) null else {
 }
 
 kotlin {
-    jvmToolchain(JavaVersion.current().majorVersion.toInt())
+    jvmToolchain(javaRelease)
     compilerOptions {
         jvmTarget.set(JvmTarget.fromTarget(javaRelease.toString()))
         freeCompilerArgs.add("-Xjdk-release=$javaRelease")
@@ -224,6 +224,10 @@ kotlin {
         languageVersion.set(configuredLanguageVersion)
         apiVersion.set(configuredLanguageVersion)
     }
+}
+
+val projectJava = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(javaRelease))
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -355,7 +359,7 @@ val proguardPlugin = tasks.register<ProGuardTask>("proguardPlugin") {
         outjars(proguardRawLibraries.resolve(runtimeJar.name))
     }
     libraryjars(proguardLibraries)
-    File(System.getProperty("java.home"), "jmods").listFiles()
+    projectJava.get().metadata.installationPath.dir("jmods").asFile.listFiles()
         .orEmpty()
         .filter { it.isFile && it.extension.equals("jmod", ignoreCase = true) }
         .sortedBy(File::getName)

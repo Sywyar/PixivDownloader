@@ -156,16 +156,19 @@ export function validateCache({ jar, javaHome, cacheDir }) {
 export async function main(args = process.argv.slice(2)) {
     const command = args.shift();
     if (!command || command === '--help') {
-        console.log('Usage: node scripts/aot-cache.mjs <prepare|run> --jar <boot.jar> --java-home <JDK25> --cache-dir <directory> [--strict] [-- <application args>]');
+        console.log('Usage: node scripts/aot-cache.mjs <prepare|run> --jar <boot.jar> [--java-home <JDK25>] --cache-dir <directory> [--strict] [-- <application args>]');
+        console.log('JDK: --java-home overrides JAVA_HOME. Maven supplies its selected JDK toolchain as JAVA_HOME.');
         console.log('Prepare requires a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
         return;
     }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
         jar: { type: 'string' }, 'java-home': { type: 'string' }, 'cache-dir': { type: 'string' }, strict: { type: 'boolean' },
     } });
-    if (!['prepare', 'run'].includes(command) || !values.jar || !values['java-home'] || !values['cache-dir']
+    const javaHome = values['java-home'] ?? process.env.JAVA_HOME;
+    if (!javaHome) throw new Error('Select an existing JDK 25 with --java-home or JAVA_HOME; Maven users can register it in ~/.m2/toolchains.xml.');
+    if (!['prepare', 'run'].includes(command) || !values.jar || !values['cache-dir']
         || (command === 'prepare' && (values.strict || positionals.length))) throw new Error('Invalid arguments; use --help');
-    const options = { jar: path.resolve(values.jar), javaHome: path.resolve(values['java-home']), cacheDir: path.resolve(values['cache-dir']) };
+    const options = { jar: path.resolve(values.jar), javaHome: path.resolve(javaHome), cacheDir: path.resolve(values['cache-dir']) };
     if (command === 'prepare') return prepareCache(options);
     const validated = validateCache(options);
     console.log('AOT run: content verified; JVM cache diagnostics follow');

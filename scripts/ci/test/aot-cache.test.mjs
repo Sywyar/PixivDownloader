@@ -107,6 +107,26 @@ test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
         '--cache-dir', options.cacheDir]), /application changed/);
 });
 
+test('CLI 复用所选 JAVA_HOME，显式路径优先，缺少 JDK 时给出配置指引', t => {
+    const options = fixture(t);
+    fs.writeFileSync(options.jar, 'different application');
+    const script = fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url));
+    const args = [script, 'run', '--jar', options.jar, '--cache-dir', options.cacheDir];
+    const inherited = spawnSync(process.execPath, args, {
+        encoding: 'utf8', env: { ...process.env, JAVA_HOME: options.javaHome },
+    });
+    assert.equal(inherited.status, 1);
+    assert.match(inherited.stderr, /application changed/);
+    const explicit = spawnSync(process.execPath, [...args, '--java-home', options.javaHome], {
+        encoding: 'utf8', env: { ...process.env, JAVA_HOME: path.join(options.root, 'wrong jdk') },
+    });
+    assert.equal(explicit.status, 1);
+    assert.match(explicit.stderr, /application changed/);
+    const missing = spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, JAVA_HOME: '' } });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /toolchains\.xml/);
+});
+
 test('未准备缓存时 CLI 给出准备指引并保持目录缺失', t => {
     const options = fixture(t);
     const missing = path.join(options.root, 'unprepared cache');
