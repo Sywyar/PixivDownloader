@@ -254,10 +254,30 @@ test('PR checks attach to the head, retain tested merge evidence, and reject cha
     publishCurrentChecks(evidence, 'test-only-token', core, api);
     assert.equal(checks.size, roles.length * 2);
     assert.ok([...checks.values()].every(c => c.conclusion === 'success'), '仅重建相同双亲和树不使 head 检查失效');
+    const openPr = structuredClone(pr);
+    const mergePr = () => {
+        Object.assign(pr, { state: 'closed', merged: true, merged_at: '2026-09-05T08:05:00Z', merge_commit_sha: later });
+        pr.base.sha = later;
+    };
+    checks.clear(); writes = 0; race = mergePr;
+    assert.equal(publishCurrentChecks(evidence, 'test-only-token', core, api), false);
+    assert.equal(writes, roles.length * 2, '合并后的复核不得撤销已写入的有效成功');
+    assert.ok([...checks.values()].every(c => c.conclusion === 'success'));
+    assert.equal(assertCurrentEvidence(evidence, api, core), null);
+    checks.clear(); writes = 0;
+    assert.equal(publishCurrentChecks(evidence, 'test-only-token', core, api), false);
+    assert.equal(writes, 0, '发布前已合并的 PR 不再写入准入检查');
+    Object.assign(pr, openPr, { merged: false, merged_at: null });
     for (const mutate of [
         () => { pr.base.sha = H; }, () => { pr.head.sha = B; },
         () => { f.run.run_attempt++; }, () => { f.run.conclusion = 'failure'; },
         () => { pr.merge_commit_sha = later; merge.tree.sha = H; },
+        () => { pr.state = 'closed'; },
+        () => { mergePr(); merge.tree.sha = H; },
+        () => { mergePr(); merge.parents.reverse(); },
+        () => { mergePr(); pr.merge_commit_sha = M; merge.tree.sha = H; },
+        () => { mergePr(); f.run.run_attempt++; },
+        () => { mergePr(); pr.head.sha = B; },
     ]) {
         const savedRun = structuredClone(f.run), savedPr = structuredClone(pr), savedMerge = structuredClone(merge);
         checks.clear(); writes = 0; race = mutate;
@@ -520,6 +540,17 @@ test('protected predecessor admits only its approved core, permits ordinary root
         const integrated = git(['commit-tree', tree, '-p', base, '-p', root], 'actual integrated merge\n');
         const mergedPr = { number: 42, state: 'closed', merged_at: '2026-09-05T09:00:00Z', merge_commit_sha: integrated,
             base: { ref: 'master', repo: { id: 1089943605 } }, head: { sha: root, ref: 'feature', repo: { id: 12345 } } };
+        let prReads = 0;
+        const inspectionRace = await checkEvent({ repo, eventName: 'workflow_run', core,
+            event: { workflow_run: { id: 123 } }, api: (endpoint, options) => {
+                if (endpoint.endsWith('/pulls/42') && ++prReads > 1) return { ...mergedPr, merged: true };
+                if (endpoint.endsWith(`/git/commits/${integrated}`)) return { sha: integrated,
+                    tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
+                return regeneratedApi(endpoint, options);
+            } });
+        assert.equal(prReads, 2);
+        assert.equal(inspectionRace.ignored, true, '证据校验过程中完成的同一合并属于迟到事件');
+        assert.equal(inspectionRace.merge, undefined, '迟到事件不再请求签发准入检查');
         const masterApi = (endpoint, options) => {
             if (endpoint.endsWith(`/git/commits/${integrated}`)) return { ...f.merge, sha: integrated,
                 tree: { sha: tree }, parents: [{ sha: base }, { sha: root }] };
