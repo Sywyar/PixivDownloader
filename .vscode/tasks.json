@@ -2,6 +2,24 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "AOT Prepare",
+      "type": "process",
+      "command": "${workspaceFolder}/mvnw",
+      "windows": { "command": "${workspaceFolder}\\mvnw.cmd" },
+      "args": ["-N", "-Paot", "-Daot.command=prepare", "validate"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "AOT Packaged Run",
+      "type": "process",
+      "command": "${workspaceFolder}/mvnw",
+      "windows": { "command": "${workspaceFolder}\\mvnw.cmd" },
+      "args": ["-N", "-Paot", "validate"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
       "label": "Compile Developer Runtime",
       "type": "process",
       "command": "${workspaceFolder}/mvnw",

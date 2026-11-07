@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, isDeepStrictEqual } from 'node:util';
 import { sha256 } from './ci/sdk-release.mjs';
@@ -13,6 +13,14 @@ const MANIFEST = 'manifest.json';
 function regularFile(file) {
     if (!fs.lstatSync(file).isFile()) throw new Error(`Expected a regular file: ${file}`);
     return file;
+}
+
+function packagedJar(jar) {
+    try { return regularFile(jar); }
+    catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw new Error(`Packaged JAR not found: ${jar}. Build the boot JAR before running AOT Prepare or AOT Packaged Run.`, { cause: error });
+    }
 }
 
 function digestTree(directory) {
@@ -42,6 +50,12 @@ function javaIdentity(javaHome) {
         files: Object.fromEntries(['release', 'lib/modules', path.relative(home, executable), vm]
             .map(name => [name, sha256(regularFile(path.join(home, name)))])),
     };
+}
+
+export function cacheKey({ jar, javaHome }) {
+    return createHash('sha256').update(JSON.stringify({
+        source: sha256(packagedJar(jar)), java: javaIdentity(javaHome),
+    })).digest('hex');
 }
 
 function runJava(executable, args, { cwd, env = process.env, training = false } = {}) {
@@ -74,22 +88,33 @@ function runJava(executable, args, { cwd, env = process.env, training = false } 
     });
 }
 
-function trainingEnvironment() {
+export function isolatedEnvironment(environment) {
     // 训练不继承应用配置或 JVM 注入参数，避免写到调用者的真实实例。
-    return Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    return Object.fromEntries(Object.entries(environment).filter(([key]) =>
         /^(PATH|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|LANG|LC_ALL)$/i.test(key)));
 }
 
 export async function prepareCache({ jar, javaHome, cacheDir }) {
-    const source = fs.realpathSync(regularFile(path.resolve(jar)));
+    const source = fs.realpathSync(packagedJar(path.resolve(jar)));
     const java = javaIdentity(javaHome);
     const sourceSha256 = sha256(source);
-    fs.mkdirSync(cacheDir); // 仅创建新目录；不得覆盖已有缓存或用户文件。
+    fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
+    try { fs.mkdirSync(cacheDir); }
+    catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        let validated;
+        try { validated = validateCache({ jar: source, javaHome, cacheDir }); }
+        catch (cause) {
+            throw new Error(`Existing AOT cache cannot be reused at ${cacheDir}: ${cause.message} Existing files were preserved; select a new --cache-dir (Maven: -Daot.cache.directory=<new-directory>).`, { cause });
+        }
+        console.log(`AOT prepare: reusing verified cache at ${cacheDir}`);
+        return validated.manifest;
+    }
     const root = fs.realpathSync(cacheDir);
     const application = path.join(root, 'application');
     const training = path.join(root, 'training');
     const cache = path.join(root, 'application.aot');
-    const env = trainingEnvironment();
+    const env = isolatedEnvironment(process.env);
     fs.mkdirSync(training);
     const started = performance.now();
     let manifest;
@@ -120,8 +145,14 @@ export async function prepareCache({ jar, javaHome, cacheDir }) {
 }
 
 export function validateCache({ jar, javaHome, cacheDir }) {
-    const root = fs.realpathSync(cacheDir);
-    const file = regularFile(path.join(root, MANIFEST));
+    let root, file;
+    try {
+        root = fs.realpathSync(cacheDir);
+        file = regularFile(path.join(root, MANIFEST));
+    } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw new Error(`AOT cache is missing or incomplete: ${cacheDir}. Build the boot JAR, then run AOT Prepare (mvn -N -Paot -Daot.command=prepare validate) before AOT Packaged Run. Replacing an incomplete cache requires a new cache directory; select another path if this directory already exists.`, { cause: error });
+    }
     if (fs.statSync(file).size > 1024 * 1024) throw new Error('AOT manifest exceeds 1 MiB');
     const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (manifest.schemaVersion !== 1 || manifest.root !== root
@@ -130,31 +161,41 @@ export function validateCache({ jar, javaHome, cacheDir }) {
     }
     const java = javaIdentity(javaHome);
     if (!isDeepStrictEqual(manifest.java, java)) throw new Error('AOT cache JDK changed; prepare a new cache');
-    if (sha256(regularFile(jar)) !== manifest.sourceSha256) throw new Error('AOT cache application changed; prepare a new cache');
+    if (sha256(packagedJar(jar)) !== manifest.sourceSha256) throw new Error('AOT cache application changed; prepare a new cache');
     const application = path.join(root, 'application');
     if (!isDeepStrictEqual(digestTree(application), manifest.files)) throw new Error('AOT extracted files changed; prepare a new cache');
     const cache = regularFile(path.join(root, 'application.aot'));
     if (sha256(cache) !== manifest.cacheSha256) throw new Error('AOT cache content changed; prepare a new cache');
-    return { java: java.executable, jar: regularFile(path.join(application, manifest.entry)), cache };
+    return { java: java.executable, jar: regularFile(path.join(application, manifest.entry)), cache, manifest };
 }
 
 export async function main(args = process.argv.slice(2)) {
     const command = args.shift();
     if (!command || command === '--help') {
-        console.log('Usage: node scripts/aot-cache.mjs <prepare|run> --jar <boot.jar> --java-home <JDK25> --cache-dir <directory> [--strict] [-- <application args>]');
-        console.log('Prepare requires a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
+        console.log('Usage: node scripts/aot-cache.mjs <prepare|run|key> --jar <boot.jar> [--java-home <JDK25>] [--cache-dir <directory>] [--plugins-dir <directory>] [--instance-dir <directory>] [--strict] [-- <application args>]');
+        console.log('JDK: --java-home overrides JAVA_HOME. Maven supplies its selected JDK toolchain as JAVA_HOME.');
+        console.log('Prepare reuses a verified cache or creates a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
         return;
     }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
-        jar: { type: 'string' }, 'java-home': { type: 'string' }, 'cache-dir': { type: 'string' }, strict: { type: 'boolean' },
+        jar: { type: 'string' }, 'java-home': { type: 'string' }, 'cache-dir': { type: 'string' },
+        'plugins-dir': { type: 'string' }, 'instance-dir': { type: 'string' }, strict: { type: 'boolean' },
     } });
-    if (!['prepare', 'run'].includes(command) || !values.jar || !values['java-home'] || !values['cache-dir']
-        || (command === 'prepare' && (values.strict || positionals.length))) throw new Error('Invalid arguments; use --help');
-    const options = { jar: path.resolve(values.jar), javaHome: path.resolve(values['java-home']), cacheDir: path.resolve(values['cache-dir']) };
+    const javaHome = values['java-home'] ?? process.env.JAVA_HOME;
+    if (!javaHome) throw new Error('Select an existing JDK 25 with --java-home or JAVA_HOME; Maven users can register it in ~/.m2/toolchains.xml.');
+    if (!['prepare', 'run', 'key'].includes(command) || !values.jar || (command !== 'key' && !values['cache-dir'])
+        || (command !== 'run' && (values.strict || positionals.length || values['plugins-dir'] || values['instance-dir']))) throw new Error('Invalid arguments; use --help');
+    if (command === 'key') {
+        console.log(cacheKey({ jar: path.resolve(values.jar), javaHome: path.resolve(javaHome) }));
+        return;
+    }
+    const options = { jar: path.resolve(values.jar), javaHome: path.resolve(javaHome), cacheDir: path.resolve(values['cache-dir']) };
     if (command === 'prepare') return prepareCache(options);
     const validated = validateCache(options);
     console.log('AOT run: content verified; JVM cache diagnostics follow');
-    await runJava(validated.java, [`-XX:AOTMode=${values.strict ? 'on' : 'auto'}`, `-XX:AOTCache=${validated.cache}`,
+    const pluginArgs = values['plugins-dir'] ? [`-Dpixivdownload.plugins-dir=${fs.realpathSync(values['plugins-dir'])}`] : [];
+    const instanceArgs = values['instance-dir'] ? [`-Dpixivdownload.instance-dir=${path.resolve(values['instance-dir'])}`] : [];
+    await runJava(validated.java, [...pluginArgs, ...instanceArgs, `-XX:AOTMode=${values.strict ? 'on' : 'auto'}`, `-XX:AOTCache=${validated.cache}`,
         '-Xlog:aot=info', '-jar', validated.jar, ...positionals]);
 }
 

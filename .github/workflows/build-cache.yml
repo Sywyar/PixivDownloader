@@ -25,7 +25,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dependencies:
+  # setup-gradle 优先匹配 job id；与产物验收一致才能优先读取主线预热结果。
+  release-artifacts:
     strategy:
       fail-fast: false
       matrix:

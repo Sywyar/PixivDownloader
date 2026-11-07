@@ -191,6 +191,47 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-toolchains-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>select-project-jdk</id>
+                        <goals><goal>select-jdk-toolchain</goal></goals>
+                        <configuration>
+                            <version>[${java.version},26)</version>
+                            <useJdk>IfMatch</useJdk>
+                            <comparator>current,env,version,vendor</comparator>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <toolchainJavaHomeEnvName>JAVA_HOME</toolchainJavaHomeEnvName>
+                    <environmentVariables><JAVA_HOME>${java.home}</JAVA_HOME></environmentVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>export-proguard-jdk</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <skip>${pixivdownload.proguard.skip}</skip>
+                            <executable>node</executable>
+                            <arguments>
+                                <argument>${maven.multiModuleProjectDirectory}/scripts/jdk-toolchain.mjs</argument>
+                                <argument>${project.build.directory}/jdk-toolchain.properties</argument>
+                                <argument>${java.version}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.8.1</version>
                 <executions>
@@ -210,9 +251,7 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- JDK 23+ 默认禁用隐式注解处理（Lombok 等处理器不再经 classpath 自动发现），
-                显式声明 Lombok 处理器路径，使任意 JDK（17/21/23/26…）下 @RequiredArgsConstructor
-                等注解都能正常生成代码；未依赖 Lombok 的模块不受影响。 -->
+            <!-- JDK 23+ 默认禁用隐式注解处理，显式声明 Lombok 处理器路径。 -->
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
@@ -254,6 +293,8 @@
                         <configuration>
                             <skip>${pixivdownload.proguard.skip}</skip>
                             <target>
+                                <property file="${project.build.directory}/jdk-toolchain.properties"/>
+                                <fail unless="pixivdownload.toolchain.java.home" message="Missing selected JDK; run the Maven package lifecycle."/>
                                 <delete dir="${pixivdownload.proguard.outputDirectory}" quiet="true"/>
                                 <mkdir dir="${project.build.directory}/proguard/additional-program"/>
                                 <mkdir dir="${pixivdownload.proguard.outputDirectory}"/>
@@ -262,14 +303,14 @@
                                     <pathelement path="${pixivdownload.proguard.additionalProgramPath}"/>
                                 </path>
                                 <path id="pixivdownload.proguard.jmods">
-                                    <fileset dir="${java.home}/jmods">
+                                    <fileset dir="${pixivdownload.toolchain.java.home}/jmods">
                                         <include name="*.jmod"/>
                                     </fileset>
                                 </path>
                                 <path id="pixivdownload.proguard.libraries">
                                     <path path="${pixivdownload.proguard.libraryClasspath}"/>
                                 </path>
-                                <java classname="proguard.ProGuard" fork="true" failonerror="true" maxmemory="2048m">
+                                <java classname="proguard.ProGuard" jvm="${pixivdownload.toolchain.java.home}/bin/java" fork="true" failonerror="true" maxmemory="2048m">
                                     <classpath refid="maven.plugin.classpath"/>
                                     <arg value="-include"/>
                                     <arg file="${maven.multiModuleProjectDirectory}/build-support/proguard/base.pro"/>
@@ -326,6 +367,52 @@ obfuscate=false
     </build>
 
     <profiles>
+        <profile>
+            <id>aot</id>
+            <properties>
+                <aot.command>run</aot.command>
+                <aot.jar>${maven.multiModuleProjectDirectory}/pixivdownload-app/target/PixivDownload-${project.version}-boot.jar</aot.jar>
+                <aot.runtime.directory>${maven.multiModuleProjectDirectory}/target/aot-runtime</aot.runtime.directory>
+                <aot.shell>pwsh</aot.shell>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <inherited>false</inherited>
+                        <executions>
+                            <execution>
+                                <id>packaged-aot</id>
+                                <phase>validate</phase>
+                                <goals><goal>exec</goal></goals>
+                                <configuration>
+                                    <executable>${aot.shell}</executable>
+                                    <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                                    <arguments>
+                                        <argument>-NoProfile</argument><argument>-ExecutionPolicy</argument><argument>Bypass</argument>
+                                        <argument>-File</argument><argument>${maven.multiModuleProjectDirectory}/scripts/aot-packaged.ps1</argument>
+                                        <argument>-Command</argument><argument>${aot.command}</argument>
+                                        <argument>-Jar</argument><argument>${aot.jar}</argument>
+                                        <argument>-RuntimeDirectory</argument><argument>${aot.runtime.directory}</argument>
+                                        <argument>-Offline:${settings.offline}</argument>
+                                        <argument>-LocalRepository</argument><argument>${settings.localRepository}</argument>
+                                        <argument>-UserSettings:${session.request.userSettingsFile}</argument>
+                                        <argument>-GlobalSettings:${session.request.globalSettingsFile}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>aot-windows-shell</id>
+            <activation><os><family>Windows</family></os></activation>
+            <properties><aot.shell>powershell</aot.shell></properties>
+        </profile>
         <profile>
             <id>sdk-central</id>
             <build>

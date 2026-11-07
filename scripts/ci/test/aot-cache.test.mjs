@@ -3,8 +3,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { main, prepareCache, validateCache } from '../../aot-cache.mjs';
+import { cacheKey, isolatedEnvironment, main, prepareCache, validateCache } from '../../aot-cache.mjs';
+
+test('训练与验收共用隔离环境，保留系统路径并排除 JVM、应用配置与凭据', () => {
+    assert.deepEqual(isolatedEnvironment({
+        Path: '/tools', SYSTEMROOT: 'C:/Windows', TEMP: '/temp', LANG: 'en_US.UTF-8',
+        JAVA_TOOL_OPTIONS: '-Dpixivdownload.instance-dir=real-instance', NODE_OPTIONS: '--inspect',
+        SPRING_CONFIG_LOCATION: 'real-config.yaml', GITHUB_TOKEN: 'test-token',
+    }), { Path: '/tools', SYSTEMROOT: 'C:/Windows', TEMP: '/temp', LANG: 'en_US.UTF-8' });
+});
 
 function fixture(t) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-aot-test-')));
@@ -35,6 +45,23 @@ function fixture(t) {
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
     return { root, jar, javaHome, cacheDir, manifestFile, manifest };
 }
+
+test('缓存标识复用相同 JAR 字节并随 JDK 或程序内容变化', t => {
+    const options = fixture(t);
+    const key = cacheKey(options);
+    assert.match(key, /^[a-f0-9]{64}$/);
+    const copy = path.join(options.root, 'copy.jar');
+    fs.copyFileSync(options.jar, copy);
+    assert.equal(cacheKey({ ...options, jar: copy }), key);
+    fs.appendFileSync(copy, 'changed');
+    assert.notEqual(cacheKey({ ...options, jar: copy }), key);
+    fs.appendFileSync(path.join(options.javaHome, 'lib/modules'), 'patched');
+    assert.notEqual(cacheKey(options), key);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'key', '--jar', options.jar, '--java-home', options.javaHome], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), cacheKey(options));
+});
 
 test('缓存校验接受相同内容，拒绝保留大小和时间的应用、JDK 与缓存变更', t => {
     const options = fixture(t);
@@ -81,13 +108,58 @@ test('缓存清单拒绝路径越界、损坏和超出读取预算', t => {
     assert.throws(() => validateCache(options), /exceeds/);
 });
 
-test('准备缓存拒绝覆盖现存目录，失败不改已有文件', async t => {
+function cacheSnapshot(directory) {
+    return fs.readdirSync(directory, { recursive: true }).sort().map(name => {
+        const file = path.join(directory, name);
+        const stat = fs.lstatSync(file);
+        return [name, stat.mtimeMs, stat.isFile() ? fs.readFileSync(file) : null];
+    });
+}
+
+test('重复准备复用已校验的缓存，不训练或改写已有文件', async t => {
     const options = fixture(t);
-    const before = fs.readFileSync(options.manifestFile, 'utf8');
-    await assert.rejects(prepareCache(options), { code: 'EEXIST' });
-    assert.equal(fs.readFileSync(options.manifestFile, 'utf8'), before);
+    const before = cacheSnapshot(options.cacheDir);
+    assert.deepEqual(await prepareCache(options), options.manifest);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'prepare', '--jar', options.jar, '--java-home', options.javaHome, '--cache-dir', options.cacheDir], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /reusing verified cache/);
+    assert.deepEqual(cacheSnapshot(options.cacheDir), before);
     await assert.rejects(main(['prepare', '--jar', options.jar, '--java-home', options.javaHome,
         '--cache-dir', options.cacheDir, '--', '--setup']), /Invalid arguments/);
+});
+
+test('重复准备拒绝失效或未完成的缓存，并保留现场', async t => {
+    const changes = {
+        '应用变更': o => fs.writeFileSync(o.jar, 'changed'),
+        'JDK 变更': o => fs.writeFileSync(path.join(o.javaHome, 'lib/modules'), 'changed'),
+        '解包依赖变更': o => fs.writeFileSync(path.join(o.cacheDir, 'application/lib/dependency.jar'), 'changed'),
+        '缓存损坏': o => fs.writeFileSync(path.join(o.cacheDir, 'application.aot'), 'changed'),
+        '清单损坏': o => fs.writeFileSync(o.manifestFile, '{'),
+        '训练未完成': o => fs.unlinkSync(o.manifestFile),
+    };
+    for (const [name, change] of Object.entries(changes)) {
+        await t.test(name, async subtest => {
+            const options = fixture(subtest);
+            change(options);
+            const before = cacheSnapshot(options.cacheDir);
+            await assert.rejects(prepareCache(options), error => {
+                assert.match(error.message, /cannot be reused/);
+                assert.match(error.message, /-Daot\.cache\.directory/);
+                assert.ok(error.cause);
+                return true;
+            });
+            assert.deepEqual(cacheSnapshot(options.cacheDir), before);
+        });
+    }
+});
+
+test('缓存路径已被普通文件占用时拒绝准备并保留文件', async t => {
+    const options = fixture(t);
+    const occupied = path.join(options.root, 'user-file');
+    fs.writeFileSync(occupied, 'user content');
+    await assert.rejects(prepareCache({ ...options, cacheDir: occupied }), /cannot be reused/);
+    assert.equal(fs.readFileSync(occupied, 'utf8'), 'user content');
 });
 
 test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
@@ -97,10 +169,72 @@ test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
         '--cache-dir', options.cacheDir]), /application changed/);
 });
 
+test('CLI 复用所选 JAVA_HOME，显式路径优先，缺少 JDK 时给出配置指引', t => {
+    const options = fixture(t);
+    fs.writeFileSync(options.jar, 'different application');
+    const script = fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url));
+    const args = [script, 'run', '--jar', options.jar, '--cache-dir', options.cacheDir];
+    const inherited = spawnSync(process.execPath, args, {
+        encoding: 'utf8', env: { ...process.env, JAVA_HOME: options.javaHome },
+    });
+    assert.equal(inherited.status, 1);
+    assert.match(inherited.stderr, /application changed/);
+    const explicit = spawnSync(process.execPath, [...args, '--java-home', options.javaHome], {
+        encoding: 'utf8', env: { ...process.env, JAVA_HOME: path.join(options.root, 'wrong jdk') },
+    });
+    assert.equal(explicit.status, 1);
+    assert.match(explicit.stderr, /application changed/);
+    const missing = spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, JAVA_HOME: '' } });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /toolchains\.xml/);
+});
+
+test('未准备缓存时 CLI 给出准备指引并保持目录缺失', t => {
+    const options = fixture(t);
+    const missing = path.join(options.root, 'unprepared cache');
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'run', '--jar', options.jar, '--java-home', options.javaHome, '--cache-dir', missing], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes(missing));
+    assert.match(result.stderr, /AOT Prepare/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+    assert.equal(fs.existsSync(missing), false);
+});
+
+test('未完成训练的缓存提示换用新目录并保留现有文件', t => {
+    const options = fixture(t);
+    fs.unlinkSync(options.manifestFile);
+    assert.throws(() => validateCache(options), error => {
+        assert.match(error.message, /AOT Prepare/);
+        assert.match(error.message, /new cache directory/);
+        assert.equal(error.cause.code, 'ENOENT');
+        return true;
+    });
+    assert.equal(fs.readFileSync(path.join(options.cacheDir, 'application.aot'), 'utf8'), 'cache');
+    assert.equal(fs.existsSync(options.manifestFile), false);
+});
+
+test('准备和运行都明确提示缺失的打包 JAR 且不改缓存', async t => {
+    const options = fixture(t);
+    fs.unlinkSync(options.jar);
+    const before = fs.readFileSync(options.manifestFile, 'utf8');
+    for (const command of ['prepare', 'run']) {
+        await assert.rejects(main([command, '--jar', options.jar, '--java-home', options.javaHome,
+            '--cache-dir', options.cacheDir]), error => {
+            assert.ok(error.message.includes(options.jar));
+            assert.match(error.message, /Build the boot JAR/);
+            assert.equal(error.cause.code, 'ENOENT');
+            return true;
+        });
+    }
+    assert.equal(fs.readFileSync(options.manifestFile, 'utf8'), before);
+});
+
 test('准备失败不发布清单并清理隔离训练目录', async t => {
     const options = fixture(t);
-    const failed = path.join(options.root, 'failed');
+    const failed = path.join(options.root, 'missing parent', 'failed');
     await assert.rejects(prepareCache({ ...options, cacheDir: failed }));
+    assert.equal(fs.statSync(failed).isDirectory(), true);
     assert.equal(fs.existsSync(path.join(failed, 'manifest.json')), false);
     assert.equal(fs.existsSync(path.join(failed, 'training')), false);
     assert.equal(fs.readFileSync(options.jar, 'utf8'), 'boot jar');
