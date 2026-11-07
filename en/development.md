@@ -4,9 +4,13 @@ This page covers environment setup, module boundaries, builds and tests, develop
 
 ## Environment requirements
 
+The host, SDK and official plugins use JDK 25, with Java and Kotlin compilation targeting 25. Third-party plugin development also requires JDK 25. For ProGuard builds with Temurin 25, download the JMOD archive matching the full JDK version and place its contents in `jmods/`. CI prepares both with `actions/setup-java` and `java-package: jdk+jmods`, retaining checksum and signature verification.
+
+The framework baseline is Spring Boot 4.1.2, Spring Framework 7, Jackson 3 and SDK 2.0.0. Complete the [SDK migration](/en/plugin-development) before upgrading plugins; SDK 1.x binaries cannot load directly into this host.
+
 | Tool | Version requirement | Purpose |
 | --- | --- | --- |
-| JDK | 17 | Compile and run Java modules |
+| JDK | 25 | Compile and run Java modules; host CI tests use 25 |
 | Maven | 3.9+ or the repository's `mvnw` | Reactor builds and tests |
 | Git | A currently supported version | Version control and branch management |
 | Node.js / npm | Match current CI | Frontend tests, i18n checks and boundary guards |
@@ -18,6 +22,25 @@ All Java commands must explicitly use UTF-8. In Windows PowerShell, set:
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 ```
+
+### Choosing a JDK when several are installed
+
+The root POM requires JDK `[25,26)` during Maven's `validate` phase. It reuses the current Maven JVM if it is 25; otherwise it checks matching entries in `~/.m2/toolchains.xml`, then tries Maven's local discovery. Compilation, tests, Maven development startup, AOT, and Maven-launched Gradle / ProGuard share that choice. If no JDK 25 is found, the build fails without downloading a JDK or falling back to 17 or 26.
+
+Register custom installation paths once for all clones. Replace `jdkHome` below with the absolute path of an existing JDK 25 and save it in `~/.m2/toolchains.xml`. If the file exists, add the `toolchain` element and keep other entries. Discovery supports variables such as `JAVA25_HOME` and common installation locations, but does not search arbitrary disks. Localized output from older JDKs can also break discovery; use an explicit entry in that case.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<toolchains xmlns="http://maven.apache.org/TOOLCHAINS/1.1.0">
+  <toolchain>
+    <type>jdk</type>
+    <provides><version>25</version></provides>
+    <configuration><jdkHome>C:/path/to/jdk-25</jdkHome></configuration>
+  </toolchain>
+</toolchains>
+```
+
+The terminal's `JAVA_HOME` or IDE Maven Runner still selects the JVM that starts Maven. Native IDE `Developer Mode` runs and debugs with the project SDK, which must be an installed JDK 25. For direct AOT script calls, `--java-home` takes precedence over `JAVA_HOME`. Compose requires a Java/Kotlin toolchain of 25 and disables automatic JDK downloads.
 
 ## Module structure and dependency direction
 
@@ -33,7 +56,7 @@ The root `pom.xml` is the Maven Reactor aggregator:
 | `pixivdownload-official-plugins/` | Official external plugin development aggregator and `dev-mode` entry point |
 | `plugin-templates/` | Copyable project templates for independent third-party plugins |
 
-Dependency direction: plugins depend on `plugin-api` (and optionally `core-api`). They must not depend on `pixivdownload-app` or internal host implementation classes. The `douyin` plugin source is maintained in a [separate repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) and participates in isolated SDK consumer compatibility acceptance at a pinned commit.
+Dependency direction: plugins depend on `plugin-api` (and optionally `core-api`). They must not depend on `pixivdownload-app` or internal host implementation classes. The `douyin` plugin source is maintained in a [separate repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) and its dedicated tests run only in that repository’s `Host compatibility` CI against a pinned host commit. Main-repository PRs retain generic SDK acceptance.
 
 ## Fork, build and test
 
@@ -94,6 +117,45 @@ npm run i18n:check
 npm run i18n:generate-static
 npm run test:i18n
 ```
+
+## Optional JDK 25 AOT Cache
+
+The repository's `scripts/aot-cache.mjs` prepares and uses a JVM startup cache for the final boot JAR. It requires Node.js and an existing JDK 25. It does not download a JDK or enable Spring AOT. Installers keep their existing launch path; CI artifact verification trains a real cache and checks strict startup. Train only trusted JARs: training executes the application with isolated temporary configuration and does not read the current instance's user data.
+
+Run the shared `AOT Prepare` and `AOT Packaged Run` configurations in that order; no separate packaging command is needed. IntelliJ IDEA uses `.run`, VS Code provides matching tasks, and Eclipse uses the launch configurations in `eclipse/`. Prepare uses the JDK 25 selected by Maven Toolchains to build the host and official plugins, assemble a separate runtime, and prepare its cache. Windows uses system PowerShell; Linux / macOS requires PowerShell 7 (`pwsh`) on PATH. Equivalent commands:
+
+```powershell
+.\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
+if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
+.\mvnw.cmd -N -Paot validate
+```
+
+The default directory is `target/aot-runtime`; choose another with `-Daot.runtime.directory=...`. `artifacts/` holds the host and full official distribution plugin set, including optional plugins but excluding the recovery test probe. `cache/` separates caches by JAR and JDK contents. `instance/` is the application working directory and holds independent configuration and data. `mvn clean` removes this default runtime under `target/`; use a directory outside `target/` for data you need to retain, with the same override for Prepare and Run. Complete normal setup on the first Run; the repository root instance is not read or overwritten. After changing code, run Prepare again. It switches to new artifacts only after success and preserves configuration and data. Matching artifacts are verified and reused; a plugin-only change can reuse the host cache if the host and JDK remain unchanged. The single-instance lock lives in `instance/ipc/` inside this runtime, separate from other development or installed instances. Concurrent instances still need different server ports.
+
+The Prepare build skips unit tests; tests and CI gates still run separately. Plugins use the existing unsigned local upload policy and are for local development only, not official signed distribution. Run does not rebuild. Concurrent preparation or execution in the same directory is rejected. Failure preserves the previous runnable record; damaged contents are rejected, and a new runtime directory can be prepared instead. Old artifacts and caches are retained and consume disk space. After stopping related processes, remove unused contents while preserving any needed data in `instance/`.
+
+Use ordinary Run for `AOT Prepare` and `AOT Packaged Run`. If launched through IDE Debug, the entry point removes JDWP and IDEA debugger-agent options only from the AOT child process environment, preserving heap, proxy, certificate and other options. Use `Developer Mode` for application breakpoints. On Windows, stopping Prepare or its launcher also ends that operation's build and training children and releases the lock; other application instances are unaffected. If the lock is held, stop the Prepare or Run task using the same runtime directory, then retry. Do not delete `.lock`. For other lock errors, check the underlying cause shown in the output.
+
+Use `Developer Mode` for source execution and breakpoint debugging. JDK 25 AOT Cache cannot train with nonempty class directories, and the linked cache cannot be used with JDWP debugging. Unit tests, JaCoCo, Maven and Gradle build processes do not use the application's AOT cache. Assess training cost against the actual number of repeated launches.
+
+The low-level CLI below consumes an existing JAR and is also used directly by CI. It does not build or stage plugins. Run it from the repository root, replacing `<version>`, the JDK path and the initialized instance directory. Use a new directory for a new cache; an existing valid cache can be verified and reused. Execution uses the selected instance configuration, plugins and data. A core JAR without plugins provides recovery mode only.
+
+```powershell
+$repo = (Get-Location).Path
+$jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
+$jdk = 'C:/path/to/jdk-25'
+$cache = Join-Path $repo 'target/aot-cache'
+node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
+if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
+
+Set-Location 'C:/path/to/initialized-instance'
+node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
+if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
+```
+
+The low-level tool prints `AOT prepare: ready` for a new cache or `AOT prepare: reusing verified cache` when reusing a valid one. Before launch it checks SHA-256 hashes of the source JAR, extracted dependencies, JDK and cache. A damaged or incomplete cache is preserved; choose a new directory with `--cache-dir`. Temporary training data is removed afterwards. The manifest checks local consistency and does not replace release signatures or plugin admission.
+
+Normal execution preserves the current environment and lets the JVM fall back when the cache is incompatible. To verify a cache hit, add `--strict` before the `run` command's `--` and check the JVM's `Using AOT-linked classes: true` diagnostics; successful exit alone does not prove a hit. Repeated startup savings must offset training cost. Measure with the same JAR, JDK, plugins, data and startup target before deployment. See [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html).
 
 ## Local Windows packaging
 
