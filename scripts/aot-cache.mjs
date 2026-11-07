@@ -93,7 +93,17 @@ export async function prepareCache({ jar, javaHome, cacheDir }) {
     const java = javaIdentity(javaHome);
     const sourceSha256 = sha256(source);
     fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
-    fs.mkdirSync(cacheDir); // 仅创建新目录；不得覆盖已有缓存或用户文件。
+    try { fs.mkdirSync(cacheDir); }
+    catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        let validated;
+        try { validated = validateCache({ jar: source, javaHome, cacheDir }); }
+        catch (cause) {
+            throw new Error(`Existing AOT cache cannot be reused at ${cacheDir}: ${cause.message} Existing files were preserved; select a new --cache-dir (Maven: -Daot.cache.directory=<new-directory>).`, { cause });
+        }
+        console.log(`AOT prepare: reusing verified cache at ${cacheDir}`);
+        return validated.manifest;
+    }
     const root = fs.realpathSync(cacheDir);
     const application = path.join(root, 'application');
     const training = path.join(root, 'training');
@@ -135,7 +145,7 @@ export function validateCache({ jar, javaHome, cacheDir }) {
         file = regularFile(path.join(root, MANIFEST));
     } catch (error) {
         if (error.code !== 'ENOENT') throw error;
-        throw new Error(`AOT cache is missing or incomplete: ${cacheDir}. Build the boot JAR, then run AOT Prepare (mvn -N -Paot -Daot.command=prepare validate) before AOT Packaged Run. Preparation requires a new cache directory; select another path if this directory already exists.`, { cause: error });
+        throw new Error(`AOT cache is missing or incomplete: ${cacheDir}. Build the boot JAR, then run AOT Prepare (mvn -N -Paot -Daot.command=prepare validate) before AOT Packaged Run. Replacing an incomplete cache requires a new cache directory; select another path if this directory already exists.`, { cause: error });
     }
     if (fs.statSync(file).size > 1024 * 1024) throw new Error('AOT manifest exceeds 1 MiB');
     const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -150,7 +160,7 @@ export function validateCache({ jar, javaHome, cacheDir }) {
     if (!isDeepStrictEqual(digestTree(application), manifest.files)) throw new Error('AOT extracted files changed; prepare a new cache');
     const cache = regularFile(path.join(root, 'application.aot'));
     if (sha256(cache) !== manifest.cacheSha256) throw new Error('AOT cache content changed; prepare a new cache');
-    return { java: java.executable, jar: regularFile(path.join(application, manifest.entry)), cache };
+    return { java: java.executable, jar: regularFile(path.join(application, manifest.entry)), cache, manifest };
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -158,7 +168,7 @@ export async function main(args = process.argv.slice(2)) {
     if (!command || command === '--help') {
         console.log('Usage: node scripts/aot-cache.mjs <prepare|run> --jar <boot.jar> [--java-home <JDK25>] --cache-dir <directory> [--strict] [-- <application args>]');
         console.log('JDK: --java-home overrides JAVA_HOME. Maven supplies its selected JDK toolchain as JAVA_HOME.');
-        console.log('Prepare requires a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
+        console.log('Prepare reuses a verified cache or creates a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
         return;
     }
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {

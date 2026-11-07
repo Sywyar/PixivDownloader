@@ -91,13 +91,58 @@ test('缓存清单拒绝路径越界、损坏和超出读取预算', t => {
     assert.throws(() => validateCache(options), /exceeds/);
 });
 
-test('准备缓存拒绝覆盖现存目录，失败不改已有文件', async t => {
+function cacheSnapshot(directory) {
+    return fs.readdirSync(directory, { recursive: true }).sort().map(name => {
+        const file = path.join(directory, name);
+        const stat = fs.lstatSync(file);
+        return [name, stat.mtimeMs, stat.isFile() ? fs.readFileSync(file) : null];
+    });
+}
+
+test('重复准备复用已校验的缓存，不训练或改写已有文件', async t => {
     const options = fixture(t);
-    const before = fs.readFileSync(options.manifestFile, 'utf8');
-    await assert.rejects(prepareCache(options), { code: 'EEXIST' });
-    assert.equal(fs.readFileSync(options.manifestFile, 'utf8'), before);
+    const before = cacheSnapshot(options.cacheDir);
+    assert.deepEqual(await prepareCache(options), options.manifest);
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'prepare', '--jar', options.jar, '--java-home', options.javaHome, '--cache-dir', options.cacheDir], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /reusing verified cache/);
+    assert.deepEqual(cacheSnapshot(options.cacheDir), before);
     await assert.rejects(main(['prepare', '--jar', options.jar, '--java-home', options.javaHome,
         '--cache-dir', options.cacheDir, '--', '--setup']), /Invalid arguments/);
+});
+
+test('重复准备拒绝失效或未完成的缓存，并保留现场', async t => {
+    const changes = {
+        '应用变更': o => fs.writeFileSync(o.jar, 'changed'),
+        'JDK 变更': o => fs.writeFileSync(path.join(o.javaHome, 'lib/modules'), 'changed'),
+        '解包依赖变更': o => fs.writeFileSync(path.join(o.cacheDir, 'application/lib/dependency.jar'), 'changed'),
+        '缓存损坏': o => fs.writeFileSync(path.join(o.cacheDir, 'application.aot'), 'changed'),
+        '清单损坏': o => fs.writeFileSync(o.manifestFile, '{'),
+        '训练未完成': o => fs.unlinkSync(o.manifestFile),
+    };
+    for (const [name, change] of Object.entries(changes)) {
+        await t.test(name, async subtest => {
+            const options = fixture(subtest);
+            change(options);
+            const before = cacheSnapshot(options.cacheDir);
+            await assert.rejects(prepareCache(options), error => {
+                assert.match(error.message, /cannot be reused/);
+                assert.match(error.message, /-Daot\.cache\.directory/);
+                assert.ok(error.cause);
+                return true;
+            });
+            assert.deepEqual(cacheSnapshot(options.cacheDir), before);
+        });
+    }
+});
+
+test('缓存路径已被普通文件占用时拒绝准备并保留文件', async t => {
+    const options = fixture(t);
+    const occupied = path.join(options.root, 'user-file');
+    fs.writeFileSync(occupied, 'user content');
+    await assert.rejects(prepareCache({ ...options, cacheDir: occupied }), /cannot be reused/);
+    assert.equal(fs.readFileSync(occupied, 'utf8'), 'user content');
 });
 
 test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
