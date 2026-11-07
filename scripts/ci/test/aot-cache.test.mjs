@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { isolatedEnvironment, main, prepareCache, validateCache } from '../../aot-cache.mjs';
 
@@ -105,10 +107,52 @@ test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
         '--cache-dir', options.cacheDir]), /application changed/);
 });
 
+test('未准备缓存时 CLI 给出准备指引并保持目录缺失', t => {
+    const options = fixture(t);
+    const missing = path.join(options.root, 'unprepared cache');
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../aot-cache.mjs', import.meta.url)),
+        'run', '--jar', options.jar, '--java-home', options.javaHome, '--cache-dir', missing], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.ok(result.stderr.includes(missing));
+    assert.match(result.stderr, /AOT Prepare/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+    assert.equal(fs.existsSync(missing), false);
+});
+
+test('未完成训练的缓存提示换用新目录并保留现有文件', t => {
+    const options = fixture(t);
+    fs.unlinkSync(options.manifestFile);
+    assert.throws(() => validateCache(options), error => {
+        assert.match(error.message, /AOT Prepare/);
+        assert.match(error.message, /new cache directory/);
+        assert.equal(error.cause.code, 'ENOENT');
+        return true;
+    });
+    assert.equal(fs.readFileSync(path.join(options.cacheDir, 'application.aot'), 'utf8'), 'cache');
+    assert.equal(fs.existsSync(options.manifestFile), false);
+});
+
+test('准备和运行都明确提示缺失的打包 JAR 且不改缓存', async t => {
+    const options = fixture(t);
+    fs.unlinkSync(options.jar);
+    const before = fs.readFileSync(options.manifestFile, 'utf8');
+    for (const command of ['prepare', 'run']) {
+        await assert.rejects(main([command, '--jar', options.jar, '--java-home', options.javaHome,
+            '--cache-dir', options.cacheDir]), error => {
+            assert.ok(error.message.includes(options.jar));
+            assert.match(error.message, /Build the boot JAR/);
+            assert.equal(error.cause.code, 'ENOENT');
+            return true;
+        });
+    }
+    assert.equal(fs.readFileSync(options.manifestFile, 'utf8'), before);
+});
+
 test('准备失败不发布清单并清理隔离训练目录', async t => {
     const options = fixture(t);
-    const failed = path.join(options.root, 'failed');
+    const failed = path.join(options.root, 'missing parent', 'failed');
     await assert.rejects(prepareCache({ ...options, cacheDir: failed }));
+    assert.equal(fs.statSync(failed).isDirectory(), true);
     assert.equal(fs.existsSync(path.join(failed, 'manifest.json')), false);
     assert.equal(fs.existsSync(path.join(failed, 'training')), false);
     assert.equal(fs.readFileSync(options.jar, 'utf8'), 'boot jar');

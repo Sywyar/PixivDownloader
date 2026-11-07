@@ -15,6 +15,14 @@ function regularFile(file) {
     return file;
 }
 
+function packagedJar(jar) {
+    try { return regularFile(jar); }
+    catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw new Error(`Packaged JAR not found: ${jar}. Build the boot JAR before running AOT Prepare or AOT Packaged Run.`, { cause: error });
+    }
+}
+
 function digestTree(directory) {
     if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Expected a directory: ${directory}`);
     const files = new Map();
@@ -81,9 +89,10 @@ export function isolatedEnvironment(environment) {
 }
 
 export async function prepareCache({ jar, javaHome, cacheDir }) {
-    const source = fs.realpathSync(regularFile(path.resolve(jar)));
+    const source = fs.realpathSync(packagedJar(path.resolve(jar)));
     const java = javaIdentity(javaHome);
     const sourceSha256 = sha256(source);
+    fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
     fs.mkdirSync(cacheDir); // 仅创建新目录；不得覆盖已有缓存或用户文件。
     const root = fs.realpathSync(cacheDir);
     const application = path.join(root, 'application');
@@ -120,8 +129,14 @@ export async function prepareCache({ jar, javaHome, cacheDir }) {
 }
 
 export function validateCache({ jar, javaHome, cacheDir }) {
-    const root = fs.realpathSync(cacheDir);
-    const file = regularFile(path.join(root, MANIFEST));
+    let root, file;
+    try {
+        root = fs.realpathSync(cacheDir);
+        file = regularFile(path.join(root, MANIFEST));
+    } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw new Error(`AOT cache is missing or incomplete: ${cacheDir}. Build the boot JAR, then run AOT Prepare (mvn -N -Paot -Daot.command=prepare validate) before AOT Packaged Run. Preparation requires a new cache directory; select another path if this directory already exists.`, { cause: error });
+    }
     if (fs.statSync(file).size > 1024 * 1024) throw new Error('AOT manifest exceeds 1 MiB');
     const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (manifest.schemaVersion !== 1 || manifest.root !== root
@@ -130,7 +145,7 @@ export function validateCache({ jar, javaHome, cacheDir }) {
     }
     const java = javaIdentity(javaHome);
     if (!isDeepStrictEqual(manifest.java, java)) throw new Error('AOT cache JDK changed; prepare a new cache');
-    if (sha256(regularFile(jar)) !== manifest.sourceSha256) throw new Error('AOT cache application changed; prepare a new cache');
+    if (sha256(packagedJar(jar)) !== manifest.sourceSha256) throw new Error('AOT cache application changed; prepare a new cache');
     const application = path.join(root, 'application');
     if (!isDeepStrictEqual(digestTree(application), manifest.files)) throw new Error('AOT extracted files changed; prepare a new cache');
     const cache = regularFile(path.join(root, 'application.aot'));
