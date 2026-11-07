@@ -327,6 +327,43 @@ obfuscate=false
 
     <profiles>
         <profile>
+            <id>aot</id>
+            <properties>
+                <aot.command>run</aot.command>
+                <aot.jar>${maven.multiModuleProjectDirectory}/pixivdownload-app/target/PixivDownload-${project.version}-boot.jar</aot.jar>
+                <aot.cache.directory>${maven.multiModuleProjectDirectory}/target/aot-cache</aot.cache.directory>
+                <aot.working.directory>${maven.multiModuleProjectDirectory}</aot.working.directory>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <inherited>false</inherited>
+                        <executions>
+                            <execution>
+                                <id>packaged-aot</id>
+                                <phase>validate</phase>
+                                <goals><goal>exec</goal></goals>
+                                <configuration>
+                                    <executable>node</executable>
+                                    <workingDirectory>${aot.working.directory}</workingDirectory>
+                                    <arguments>
+                                        <argument>${maven.multiModuleProjectDirectory}/scripts/aot-cache.mjs</argument>
+                                        <argument>${aot.command}</argument>
+                                        <argument>--jar</argument><argument>${aot.jar}</argument>
+                                        <argument>--java-home</argument><argument>${java.home}</argument>
+                                        <argument>--cache-dir</argument><argument>${aot.cache.directory}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>sdk-central</id>
             <build>
                 <plugins>

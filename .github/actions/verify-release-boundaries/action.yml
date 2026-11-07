@@ -33,3 +33,11 @@ runs:
           test -n "$report"
           grep -Eq 'Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0' "$report"
         done
+    - name: Verify packaged JDK AOT cache
+      shell: bash
+      run: |
+        set -euo pipefail
+        hosts=(pixivdownload-app/target/PixivDownload-*-boot.jar)
+        [ "${#hosts[@]}" -eq 1 ]
+        work="$(mktemp -d "$RUNNER_TEMP/aot-acceptance-XXXXXX")"
+        node scripts/ci/aot-cache-acceptance.mjs "${hosts[0]}" "$JAVA_HOME" "$work/runtime"
