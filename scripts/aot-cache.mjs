@@ -74,9 +74,9 @@ function runJava(executable, args, { cwd, env = process.env, training = false } 
     });
 }
 
-function trainingEnvironment() {
+export function isolatedEnvironment(environment) {
     // 训练不继承应用配置或 JVM 注入参数，避免写到调用者的真实实例。
-    return Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    return Object.fromEntries(Object.entries(environment).filter(([key]) =>
         /^(PATH|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|LANG|LC_ALL)$/i.test(key)));
 }
 
@@ -89,7 +89,7 @@ export async function prepareCache({ jar, javaHome, cacheDir }) {
     const application = path.join(root, 'application');
     const training = path.join(root, 'training');
     const cache = path.join(root, 'application.aot');
-    const env = trainingEnvironment();
+    const env = isolatedEnvironment(process.env);
     fs.mkdirSync(training);
     const started = performance.now();
     let manifest;

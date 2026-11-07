@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { validateCache } from '../aot-cache.mjs';
+import { isolatedEnvironment, validateCache } from '../aot-cache.mjs';
 
 const [jarArgument, javaHomeArgument, workArgument] = process.argv.slice(2);
 assert.ok(jarArgument && javaHomeArgument && workArgument, 'Expected boot JAR, JDK 25 and new work directory');
@@ -15,8 +15,7 @@ const cacheDir = path.join(work, 'cache');
 const options = { jar, javaHome, cacheDir };
 const common = ['--jar', jar, '--java-home', javaHome, '--cache-dir', cacheDir];
 // 隔离真实实例和 JVM 注入参数；验收日志直接写文件，不缓存整个 JVM 输出。
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-    /^(PATH|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|LANG|LC_ALL)$/i.test(key)));
+const env = isolatedEnvironment(process.env);
 function invoke(name, command, args, extraEnvironment = {}) {
     const log = path.join(work, `${name}.log`);
     const descriptor = fs.openSync(log, 'wx');

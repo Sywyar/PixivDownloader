@@ -4,7 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { main, prepareCache, validateCache } from '../../aot-cache.mjs';
+import { isolatedEnvironment, main, prepareCache, validateCache } from '../../aot-cache.mjs';
+
+test('训练与验收共用隔离环境，保留系统路径并排除 JVM、应用配置与凭据', () => {
+    assert.deepEqual(isolatedEnvironment({
+        Path: '/tools', SYSTEMROOT: 'C:/Windows', TEMP: '/temp', LANG: 'en_US.UTF-8',
+        JAVA_TOOL_OPTIONS: '-Dpixivdownload.instance-dir=real-instance', NODE_OPTIONS: '--inspect',
+        SPRING_CONFIG_LOCATION: 'real-config.yaml', GITHUB_TOKEN: 'test-token',
+    }), { Path: '/tools', SYSTEMROOT: 'C:/Windows', TEMP: '/temp', LANG: 'en_US.UTF-8' });
+});
 
 function fixture(t) {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-aot-test-')));
