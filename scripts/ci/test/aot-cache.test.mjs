@@ -1,0 +1,119 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import test from 'node:test';
+import { main, prepareCache, validateCache } from '../../aot-cache.mjs';
+
+function fixture(t) {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-aot-test-')));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const javaHome = path.join(root, 'jdk');
+    const cacheDir = path.join(root, 'cache');
+    const jar = path.join(root, 'host.jar');
+    const executable = path.join(javaHome, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+    const vm = process.platform === 'win32' ? 'bin/server/jvm.dll'
+        : process.platform === 'darwin' ? 'lib/server/libjvm.dylib' : 'lib/server/libjvm.so';
+    const contents = { release: 'JAVA_VERSION="25-test"\n', 'lib/modules': 'jdk modules',
+        [path.relative(javaHome, executable)]: 'java launcher', [vm]: 'virtual machine' };
+    const hash = text => createHash('sha256').update(text).digest('hex');
+    for (const [file, text] of Object.entries(contents)) {
+        fs.mkdirSync(path.dirname(path.join(javaHome, file)), { recursive: true });
+        fs.writeFileSync(path.join(javaHome, file), text);
+    }
+    fs.mkdirSync(path.join(cacheDir, 'application/lib'), { recursive: true });
+    fs.writeFileSync(jar, 'boot jar');
+    fs.writeFileSync(path.join(cacheDir, 'application/host.jar'), 'extracted jar');
+    fs.writeFileSync(path.join(cacheDir, 'application/lib/dependency.jar'), 'dependency');
+    fs.writeFileSync(path.join(cacheDir, 'application.aot'), 'cache');
+    const manifest = { schemaVersion: 1, root: fs.realpathSync(cacheDir), sourceSha256: hash('boot jar'),
+        java: { home: fs.realpathSync(javaHome), executable, platform: process.platform, arch: process.arch,
+            files: Object.fromEntries(Object.entries(contents).map(([name, value]) => [name, hash(value)])) },
+        entry: 'host.jar', files: { 'host.jar': hash('extracted jar'), 'lib/dependency.jar': hash('dependency') }, cacheSha256: hash('cache') };
+    const manifestFile = path.join(cacheDir, 'manifest.json');
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+    return { root, jar, javaHome, cacheDir, manifestFile, manifest };
+}
+
+test('缓存校验接受相同内容，拒绝保留大小和时间的应用、JDK 与缓存变更', t => {
+    const options = fixture(t);
+    assert.equal(validateCache(options).jar, path.join(options.cacheDir, 'application/host.jar'));
+    const files = [options.jar, path.join(options.javaHome, 'lib/modules'),
+        path.join(options.cacheDir, 'application/lib/dependency.jar'), path.join(options.cacheDir, 'application.aot')];
+    for (const file of files) {
+        const original = fs.readFileSync(file);
+        const stat = fs.statSync(file);
+        fs.writeFileSync(file, Buffer.alloc(original.length, 88));
+        fs.utimesSync(file, stat.atime, stat.mtime);
+        assert.throws(() => validateCache(options), /changed/);
+        fs.writeFileSync(file, original);
+    }
+    assert.doesNotThrow(() => validateCache(options));
+});
+
+test('缓存校验拒绝缺失、额外依赖和目录迁移', t => {
+    const options = fixture(t);
+    const extra = path.join(options.cacheDir, 'application/lib/extra.jar');
+    fs.writeFileSync(extra, 'extra');
+    assert.throws(() => validateCache(options), /extracted files changed/);
+    fs.unlinkSync(extra);
+    const special = path.join(options.cacheDir, 'application/__proto__');
+    fs.writeFileSync(special, 'extra');
+    assert.throws(() => validateCache(options), /extracted files changed/);
+    fs.unlinkSync(special);
+    const dependency = path.join(options.cacheDir, 'application/lib/dependency.jar');
+    fs.unlinkSync(dependency);
+    assert.throws(() => validateCache(options), /extracted files changed/);
+    fs.writeFileSync(dependency, 'dependency');
+    const moved = `${options.cacheDir}-moved`;
+    fs.renameSync(options.cacheDir, moved);
+    assert.throws(() => validateCache({ ...options, cacheDir: moved }), /layout changed/);
+});
+
+test('缓存清单拒绝路径越界、损坏和超出读取预算', t => {
+    const options = fixture(t);
+    fs.writeFileSync(options.manifestFile, JSON.stringify({ ...options.manifest, entry: '../host.jar' }));
+    assert.throws(() => validateCache(options), /layout changed/);
+    fs.writeFileSync(options.manifestFile, '{');
+    assert.throws(() => validateCache(options), SyntaxError);
+    fs.writeFileSync(options.manifestFile, Buffer.alloc(1024 * 1024 + 1, 32));
+    assert.throws(() => validateCache(options), /exceeds/);
+});
+
+test('准备缓存拒绝覆盖现存目录，失败不改已有文件', async t => {
+    const options = fixture(t);
+    const before = fs.readFileSync(options.manifestFile, 'utf8');
+    await assert.rejects(prepareCache(options), { code: 'EEXIST' });
+    assert.equal(fs.readFileSync(options.manifestFile, 'utf8'), before);
+    await assert.rejects(main(['prepare', '--jar', options.jar, '--java-home', options.javaHome,
+        '--cache-dir', options.cacheDir, '--', '--setup']), /Invalid arguments/);
+});
+
+test('启动校验在 Java 执行之前拒绝已失效的缓存', async t => {
+    const options = fixture(t);
+    fs.writeFileSync(options.jar, 'different application');
+    await assert.rejects(main(['run', '--jar', options.jar, '--java-home', options.javaHome,
+        '--cache-dir', options.cacheDir]), /application changed/);
+});
+
+test('准备失败不发布清单并清理隔离训练目录', async t => {
+    const options = fixture(t);
+    const failed = path.join(options.root, 'failed');
+    await assert.rejects(prepareCache({ ...options, cacheDir: failed }));
+    assert.equal(fs.existsSync(path.join(failed, 'manifest.json')), false);
+    assert.equal(fs.existsSync(path.join(failed, 'training')), false);
+    assert.equal(fs.readFileSync(options.jar, 'utf8'), 'boot jar');
+});
+
+test('缓存目录中的链接不能引入外部依赖', t => {
+    const options = fixture(t);
+    const outside = path.join(options.root, 'outside');
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'external.jar'), 'external');
+    const link = path.join(options.cacheDir, 'application/linked');
+    fs.symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.throws(() => validateCache(options), /regular file/);
+    fs.unlinkSync(link);
+    assert.equal(fs.readFileSync(path.join(outside, 'external.jar'), 'utf8'), 'external');
+});
