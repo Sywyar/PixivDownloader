@@ -1,8 +1,18 @@
 package top.sywyar.pixivdownload.plugin.web.remote;
 
-import com.fasterxml.jackson.core.*;
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.*;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.BooleanNode;
+import tools.jackson.databind.node.LongNode;
+import tools.jackson.databind.node.MissingNode;
+import tools.jackson.databind.node.NullNode;
+import tools.jackson.databind.node.StringNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
+import tools.jackson.databind.node.StringNode;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding;
 import java.io.*;
 import java.lang.reflect.*;
@@ -29,25 +39,25 @@ public final class RemoteValues {
         else if (schema.has("anyOf")) allowed.add("anyOf");
         else {
             allowed.add("type");
-            switch (schema.path("type").asText()) {
+            switch (schema.path("type").asString()) {
                 case "string" -> allowed.addAll(Set.of("minLength", "maxLength", "enum", "x-encoding", "x-minimum", "x-maximum"));
                 case "integer" -> allowed.addAll(Set.of("minimum", "maximum"));
                 case "array" -> allowed.addAll(Set.of("items", "minItems", "maxItems"));
                 case "object" -> allowed.addAll(Set.of("properties", "required", "additionalProperties"));
             }
         }
-        var names = schema.fieldNames();
+        var names = schema.propertyNames().iterator();
         while (names.hasNext()) if (!allowed.contains(names.next())) invalid();
         if (schema.has("x-encoding")) encoding(schema);
         else if (schema.has("x-minimum") || schema.has("x-maximum")) invalid();
         if (schema.has("$ref")) {
-            String ref = schema.path("$ref").asText();
+            String ref = schema.path("$ref").asString();
             if (!ref.startsWith("#/$defs/")) invalid();
             if (references.add(ref)) schema(root, root.path("$defs").path(ref.substring(8)), budget, references, depth + 1);
             return;
         }
         if (schema.has("anyOf")) {
-            if (schema.path("anyOf").size() != 2 || !"null".equals(schema.path("anyOf").path(1).path("type").asText())) invalid();
+            if (schema.path("anyOf").size() != 2 || !"null".equals(schema.path("anyOf").path(1).path("type").asString())) invalid();
             schema(root, schema.path("anyOf").get(0), budget, references, depth + 1); return;
         }
         for (String bound : List.of("minLength", "maxLength", "minItems", "maxItems"))
@@ -58,9 +68,9 @@ public final class RemoteValues {
         if (schema.has("enum")) {
             if (!schema.get("enum").isArray() || schema.get("enum").isEmpty()) invalid();
             var values = new HashSet<String>();
-            for (JsonNode item : schema.get("enum")) if (!item.isTextual() || !values.add(item.asText())) invalid();
+            for (JsonNode item : schema.get("enum")) if (!item.isString() || !values.add(item.asString())) invalid();
         }
-        switch (schema.path("type").asText()) {
+        switch (schema.path("type").asString()) {
             case "boolean", "string" -> { }
             case "integer" -> {
                 if (!schema.path("minimum").isNumber() || !schema.path("maximum").isNumber()
@@ -75,7 +85,7 @@ public final class RemoteValues {
                     if (!schema.path("required").isArray()) invalid();
                     var required = new HashSet<String>();
                     for (JsonNode name : schema.path("required"))
-                        if (!name.isTextual() || !schema.path("properties").has(name.asText()) || !required.add(name.asText())) invalid();
+                        if (!name.isString() || !schema.path("properties").has(name.asString()) || !required.add(name.asString())) invalid();
                 } else schema(root, schema.path("additionalProperties"), budget, references, depth + 1);
             }
             default -> invalid();
@@ -91,12 +101,12 @@ public final class RemoteValues {
         }
     }
     static final int MAX_BYTES = 1024 * 1024;
-    static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
-            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
     private static final BigDecimal SAFE = BigDecimal.valueOf(9_007_199_254_740_991L);
 
     static JsonNode parse(InputStream input) throws IOException {
@@ -106,7 +116,7 @@ public final class RemoteValues {
             JsonNode node = JSON.readTree(bytes);
             if (node == null) throw new Invalid("REMOTE_VALUE_INVALID");
             return node;
-        } catch (JsonProcessingException invalid) { throw new Invalid("REMOTE_VALUE_INVALID"); }
+        } catch (JacksonException invalid) { throw new Invalid("REMOTE_VALUE_INVALID"); }
     }
 
     static void validate(JsonNode schema, JsonNode value) {
@@ -120,13 +130,13 @@ public final class RemoteValues {
             validate(root, schema.path("anyOf").get(0), value, budget, depth + 1); return;
         }
         if (schema.has("$ref")) {
-            String ref = schema.path("$ref").asText();
+            String ref = schema.path("$ref").asString();
             if (!ref.startsWith("#/$defs/")) throw new Invalid("REMOTE_VALUE_INVALID");
             JsonNode target = root.path("$defs").get(ref.substring(8));
             if (target == null) throw new Invalid("REMOTE_VALUE_INVALID");
             validate(root, target, value, budget, depth + 1); return;
         }
-        switch (schema.path("type").asText()) {
+        switch (schema.path("type").asString()) {
             case "boolean" -> { if (!value.isBoolean()) invalid(); }
             case "integer" -> {
                 if (!value.isNumber()) invalid();
@@ -137,13 +147,13 @@ public final class RemoteValues {
                         || number.compareTo(schema.path("maximum").decimalValue()) > 0) invalid();
             }
             case "string" -> {
-                if (!value.isTextual()) invalid();
-                String text = value.textValue(); budget.text(text);
+                if (!value.isString()) invalid();
+                String text = value.stringValue(); budget.text(text);
                 if (schema.has("x-encoding")) {
                     try {
                         Object decoded = encoding(schema).decode(text);
-                        if (decoded instanceof Long number && (number < Long.parseLong(schema.path("x-minimum").asText())
-                                || number > Long.parseLong(schema.path("x-maximum").asText()))) invalid();
+                        if (decoded instanceof Long number && (number < Long.parseLong(schema.path("x-minimum").asString())
+                                || number > Long.parseLong(schema.path("x-maximum").asString()))) invalid();
                     } catch (IllegalArgumentException failure) { invalid(); }
                 }
                 int size = text.codePointCount(0, text.length());
@@ -161,8 +171,8 @@ public final class RemoteValues {
             }
             case "object" -> {
                 if (!value.isObject()) invalid();
-                for (JsonNode name : schema.path("required")) if (!value.has(name.asText())) invalid();
-                var fields = value.fields();
+                for (JsonNode name : schema.path("required")) if (!value.has(name.asString())) invalid();
+                var fields = value.properties().iterator();
                 while (fields.hasNext()) {
                     var field = fields.next(); budget.text(field.getKey());
                     JsonNode property = schema.has("properties") ? schema.path("properties").get(field.getKey()) : schema.get("additionalProperties");
@@ -184,23 +194,23 @@ public final class RemoteValues {
             }
             if (parameterized.getRawType() == Map.class) {
                 Map<String, Object> result = new LinkedHashMap<>();
-                var fields = value.fields();
+                var fields = value.properties().iterator();
                 while (fields.hasNext()) { var field = fields.next(); result.put(field.getKey(), decode(field.getValue(), parameterized.getActualTypeArguments()[1])); }
                 return Collections.unmodifiableMap(result);
             }
         }
         if (!(type instanceof Class<?> raw)) throw new Invalid("REMOTE_VALUE_INVALID");
-        if (raw == String.class) return value.textValue();
+        if (raw == String.class) return value.stringValue();
         if (raw == boolean.class || raw == Boolean.class) return value.booleanValue();
         if (raw == byte.class || raw == Byte.class) return value.decimalValue().byteValueExact();
         if (raw == short.class || raw == Short.class) return value.decimalValue().shortValueExact();
         if (raw == int.class || raw == Integer.class) return value.decimalValue().intValueExact();
-        if (raw == long.class || raw == Long.class) return value.isTextual()
-                ? ValueEncoding.DECIMAL_STRING.decode(value.textValue()) : value.decimalValue().longValueExact();
+        if (raw == long.class || raw == Long.class) return value.isString()
+                ? ValueEncoding.DECIMAL_STRING.decode(value.stringValue()) : value.decimalValue().longValueExact();
         ValueEncoding encoding = encoding(raw);
-        if (encoding != null) return encoding.decode(value.textValue());
+        if (encoding != null) return encoding.decode(value.stringValue());
         if (raw.isEnum()) {
-            for (Object constant : raw.getEnumConstants()) if (((Enum<?>) constant).name().equals(value.textValue())) return constant;
+            for (Object constant : raw.getEnumConstants()) if (((Enum<?>) constant).name().equals(value.stringValue())) return constant;
             throw new Invalid("REMOTE_VALUE_INVALID");
         }
         if (!raw.isRecord()) throw new Invalid("REMOTE_VALUE_INVALID");
@@ -225,9 +235,9 @@ public final class RemoteValues {
         budget.node(depth);
         if (value == null) return NullNode.instance;
         if (schema.has("anyOf")) schema = schema.path("anyOf").get(0);
-        if (schema.has("$ref")) schema = root.path("$defs").path(schema.path("$ref").asText().substring(8));
+        if (schema.has("$ref")) schema = root.path("$defs").path(schema.path("$ref").asString().substring(8));
         if (schema.has("x-encoding")) {
-            try { return TextNode.valueOf(encoding(schema).encode(value)); }
+            try { return StringNode.valueOf(encoding(schema).encode(value)); }
             catch (IllegalArgumentException failure) { throw new Invalid("REMOTE_VALUE_INVALID"); }
         }
         if (type instanceof ParameterizedType generic) {
@@ -246,15 +256,15 @@ public final class RemoteValues {
             }
         }
         if (!(type instanceof Class<?> raw)) throw new Invalid("REMOTE_VALUE_INVALID");
-        if (raw == String.class) { budget.text((String) value); return TextNode.valueOf((String) value); }
+        if (raw == String.class) { budget.text((String) value); return StringNode.valueOf((String) value); }
         if (raw == boolean.class || raw == Boolean.class) return BooleanNode.valueOf((Boolean) value);
         if (encoding(raw) != null) {
-            try { return TextNode.valueOf(encoding(raw).encode(value)); }
+            try { return StringNode.valueOf(encoding(raw).encode(value)); }
             catch (IllegalArgumentException failure) { throw new Invalid("REMOTE_VALUE_INVALID"); }
         }
         if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long)
             return LongNode.valueOf(((Number) value).longValue());
-        if (raw.isEnum()) return TextNode.valueOf(((Enum<?>) value).name());
+        if (raw.isEnum()) return StringNode.valueOf(((Enum<?>) value).name());
         if (!raw.isRecord()) throw new Invalid("REMOTE_VALUE_INVALID");
         var result = JSON.createObjectNode();
         for (var field : raw.getRecordComponents()) {
@@ -276,11 +286,11 @@ public final class RemoteValues {
 
     private static ValueEncoding encoding(JsonNode schema) {
         try {
-            ValueEncoding result = ValueEncoding.valueOf(schema.path("x-encoding").asText());
+            ValueEncoding result = ValueEncoding.valueOf(schema.path("x-encoding").asString());
             if (result == ValueEncoding.JSON) invalid();
             if (result == ValueEncoding.DECIMAL_STRING) {
-                long min = (Long) result.decode(schema.path("x-minimum").asText());
-                long max = (Long) result.decode(schema.path("x-maximum").asText());
+                long min = (Long) result.decode(schema.path("x-minimum").asString());
+                long max = (Long) result.decode(schema.path("x-maximum").asString());
                 if (min > max) invalid();
             } else if (schema.has("x-minimum") || schema.has("x-maximum")) invalid();
             return result;

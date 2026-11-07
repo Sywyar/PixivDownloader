@@ -586,17 +586,6 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     Path resolveSetupConfigPath(String rootFolder);
 
     /**
-     * 返回当前提供者映射的本地主库文件，不创建或搬迁数据。
-     *
-     * @param rootFolder 旧调用方传入的应用根；实际位置由进程固定的提供者决定
-     * @return 当前主库文件
-     * @throws IllegalStateException 数据库不可用或当前目标不是本地文件
-     * @deprecated 使用数据库设置与工具默认值读取当前目标，并先检查是否支持文件选择
-     */
-    @Deprecated
-    Path resolveDatabasePath(String rootFolder);
-
-    /**
      * 返回已配置的下载根目录，缺失时返回给定回退值。
      *
      * @param configPath        宿主配置路径

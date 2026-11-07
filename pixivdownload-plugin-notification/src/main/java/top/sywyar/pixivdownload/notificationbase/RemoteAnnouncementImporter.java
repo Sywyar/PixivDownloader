@@ -1,12 +1,10 @@
 package top.sywyar.pixivdownload.notificationbase;
-
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -124,9 +122,10 @@ public final class RemoteAnnouncementImporter {
                                Clock clock,
                                LongUnaryOperator randomLong) {
         this.client = Objects.requireNonNull(client, "remote announcement HTTP client");
-        this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper").copy()
-                .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper").rebuild()
+                .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .build();
         this.inbox = Objects.requireNonNull(inbox, "notification inbox");
         this.verifier = Objects.requireNonNull(verifier, "remote announcement verifier");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -469,7 +468,7 @@ public final class RemoteAnnouncementImporter {
         JsonNode node;
         try {
             node = objectMapper.readTree(decodeUtf8(bytes, "invalid-signature"));
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw rejected("invalid-signature");
         }
         requireFields(node, SIGNATURE_FIELDS, "signature-fields");
@@ -496,7 +495,7 @@ public final class RemoteAnnouncementImporter {
                 throw rejected("invalid-json");
             }
             return root;
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw rejected("invalid-json");
         }
     }
@@ -631,10 +630,10 @@ public final class RemoteAnnouncementImporter {
     }
 
     private static String requiredText(JsonNode node, int maximumCodePoints, String code) {
-        if (node == null || !node.isTextual()) {
+        if (node == null || !node.isString()) {
             throw rejected(code);
         }
-        String value = node.textValue();
+        String value = node.stringValue();
         if (value.isBlank() || !value.strip().equals(value)
                 || value.codePointCount(0, value.length()) > maximumCodePoints) {
             throw rejected(code);
@@ -668,7 +667,7 @@ public final class RemoteAnnouncementImporter {
 
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> fields = new HashSet<>();
-        node.fieldNames().forEachRemaining(fields::add);
+        node.propertyNames().iterator().forEachRemaining(fields::add);
         return fields;
     }
 

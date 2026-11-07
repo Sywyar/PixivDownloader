@@ -1,7 +1,7 @@
 package com.example.pixivdownload.downloadtype;
 
 import com.example.pixivdownload.downloadtype.queue.ExampleDownloadQueue;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -56,20 +56,19 @@ class ExampleDownloadPluginTest {
     }
 
     @Test
-    @DisplayName("Provider 暴露非空功能插件与显式配置类")
+    @DisplayName("Provider 暴露非空功能插件")
     void providerExposesFeatureAndConfiguration() {
         ExampleDownloadPf4jPlugin provider = new ExampleDownloadPf4jPlugin();
         PixivFeaturePlugin feature = provider.featurePlugin();
         assertNotNull(feature);
         assertEquals("example-download", feature.id());
-        assertEquals(java.util.List.of(ExampleDownloadConfiguration.class), provider.configurationClasses());
     }
 
     @Test
     @DisplayName("子上下文显式发布功能插件并只注册一个队列操作 bean")
     void childContextPublishesOneUniquelyRegisterableQueue() {
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
-            child.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            child.registerBean(ObjectMapper.class, () -> tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build());
             child.registerBean(top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle.class,
                     ExampleDownloadSubmissionTest.RecordingLifecycle::new);
             child.registerBean(RequestOwnerIdentityResolver.class,

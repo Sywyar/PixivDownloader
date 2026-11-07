@@ -9,7 +9,7 @@ import org.apache.catalina.connector.Response;
 import org.apache.catalina.valves.ValveBase;
 import org.apache.coyote.http11.Http11NioProtocol;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -47,7 +47,7 @@ public final class LocalGuiWebServerCustomizer implements WebServerFactoryCustom
 
     @Override
     public void customize(TomcatServletWebServerFactory factory) {
-        factory.addAdditionalTomcatConnectors(connector);
+        factory.addAdditionalConnectors(connector);
         factory.addEngineValves(new ValveBase(true) {
             @Override
             public void invoke(Request request, Response response) throws IOException, ServletException {

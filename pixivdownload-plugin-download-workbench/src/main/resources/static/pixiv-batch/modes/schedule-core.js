@@ -192,7 +192,7 @@
         if (!runtime || !task || typeof runtime.credentialTaskPresentation !== 'function') return null;
         try {
             return runtime.credentialTaskPresentation(
-                task.sourceType || task.type, task, {task, mode: state.mode});
+                task.sourceType, task, {task, mode: state.mode});
         } catch (e) {
             return null;
         }

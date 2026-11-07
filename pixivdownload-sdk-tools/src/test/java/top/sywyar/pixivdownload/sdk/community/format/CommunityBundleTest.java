@@ -64,7 +64,7 @@ class CommunityBundleTest {
         assertThatThrownBy(() -> CommunityBundle.verifyDistribution(temporary, frozen, source)).isInstanceOf(ContractException.class);
         Files.write(tool, toolBytes);
         for (var field : java.util.List.of("sdkVersion", "manifestSha256", "sourceCommit", "contractVersion")) {
-            var changed = (com.fasterxml.jackson.databind.node.ObjectNode) CommunityJson.strictTree(metadata, metadata.length);
+            var changed = (tools.jackson.databind.node.ObjectNode) CommunityJson.strictTree(metadata, metadata.length);
             if (field.equals("contractVersion")) changed.put(field, 2);
             else changed.put(field, field.equals("sdkVersion") ? "99.0.0" : "cd".repeat(field.equals("sourceCommit") ? 20 : 32));
             byte[] bytes = CommunityJson.encode(changed);

@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
@@ -47,19 +47,19 @@ final class PixivProxyResponseMapper {
             if (sid > 0) {
                 seriesId = sid;
                 seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
+                seriesTitle = nav.path("title").asString("");
             }
         }
         return new ArtworkMetaResponse(
                 body.path("illustType").asInt(0),
-                body.path("illustTitle").asText(""),
+                body.path("illustTitle").asString(""),
                 body.path("xRestrict").asInt(0),
                 body.path("aiType").asInt(0) >= 2,
                 body.path("bookmarkCount").asInt(-1),
                 body.path("pageCount").asInt(0),
-                parsePositiveLong(body.path("userId").asText(null)),
-                body.path("userName").asText(""),
-                PixivDescriptionHtml.normalizeLinks(body.path("description").asText("")),
+                parsePositiveLong(body.path("userId").asString(null)),
+                body.path("userName").asString(""),
+                PixivDescriptionHtml.normalizeLinks(body.path("description").asString("")),
                 extractTags(body),
                 seriesId,
                 seriesOrder,
@@ -71,7 +71,7 @@ final class PixivProxyResponseMapper {
         if (!body.isObject()) {
             return null;
         }
-        ObjectNode pruned = body.deepCopy();
+        ObjectNode pruned = ((ObjectNode) body).deepCopy();
         FORWARDED_META_STRIP_KEYS.forEach(pruned::remove);
         return objectMapper.writeValueAsString(pruned);
     }
@@ -79,7 +79,7 @@ final class PixivProxyResponseMapper {
     static ArtworkPagesResponse artworkPages(JsonNode body) {
         List<String> urls = new ArrayList<>();
         for (JsonNode page : body) {
-            String originalUrl = page.path("urls").path("original").asText("");
+            String originalUrl = page.path("urls").path("original").asString("");
             if (!originalUrl.isEmpty()) {
                 urls.add(originalUrl);
             }
@@ -88,9 +88,9 @@ final class PixivProxyResponseMapper {
     }
 
     static UgoiraMetaResponse ugoiraMeta(JsonNode body) {
-        String zipUrl = body.path("originalSrc").asText("");
+        String zipUrl = body.path("originalSrc").asString("");
         if (zipUrl.isEmpty()) {
-            zipUrl = body.path("src").asText("");
+            zipUrl = body.path("src").asString("");
         }
         List<Integer> delays = new ArrayList<>();
         for (JsonNode frame : body.path("frames")) {
@@ -136,18 +136,18 @@ final class PixivProxyResponseMapper {
         String coverUrl = "";
         if (seriesArray.isArray() && !seriesArray.isEmpty()) {
             JsonNode series = seriesArray.get(0);
-            seriesId = parsePositiveOrDefault(series.path("id").asText(null), requestedSeriesId);
-            title = series.path("title").asText("");
-            authorId = parsePositiveLong(series.path("userId").asText(null));
+            seriesId = parsePositiveOrDefault(series.path("id").asString(null), requestedSeriesId);
+            title = series.path("title").asString("");
+            authorId = parsePositiveLong(series.path("userId").asString(null));
             total = series.path("total").asInt(0);
-            caption = series.path("caption").asText("");
+            caption = series.path("caption").asString("");
             coverUrl = extractSeriesCoverUrl(series);
         }
         JsonNode users = body.path("users");
         if (authorId != null && users.isArray()) {
             for (JsonNode user : users) {
-                if (user.path("userId").asText("").equals(String.valueOf(authorId))) {
-                    authorName = user.path("name").asText("");
+                if (user.path("userId").asString("").equals(String.valueOf(authorId))) {
+                    authorName = user.path("name").asString("");
                     break;
                 }
             }
@@ -157,7 +157,7 @@ final class PixivProxyResponseMapper {
         JsonNode seriesPage = body.path("page").path("series");
         if (seriesPage.isArray()) {
             for (JsonNode entry : seriesPage) {
-                String id = entry.path("workId").asText("");
+                String id = entry.path("workId").asString("");
                 if (!id.isEmpty()) {
                     orderById.put(id, entry.path("order").asInt(0));
                 }
@@ -169,21 +169,21 @@ final class PixivProxyResponseMapper {
         if (thumbnails.isArray()) {
             int fallbackOrder = (page - 1) * 12;
             for (JsonNode item : thumbnails) {
-                String id = item.path("id").asText("");
+                String id = item.path("id").asString("");
                 if (id.isEmpty()) {
                     continue;
                 }
                 int seriesOrder = orderById.getOrDefault(id, ++fallbackOrder);
                 items.add(new SeriesResponse.SeriesItem(
                         id,
-                        item.path("title").asText(""),
+                        item.path("title").asString(""),
                         item.path("illustType").asInt(0),
                         item.path("xRestrict").asInt(0),
                         item.path("aiType").asInt(0),
-                        item.path("url").asText(""),
+                        item.path("url").asString(""),
                         item.path("pageCount").asInt(1),
-                        item.path("userId").asText(""),
-                        item.path("userName").asText(""),
+                        item.path("userId").asString(""),
+                        item.path("userName").asString(""),
                         seriesOrder,
                         parseStringTags(item.path("tags"))));
             }
@@ -219,10 +219,10 @@ final class PixivProxyResponseMapper {
         List<FollowingPageResponse.FollowingUser> users = new ArrayList<>();
         for (JsonNode user : body.path("users")) {
             users.add(new FollowingPageResponse.FollowingUser(
-                    user.path("userId").asText(""),
-                    user.path("userName").asText(""),
-                    user.path("profileImageUrl").asText(""),
-                    user.path("userComment").asText(user.path("comment").asText(""))));
+                    user.path("userId").asString(""),
+                    user.path("userName").asString(""),
+                    user.path("profileImageUrl").asString(""),
+                    user.path("userComment").asString(user.path("comment").asString(""))));
         }
         return new FollowingPageResponse(users, body.path("total").asInt(0), offset, limit);
     }
@@ -235,7 +235,7 @@ final class PixivProxyResponseMapper {
         }
         Map<String, JsonNode> illustById = new LinkedHashMap<>();
         for (JsonNode item : body.path("thumbnails").path("illust")) {
-            String id = item.path("id").asText("");
+            String id = item.path("id").asString("");
             if (!id.isBlank()) {
                 illustById.put(id, item);
             }
@@ -243,7 +243,7 @@ final class PixivProxyResponseMapper {
         JsonNode ids = body.path("page").path("ids");
         if (ids.isArray() && !ids.isEmpty()) {
             for (JsonNode id : ids) {
-                JsonNode item = illustById.get(id.asText(""));
+                JsonNode item = illustById.get(id.asString(""));
                 if (item != null) {
                     items.add(searchItem(item));
                 }
@@ -271,7 +271,7 @@ final class PixivProxyResponseMapper {
         JsonNode idArray = body.path("collectionIds");
         if (idArray.isArray()) {
             for (JsonNode id : idArray) {
-                String value = id.asText("");
+                String value = id.asString("");
                 if (!value.isBlank()) {
                     ids.add(value);
                 }
@@ -280,7 +280,7 @@ final class PixivProxyResponseMapper {
         if (ids.isEmpty()) {
             JsonNode collections = body.path("collections");
             if (collections.isObject()) {
-                collections.fieldNames().forEachRemaining(ids::add);
+                collections.propertyNames().iterator().forEachRemaining(ids::add);
             }
         }
         return ids;
@@ -293,10 +293,10 @@ final class PixivProxyResponseMapper {
         }
         for (JsonNode collection : works) {
             collections.add(new CollectionPageResponse.CollectionItem(
-                    collection.path("id").asText(""),
-                    collection.path("title").asText(""),
-                    collection.path("caption").asText(""),
-                    collection.path("thumbnailImageUrl").asText(""),
+                    collection.path("id").asString(""),
+                    collection.path("title").asString(""),
+                    collection.path("caption").asString(""),
+                    collection.path("thumbnailImageUrl").asString(""),
                     collection.path("bookmarkCount").asInt(0),
                     collection.path("xRestrict").asInt(0),
                     parseStringTags(collection.path("tags"))));
@@ -312,23 +312,23 @@ final class PixivProxyResponseMapper {
         }
         Map<String, JsonNode> illustById = new LinkedHashMap<>();
         for (JsonNode item : body.path("thumbnails").path("illust")) {
-            illustById.put(item.path("id").asText(""), item);
+            illustById.put(item.path("id").asString(""), item);
         }
         Map<String, JsonNode> novelById = new LinkedHashMap<>();
         for (JsonNode item : body.path("thumbnails").path("novel")) {
-            novelById.put(item.path("id").asText(""), item);
+            novelById.put(item.path("id").asString(""), item);
         }
         JsonNode tiles = body.path("data").path("detail").path("tiles");
         if (!tiles.isArray()) {
             return works;
         }
         for (JsonNode tile : tiles) {
-            if (!"Work".equals(tile.path("type").asText(""))
-                    || !"Active".equals(tile.path("status").asText("Active"))) {
+            if (!"Work".equals(tile.path("type").asString(""))
+                    || !"Active".equals(tile.path("status").asString("Active"))) {
                 continue;
             }
-            String workType = tile.path("workType").asText("");
-            String workId = tile.path("workId").asText("");
+            String workType = tile.path("workType").asString("");
+            String workId = tile.path("workId").asString("");
             if (workId.isBlank()) {
                 continue;
             }
@@ -351,14 +351,14 @@ final class PixivProxyResponseMapper {
         return new CollectionWorksResponse.Work(
                 "novel",
                 workId,
-                item.path("title").asText(""),
+                item.path("title").asString(""),
                 0,
                 item.path("xRestrict").asInt(0),
                 item.path("aiType").asInt(0),
                 extractNovelCoverUrl(item),
                 1,
-                item.path("userId").asText(""),
-                item.path("userName").asText(""),
+                item.path("userId").asString(""),
+                item.path("userName").asString(""),
                 parseStringTags(item.path("tags")),
                 item.path("bookmarkCount").asInt(-1),
                 item.path("wordCount").asInt(0),
@@ -370,14 +370,14 @@ final class PixivProxyResponseMapper {
         return new CollectionWorksResponse.Work(
                 "illust",
                 workId,
-                item.path("title").asText(""),
+                item.path("title").asString(""),
                 item.path("illustType").asInt(0),
                 item.path("xRestrict").asInt(0),
                 item.path("aiType").asInt(0),
-                item.path("url").asText(""),
+                item.path("url").asString(""),
                 item.path("pageCount").asInt(1),
-                item.path("userId").asText(""),
-                item.path("userName").asText(""),
+                item.path("userId").asString(""),
+                item.path("userName").asString(""),
                 parseStringTags(item.path("tags")),
                 item.path("bookmarkCount").asInt(-1),
                 0,
@@ -391,15 +391,15 @@ final class PixivProxyResponseMapper {
 
     private static SearchResponse.SearchItem searchItem(JsonNode item, String fallbackId) {
         return new SearchResponse.SearchItem(
-                item.path("id").asText(fallbackId),
-                item.path("title").asText(""),
+                item.path("id").asString(fallbackId),
+                item.path("title").asString(""),
                 item.path("illustType").asInt(0),
                 item.path("xRestrict").asInt(0),
                 item.path("aiType").asInt(0),
-                item.path("url").asText(""),
+                item.path("url").asString(""),
                 item.path("pageCount").asInt(1),
-                item.path("userId").asText(""),
-                item.path("userName").asText(""),
+                item.path("userId").asString(""),
+                item.path("userName").asString(""),
                 parseStringTags(item.path("tags")));
     }
 
@@ -409,7 +409,7 @@ final class PixivProxyResponseMapper {
         }
         LinkedHashSet<String> tags = new LinkedHashSet<>();
         for (JsonNode tag : tagsNode) {
-            String value = tag.isTextual() ? tag.asText("") : tag.path("tag").asText("");
+            String value = tag.isString() ? tag.asString("") : tag.path("tag").asString("");
             value = value.trim();
             if (!value.isEmpty()) {
                 tags.add(value);
@@ -445,16 +445,16 @@ final class PixivProxyResponseMapper {
         }
         List<WorkTag> values = new ArrayList<>();
         for (JsonNode tag : tags) {
-            String name = tag.isTextual()
-                    ? tag.asText("")
-                    : tag.path("tag").asText(tag.path("name").asText(""));
+            String name = tag.isString()
+                    ? tag.asString("")
+                    : tag.path("tag").asString(tag.path("name").asString(""));
             if (name.isEmpty()) {
                 continue;
             }
             String translated = null;
             JsonNode translation = tag.path("translation");
             if (translation.isObject()) {
-                String english = translation.path("en").asText("");
+                String english = translation.path("en").asString("");
                 if (!english.isEmpty()) {
                     translated = english;
                 }
@@ -468,14 +468,14 @@ final class PixivProxyResponseMapper {
         JsonNode urls = meta.path("cover").path("urls");
         if (urls.isObject()) {
             for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
+                String value = urls.path(key).asString("");
                 if (!value.isBlank()) {
                     return value;
                 }
             }
         }
         for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
+            String value = meta.path(key).asString("");
             if (!value.isBlank()) {
                 return value;
             }
@@ -488,7 +488,7 @@ final class PixivProxyResponseMapper {
             JsonNode urls = node.path(parent);
             if (urls.isObject()) {
                 for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
-                    String cover = urls.path(key).asText("");
+                    String cover = urls.path(key).asString("");
                     if (!cover.isBlank()) {
                         return PixivCoverUrlResolver.preferHighResolution(cover);
                     }
@@ -496,7 +496,7 @@ final class PixivProxyResponseMapper {
             }
         }
         for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
-            String cover = node.path(key).asText("");
+            String cover = node.path(key).asString("");
             if (!cover.isBlank()) {
                 return PixivCoverUrlResolver.preferHighResolution(cover);
             }

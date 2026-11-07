@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.download.schedule.persistence.migration;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationAdapter;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskSnapshot;
@@ -109,12 +109,12 @@ public final class PixivLegacyScheduledTaskMigrationAdapter implements LegacySch
         }
         try {
             JsonNode root = objectMapper.readTree(definitionJson);
-            String kind = root.path("kind").asText(PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST)
+            String kind = root.path("kind").asString(PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST)
                     .trim().toLowerCase(Locale.ROOT);
             return PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL.equals(kind)
                     ? PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL
                     : PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST;
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException("legacy definition JSON is invalid", e);
         }
     }
@@ -159,7 +159,7 @@ public final class PixivLegacyScheduledTaskMigrationAdapter implements LegacySch
     private String write(JsonNode value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("failed to encode Pixiv migration detail", e);
         }
     }

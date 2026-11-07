@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -13,16 +14,14 @@ import top.sywyar.pixivdownload.sdk.SdkVersion;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("停机迁移真实命令行入口")
 class DatabaseMigrationCliTest {
     @TempDir Path directory;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("独立进程导出声明、迁移旧库并写入可核对的最终报告，重试不覆盖目标")
@@ -36,14 +35,14 @@ class DatabaseMigrationCliTest {
         }
         Path manifest = directory.resolve("schema.json");
         assertThat(run("export", "--export-schema", manifest.toString())).isZero();
-        assertThat(json.readTree(manifest.toFile()).path("sdkVersion").asText()).isEqualTo(SdkVersion.VERSION);
+        assertThat(json.readTree(manifest.toFile()).path("sdkVersion").asString()).isEqualTo(SdkVersion.VERSION);
         try (var database = new PostgresTestDatabase()) {
             Path config = targetConfig(database);
             Path report = directory.resolve("migration.json");
             assertThat(run("migrate", "--source-config", sourceConfig(source).toString(), "--target-config", config.toString(),
                     "--report", report.toString())).isZero();
             var result = json.readTree(report.toFile());
-            assertThat(result.path("status").asText()).isEqualTo("DATA_VERIFIED");
+            assertThat(result.path("status").asString()).isEqualTo("DATA_VERIFIED");
             assertThat(result.path("stores").path("main").path("snapshot").path("verification").path("tables").path("artworks").path("rows").asLong()).isOne();
             var jdbc = new JdbcTemplate(database.pool());
             assertThat(jdbc.queryForObject("SELECT title FROM artworks", String.class)).isEqualTo("旧库 🌸");
@@ -51,7 +50,7 @@ class DatabaseMigrationCliTest {
             Path retryReport = directory.resolve("retry.json");
             assertThat(run("retry", "--source-config", sourceConfig(source).toString(), "--target-config", config.toString(),
                     "--report", retryReport.toString())).isEqualTo(2);
-            assertThat(json.readTree(retryReport.toFile()).path("status").asText()).isEqualTo("FAILED_TARGET_NOT_VERIFIED");
+            assertThat(json.readTree(retryReport.toFile()).path("status").asString()).isEqualTo("FAILED_TARGET_NOT_VERIFIED");
             assertThat(jdbc.queryForObject("SELECT count(*) FROM tags", Integer.class)).isOne();
             assertThat(directory.resolve("data/pixiv_download.db")).doesNotExist();
         }
@@ -81,7 +80,7 @@ class DatabaseMigrationCliTest {
                 assertThat(run("private", "--source-config", sourceConfig(source).toString(), "--target-config", targetConfig(database).toString(),
                         "--report", report.toString())).isZero();
                 var result = json.readTree(report.toFile());
-                assertThat(result.path("status").asText()).isEqualTo("DATA_VERIFIED");
+                assertThat(result.path("status").asString()).isEqualTo("DATA_VERIFIED");
                 assertThat(result.path("stores").path("private:" + owner).path("snapshot").path("verification").path("tables").path("imported_works").path("rows").asLong())
                         .isOne();
                 List<String> schemas = privateSchemas(jdbc, installation);
@@ -121,7 +120,7 @@ class DatabaseMigrationCliTest {
         Path outward = directory.resolve("outward.json");
         assertThat(run("outward", "--source-config", sourceConfig(source).toString(), "--target-config", thirdConfig.toString(),
                 "--report", outward.toString())).as("%s; report: %s", Files.readString(directory.resolve("outward.log")),
-                        Files.exists(outward) ? json.readTree(outward.toFile()).path("failure").asText() : "absent").isZero();
+                        Files.exists(outward) ? json.readTree(outward.toFile()).path("failure").asString() : "absent").isZero();
         assertThat(Files.size(third)).isPositive();
         Path restoredConfig = directory.resolve("restored.yaml");
         Files.writeString(restoredConfig, "database.provider: database-sqlite\ndatabase.jdbc-url: "
@@ -129,8 +128,8 @@ class DatabaseMigrationCliTest {
         Path inward = directory.resolve("inward.json");
         assertThat(run("inward", "--source-config", thirdConfig.toString(), "--target-config", restoredConfig.toString(),
                 "--report", inward.toString())).as("%s; report: %s", Files.readString(directory.resolve("inward.log")),
-                        Files.exists(inward) ? json.readTree(inward.toFile()).path("failure").asText() : "absent").isZero();
-        assertThat(json.readTree(inward.toFile()).path("stores").path("main").path("sourceProvider").asText())
+                        Files.exists(inward) ? json.readTree(inward.toFile()).path("failure").asString() : "absent").isZero();
+        assertThat(json.readTree(inward.toFile()).path("stores").path("main").path("sourceProvider").asString())
                 .isEqualTo("neutral-migration");
         try (var connection = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.openExisting(restored);
              var sql = connection.createStatement(); var rows = sql.executeQuery("SELECT tag_id,name,translated_name FROM tags")) {
@@ -144,7 +143,7 @@ class DatabaseMigrationCliTest {
                 + json.writeValueAsString("ledger:" + third) + "\n", StandardCharsets.UTF_8);
         assertThat(run("missing-provider", "--source-config", missing.toString(), "--target-config", restoredConfig.toString(),
                 "--report", directory.resolve("missing.json").toString())).isEqualTo(2);
-        assertThat(json.readTree(directory.resolve("missing.json").toFile()).path("failure").asText())
+        assertThat(json.readTree(directory.resolve("missing.json").toFile()).path("failure").asString())
                 .isEqualTo("DATABASE_PROVIDER_UNAVAILABLE");
     }
 
@@ -165,7 +164,7 @@ class DatabaseMigrationCliTest {
             Path report = directory.resolve("unsupported.json");
             assertThat(run("unsupported", "--source-config", sourceConfig(source).toString(), "--target-config", targetConfig(database).toString(),
                     "--report", report.toString())).isEqualTo(2);
-            assertThat(json.readTree(report.toFile()).path("failure").asText()).isEqualTo("PRIVATE_SCHEMA_MISSING");
+            assertThat(json.readTree(report.toFile()).path("failure").asString()).isEqualTo("PRIVATE_SCHEMA_MISSING");
             assertThat(new JdbcTemplate(database.pool()).queryForObject(
                     "SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema()", Long.class)).isZero();
             assertThat(privateSource).hasContent("uninterpreted retained data");

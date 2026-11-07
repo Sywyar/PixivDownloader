@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.push.channel.wecom;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.push.OutboundRequest;
@@ -26,7 +27,7 @@ import java.util.List;
 @Component
 public class WecomPushChannel implements PushChannel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String WEBHOOK_BASE = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=";
 
     private final WecomConfig config;

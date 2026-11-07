@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration.engine.qwen;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,7 +38,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("Qwen3-TTS 朗读引擎")
 class QwenNarrationEngineTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final MessageResolver MESSAGES = TestMessageResolver.INSTANCE;
     private static final String GEN_URL =
             "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";

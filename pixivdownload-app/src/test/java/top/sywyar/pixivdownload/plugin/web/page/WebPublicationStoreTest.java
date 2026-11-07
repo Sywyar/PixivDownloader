@@ -114,8 +114,8 @@ class WebPublicationStoreTest {
         store.commit(0, next());
         Path current = directory().resolve("current.json");
         byte[] committed = Files.readAllBytes(current);
-        var commit = (com.fasterxml.jackson.databind.node.ObjectNode) JSON.readTree(committed);
-        Path file = directory().resolve(commit.path("file").asText());
+        var commit = (tools.jackson.databind.node.ObjectNode) JSON.readTree(committed);
+        Path file = directory().resolve(commit.path("file").asString());
         byte[] original = Files.readAllBytes(file);
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(WebPublicationStore.class);
         var capture = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
@@ -125,9 +125,9 @@ class WebPublicationStoreTest {
         try {
             java.util.Locale.setDefault(java.util.Locale.JAPANESE);
             for (String field : List.of("configuration", "hooks")) {
-                var incomplete = (com.fasterxml.jackson.databind.node.ObjectNode) JSON.readTree(original);
+                var incomplete = (tools.jackson.databind.node.ObjectNode) JSON.readTree(original);
                 if (field.equals("configuration")) incomplete.remove(field);
-                else ((com.fasterxml.jackson.databind.node.ObjectNode) incomplete.path("pages").path("owner:page")).remove(field);
+                else ((tools.jackson.databind.node.ObjectNode) incomplete.path("pages").path("owner:page")).remove(field);
                 // 文件摘要仍然正确；拒绝的是缺少安全字段，不能归因于损坏摘要。
                 byte[] bytes = JSON.writeValueAsBytes(incomplete);
                 Files.write(file, bytes);

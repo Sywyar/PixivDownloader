@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.pageeditor;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
@@ -54,7 +54,7 @@ class PageBindingTest {
         assertThat(regions(normalized).get(0).at("/components/0/target").asText()).isEqualTo("a");
         assertThat(regions(normalized).get(1).at("/components/0/target").asText()).isEqualTo("b");
         assertThat(documents.validate("form:page", normalized, normalized, true).toString()).contains("\"bindingStatus\":\"bound\"");
-        ObjectNode moved = ((ArrayNode) regions(normalized).get(0).path("components")).remove(0).deepCopy();
+        ObjectNode moved = ((ObjectNode) ((ArrayNode) regions(normalized).get(0).path("components")).remove(0)).deepCopy();
         ((ArrayNode) regions(normalized).get(1).path("components")).add(moved);
         assertThatThrownBy(() -> documents.validate("form:page", normalized, source, true)).hasMessage("PAGE_BINDING_INVALID");
     }

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.community.project;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
 /** 只解析 Maven 已求值的有效模型；不把源 POM 当作最终构建事实。 */
 public final class BuildModels {
     public static Object maven(JsonNode input) throws Exception {
-        Path file = Path.of(input.get("file").textValue());
+        Path file = Path.of(input.get("file").stringValue());
         Element project = project(file);
         var xpath = XPathFactory.newInstance().newXPath();
         String version = xpath.evaluate("version", project);
@@ -54,11 +54,11 @@ public final class BuildModels {
 
     // 仅报告实际依赖元数据中的声明，不自动判定许可证兼容或把缺项补成允许。
     public static Object dependencies(JsonNode input) throws Exception {
-        Path root = Path.of(input.get("root").textValue());
+        Path root = Path.of(input.get("root").stringValue());
         var metadata = new ArrayList<Object>();
         long total = 0;
         for (JsonNode entry : input.get("files")) {
-            var reference = new Reference(entry.get("path").textValue(), entry.get("size").longValue(), entry.get("sha256").textValue());
+            var reference = new Reference(entry.get("path").stringValue(), entry.get("size").longValue(), entry.get("sha256").stringValue());
             if (!reference.path().endsWith(".pom") || reference.size() < 0 || reference.size() > 32 * 1024 * 1024 - total) {
                 throw new ContractException("LIMIT_EXCEEDED", "/dependencyMetadata");
             }

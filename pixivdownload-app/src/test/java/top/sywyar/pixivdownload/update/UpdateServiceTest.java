@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.update;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -51,7 +52,7 @@ import static org.mockito.Mockito.mockStatic;
 class UpdateServiceTest {
 
     private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String MANIFEST_URL = "https://example.com/update.json";
     private static final String ASSET_SHA256 = "0".repeat(64);
 
@@ -198,6 +199,8 @@ class UpdateServiceTest {
         record InvalidManifest(String json, String reason) {}
         SigningSupport signing = new SigningSupport();
         var invalidManifests = java.util.List.of(
+                new InvalidManifest("{", "INVALID_MANIFEST"),
+                new InvalidManifest("[]", "INVALID_MANIFEST"),
                 new InvalidManifest("null", "INVALID_MANIFEST"),
                 new InvalidManifest("{\"channel\":\"nightly\"}", "CHANNEL_MISMATCH"),
                 new InvalidManifest("{\"channel\":\"stable\",\"sequence\":10}", "INVALID_MANIFEST"),
@@ -220,15 +223,17 @@ class UpdateServiceTest {
     void shouldRejectCorruptTrustState() throws Exception {
         SigningSupport signing = new SigningSupport();
         Path state = tempDir.resolve("trust.json");
-        Files.writeString(state, "{\"stableSequence\":1,\"nightlySequence\":0}", StandardCharsets.UTF_8);
         byte[] manifest = manifest(10, "stable", "999.0.0", "2099-01-01T00:00:00Z",
                 "notes", ASSET_SHA256);
 
-        UpdateCheckResult result = service(signing, manifest, signing.signature(manifest), state)
-                .checkForUpdate(true);
-
-        assertThat(result.isCheckSucceeded()).isFalse();
-        assertThat(result.getError()).isEqualTo("TRUST_STATE_UNAVAILABLE");
+        for (String invalid : java.util.List.of("{", "[]", "{\"stableSequence\":1,\"nightlySequence\":0}")) {
+            Files.writeString(state, invalid, StandardCharsets.UTF_8);
+            UpdateCheckResult result = service(signing, manifest, signing.signature(manifest), state)
+                    .checkForUpdate(true);
+            assertThat(result.isCheckSucceeded()).isFalse();
+            assertThat(result.getError()).isEqualTo("TRUST_STATE_UNAVAILABLE");
+            assertThat(Files.readString(state, StandardCharsets.UTF_8)).isEqualTo(invalid);
+        }
     }
 
     @Test

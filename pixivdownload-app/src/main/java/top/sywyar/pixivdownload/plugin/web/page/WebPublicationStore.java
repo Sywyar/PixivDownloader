@@ -1,11 +1,10 @@
 package top.sywyar.pixivdownload.plugin.web.page;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
@@ -22,10 +21,10 @@ import java.util.*;
 @Component
 public final class WebPublicationStore {
     static final int MAX_BYTES = 16 * 1024 * 1024;
-    static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     public record Requirement(String operation, String contextSchema, String policy, String provider,
             String packageId, OperationVerification.Policy plan) { }
     public record HookRequirement(top.sywyar.pixivdownload.plugin.api.operation.OperationBinding binding,

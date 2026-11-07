@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
@@ -9,6 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.mock.web.MockHttpServletRequest;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -61,7 +62,7 @@ class SetupServiceTest {
     }
 
     private SetupService createSetupServiceWithArgs(String... args) {
-        return createSetupService(new ObjectMapper(), args);
+        return createSetupService(JsonMapper.builderWithJackson2Defaults().build(), args);
     }
 
     private SetupService createSetupService(ObjectMapper mapper, String... args) {
@@ -287,7 +288,7 @@ class SetupServiceTest {
 
             SetupService reloaded = createSetupService();
             assertThat(persisted).doesNotContain(token);
-            assertThat(new ObjectMapper().readValue(configPath.toFile(), SetupConfig.class)
+            assertThat(JsonMapper.builderWithJackson2Defaults().build().readValue(configPath.toFile(), SetupConfig.class)
                     .getSessions().keySet()).allMatch(key -> key.matches("[0-9a-f]{64}"));
             assertThat(reloaded.isValidSession(token)).isTrue();
         }
@@ -297,7 +298,7 @@ class SetupServiceTest {
         void shouldMigrateRawPersistentSessionWithoutBackup() throws IOException {
             String token = "legacy-session-token";
             Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
-            ObjectMapper mapper = new ObjectMapper();
+            ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
             SetupConfig config = mapper.readValue(configPath.toFile(), SetupConfig.class);
             config.setSessions(Map.of(token, System.currentTimeMillis() + 60_000));
             mapper.writeValue(configPath.toFile(), config);
@@ -376,7 +377,7 @@ class SetupServiceTest {
             }
 
             setupService.updateDisplayName("after-failure");
-            SetupConfig persisted = new ObjectMapper().readValue(
+            SetupConfig persisted = JsonMapper.builderWithJackson2Defaults().build().readValue(
                     stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
             assertThat(persisted.getSessions()).isEmpty();
         }
@@ -409,7 +410,7 @@ class SetupServiceTest {
 
             assertThat(setupService.isValidSession(first)).isFalse();
             assertThat(setupService.isValidSession(latest)).isTrue();
-            SetupConfig persisted = new ObjectMapper().readValue(
+            SetupConfig persisted = JsonMapper.builderWithJackson2Defaults().build().readValue(
                     stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
             assertThat(persisted.getSessions()).hasSize(SetupService.MAX_PERSISTENT_SESSIONS);
         }
@@ -447,7 +448,7 @@ class SetupServiceTest {
         assertThat(setupService.isValidSession(shortToken)).isFalse();
         assertThat(setupService.isValidSession(longToken)).isFalse();
         assertThat(setupService.checkLogin("admin", "password1234")).isTrue();
-        SetupConfig saved = new ObjectMapper().readValue(
+        SetupConfig saved = JsonMapper.builderWithJackson2Defaults().build().readValue(
                 stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON).toFile(), SetupConfig.class);
         assertThat(saved.getSessions()).isEmpty();
         setupService.revokeAllSessions();
@@ -497,7 +498,7 @@ class SetupServiceTest {
             mapper.releaseWrite.countDown();
             assertThatThrownBy(() -> write.get(5, TimeUnit.SECONDS))
                     .isInstanceOf(ExecutionException.class)
-                    .hasRootCauseInstanceOf(IOException.class);
+                    .hasCauseInstanceOf(IOException.class);
             assertThat(setupCompleteRead.get(5, TimeUnit.SECONDS)).isFalse();
             assertThat(modeRead.get(5, TimeUnit.SECONDS)).isNull();
             assertThat(displayNameRead.get(5, TimeUnit.SECONDS)).isNull();
@@ -531,7 +532,7 @@ class SetupServiceTest {
 
         setupService.updateDisplayName("Alice");
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         SetupConfig backup = mapper.readValue(SetupConfigFile.backupPath(configPath).toFile(), SetupConfig.class);
         SetupConfig current = mapper.readValue(configPath.toFile(), SetupConfig.class);
         assertThat(backup.getDisplayName()).isNull();
@@ -584,17 +585,17 @@ class SetupServiceTest {
         private final CountDownLatch releaseWrite = new CountDownLatch(1);
 
         @Override
-        public byte[] writeValueAsBytes(Object value) throws JsonProcessingException {
+        public byte[] writeValueAsBytes(Object value) {
             writeStarted.countDown();
             try {
                 if (!releaseWrite.await(5, TimeUnit.SECONDS)) {
-                    throw new JsonProcessingException("timed out waiting to fail setup persistence") { };
+                    throw new JacksonException("timed out waiting to fail setup persistence") { };
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new JsonProcessingException("interrupted while failing setup persistence", e) { };
+                throw new JacksonException("interrupted while failing setup persistence", e) { };
             }
-            throw new JsonProcessingException("forced setup persistence failure") { };
+            throw new JacksonException("forced setup persistence failure") { };
         }
     }
 }

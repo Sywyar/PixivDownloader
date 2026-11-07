@@ -5,9 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost;
 
 import java.nio.file.Files;
@@ -30,8 +28,7 @@ class PostgresDesktopToolsTest {
                     org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigFile.class),
                     database::pool, null, target);
             assertThat(host.supportsDatabaseFileSelection()).isFalse();
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> host.resolveDatabasePath(directory.toString()))
-                    .isInstanceOf(IllegalStateException.class).hasMessage("DATABASE_LOCAL_FILE_UNSUPPORTED");
+            assertThat(host.defaultBackfillOptions().dbPath()).isEqualTo("postgresql");
             var jdbc = new JdbcTemplate(database.pool());
             Path existing = Files.createDirectory(directory.resolve("作品 🌸"));
             jdbc.update("INSERT INTO path_prefixes(id,path) VALUES(7,?)", directory.toString().replace('\\', '/'));

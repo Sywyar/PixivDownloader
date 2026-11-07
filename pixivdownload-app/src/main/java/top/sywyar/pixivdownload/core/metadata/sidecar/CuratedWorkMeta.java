@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * {@link WorkMetaCurator} 归一化一份捕获 meta 的产物：可重建的列投影值（{@code uploadTime} /

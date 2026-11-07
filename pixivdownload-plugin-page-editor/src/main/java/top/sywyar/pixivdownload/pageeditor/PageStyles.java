@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.pageeditor;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import java.util.Locale;
 
 /** 文档和 CSS 声明输入共用同一受控样式边界。 */
@@ -12,9 +12,9 @@ final class PageStyles {
         ObjectNode result = PageDocuments.JSON.createObjectNode();
         if (source.isMissingNode()) return result;
         if (!source.isObject()) throw PageDocuments.invalid("PAGE_STYLE_INVALID");
-        source.fields().forEachRemaining(field -> {
-            String value = field.getValue().asText();
-            if (!field.getValue().isTextual()) throw PageDocuments.invalid("PAGE_STYLE_INVALID");
+        source.properties().iterator().forEachRemaining(field -> {
+            String value = field.getValue().asString();
+            if (!field.getValue().isString()) throw PageDocuments.invalid("PAGE_STYLE_INVALID");
             top.sywyar.pixivdownload.plugin.api.web.page.PagePresentation.style(field.getKey(), value);
             result.put(field.getKey(), value);
         });

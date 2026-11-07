@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.browser;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("浏览器授权小说抓取票据")
 class NovelBrowserFetchTicketStoreTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("上传令牌和下载票据均一次性且下载票据绑定作品")

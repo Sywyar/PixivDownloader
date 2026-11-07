@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gui.backfill;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
@@ -38,8 +38,8 @@ class HeadlessBackfillRuntimeTest {
         config.setJdbcUrl("jdbc:sqlite:" + directory.resolve("headless.db"));
         config.setMaximumPoolSize(2);
         try (var pool = new HikariDataSource(config)) {
-            var metadata = new WorkMetaCurator(new ObjectMapper()).curateNovel(1,
-                    new ObjectMapper().readTree("""
+            var metadata = new WorkMetaCurator(JsonMapper.builderWithJackson2Defaults().build()).curateNovel(1,
+                    JsonMapper.builderWithJackson2Defaults().build().readTree("""
                             {"id":1,"userId":42,"userName":"fixture author","xRestrict":0,"aiType":1,
                              "description":"fixture description","tags":{"tags":[{"tag":"fixture tag"}]},
                              "seriesNavData":null,"uploadDate":"2020-02-03T12:00:00+09:00"}

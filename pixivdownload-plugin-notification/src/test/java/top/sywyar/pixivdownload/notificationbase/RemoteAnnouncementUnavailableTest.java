@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.notificationbase;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
@@ -24,7 +24,7 @@ class RemoteAnnouncementUnavailableTest extends RemoteAnnouncementImporterTestSu
         var mapper = new RecordingMapper();
         var inbox = new NotificationInboxService(mapper, () -> false);
         var client = new StubClient(signing);
-        var importer = new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox,
+        var importer = new RemoteAnnouncementImporter(client, JsonMapper.builderWithJackson2Defaults().build(), inbox,
                 signing.verifier(), CLOCK, ignored -> 0);
 
         importer.tick();
@@ -72,7 +72,7 @@ class RemoteAnnouncementUnavailableTest extends RemoteAnnouncementImporterTestSu
             public void close() {
             }
         };
-        var importer = new RemoteAnnouncementImporter(client, new ObjectMapper(), inbox,
+        var importer = new RemoteAnnouncementImporter(client, JsonMapper.builderWithJackson2Defaults().build(), inbox,
                 signing.verifier(), CLOCK, ignored -> 0);
 
         importer.poll();

@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.download.media.MediaOutputSettings;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 

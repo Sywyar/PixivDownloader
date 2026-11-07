@@ -2468,7 +2468,7 @@ class PluginRuntimeManagerTest {
              ZipOutputStream zos = new ZipOutputStream(out)) {
             String descriptor = "plugin.id=isolated-static-probe\n"
                     + "plugin.version=" + PROBE_VERSION + "\n"
-                    + "plugin.requires=1.0\n"
+                    + "plugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                     + "plugin.class=" + IsolatedStaticProbePlugin.class.getName() + "\n"
                     + "plugin.provider=test\n"
                     + "plugin.description=isolated static probe\n"
@@ -2603,7 +2603,7 @@ class PluginRuntimeManagerTest {
 
     private static void writeProbeClassesDirectory(Path classesDirectory, boolean privateLib) throws IOException {
         Files.createDirectories(classesDirectory);
-        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.kind=feature\n"
@@ -2691,7 +2691,7 @@ class PluginRuntimeManagerTest {
             ZipOutputStream zos,
             String lifecyclePolicy,
             String executionMode) throws IOException {
-        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
                 + "pixiv.kind=feature\n"
@@ -2712,7 +2712,7 @@ class PluginRuntimeManagerTest {
         StringBuilder props = new StringBuilder()
                 .append("plugin.id=").append(pluginId).append('\n')
                 .append("plugin.version=").append(version).append('\n')
-                .append("plugin.requires=1.0\n")
+                .append("plugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n")
                 .append("plugin.class=").append(DependencyOrderProbePlugin.class.getName()).append('\n')
                 .append("plugin.provider=test\n")
                 .append("plugin.description=").append(pluginId).append(" probe\n")
@@ -2865,7 +2865,7 @@ class PluginRuntimeManagerTest {
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"),
-                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                         + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                         + "pixiv.kind=feature\n"
                         + "pixiv.lifecycle-policy=process-restart\n"
@@ -2877,7 +2877,7 @@ class PluginRuntimeManagerTest {
         Path sourceResources = moduleRoot.resolve("src/main/resources");
         Files.createDirectories(sourceResources);
         Files.writeString(sourceResources.resolve("plugin.properties"),
-                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                         + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                         + "pixiv.execution-mode=declarative-process\n",
                 StandardCharsets.UTF_8);
@@ -2886,7 +2886,7 @@ class PluginRuntimeManagerTest {
     private static void writeDeclarativeProbeClassesDirectory(Path classesDirectory) throws IOException {
         Files.createDirectories(classesDirectory);
         Files.writeString(classesDirectory.resolve("plugin.properties"),
-                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                         + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                         + "pixiv.execution-mode=declarative-process\n",
                 StandardCharsets.UTF_8);

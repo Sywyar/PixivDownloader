@@ -23,8 +23,8 @@ class CommunityJsonTest {
     @DisplayName("JCS 使用 RFC 标准的 UTF16 排序并保留数组顺序和数字序列化")
     void canonicalizesStandardBoundaries() throws Exception {
         for (var vector : jsonVectors().get("jcs")) {
-            assertThat(new org.erdtman.jcs.JsonCanonicalizer(vector.get("input").textValue()).getEncodedString())
-                    .as(vector.get("id").textValue()).isEqualTo(vector.get("canonical").textValue());
+            assertThat(new org.erdtman.jcs.JsonCanonicalizer(vector.get("input").stringValue()).getEncodedString())
+                    .as(vector.get("id").stringValue()).isEqualTo(vector.get("canonical").stringValue());
         }
         // 社区文档只接受安全整数；标准 JCS 数字支持不放宽外层合同。
         assertThatThrownBy(() -> tree("[1E30]")).isInstanceOf(ContractException.class);
@@ -38,11 +38,11 @@ class CommunityJsonTest {
             try (var input = getClass().getResourceAsStream("/community/v1/vectors/" + path)) {
                 byte[] bytes = java.util.Objects.requireNonNull(input, path).readAllBytes();
                 var parsed = CommunityJson.parse(kind, bytes);
-                var unknown = (com.fasterxml.jackson.databind.node.ObjectNode) parsed.value();
+                var unknown = (tools.jackson.databind.node.ObjectNode) parsed.value();
                 unknown.put("unknown", true);
                 assertThatThrownBy(() -> CommunityJson.parse(kind, CommunityJson.encode(unknown)))
                         .as(kind.name()).isInstanceOf(ContractException.class);
-                var missing = (com.fasterxml.jackson.databind.node.ObjectNode) parsed.value();
+                var missing = (tools.jackson.databind.node.ObjectNode) parsed.value();
                 missing.remove("schemaVersion");
                 assertThatThrownBy(() -> CommunityJson.parse(kind, CommunityJson.encode(missing)))
                         .as(kind.name()).isInstanceOf(ContractException.class);
@@ -59,18 +59,18 @@ class CommunityJsonTest {
     void canonicalizesOnlyOperationBody() throws Exception {
         try (var input = getClass().getResourceAsStream("/community/v1/vectors/structure/rotation.json")) {
             var document = CommunityJson.parse(CommunityJson.Kind.ROTATION, java.util.Objects.requireNonNull(input).readAllBytes());
-            var node = (com.fasterxml.jackson.databind.node.ObjectNode) document.value();
-            ((com.fasterxml.jackson.databind.node.ObjectNode) node.get("payload")).put("explanation", "测试😀");
+            var node = (tools.jackson.databind.node.ObjectNode) document.value();
+            ((tools.jackson.databind.node.ObjectNode) node.get("payload")).put("explanation", "测试😀");
             var first = CommunityJson.parse(CommunityJson.Kind.ROTATION, CommunityJson.encode(node));
             byte[] canonical = CommunityJson.canonicalBody(first);
             assertThat(new String(canonical, StandardCharsets.UTF_8)).startsWith("{\"payload\":{\"explanation\":\"测试😀\",")
                     .endsWith(",\"schemaVersion\":1}").doesNotContain("proofs", "requestId");
             node.put("requestId", "cd".repeat(32));
-            ((com.fasterxml.jackson.databind.node.ObjectNode) node.get("proofs")).set("oldKey", node.get("proofs").get("newKey"));
+            ((tools.jackson.databind.node.ObjectNode) node.get("proofs")).set("oldKey", node.get("proofs").get("newKey"));
             var second = CommunityJson.parse(CommunityJson.Kind.ROTATION, CommunityJson.encode(node));
             assertThat(CommunityJson.canonicalBody(second)).isEqualTo(canonical);
             assertThat(second.sha256()).isNotEqualTo(first.sha256());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) node.get("payload")).put("explanation", "Changed");
+            ((tools.jackson.databind.node.ObjectNode) node.get("payload")).put("explanation", "Changed");
             assertThat(CommunityJson.canonicalBody(CommunityJson.parse(CommunityJson.Kind.ROTATION, CommunityJson.encode(node))))
                     .isNotEqualTo(canonical);
         }
@@ -96,18 +96,18 @@ class CommunityJsonTest {
     @DisplayName("拒绝重复键尾随值非法 UTF8 BOM 和非成对代理字符")
     void rejectsAmbiguousEncoding() throws Exception {
         for (var vector : jsonVectors().get("strictJson")) {
-            byte[] input = java.util.HexFormat.of().parseHex(vector.get("utf8Hex").textValue());
+            byte[] input = java.util.HexFormat.of().parseHex(vector.get("utf8Hex").stringValue());
             if (vector.get("accepted").booleanValue()) {
-                assertThatCode(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").textValue()).doesNotThrowAnyException();
+                assertThatCode(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").stringValue()).doesNotThrowAnyException();
             } else {
-                assertThatThrownBy(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").textValue()).isInstanceOf(ContractException.class);
+                assertThatThrownBy(() -> CommunityJson.strictTree(input, input.length)).as(vector.get("id").stringValue()).isInstanceOf(ContractException.class);
             }
         }
         assertThatThrownBy(() -> CommunityJson.encode(java.util.Map.of("text", "\ud800")))
                 .isInstanceOf(ContractException.class);
     }
 
-    private static com.fasterxml.jackson.databind.JsonNode jsonVectors() throws Exception {
+    private static tools.jackson.databind.JsonNode jsonVectors() throws Exception {
         try (var input = CommunityJsonTest.class.getResourceAsStream("/community/v1/vectors/json.json")) {
             byte[] bytes = java.util.Objects.requireNonNull(input).readAllBytes();
             var vectors = CommunityJson.strictTree(bytes, bytes.length);
@@ -137,7 +137,7 @@ class CommunityJsonTest {
         var document = CommunityJson.parse(CommunityJson.Kind.BINDING, exact);
         assertThat(document.sha256()).isEqualTo(CommunityJson.sha256(exact));
         document.bytes()[0] = 0;
-        ((com.fasterxml.jackson.databind.node.ObjectNode) document.value()).put("schemaVersion", 9);
+        ((tools.jackson.databind.node.ObjectNode) document.value()).put("schemaVersion", 9);
         assertThat(document.bytes()[0]).isEqualTo((byte) '{');
         assertThat(document.value().get("schemaVersion").intValue()).isEqualTo(1);
         ByteArrayInputStream oversized = new ByteArrayInputStream(new byte[maximum * 2]);

@@ -7,6 +7,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
@@ -103,16 +104,16 @@ class PluginMarketInstallStatusTest {
     }
 
     /**
-     * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求SDK 2.0（不兼容）、
+     * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求更高 SDK 主版本（不兼容）、
      * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本制品。
      */
     private static PluginCatalogManifest catalog() {
         return new PluginCatalogManifest("1", null, List.of(
-                entry("a", pkg("1.0.0", "1.0")),
-                entry("b", pkg("2.0.0", "1.0"), pkg("1.0.0", "1.0")),
-                entry("c", pkg("1.0.0", "2.0")),
-                entry("d", pkg("1.2.0", "1.0")),
-                entry("e", pkg("1.0.0", "1.0")),
+                entry("a", pkg("1.0.0", SdkVersion.MAJOR + "." + SdkVersion.MINOR)),
+                entry("b", pkg("2.0.0", SdkVersion.MAJOR + "." + SdkVersion.MINOR), pkg("1.0.0", SdkVersion.MAJOR + "." + SdkVersion.MINOR)),
+                entry("c", pkg("1.0.0", (SdkVersion.MAJOR + 1) + ".0")),
+                entry("d", pkg("1.2.0", SdkVersion.MAJOR + "." + SdkVersion.MINOR)),
+                entry("e", pkg("1.0.0", SdkVersion.MAJOR + "." + SdkVersion.MINOR)),
                 entry("f")));
     }
 
@@ -350,7 +351,7 @@ class PluginMarketInstallStatusTest {
     void selectsHighestVersionRegardlessOfPackageOrder(String versions) {
         PluginMarketService market = service(installed("b", "7.3.0-rc.2"));
         PluginCatalogEntry entry = entry("b", Stream.of(versions.split(","))
-                .map(version -> pkg(version, "1.0")).toArray(PluginCatalogPackage[]::new));
+                .map(version -> pkg(version, SdkVersion.MAJOR + "." + SdkVersion.MINOR)).toArray(PluginCatalogPackage[]::new));
         when(catalogService.loadPage(any(PluginRepository.class), any(PluginCatalogPageQuery.class)))
                 .thenReturn(new PluginCatalogPage("manifest-v1", List.of(entry), null, 1L, Map.of(), false));
         when(catalogService.loadEntryPage(any(PluginRepository.class), eq("b"), isNull(), eq(24)))
@@ -372,7 +373,7 @@ class PluginMarketInstallStatusTest {
                 null, null, null, null, null, null, null, null, null, declared, null, null, null,
                 false, false, false);
         PluginCatalogEntry entry = new PluginCatalogEntry("sample", null, null, null, meta,
-                List.of(pkg("7.3.0-rc.2", "1.0"), pkg("7.3.0-rc.3", "1.0"), pkg("7.3.0-rc.10", "1.0")));
+                List.of(pkg("7.3.0-rc.2", SdkVersion.MAJOR + "." + SdkVersion.MINOR), pkg("7.3.0-rc.3", SdkVersion.MAJOR + "." + SdkVersion.MINOR), pkg("7.3.0-rc.10", SdkVersion.MAJOR + "." + SdkVersion.MINOR)));
 
         PluginMarketEntryView view = PluginMarketEntryView.from(
                 new PluginRepositoryRegistry(new PluginCatalogProperties()).defaultRepository().orElseThrow(),
@@ -390,7 +391,7 @@ class PluginMarketInstallStatusTest {
         PluginMarketEntryView c = entryOf(view, "c");
         assertThat(c.installStatus()).isEqualTo(MarketInstallStatus.INCOMPATIBLE);
         assertThat(c.compatible()).isFalse();
-        assertThat(c.compatibilityReason()).isEqualTo("2.0");
+        assertThat(c.compatibilityReason()).isEqualTo((SdkVersion.MAJOR + 1) + ".0");
         assertThat(c.updateAvailable()).isFalse();
     }
 

@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.core.asset.artwork;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.BoundedImageDecoder;
 import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
@@ -85,7 +86,7 @@ public final class ArtworkMediaDecoder {
             return image;
         } catch (java.io.InterruptedIOException cancelled) {
             throw cancelled;
-        } catch (IOException unsupported) {
+        } catch (JacksonException | IOException unsupported) {
             if (Thread.currentThread().isInterrupted()) {
                 var cancelled = new java.io.InterruptedIOException("Image decoding interrupted");
                 cancelled.initCause(unsupported);

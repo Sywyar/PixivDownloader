@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.sdk;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -52,7 +52,7 @@ public final class SdkPluginInstaller {
                 return;
             }
             // 机器协议行不受宿主诊断日志影响，也不向工具暴露安装器实现类型。
-            System.out.println("PIXIV_SDK_INSTALL_RESULT=" + new ObjectMapper().writeValueAsString(Map.of(
+            System.out.println("PIXIV_SDK_INSTALL_RESULT=" + JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(Map.of(
                     "schemaVersion", 1,
                     "sdkVersion", SdkVersion.VERSION,
                     "pluginId", result.pluginId(),

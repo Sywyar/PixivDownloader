@@ -17,6 +17,7 @@ INSERT INTO file_operation_entries VALUES('entry-fixture','operation-fixture',0,
 INSERT INTO statistics VALUES(1,1,1,0,'2024-01-01',1,0);
 INSERT INTO guest_invites(id,code,name,created_time,collection_unrestricted,collection_restricts_works) VALUES(104,'fixture-invite','访客',1700000000123,0,1);
 INSERT INTO guest_invite_collections VALUES(104,103);
+INSERT INTO guest_invite_sessions(slot,token_hash,invite_id,expires) VALUES(1,'fixture-session-hash',104,1701000000123);
 INSERT INTO guest_invite_tags VALUES(104,101);
 INSERT INTO guest_invite_authors VALUES(104,99);
 INSERT INTO guest_invite_novel_tags VALUES(104,101);

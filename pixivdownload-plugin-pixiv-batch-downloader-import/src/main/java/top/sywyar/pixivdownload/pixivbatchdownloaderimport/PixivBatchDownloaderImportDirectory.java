@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestion;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDirectorySuggestionSource;
 
@@ -37,7 +37,7 @@ public final class PixivBatchDownloaderImportDirectory implements DesktopDirecto
         if (!files.isArray() || files.isEmpty() || files.size() > 1000) return;
         Path root = null;
         for (JsonNode file : files) {
-            String value = file.path("path").asText("");
+            String value = file.path("path").asString("");
             if (value.isBlank() || value.length() > 4096 || value.chars().anyMatch(Character::isISOControl)) return;
             Path path = Path.of(value);
             if (!path.isAbsolute()) return;

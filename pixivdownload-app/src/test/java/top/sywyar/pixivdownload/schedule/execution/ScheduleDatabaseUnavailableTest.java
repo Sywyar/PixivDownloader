@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
@@ -24,7 +24,7 @@ class ScheduleDatabaseUnavailableTest {
     void unavailableDatabasePreventsPlanningAndCredentials() {
         var store = mock(ScheduledTaskStore.class);
         var registry = mock(ScheduleCapabilityAccess.class);
-        var mapper = new ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var engine = new ScheduleExecutionEngine(store, registry, new ScheduleRunState(), new ScheduleRunQueue(),
                 new ScheduleConfig(), new ScheduleWorkPersistenceCodec(mapper),
                 mock(ScheduleNetworkRouteResolver.class), new SyncTaskExecutor(), mapper, () -> false);

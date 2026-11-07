@@ -46,7 +46,7 @@ class PluginDescriptorTest {
     @Test
     @DisplayName("完整外置描述符通过通用与外置完整性校验")
     void completeExternalDescriptorIsValid() {
-        PluginDescriptor descriptor = external("ext-stats", "1.2.0", "1.0",
+        PluginDescriptor descriptor = external("ext-stats", "1.2.0", SdkVersion.VERSION,
                 "com.example.ExtStatsPlugin", "ext.label", PluginKind.FEATURE, List.of());
 
         assertThat(descriptor.validationErrors()).isEmpty();

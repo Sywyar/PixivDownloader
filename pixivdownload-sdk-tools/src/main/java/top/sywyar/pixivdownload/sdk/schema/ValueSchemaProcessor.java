@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.schema;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueProperty;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding;
 import top.sywyar.pixivdownload.plugin.api.contract.remote.RemoteService;
@@ -128,8 +128,8 @@ final class ValueSchemaProcessor extends AbstractProcessor {
                                 if (property.encoding() != ValueEncoding.JSON) {
                                     if (property.encoding() != ValueEncoding.DECIMAL_STRING
                                             || !Set.of("long", "java.lang.Long").contains(component.asType().toString())) throw invalid();
-                                    String minimum = schema.remove("minimum").asText();
-                                    String maximum = schema.remove("maximum").asText();
+                                    String minimum = schema.remove("minimum").asString();
+                                    String maximum = schema.remove("maximum").asString();
                                     encoded(schema, ValueEncoding.DECIMAL_STRING);
                                     schema.put("x-minimum", minimum).put("x-maximum", maximum);
                                 }
@@ -145,7 +145,7 @@ final class ValueSchemaProcessor extends AbstractProcessor {
     }
 
     private void constraints(ObjectNode schema, ValueProperty property) {
-        String type = schema.path("type").asText();
+        String type = schema.path("type").asString();
         if (!property.elementsNullable() && !type.equals("array") && !schema.has("additionalProperties")) throw invalid();
         bound(schema, "minLength", "maxLength", property.minLength(), property.maxLength(), type.equals("string") && !schema.has("x-encoding"));
         bound(schema, "minItems", "maxItems", property.minItems(), property.maxItems(), type.equals("array"));

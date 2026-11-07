@@ -64,7 +64,7 @@ function validateAndParseCookie(raw, fmt) {
 
 function pixivHeader() {
     const c = getCookie();
-    return c ? {'X-Pixiv-Cookie': c} : {};
+    return c ? {'X-Acquisition-Credential': c} : {};
 }
 
 function hasPixivCookie() {

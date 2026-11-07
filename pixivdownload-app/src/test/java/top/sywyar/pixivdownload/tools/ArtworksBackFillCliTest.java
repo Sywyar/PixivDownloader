@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.tools;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,8 +34,8 @@ class ArtworksBackFillCliTest {
     void reportsProgressAndPreservesDryRun(boolean dryRun, @TempDir Path directory) throws Exception {
         var path = directory.resolve("cli.db");
         var target = DatabaseProviderTestFixtures.sqlite(path);
-        var metadata = new WorkMetaCurator(new ObjectMapper()).curateNovel(1,
-                new ObjectMapper().readTree("{\"id\":1,\"uploadDate\":\"2020-02-03T12:00:00+09:00\"}"), "forward");
+        var metadata = new WorkMetaCurator(JsonMapper.builderWithJackson2Defaults().build()).curateNovel(1,
+                JsonMapper.builderWithJackson2Defaults().build().readTree("{\"id\":1,\"uploadDate\":\"2020-02-03T12:00:00+09:00\"}"), "forward");
         try (var connection = target.openConnection()) {
             DatabaseInitializer.prepareOffline(connection, target);
             try (var statement = connection.prepareStatement(

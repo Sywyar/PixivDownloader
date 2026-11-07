@@ -12,34 +12,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResourceBundleMessageResolverTest {
 
     @Test
-    @DisplayName("旧构造器走 legacy 策略：root 语言精确命中、回退语言 fallback 优先")
-    void legacyConstructorKeepsOldContract() {
-        MessageResolver resolver = ResourceBundleMessageResolver.of(
-                new FixedLocaleFallback(Locale.SIMPLIFIED_CHINESE), getClass().getClassLoader(),
-                "i18n.test.messages");
-
-        // zh（root 语言）→ 直接命中 root 文件
-        assertThat(resolver.get(Locale.SIMPLIFIED_CHINESE, "owner.message")).isEqualTo("中文");
-        // ja（非 root / fallback 语言）→ _en 回退
-        assertThat(resolver.get(Locale.JAPANESE, "owner.message")).isEqualTo("English");
-        // en → _en 精确
-        assertThat(resolver.get(Locale.US, "owner.message")).isEqualTo("English");
-    }
-
-    @Test
-    @DisplayName("legacy：source suffix 为空、fallback suffix 为 en；目标后缀与语言码一致")
-    void legacySuffixChainHasEmptySourceAndEnFallback() {
-        LocaleBundlePolicy legacy = LegacyLocaleBundlePolicy.INSTANCE;
-        // zh → 只有 root（不插入英文回退）；带国家时先语言_国家
-        assertThat(legacy.resourceSuffixChain(Locale.SIMPLIFIED_CHINESE))
-                .containsExactly("zh_CN", "zh", "");
-        // en → 语言级 + root
-        assertThat(legacy.resourceSuffixChain(Locale.US)).containsExactly("en_US", "en", "");
-        // ja-JP → ja_JP / ja / en / root；纯语言 ja → ja / en / root
-        assertThat(legacy.resourceSuffixChain(Locale.forLanguageTag("ja-JP")))
-                .containsExactly("ja_JP", "ja", "en", "");
-        assertThat(legacy.resourceSuffixChain(Locale.JAPANESE))
-                .containsExactly("ja", "en", "");
+    @DisplayName("消息解析器拒绝缺失的语言策略")
+    void rejectsMissingPolicy() {
+        org.assertj.core.api.Assertions.assertThatNullPointerException()
+                .isThrownBy(() -> new ResourceBundleMessageResolver(null,
+                        getClass().getClassLoader(), List.of("i18n.test.messages"), null))
+                .withMessage("policy");
     }
 
     @Test
@@ -90,7 +68,7 @@ class ResourceBundleMessageResolverTest {
     void fallsBackToHostResolverForSharedKeys() {
         MessageResolver resolver = ResourceBundleMessageResolver.of(
                 new FixedLocaleFallback(Locale.SIMPLIFIED_CHINESE),
-                getClass().getClassLoader(), "i18n.test.messages");
+                getClass().getClassLoader(), new FixedPolicy(List.of("en", "")), "i18n.test.messages");
 
         assertThat(resolver.get("shared.message", "arg")).isEqualTo("host:shared.message:arg");
     }
@@ -103,7 +81,7 @@ class ResourceBundleMessageResolverTest {
             Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
             MessageResolver resolver = ResourceBundleMessageResolver.of(
                     new FixedLocaleFallback(Locale.SIMPLIFIED_CHINESE),
-                    getClass().getClassLoader(), "i18n.test.messages");
+                    getClass().getClassLoader(), new FixedPolicy(List.of("en", "")), "i18n.test.messages");
 
             assertThat(resolver.getForLog("owner.message")).isEqualTo("English");
         } finally {

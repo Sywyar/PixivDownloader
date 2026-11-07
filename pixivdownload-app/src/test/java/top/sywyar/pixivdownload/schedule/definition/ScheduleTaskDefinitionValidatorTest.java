@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.schedule.definition;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
@@ -27,7 +28,7 @@ class ScheduleTaskDefinitionValidatorTest {
     private static final String SCHEMA = "fixture.definition";
 
     private final ScheduleTaskDefinitionValidator validator =
-            new ScheduleTaskDefinitionValidator(new ObjectMapper());
+            new ScheduleTaskDefinitionValidator(JsonMapper.builderWithJackson2Defaults().build());
 
     @Test
     @DisplayName("只接受一个无重复字段的 JSON 对象")
@@ -129,9 +130,9 @@ class ScheduleTaskDefinitionValidatorTest {
         String deeplyEmbedded = "{\"cookie\":\"a=b\"}";
         try {
             for (int depth = 0; depth < 18; depth++) {
-                deeplyEmbedded = new ObjectMapper().writeValueAsString(Map.of("value", deeplyEmbedded));
+                deeplyEmbedded = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(Map.of("value", deeplyEmbedded));
             }
-        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw new AssertionError(failure);
         }
         String nestedCredential = deeplyEmbedded;

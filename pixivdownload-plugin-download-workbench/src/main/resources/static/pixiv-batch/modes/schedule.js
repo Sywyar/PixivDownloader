@@ -193,7 +193,7 @@
                 const workType = scheduleKindLabel(p.workType);
                 const line = escHtml(bt('schedule.pending.item', '{workType} {workId}：已重试 {attempts} 次{manual}',
                     {workType, workId: p.workId, attempts: p.attempts, manual}));
-                const reasonText = pendingReasonText(p, task && (task.sourceType || task.type));
+                const reasonText = pendingReasonText(p, task && (task.sourceType));
                 const reason = reasonText
                     ? `<div class="schedule-pending-reason">${escHtml(bt('schedule.pending.reason', '原因：{reason}', {reason: reasonText}))}</div>`
                     : '';

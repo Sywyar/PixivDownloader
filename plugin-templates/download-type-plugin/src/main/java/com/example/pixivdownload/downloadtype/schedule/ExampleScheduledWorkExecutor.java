@@ -2,8 +2,8 @@ package com.example.pixivdownload.downloadtype.schedule;
 
 import com.example.pixivdownload.downloadtype.ExampleDownloadPlugin;
 import com.example.pixivdownload.downloadtype.queue.ExampleDownloadQueue;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
@@ -43,7 +43,7 @@ public final class ExampleScheduledWorkExecutor implements ScheduledWorkExecutor
         try {
             definition = objectMapper.readValue(
                     work.payloadJson(), ExampleScheduledSourceExecutor.Definition.class);
-        } catch (JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                     "example.payload-json-invalid");

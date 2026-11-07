@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor;
 import org.springframework.core.env.StandardEnvironment;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;

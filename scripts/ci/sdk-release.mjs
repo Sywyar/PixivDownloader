@@ -156,6 +156,7 @@ export function assertThinJarEntries(entries) {
         'org/pf4j/',
         'org/springframework/',
         'com/fasterxml/jackson/',
+        'tools/jackson/',
     ];
     const violation = entries.find(entry => forbidden.some(prefix => entry.startsWith(prefix))
             || entry.split('/').at(-1) === '.pixivdownloader-plugin-project');

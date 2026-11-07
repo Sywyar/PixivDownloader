@@ -4,7 +4,6 @@ import org.pf4j.Plugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
-import java.util.List;
 
 /** PF4J entry point named by {@code plugin.properties}. */
 public final class ExampleDownloadPf4jPlugin extends Plugin implements PixivPluginProvider {
@@ -14,8 +13,4 @@ public final class ExampleDownloadPf4jPlugin extends Plugin implements PixivPlug
         return new ExampleDownloadPlugin();
     }
 
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
-    }
 }

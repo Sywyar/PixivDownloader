@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,7 @@ class ScheduleControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(
                 new ScheduleController(scheduleService, HostTestMessages.messages()))
                 .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages())).build();
-        objectMapper = new ObjectMapper();
+        objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     }
 
     @Test

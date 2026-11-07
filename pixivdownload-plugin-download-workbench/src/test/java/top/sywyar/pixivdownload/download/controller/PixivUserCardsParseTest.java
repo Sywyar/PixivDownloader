@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.response.search.SearchResponse;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("User 模式卡片元数据解析")
 class PixivUserCardsParseTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     private static JsonNode body(String json) {
         try {

@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("作品回填不可达记录持久化")
 class ArtworksBackFillUnreachableStoreTest {
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @TempDir
     Path temporaryDirectory;
@@ -34,7 +35,7 @@ class ArtworksBackFillUnreachableStoreTest {
 
         JsonNode first = mapper.readTree(path.toFile()).path("42");
         long firstSeenAt = first.path("firstSeenAt").asLong();
-        assertEquals("deleted", first.path("reason").asText());
+        assertEquals("deleted", first.path("reason").asString());
         assertEquals(1, first.path("attempts").asInt());
         assertTrue(firstSeenAt > 0L);
 
@@ -52,7 +53,7 @@ class ArtworksBackFillUnreachableStoreTest {
         reloaded.save();
 
         JsonNode second = mapper.readTree(path.toFile()).path("42");
-        assertEquals("deleted", second.path("reason").asText());
+        assertEquals("deleted", second.path("reason").asString());
         assertEquals(firstSeenAt, second.path("firstSeenAt").asLong());
         assertEquals(2, second.path("attempts").asInt());
         assertTrue(second.path("lastSeenAt").asLong() >= firstSeenAt);

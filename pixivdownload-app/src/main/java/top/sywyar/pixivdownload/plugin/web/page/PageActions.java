@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.plugin.web.page;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import java.io.IOException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.core.JacksonException;
+
 import java.util.List;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
@@ -12,7 +13,7 @@ public final class PageActions {
 
     public static List<PageInteraction.Action> read(String document) {
         try { return read(WebPublicationStore.JSON.readTree(document)); }
-        catch (IOException failure) { throw new IllegalArgumentException("PAGE_ACTION_INVALID"); }
+        catch (JacksonException failure) { throw new IllegalArgumentException("PAGE_ACTION_INVALID"); }
     }
 
     public static List<PageInteraction.Action> read(JsonNode document) {
@@ -20,7 +21,7 @@ public final class PageActions {
         if (actions.isMissingNode()) return List.of();
         if (!actions.isArray() || actions.size() > 128) throw new IllegalArgumentException("PAGE_ACTION_CAPACITY");
         try { return WebPublicationStore.JSON.readerForListOf(PageInteraction.Action.class).readValue(actions); }
-        catch (IOException failure) { throw new IllegalArgumentException("PAGE_ACTION_INVALID"); }
+        catch (JacksonException failure) { throw new IllegalArgumentException("PAGE_ACTION_INVALID"); }
     }
 
     public static EditablePage apply(EditablePage page, JsonNode document, PageContributionRegistry registry) {

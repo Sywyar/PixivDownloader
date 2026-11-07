@@ -130,7 +130,17 @@ class DownloadWorkbenchConfigurationBindingTest {
     }
 
     private static ConfigurableApplicationContext child(AnnotationConfigApplicationContext parent) {
-        var configurations = new ArrayList<Class<?>>(new DownloadWorkbenchPf4jPlugin().configurationClasses());
+        var configurations = new ArrayList<Class<?>>();
+        var loader = DownloadWorkbenchConfigurationBindingTest.class.getClassLoader();
+        try (var input = loader.getResourceAsStream("plugin.properties")) {
+            var properties = new java.util.Properties();
+            properties.load(input);
+            for (String name : properties.getProperty("pixiv.configuration-classes").split(",")) {
+                configurations.add(Class.forName(name.trim(), false, loader));
+            }
+        } catch (java.io.IOException | ClassNotFoundException failure) {
+            throw new AssertionError(failure);
+        }
         configurations.add(LazyBusinessBeans.class);
         var factory = new PluginApplicationContextFactory(new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
         return factory.create(parent, new PluginContextModule(DownloadWorkbenchPlugin.ID,

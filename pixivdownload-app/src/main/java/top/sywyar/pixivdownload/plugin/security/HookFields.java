@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.security;
 
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.*;
 import java.net.URLDecoder;
@@ -24,7 +24,7 @@ public final class HookFields {
             String path = field.path();
             if (field.source() != OperationBinding.Source.QUERY) {
                 if (!path.startsWith("/") || path.split("/", -1).length > 9) throw invalid();
-                try { com.fasterxml.jackson.core.JsonPointer.compile(path); } catch (IllegalArgumentException failure) { throw invalid(); }
+                try { tools.jackson.core.JsonPointer.compile(path); } catch (IllegalArgumentException failure) { throw invalid(); }
             }
             for (String segment : path.split("/")) {
                 String name = segment.replace("~1", "/").replace("~0", "~").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
@@ -44,7 +44,7 @@ public final class HookFields {
             // 不读取输入的 provider 仍可使用经批准字段的宿主摘要，字段不会传给 provider。
             if (schema.isEmpty()) { if (result && !names.isEmpty()) throw invalid(); continue; }
             JsonNode required = HookRequestFilter.JSON.readTree(schema).path("required");
-            for (JsonNode name : required) if (!names.contains(name.asText())) throw invalid();
+            for (JsonNode name : required) if (!names.contains(name.asString())) throw invalid();
         }
     }
 
@@ -59,7 +59,7 @@ public final class HookFields {
                 var replay = org.springframework.web.util.WebUtils.getNativeRequest(request, top.sywyar.pixivdownload.common.web.BoundedBodyRequest.class);
                 if (replay == null) throw invalid();
                 json = HookRequestFilter.JSON.readTree(replay.readBody(BODY_LIMIT));
-            } catch (IOException | RuntimeException unavailable) { /* 下方按绑定阶段拒绝前置或标记缺席的后置输入。 */ }
+            } catch (RuntimeException unavailable) { /* 下方按绑定阶段拒绝前置或标记缺席的后置输入。 */ }
         }
         Map<String, List<String>> query = new HashMap<>();
         if (bindings.stream().flatMap(binding -> binding.binding().fields().stream()).anyMatch(field -> field.source() == OperationBinding.Source.QUERY)) {
@@ -100,10 +100,10 @@ public final class HookFields {
         return Map.copyOf(inputs);
     }
 
-    private static void put(com.fasterxml.jackson.databind.node.ObjectNode target, String name, JsonNode value) {
+    private static void put(tools.jackson.databind.node.ObjectNode target, String name, JsonNode value) {
         if (value == null || value.isMissingNode()) return;
-        if (value.isContainerNode() && (!value.isArray() || value.size() > 64)) throw invalid();
-        if (value.isArray()) for (JsonNode item : value) if (item.isContainerNode()) throw invalid();
+        if (value.isContainer() && (!value.isArray() || value.size() > 64)) throw invalid();
+        if (value.isArray()) for (JsonNode item : value) if (item.isContainer()) throw invalid();
         if (value.toString().getBytes(StandardCharsets.UTF_8).length > 4096) throw invalid();
         target.set(name, value);
     }
@@ -114,7 +114,7 @@ public final class HookFields {
             if (bytes == null || type == null || !MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(type))) return Map.of();
             json = HookRequestFilter.JSON.readTree(bytes);
             if (json == null) return Map.of();
-        } catch (IOException | RuntimeException unavailable) { return Map.of(); }
+        } catch (RuntimeException unavailable) { return Map.of(); }
         var results = new HashMap<String, String>();
         for (var binding : bindings) {
             try {

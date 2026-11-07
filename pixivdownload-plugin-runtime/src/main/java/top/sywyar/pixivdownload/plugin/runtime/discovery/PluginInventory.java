@@ -11,7 +11,7 @@ import java.util.List;
  * 一次外置插件清点（inventory）的结果（不可变）：每个已启动外置插件包贡献的功能插件安装条目
  * （{@link PluginInstallation}，含描述符 + 基线状态 + classloader + 实例）以及包级加载 / 发现失败诊断。
  *
- * <p>这是发现桥接 {@link PixivPluginDiscoveryBridge#inspect} 的完整产出，既供核心壳的插件状态报告消费，也经
+ * <p>这是发现桥接 {@link PixivPluginDiscoveryBridge#inspectLoadedPackage} 的完整产出，既供核心壳的插件状态报告消费，也经
  * {@link #toDiscoveryResult()} 投影为既有的 {@link PluginDiscoveryResult}（仅可接入的安装条目进入
  * {@code discovered}、不兼容条目并入 {@code failures}），供 {@code PluginRegistry} 接入——<b>不兼容插件因此被拒绝接入</b>。
  *

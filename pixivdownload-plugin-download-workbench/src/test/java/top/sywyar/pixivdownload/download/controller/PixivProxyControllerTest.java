@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -46,7 +47,7 @@ class PixivProxyControllerTest {
     private static final WorkVisibilityScope VISIBILITY_SCOPE = WorkVisibilityScope.unrestricted();
 
     private MockMvc mockMvc;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Mock
     private PixivAjaxClient pixivAjaxClient;
@@ -151,8 +152,8 @@ class PixivProxyControllerTest {
         }
 
         @Test
-        @DisplayName("旧 Pixiv 凭证头仍应作为 Cookie 转发")
-        void shouldForwardLegacyPixivCredential() throws Exception {
+        @DisplayName("来源专用旧请求头不再提供凭据")
+        void shouldIgnoreRemovedPixivCredentialHeader() throws Exception {
             when(pixivAjaxClient.get(any(URI.class), nullable(String.class)))
                     .thenReturn(PIXIV_SEARCH_RESPONSE);
 
@@ -161,19 +162,17 @@ class PixivProxyControllerTest {
                             .header("X-Pixiv-Cookie", " legacy-cookie "))
                     .andExpect(status().isOk());
 
-            verify(pixivAjaxClient).get(any(URI.class), eq("legacy-cookie"));
+            verify(pixivAjaxClient).get(any(URI.class), isNull());
         }
 
         @Test
-        @DisplayName("通用与旧 Pixiv 凭证冲突时应返回 400")
-        void shouldRejectConflictingPixivCredentials() throws Exception {
+        @DisplayName("超长通用凭证在访问外部服务前拒绝")
+        void shouldRejectOversizedCredential() throws Exception {
             mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "miku")
-                            .header(AcquisitionCredentialResolver.HEADER_NAME, "generic-cookie")
-                            .header("X-Pixiv-Cookie", "legacy-cookie"))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
-
+                            .header(AcquisitionCredentialResolver.HEADER_NAME,
+                                    "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1)))
+                    .andExpect(status().isBadRequest());
             verifyNoInteractions(pixivAjaxClient);
         }
 

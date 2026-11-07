@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.update;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -95,8 +95,8 @@ public class UpdateService {
     /**
      * 用于从已验签的原始 manifest 字节反序列化。未知字段仅用于向后兼容，不绕过必填字段校验。
      */
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
     private final UpdateConfig updateConfig;
     private final AppMessages messages;
@@ -270,7 +270,12 @@ public class UpdateService {
             throw new UpdateCheckException(SIGNATURE_INVALID, "signature verification failed: " + verified.diagnosticCode());
         }
 
-        UpdateManifest manifest = MAPPER.readValue(body, UpdateManifest.class);
+        UpdateManifest manifest;
+        try {
+            manifest = MAPPER.readValue(body, UpdateManifest.class);
+        } catch (tools.jackson.core.JacksonException invalid) {
+            throw new UpdateCheckException(UpdateCheckException.Reason.INVALID_MANIFEST, invalid);
+        }
         validateManifest(manifest, expectedChannel);
         String manifestSha256 = sha256(body);
         UpdateTrustState previous;

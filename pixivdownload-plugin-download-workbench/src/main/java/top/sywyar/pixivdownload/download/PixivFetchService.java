@@ -1,11 +1,12 @@
 package top.sywyar.pixivdownload.download;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -71,8 +72,8 @@ public class PixivFetchService {
         JsonNode body = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie));
         List<String> ids = new ArrayList<>();
-        body.path("illusts").fieldNames().forEachRemaining(ids::add);
-        body.path("manga").fieldNames().forEachRemaining(ids::add);
+        body.path("illusts").propertyNames().iterator().forEachRemaining(ids::add);
+        body.path("manga").propertyNames().iterator().forEachRemaining(ids::add);
         ids.sort((a, b) -> Long.compare(Long.parseLong(b), Long.parseLong(a)));
         return ids;
     }
@@ -106,10 +107,10 @@ public class PixivFetchService {
         if (node == null) return;
         if (node.isObject()) {
             JsonNode postWork = node.get("postWork");
-            if (postWork != null && postWork.isObject() && parsePositiveLong(postWork.path("postWorkId").asText("")) != null) {
-                out.add(postWork.path("postWorkId").asText(""));
+            if (postWork != null && postWork.isObject() && parsePositiveLong(postWork.path("postWorkId").asString("")) != null) {
+                out.add(postWork.path("postWorkId").asString(""));
             }
-            node.fields().forEachRemaining(e -> collectPostWorkIds(e.getValue(), out));
+            node.properties().iterator().forEachRemaining(e -> collectPostWorkIds(e.getValue(), out));
         } else if (node.isArray()) {
             for (JsonNode child : node) collectPostWorkIds(child, out);
         }
@@ -139,22 +140,22 @@ public class PixivFetchService {
             if (sid > 0) {
                 seriesId = sid;
                 seriesOrder = nav.path("order").asLong(0);
-                seriesTitle = nav.path("title").asText("");
+                seriesTitle = nav.path("title").asString("");
             }
         }
         ArtworkMeta meta = new ArtworkMeta(
                 b.path("illustType").asInt(0),
-                b.path("illustTitle").asText(""),
+                b.path("illustTitle").asString(""),
                 b.path("xRestrict").asInt(0),
                 b.path("aiType").asInt(0) >= 2,
-                parsePositiveLong(b.path("userId").asText(null)),
-                b.path("userName").asText(""),
+                parsePositiveLong(b.path("userId").asString(null)),
+                b.path("userName").asString(""),
                 seriesId,
                 seriesOrder,
                 b.path("bookmarkCount").asInt(-1),
                 b.path("pageCount").asInt(0),
                 extractTags(b),
-                b.path("description").asText(""),
+                b.path("description").asString(""),
                 seriesTitle
         );
         return new ArtworkMetaCapture(meta, b);
@@ -170,7 +171,7 @@ public class PixivFetchService {
         JsonNode arr = b.path("illustSeries");
         if (arr.isArray() && !arr.isEmpty()) {
             JsonNode s = arr.get(0);
-            return new IllustSeriesMeta(s.path("caption").asText(""), extractSeriesCoverUrl(s));
+            return new IllustSeriesMeta(s.path("caption").asString(""), extractSeriesCoverUrl(s));
         }
         return new IllustSeriesMeta("", "");
     }
@@ -189,7 +190,7 @@ public class PixivFetchService {
                 "https://www.pixiv.net/ajax/illust/" + artworkId + "/pages", cookie));
         List<String> urls = new ArrayList<>();
         for (JsonNode page : body) {
-            String orig = page.path("urls").path("original").asText("");
+            String orig = page.path("urls").path("original").asString("");
             if (!orig.isEmpty()) urls.add(orig);
         }
         return new ArtworkPages(urls, body);
@@ -199,8 +200,8 @@ public class PixivFetchService {
     public UgoiraInfo resolveUgoira(String artworkId, String cookie) throws IOException {
         JsonNode b = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/illust/" + artworkId + "/ugoira_meta", cookie));
-        String zipUrl = b.path("originalSrc").asText("");
-        if (zipUrl.isEmpty()) zipUrl = b.path("src").asText("");
+        String zipUrl = b.path("originalSrc").asString("");
+        if (zipUrl.isEmpty()) zipUrl = b.path("src").asString("");
         List<Integer> delays = new ArrayList<>();
         for (JsonNode frame : b.path("frames")) {
             delays.add(frame.path("delay").asInt(100));
@@ -238,7 +239,7 @@ public class PixivFetchService {
             if (!data.isArray() || data.isEmpty()) break;
             int before = ids.size();
             for (JsonNode item : data) {
-                String id = item.path("id").asText("");
+                String id = item.path("id").asString("");
                 if (!id.isEmpty()) ids.add(id);
             }
             int total = body.path("illustManga").path("total").asInt(0);
@@ -271,7 +272,7 @@ public class PixivFetchService {
         List<String> out = new ArrayList<>();
         if (data.isArray()) {
             for (JsonNode item : data) {
-                String id = item.path("id").asText("");
+                String id = item.path("id").asString("");
                 if (!id.isEmpty()) out.add(id);
             }
         }
@@ -299,7 +300,7 @@ public class PixivFetchService {
             JsonNode arr = body.path("page").path("series");
             if (!arr.isArray() || arr.isEmpty()) break;
             for (JsonNode entry : arr) {
-                String id = entry.path("workId").asText("");
+                String id = entry.path("workId").asString("");
                 if (!id.isEmpty()) members.add(new Member(id, entry.path("order").asInt(0)));
             }
         }
@@ -357,7 +358,7 @@ public class PixivFetchService {
             JsonNode works = body.path("works");
             if (!works.isArray() || works.isEmpty()) break;
             for (JsonNode w : works) {
-                String id = w.path("id").asText("");
+                String id = w.path("id").asString("");
                 if (!id.isBlank()) ids.add(id);
             }
             int total = body.path("total").asInt(0);
@@ -415,13 +416,13 @@ public class PixivFetchService {
         JsonNode ids = body.path("page").path("ids");
         if (ids.isArray() && !ids.isEmpty()) {
             for (JsonNode n : ids) {
-                String s = n.asText("");
+                String s = n.asString("");
                 if (!s.isBlank()) out.add(s);
             }
             return out;
         }
         for (JsonNode it : body.path("thumbnails").path("illust")) {
-            String s = it.path("id").asText("");
+            String s = it.path("id").asString("");
             if (!s.isBlank()) out.add(s);
         }
         return out;
@@ -452,11 +453,11 @@ public class PixivFetchService {
         JsonNode tiles = body.path("data").path("detail").path("tiles");
         if (tiles.isArray()) {
             for (JsonNode tile : tiles) {
-                if (!"Work".equals(tile.path("type").asText(""))) continue;
-                if (!"Active".equals(tile.path("status").asText("Active"))) continue;
-                String workId = tile.path("workId").asText("");
+                if (!"Work".equals(tile.path("type").asString(""))) continue;
+                if (!"Active".equals(tile.path("status").asString("Active"))) continue;
+                String workId = tile.path("workId").asString("");
                 if (workId.isBlank()) continue;
-                if ("novel".equals(tile.path("workType").asText(""))) {
+                if ("novel".equals(tile.path("workType").asString(""))) {
                     novelIds.add(workId);
                 } else {
                     illustIds.add(workId);
@@ -477,7 +478,7 @@ public class PixivFetchService {
         JsonNode body = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie));
         List<String> ids = new ArrayList<>();
-        body.path("novels").fieldNames().forEachRemaining(ids::add);
+        body.path("novels").propertyNames().iterator().forEachRemaining(ids::add);
         ids.sort((a, b) -> Long.compare(Long.parseLong(b), Long.parseLong(a)));
         return ids;
     }
@@ -514,7 +515,7 @@ public class PixivFetchService {
         List<String> out = new ArrayList<>();
         if (data.isArray()) {
             for (JsonNode item : data) {
-                String id = item.path("id").asText("");
+                String id = item.path("id").asString("");
                 if (!id.isEmpty()) out.add(id);
             }
         }
@@ -546,7 +547,7 @@ public class PixivFetchService {
             if (!arr.isArray() || arr.isEmpty()) break;
             int count = 0;
             for (JsonNode entry : arr) {
-                String id = entry.path("id").asText("");
+                String id = entry.path("id").asString("");
                 if (!id.isEmpty()) {
                     ids.add(id);
                     count++;
@@ -565,12 +566,12 @@ public class PixivFetchService {
         JsonNode urls = meta.path("cover").path("urls");
         if (urls.isObject()) {
             for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
+                String value = urls.path(key).asString("");
                 if (!value.isBlank()) return value;
             }
         }
         for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
+            String value = meta.path(key).asString("");
             if (!value.isBlank()) return value;
         }
         return "";
@@ -582,12 +583,12 @@ public class PixivFetchService {
         if (!tagsArr.isArray() || tagsArr.isEmpty()) return List.of();
         List<WorkTag> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
-            String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
+            String name = t.isString() ? t.asString("") : t.path("tag").asString(t.path("name").asString(""));
             if (name.isEmpty()) continue;
             String translated = null;
             JsonNode translation = t.path("translation");
             if (translation.isObject()) {
-                String en = translation.path("en").asText("");
+                String en = translation.path("en").asString("");
                 if (!en.isEmpty()) translated = en;
             }
             out.add(new WorkTag(null, name, translated));
@@ -624,21 +625,26 @@ public class PixivFetchService {
         JsonNode root;
         try {
             root = objectMapper.readTree(json);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             // 非 JSON（登录重定向 HTML 等）= cookie 已死
             throw new PixivFetchException("non-json message threads response");
         }
         if (root.path("error").asBoolean(false)) {
-            throw new PixivFetchException(root.path("message").asText(""));
+            throw new PixivFetchException(root.path("message").asString(""));
         }
         return root.path("body");
     }
 
     /** 解析 Pixiv AJAX 响应、剥出 {@code body}；{@code error=true} 时抛 {@link PixivFetchException}。 */
     private JsonNode requireBody(String json) throws IOException {
-        JsonNode root = objectMapper.readTree(json);
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(json);
+        } catch (JacksonException failure) {
+            throw new IOException("Invalid Pixiv AJAX response", failure);
+        }
         if (root.path("error").asBoolean(false)) {
-            throw new PixivFetchException(root.path("message").asText(""));
+            throw new PixivFetchException(root.path("message").asString(""));
         }
         return root.path("body");
     }

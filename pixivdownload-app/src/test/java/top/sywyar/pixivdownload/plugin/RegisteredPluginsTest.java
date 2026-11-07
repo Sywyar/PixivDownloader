@@ -53,8 +53,8 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class))
             .withBean(top.sywyar.pixivdownload.core.appconfig.MultiModeConfig.class,
                     top.sywyar.pixivdownload.core.appconfig.MultiModeConfig::new)
-            .withBean(com.fasterxml.jackson.databind.ObjectMapper.class,
-                    com.fasterxml.jackson.databind.ObjectMapper::new)
+            .withBean(tools.jackson.databind.ObjectMapper.class,
+                    tools.jackson.databind.ObjectMapper::new)
             .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
                     top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
             .withBean(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,

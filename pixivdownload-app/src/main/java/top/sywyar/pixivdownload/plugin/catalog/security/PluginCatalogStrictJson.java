@@ -1,11 +1,11 @@
 package top.sywyar.pixivdownload.plugin.catalog.security;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.json.JsonFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -28,10 +28,10 @@ public final class PluginCatalogStrictJson {
                         .maxNumberLength(64)
                         .build())
                 .build();
-        return new ObjectMapper(factory)
-                .registerModule(new ParameterNamesModule())
+        return JsonMapper.builder(factory).configureForJackson2()
+                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, rejectUnknownFields)
-                .configure(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, true);
+                .build();
     }
 
     public static String strictUtf8(byte[] bytes) throws CharacterCodingException {

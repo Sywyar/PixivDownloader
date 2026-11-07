@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
@@ -20,9 +20,10 @@ import java.util.function.Supplier;
 
 /** 配置按已安装 owner 的声明交换，保留目标文件中未选字段和注释。 */
 final class ConfigurationTransfer {
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private final DesktopUiHost host;
     private final Supplier<List<DesktopUiPluginSnapshot>> plugins;
@@ -325,10 +326,10 @@ final class ConfigurationTransfer {
         var node = JSON.readTree(bytes);
         if (node == null || !node.isObject() || node.size() > 10_000) throw new IOException("transfer.config-value-invalid");
         Map<String, String> values = new LinkedHashMap<>();
-        for (var iterator = node.fields(); iterator.hasNext();) {
+        for (var iterator = node.properties().iterator(); iterator.hasNext();) {
             var entry = iterator.next();
-            if (!entry.getValue().isTextual()) throw new IOException("transfer.config-value-invalid");
-            values.put(ConfigFileEditor.requireSafeKey(entry.getKey()), ConfigFileEditor.requireSafeValue(entry.getValue().textValue()));
+            if (!entry.getValue().isString()) throw new IOException("transfer.config-value-invalid");
+            values.put(ConfigFileEditor.requireSafeKey(entry.getKey()), ConfigFileEditor.requireSafeValue(entry.getValue().stringValue()));
         }
         return values;
     }

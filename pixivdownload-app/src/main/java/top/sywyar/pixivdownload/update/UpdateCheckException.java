@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.update;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 
@@ -48,7 +48,7 @@ final class UpdateCheckException extends IOException {
                     : cause instanceof UnknownHostException ? Reason.DNS_FAILED
                     : cause instanceof SSLException ? Reason.TLS_FAILED
                     : cause instanceof ConnectException ? Reason.CONNECTION_FAILED
-                    : cause instanceof JsonProcessingException ? Reason.INVALID_MANIFEST : null;
+                    : cause instanceof JacksonException ? Reason.INVALID_MANIFEST : null;
             if (reason != null) return new UpdateCheckException(reason, failure);
         }
         if (failure instanceof PluginCatalogHttpClient.HttpStatusException http) {

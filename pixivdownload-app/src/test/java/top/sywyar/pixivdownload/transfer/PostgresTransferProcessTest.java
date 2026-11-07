@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,7 +20,7 @@ import static org.assertj.core.api.Assertions.*;
 @EnabledIfEnvironmentVariable(named = "PIXIV_TEST_POSTGRES_URL", matches = ".+")
 class PostgresTransferProcessTest {
     @TempDir Path root;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     private static final String OWNER = "pixiv-batch-downloader-import";
     private static final long ID = 9007199254740993L;
 
@@ -36,7 +37,7 @@ class PostgresTransferProcessTest {
                 byte[] config = Files.readAllBytes(pg.resolve("config/config.yaml"));
                 run(pg, "preview", archive);
                 JsonNode preview = json.readTree(pg.resolve("preview.json").toFile());
-                assertThat(preview.path("databaseFailure").asText()).isEmpty();
+                assertThat(preview.path("databaseFailure").asString()).isEmpty();
                 assertThat(preview.path("databases")).hasSize(2);
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema()", Integer.class)).isZero();
                 assertThat(pg.resolve("data/install_identity.txt")).doesNotExist();
@@ -56,7 +57,7 @@ class PostgresTransferProcessTest {
                 assertThat(Files.readString(restored.resolve("data/install_identity.txt"))).isEqualTo(restoredIdentity);
                 assertSqlite(restored.resolve("main.db"), "SELECT name FROM tags", "归档 🌸");
                 assertSqlite(restored.resolve("data/" + OWNER + "/plugin.db"), "SELECT imported_at FROM imported_works", "123");
-                Path backup = restored.resolve("data/environment-transfers").resolve(job(restored).path("id").asText()).resolve("database-backups");
+                Path backup = restored.resolve("data/environment-transfers").resolve(job(restored).path("id").asString()).resolve("database-backups");
                 assertSqlite(backup.resolve("host.backup"), "SELECT name FROM tags", "old");
                 assertSqlite(backup.resolve(OWNER + ".backup"), "SELECT imported_at FROM imported_works", "999");
                 assertPostgres(jdbc, pg);
@@ -86,7 +87,7 @@ class PostgresTransferProcessTest {
             jdbc.update("INSERT INTO retained VALUES(1, 'keep me')");
             byte[] before = Files.readAllBytes(target.resolve("config/config.yaml"));
             run(target, "preview", archive);
-            assertThat(json.readTree(target.resolve("preview.json").toFile()).path("databaseFailure").asText()).isNotEmpty();
+            assertThat(json.readTree(target.resolve("preview.json").toFile()).path("databaseFailure").asString()).isNotEmpty();
             assertThat(jdbc.queryForObject("SELECT value FROM retained", String.class)).isEqualTo("keep me");
             assertThat(Files.readAllBytes(target.resolve("config/config.yaml"))).isEqualTo(before);
             assertThat(target.resolve("data/environment-transfers/pending.json")).doesNotExist();
@@ -107,7 +108,7 @@ class PostgresTransferProcessTest {
                 jdbc.execute("CREATE TABLE concurrent_write(id bigint PRIMARY KEY)");
                 jdbc.update("INSERT INTO concurrent_write VALUES(73)");
                 run(target, "run", archive);
-                assertThat(job(target).path("status").asText()).isEqualTo("FAILED");
+                assertThat(job(target).path("status").asString()).isEqualTo("FAILED");
                 assertThat(jdbc.queryForObject("SELECT id FROM concurrent_write", Long.class)).isEqualTo(73);
                 assertThat(Files.readAllBytes(target.resolve("config/config.yaml"))).isEqualTo(config);
                 assertThat(privateSchemas(jdbc, target)).isEmpty();
@@ -181,7 +182,7 @@ class PostgresTransferProcessTest {
     private void restore(Path directory, Path archive) throws Exception {
         run(directory, "prepare", archive);
         run(directory, "run", archive);
-        assertThat(job(directory).path("status").asText()).as("database restore status").isEqualTo("SUCCEEDED");
+        assertThat(job(directory).path("status").asString()).as("database restore status").isEqualTo("SUCCEEDED");
     }
 
     private JsonNode job(Path directory) throws Exception {

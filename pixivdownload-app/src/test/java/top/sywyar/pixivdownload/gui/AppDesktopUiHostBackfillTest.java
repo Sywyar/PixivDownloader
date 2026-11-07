@@ -137,8 +137,6 @@ class AppDesktopUiHostBackfillTest {
             var host = new AppDesktopUiHost(0, file, () -> mock(DataSource.class), session, null);
             assertThat(host.defaultBackfillOptions().dbPath()).isEmpty();
             assertThat(host.supportsDatabaseFileSelection()).isFalse();
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> host.resolveDatabasePath(tempDir.toString()))
-                    .isInstanceOf(IllegalStateException.class).hasMessage("DATABASE_UNAVAILABLE");
             var settings = host.databaseSettings().orElseThrow();
             assertThat(settings.state().nextTarget()).isEmpty();
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> host.checkArtworkFolders(tempDir.resolve("wrong.db")))
@@ -211,7 +209,7 @@ class AppDesktopUiHostBackfillTest {
                     top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(databasePath)
             );
 
-            assertThat(host.resolveDatabasePath(tempDir.resolve("other-root").toString())).isEqualTo(databasePath);
+            assertThat(host.defaultBackfillOptions().dbPath()).isEqualTo(databasePath.toString());
             assertThat(host.countBackfillCandidates(new DesktopUiHost.BackfillOptions(
                     databasePath.toString(),
                     "127.0.0.1",

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -55,11 +56,11 @@ class ArtworksBackFillPixivClientTest {
     @ValueSource(strings = {"{}", "{\"seriesNavData\":{}}", "{\"seriesNavData\":\"invalid\"}"})
     @DisplayName("不完整本地元数据不能将未知系列补为无系列")
     void incompleteLocalSeriesRemainsUnknown(String body) throws Exception {
-        assertFalse(ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree(body), 1L, false).seriesKnown);
-        assertTrue(ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree("{\"seriesNavData\":null}"), 1L, false).seriesKnown);
+        assertFalse(ArtworksBackFillPixivClient.parsePayload(JsonMapper.builderWithJackson2Defaults().build().readTree(body), 1L, false).seriesKnown);
+        assertTrue(ArtworksBackFillPixivClient.parsePayload(JsonMapper.builderWithJackson2Defaults().build().readTree("{\"seriesNavData\":null}"), 1L, false).seriesKnown);
     }
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @ParameterizedTest
     @ValueSource(ints = {301, 400})

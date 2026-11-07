@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.sdk.development;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,8 +17,10 @@ import java.util.Objects;
 /** 从发行元数据读取固定配套关系；兼容范围不参与运行包选择。 */
 record SdkRuntimeLock(String sdkVersion, String releaseId, String sourceCommitSha, Runtime runtime) {
     static final long MAX_JSON_BYTES = 1024 * 1024;
-    static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
 
     record Artifact(String file, long size, String sha256) {
         Artifact {
@@ -66,7 +69,12 @@ record SdkRuntimeLock(String sdkVersion, String releaseId, String sourceCommitSh
                 || !releaseId.equals("sdk-api-v" + version) || !source.matches("[0-9a-f]{40}")) {
             throw new IOException("SDK_INVALID_IDENTITY");
         }
-        Runtime runtime = JSON.treeToValue(metadata.required("developmentRuntime"), Runtime.class);
+        Runtime runtime;
+        try {
+            runtime = JSON.treeToValue(metadata.required("developmentRuntime"), Runtime.class);
+        } catch (JacksonException invalid) {
+            throw new IOException("SDK_INVALID_RUNTIME", invalid);
+        }
         String expectedUrl = "https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/"
                 + releaseId + "/" + runtime.archive().file();
         if (!expectedUrl.equals(runtime.downloadUrl())) {
@@ -95,13 +103,15 @@ record SdkRuntimeLock(String sdkVersion, String releaseId, String sourceCommitSh
             byte[] bytes = input.readNBytes((int) MAX_JSON_BYTES + 1);
             if (bytes.length > MAX_JSON_BYTES) throw new IOException("SDK_METADATA_TOO_LARGE");
             return JSON.readTree(bytes);
+        } catch (JacksonException invalid) {
+            throw new IOException("SDK_INVALID_METADATA_FILE", invalid);
         }
     }
 
     static String requiredText(JsonNode node, String key) throws IOException {
         JsonNode value = node.required(key);
-        if (!value.isTextual() || value.textValue().isBlank()) throw new IOException("SDK_INVALID_" + key);
-        return value.textValue();
+        if (!value.isString() || value.stringValue().isBlank()) throw new IOException("SDK_INVALID_" + key);
+        return value.stringValue();
     }
 
     static Path safeRelative(String value) {

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.pageeditor;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -50,14 +50,14 @@ public final class PageEditorController {
     }
     @PostMapping("/migrate") public ResponseEntity<?> migrate(HttpServletRequest request) throws IOException {
         JsonNode command = command(request);
-        String value = catalog.migrate(command.path("type").asText(), command.path("publication").asText(),
+        String value = catalog.migrate(command.path("type").asString(), command.path("publication").asString(),
                 command.path("version").asInt(), command.path("configuration").toString());
         return ok(PageDocuments.parse(value));
     }
     @PostMapping("/styles/parse") public ResponseEntity<?> parseStyles(HttpServletRequest request) throws IOException {
         JsonNode css = command(request).path("css");
-        if (!css.isTextual()) throw PageDocuments.invalid("PAGE_STYLE_INVALID");
-        return ok(PageStyles.parse(css.textValue()));
+        if (!css.isString()) throw PageDocuments.invalid("PAGE_STYLE_INVALID");
+        return ok(PageStyles.parse(css.stringValue()));
     }
     private static JsonNode command(HttpServletRequest request) throws IOException {
         byte[] bytes = request.getInputStream().readNBytes(PageDocuments.MAX_BYTES + 1);
@@ -74,8 +74,8 @@ public final class PageEditorController {
         if (!candidates.isArray() || candidates.size() >= 128) throw PageDocuments.invalid("PAGE_DOCUMENT_BUDGET");
         var drafts = new java.util.ArrayList<PageStore.Draft>();
         for (JsonNode candidate : candidates) {
-            if (!candidate.path("page").isTextual()) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
-            drafts.add(new PageStore.Draft(candidate.path("page").textValue(), revision(candidate)));
+            if (!candidate.path("page").isString()) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
+            drafts.add(new PageStore.Draft(candidate.path("page").stringValue(), revision(candidate)));
         }
         return java.util.List.copyOf(drafts);
     }

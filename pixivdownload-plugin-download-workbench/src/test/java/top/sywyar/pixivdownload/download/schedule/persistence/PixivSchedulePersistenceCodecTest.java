@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.persistence;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("Pixiv 计划任务持久化编解码")
 class PixivSchedulePersistenceCodecTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     private PixivSchedulePersistenceCodec codec;
 
     @BeforeEach
@@ -115,8 +116,8 @@ class PixivSchedulePersistenceCodecTest {
 
         assertThat(checkpoint.schema()).isEqualTo(PixivSchedulePersistenceCodec.CHECKPOINT_SCHEMA);
         assertThat(checkpoint.version()).isEqualTo(1);
-        assertThat(objectMapper.readTree(checkpoint.payloadJson()).path("watermarkId").isTextual()).isTrue();
-        assertThat(objectMapper.readTree(checkpoint.payloadJson()).path("watermarkId").asText())
+        assertThat(objectMapper.readTree(checkpoint.payloadJson()).path("watermarkId").isString()).isTrue();
+        assertThat(objectMapper.readTree(checkpoint.payloadJson()).path("watermarkId").asString())
                 .isEqualTo(Long.toString(Long.MAX_VALUE));
         assertThat(codec.decodeCheckpoint(checkpoint)).isEqualTo(Long.MAX_VALUE);
     }
@@ -143,7 +144,7 @@ class PixivSchedulePersistenceCodecTest {
 
         assertThat(work.key().workType()).isEqualTo("novel");
         assertThat(work.key().id()).isEqualTo(Long.toString(Long.MAX_VALUE));
-        assertThat(objectMapper.readTree(work.payloadJson()).path("workId").isTextual()).isTrue();
+        assertThat(objectMapper.readTree(work.payloadJson()).path("workId").isString()).isTrue();
         assertThat(codec.decodeWorkId(work)).isEqualTo(Long.toString(Long.MAX_VALUE));
 
         ScheduledWork mismatched = new ScheduledWork(
@@ -193,10 +194,10 @@ class PixivSchedulePersistenceCodecTest {
     void policyStatePreservesAcknowledgedWarningTime() throws Exception {
         String state = codec.encodePolicyState(Long.MAX_VALUE);
 
-        assertThat(objectMapper.readTree(state).path("schema").asText())
+        assertThat(objectMapper.readTree(state).path("schema").asString())
                 .isEqualTo(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_STATE_SCHEMA);
         assertThat(objectMapper.readTree(state).path("version").asInt()).isEqualTo(1);
-        assertThat(objectMapper.readTree(state).path("acknowledgedWarningTime").isTextual()).isTrue();
+        assertThat(objectMapper.readTree(state).path("acknowledgedWarningTime").isString()).isTrue();
         assertThat(codec.decodeAcknowledgedWarningTime(state)).isEqualTo(Long.MAX_VALUE);
         assertThat(codec.decodeAcknowledgedWarningTime(codec.encodePolicyState(null))).isNull();
         assertThat(codec.decodeAcknowledgedWarningTime("{}")).isNull();
@@ -212,6 +213,6 @@ class PixivSchedulePersistenceCodecTest {
         String updated = codec.withAcknowledgedWarningTime(current, 55L);
 
         assertThat(codec.decodeAcknowledgedWarningTime(updated)).isEqualTo(55L);
-        assertThat(objectMapper.readTree(updated).path("future").asText()).isEqualTo("kept");
+        assertThat(objectMapper.readTree(updated).path("future").asString()).isEqualTo("kept");
     }
 }

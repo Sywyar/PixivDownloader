@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.state;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import java.io.*;
@@ -9,7 +10,7 @@ import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("工作台迁移的暂停与凭据边界")
 class BatchStateTransferTest {
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test @DisplayName("清除执行关联和自动开始，未选择凭据时保留目标 Cookie 与其它本机状态")
     void pausesWithoutCopyingExecutionsOrCredentials() throws Exception {
@@ -25,14 +26,14 @@ class BatchStateTransferTest {
         assertThat(new String(exported, StandardCharsets.UTF_8)).doesNotContain("source-secret", "formatted-secret",
                 "old-process-id", "not-state", "stale", "private");
         var document = json.readTree(exported);
-        assertThat(json.readTree(document.path("pixiv_batch_settings").textValue()).path("autoStartOnEnqueue").booleanValue()).isFalse();
-        var queue = json.readTree(document.path("pixiv_batch_queue").textValue());
+        assertThat(json.readTree(document.path("pixiv_batch_settings").stringValue()).path("autoStartOnEnqueue").booleanValue()).isFalse();
+        var queue = json.readTree(document.path("pixiv_batch_queue").stringValue());
         assertThat(queue.path("isPaused").booleanValue()).isTrue();
         assertThat(queue.path("queue").size()).isEqualTo(2);
-        assertThat(queue.path("queue").get(0).path("status").textValue()).isEqualTo("idle");
-        assertThat(queue.path("queue").get(1).path("status").textValue()).isEqualTo("completed");
+        assertThat(queue.path("queue").get(0).path("status").stringValue()).isEqualTo("idle");
+        assertThat(queue.path("queue").get(1).path("status").stringValue()).isEqualTo("completed");
         byte[] restored = copy(new String(exported, StandardCharsets.UTF_8), "{\"pixiv_cookie\":\"target-secret\",\"local\":7}", true);
-        assertThat(json.readTree(restored).path("pixiv_cookie").textValue()).isEqualTo("target-secret");
+        assertThat(json.readTree(restored).path("pixiv_cookie").stringValue()).isEqualTo("target-secret");
         assertThat(json.readTree(restored).path("local").intValue()).isEqualTo(7);
         assertThat(copy(new String(exported, StandardCharsets.UTF_8), null, false)).isEqualTo(exported);
     }

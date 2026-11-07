@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -36,7 +37,7 @@ class DownloadTaskControllerTest {
     private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
 
     private MockMvc mockMvc;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Mock
     private ArtworkDownloadExecutor artworkDownloadExecutor;

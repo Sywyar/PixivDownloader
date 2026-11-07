@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer.Connection;
@@ -18,7 +19,7 @@ import java.util.function.Supplier;
 /** 应用拥有的本地桌面界面请求认证传输层。 */
 @Slf4j
 final class DesktopUiLocalApiClient {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private final Supplier<Connection> endpoint;
 
     DesktopUiLocalApiClient(Supplier<Connection> endpoint) { this.endpoint = endpoint; }

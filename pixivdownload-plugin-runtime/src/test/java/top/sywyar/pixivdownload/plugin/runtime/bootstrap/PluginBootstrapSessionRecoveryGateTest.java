@@ -38,9 +38,9 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
         Path pluginsDir = tempDir.resolve("plugins");
         stageProbeJar(pluginsDir);
         Path oldPackage = PluginPackageFixtures.explodedZip(tempDir.resolve("recovery-old.zip"),
-                "recovery-demo", "1.0.0", "1.0", "demo.Plugin");
+                "recovery-demo", "1.0.0", top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "demo.Plugin");
         Path newPackage = PluginPackageFixtures.explodedZip(tempDir.resolve("recovery-new.zip"),
-                "recovery-demo", "2.0.0", "1.0", "demo.Plugin");
+                "recovery-demo", "2.0.0", top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "demo.Plugin");
         PreparedPluginTransaction prepared;
         try (ExternalPluginInstaller installer = new ExternalPluginInstaller(
                 pluginsDir, PluginPackageLimits.defaults(),
@@ -105,7 +105,7 @@ class PluginBootstrapSessionRecoveryGateTest extends PluginBootstrapSessionTestS
         assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEmpty();
         assertThat(Files.readString(retained, StandardCharsets.UTF_8)).isEqualTo("only-copy");
         Path candidate = PluginPackageFixtures.explodedZip(tempDir.resolve("blocked-install.zip"),
-                "blocked-install", "1.0.0", "1.0", "demo.Plugin");
+                "blocked-install", "1.0.0", top.sywyar.pixivdownload.sdk.SdkVersion.VERSION, "demo.Plugin");
         assertThatThrownBy(() -> session.installer().prepareTransaction(
                 candidate, false, PluginPackageOrigin.localUpload()))
                 .isInstanceOf(IllegalStateException.class)

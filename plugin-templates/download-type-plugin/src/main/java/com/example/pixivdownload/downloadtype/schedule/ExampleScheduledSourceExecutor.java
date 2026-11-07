@@ -1,8 +1,8 @@
 package com.example.pixivdownload.downloadtype.schedule;
 
 import com.example.pixivdownload.downloadtype.ExampleDownloadPlugin;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -80,7 +80,7 @@ public final class ExampleScheduledSourceExecutor implements ScheduledSourceExec
         String payload;
         try {
             payload = objectMapper.writeValueAsString(definition);
-        } catch (JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw invalidDefinition("example.definition-encoding-failed");
         }
         context.workSink().submit(new ScheduledWork(
@@ -104,7 +104,7 @@ public final class ExampleScheduledSourceExecutor implements ScheduledSourceExec
                 throw invalidDefinition("example.definition-id-invalid");
             }
             return definition;
-        } catch (JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw invalidDefinition("example.definition-json-invalid");
         }
     }

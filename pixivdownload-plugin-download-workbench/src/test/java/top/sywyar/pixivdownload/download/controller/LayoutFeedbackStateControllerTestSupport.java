@@ -1,14 +1,9 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.ServletInputStream;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
@@ -18,15 +13,12 @@ import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -131,9 +123,9 @@ abstract class LayoutFeedbackStateControllerTestSupport {
     }
 
     protected static String distinctIdOf(MvcResult result) throws Exception {
-        return new com.fasterxml.jackson.databind.ObjectMapper()
+        return JsonMapper.builderWithJackson2Defaults().build()
                 .readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
-                .get("distinctId").asText();
+                .get("distinctId").asString();
     }
 
     protected Path stateFilePath() {

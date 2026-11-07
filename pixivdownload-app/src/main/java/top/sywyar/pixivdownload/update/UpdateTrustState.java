@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.update;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,7 +35,12 @@ record UpdateTrustState(
         if (bytes.length == 0 || bytes.length > MAX_BYTES) {
             throw new IOException("invalid update trust state size: " + bytes.length);
         }
-        UpdateTrustState state = mapper.readValue(bytes, UpdateTrustState.class);
+        UpdateTrustState state;
+        try {
+            state = mapper.readValue(bytes, UpdateTrustState.class);
+        } catch (JacksonException failure) {
+            throw new IOException("invalid update trust state", failure);
+        }
         if (state == null || state.stableSequence < 0 || state.nightlySequence < 0) {
             throw new IOException("negative update trust sequence");
         }
@@ -92,7 +98,12 @@ record UpdateTrustState(
             throw new IOException("update trust state requires a parent directory: " + path);
         }
         Files.createDirectories(parent);
-        byte[] bytes = mapper.writeValueAsBytes(this);
+        byte[] bytes;
+        try {
+            bytes = mapper.writeValueAsBytes(this);
+        } catch (JacksonException failure) {
+            throw new IOException("update trust state could not be serialized", failure);
+        }
         Path temp = Files.createTempFile(parent, "." + path.getFileName() + ".", ".tmp");
         try {
             try (FileChannel channel = FileChannel.open(temp,

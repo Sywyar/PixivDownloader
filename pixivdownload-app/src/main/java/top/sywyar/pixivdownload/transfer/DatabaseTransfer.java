@@ -25,7 +25,7 @@ import java.util.*;
 
 /** 归档数据库始终通过当前可信提供者迁入；预览不初始化数据库、身份或凭据。 */
 final class DatabaseTransfer {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = MigrationSchemaJson.mapper();
+    private static final tools.jackson.databind.ObjectMapper JSON = MigrationSchemaJson.mapper();
     private static final MigrationControl CONTROL = (table, rows) -> {
         if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("transfer.cancelled");
     };

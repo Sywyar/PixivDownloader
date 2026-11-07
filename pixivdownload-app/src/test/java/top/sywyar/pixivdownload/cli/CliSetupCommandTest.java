@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.cli;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -92,7 +93,7 @@ class CliSetupCommandTest {
     void passwordCommandPreservesItsContract(String command, String scenario) throws Exception {
         String previousPassword = "previous-password";
         String replacement = "replacement-password";
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
         SetupConfig original = new SetupConfig();
         original.setSetupComplete(!scenario.equals("uninitialized"));
         original.setMode("solo");

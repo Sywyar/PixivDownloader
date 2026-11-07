@@ -124,7 +124,6 @@ class DesktopToolsControllerTest {
         String target = "postgresql:configured-database";
         var overrides = new HashMap<String, Function<Object[], Object>>();
         overrides.put("supportsDatabaseFileSelection", args -> false);
-        overrides.put("resolveDatabasePath", args -> { throw new AssertionError("remote target is not a file"); });
         overrides.put("defaultBackfillOptions", args -> new DesktopUiHost.BackfillOptions(
                 target, "localhost", 8080, false, 1000, 0, false));
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
@@ -615,7 +614,6 @@ class DesktopToolsControllerTest {
                 DesktopUiHost.class.getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
-                    case "resolveDatabasePath" -> database;
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions(
                             database.toString(),
                             "localhost",

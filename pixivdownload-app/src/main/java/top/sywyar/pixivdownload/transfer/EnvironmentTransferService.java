@@ -1,8 +1,6 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
@@ -20,9 +18,7 @@ import java.util.function.Supplier;
 
 /** 归档预览只读；确认后的导入在下一进程取得实例锁后、业务初始化前执行。 */
 public final class EnvironmentTransferService implements DesktopEnvironmentTransfer {
-    private static final ObjectMapper JSON = top.sywyar.pixivdownload.migration.database.MigrationSchemaJson.mapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = top.sywyar.pixivdownload.migration.database.MigrationSchemaJson.mapper();
     private final TransferArchive archive = new TransferArchive();
     private final ConfigurationTransfer configuration;
     private final DesktopUiHost host;

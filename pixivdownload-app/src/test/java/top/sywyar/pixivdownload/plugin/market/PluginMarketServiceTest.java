@@ -140,7 +140,7 @@ class PluginMarketServiceTest {
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("a", "a", "plugin.name", null, unsafe, List.of(
                         new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null, null,
-                                "1.0", List.of(), null, List.of(), "stable", false))),
+                                SdkVersion.MAJOR + "." + SdkVersion.MINOR, List.of(), null, List.of(), "stable", false))),
                 new PluginCatalogEntry("b", "b", "plugin.name", null, downloadTypeMeta, List.of()),
                 new PluginCatalogEntry("c", "c", "plugin.name", null, dependencyMeta, List.of()),
                 new PluginCatalogEntry("d", "d", "plugin.name", null, null, List.of()))); // null market → utility 回退

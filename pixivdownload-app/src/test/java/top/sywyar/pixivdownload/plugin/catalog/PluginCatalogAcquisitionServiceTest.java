@@ -3,14 +3,13 @@ package top.sywyar.pixivdownload.plugin.catalog;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.operation.PluginAcquisitionOperations;
-
+import tools.jackson.databind.json.JsonMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
@@ -325,11 +324,11 @@ class PluginCatalogAcquisitionServiceTest {
         String betaUrl = servePackage("/beta.zip", beta);
         String betaNewUrl = serveCountingPackage("/beta-new.zip", betaNew, incompatibleDownloads);
         String alphaUrl = servePackage("/alpha.zip", alpha);
-        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var json = JsonMapper.builderWithJackson2Defaults().build();
         var betaEntry = json.readTree(entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()));
         var betaNewEntry = json.readTree(entryJson("beta", "1.1.0", betaNewUrl, betaNew, signing,
                 List.of(), "=7.2.3-rc.4"));
-        ((com.fasterxml.jackson.databind.node.ArrayNode) betaEntry.get("packages"))
+        ((tools.jackson.databind.node.ArrayNode) betaEntry.get("packages"))
                 .add(betaNewEntry.get("packages").get(0));
         PluginCatalogAcquisitionService service = setUpManifest(signing, betaEntry.toString(),
                 entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.source.executor;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,7 +61,7 @@ class PixivScheduledSourceExecutorTest {
 
     @BeforeEach
     void setUp() {
-        objectMapper = new ObjectMapper();
+        objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         fetchService = mock(PixivFetchService.class);
         persistenceCodec = new PixivSchedulePersistenceCodec(objectMapper);
         localWorkLookup = mock(PixivScheduledLocalWorkLookup.class);

@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 import top.sywyar.pixivdownload.download.response.feedback.LayoutFeedbackStateResponse;
@@ -63,8 +64,9 @@ public class LayoutFeedbackStateController {
     public static final int MAX_COMMAND_BODY_BYTES = 16 * 1024;
 
     private static final int READ_BUFFER_BYTES = 1024;
-    private static final ObjectReader COMMAND_READER = new ObjectMapper()
+    private static final ObjectReader COMMAND_READER = JsonMapper.builderWithJackson2Defaults()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+            .build()
             .readerFor(LayoutFeedbackCommandRequest.class);
 
     private final LayoutFeedbackStateStore store;
@@ -135,7 +137,7 @@ public class LayoutFeedbackStateController {
         LayoutFeedbackCommandRequest commandRequest;
         try {
             commandRequest = COMMAND_READER.readValue(body);
-        } catch (IOException | IllegalArgumentException e) {
+        } catch (JacksonException | IllegalArgumentException e) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
         // 7. query surveyId 必须与请求体 surveyId 完全一致（精确字符串相等，不 trim、不忽略大小写）。

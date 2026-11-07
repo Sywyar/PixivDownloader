@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.migration;
 
 import org.junit.jupiter.api.*;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.migration.database.MigrationSchemaJson;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema;
 import top.sywyar.pixivdownload.plugin.api.schema.*;
@@ -22,11 +23,26 @@ class MigrationSchemaJsonTest {
         String encoded = json.writeValueAsString(schema);
         assertThat(json.readValue(encoded, MigrationSchema.class)).isEqualTo(schema);
         var legacy = json.valueToTree(schema);
-        ((com.fasterxml.jackson.databind.node.ObjectNode) legacy.get("tables").get(0)).remove("previousChecks");
+        ((tools.jackson.databind.node.ObjectNode) legacy.get("tables").get(0)).remove("previousChecks");
         assertThat(json.treeToValue(legacy, MigrationSchema.class).tables().get(0).previousChecks()).isEmpty();
         assertThatThrownBy(() -> json.readValue(encoded.replace("\"kind\":\"call\"", "\"kind\":\"java.lang.Runtime\""),
-                MigrationSchema.class)).isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+                MigrationSchema.class)).isInstanceOf(JacksonException.class);
         assertThatThrownBy(() -> json.readValue(encoded.replace("\"table\":\"facts\"", "\"table\":\"foreign_table\""),
-                MigrationSchema.class)).isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+                MigrationSchema.class)).isInstanceOf(JacksonException.class);
     }
+    @Test @DisplayName("旧清单允许空 SQL 槽，拒绝遗失非空约束或未知字段")
+    void readsEmptyLegacySlotWithoutDroppingConstraints() {
+        var table = new TableSpec("facts", List.of(new ColumnSpec("id", "INTEGER", true, null, 1)), List.of())
+                .withCheck(call(EQUAL, column("facts", "id"), value(1)));
+        var json = MigrationSchemaJson.mapper();
+        var tree = (tools.jackson.databind.node.ObjectNode) json.valueToTree(table);
+        tree.putNull("checkExpression");
+        assertThat(json.treeToValue(tree, TableSpec.class)).isEqualTo(table);
+        tree.put("checkExpression", "id=1");
+        assertThatThrownBy(() -> json.treeToValue(tree, TableSpec.class)).isInstanceOf(JacksonException.class);
+        tree.remove("checkExpression");
+        tree.putNull("unknownConstraint");
+        assertThatThrownBy(() -> json.treeToValue(tree, TableSpec.class)).isInstanceOf(JacksonException.class);
+    }
+
 }

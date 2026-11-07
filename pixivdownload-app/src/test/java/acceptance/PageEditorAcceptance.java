@@ -1,8 +1,9 @@
 package acceptance;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
@@ -26,7 +27,7 @@ import java.util.concurrent.*;
 
 /** 固定宿主产物上的独立插件安装、真实 HTTP 和浏览器验收，不把业务类放入宿主 classpath。 */
 public final class PageEditorAcceptance {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private static Path root;
     private static final Map<Path, SignatureMetadata> signatures = new HashMap<>();
 
@@ -127,7 +128,7 @@ public final class PageEditorAcceptance {
             byte[] completeState = Files.readAllBytes(incompleteFile);
             try {
                 var incomplete = JSON.readTree(completeState);
-                var wrapper = (com.fasterxml.jackson.databind.node.ObjectNode) incomplete.path("draft").path("project")
+                var wrapper = (tools.jackson.databind.node.ObjectNode) incomplete.path("draft").path("project")
                         .path("pages").get(0).path("frames").get(0).path("component");
                 wrapper.putArray("components").addObject().put("type", "page-region").put("region", "authentication");
                 byte[] damaged = JSON.writeValueAsBytes(incomplete);
@@ -170,7 +171,7 @@ public final class PageEditorAcceptance {
                     && !publicView.body().contains("\"configurationSchema\"") && !publicView.body().contains("\"draft\""), "public projection only");
             var publicPorts = JSON.readTree(publicView.body()).findValues("inputs");
             check(!publicPorts.isEmpty() && publicPorts.stream().allMatch(ports -> ports.isArray()
-                    && ports.path(0).path("contractId").isTextual() && ports.path(0).path("schema").isTextual()),
+                    && ports.path(0).path("contractId").isString() && ports.path(0).path("schema").isString()),
                     "public ports carry only their explicit value contracts");
             var head = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(origin + "/api/web/page-publications/core:login"))
                     .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
@@ -178,7 +179,7 @@ public final class PageEditorAcceptance {
             var original = request(origin, "/api/page-editor/documents/core:login", null, cookie);
             var state = JSON.readTree(original.body());
             var unsafe = state.path("draft").deepCopy();
-            ((com.fasterxml.jackson.databind.node.ObjectNode) unsafe.path("project")).put("scripts", "alert(1)");
+            ((tools.jackson.databind.node.ObjectNode) unsafe.path("project")).put("scripts", "alert(1)");
             var invalid = JSON.createObjectNode().put("revision", state.path("revision").asLong()); invalid.set("document", unsafe);
             check(request(origin, "/api/page-editor/documents/core:login/save", invalid.toString(), cookie).statusCode() == 422, "engine script rejected");
             var prepared = request(origin, "/api/page-editor/documents/core:login/prepare",
@@ -187,7 +188,7 @@ public final class PageEditorAcceptance {
             var plan = JSON.readTree(prepared.body());
             var stalePublish = JSON.createObjectNode().put("revision", 0);
             stalePublish.putObject("decision").put("revision", plan.path("revision").asLong())
-                    .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions"));
+                    .put("fingerprint", plan.path("fingerprint").asString()).set("approvals", plan.path("permissions"));
             check(request(origin, "/api/page-editor/documents/core:login/publish", stalePublish.toString(), cookie).statusCode() == 409, "concurrent publish rejected");
             check(request(origin, "/api/page-editor/documents/core:login", null, cookie).body().equals(original.body()), "failed changes preserve document");
             var componentClass = contexts.contextFor("page-checklist").orElseThrow().getClassLoader()

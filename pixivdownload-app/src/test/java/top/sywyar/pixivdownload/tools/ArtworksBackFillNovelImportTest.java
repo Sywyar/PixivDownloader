@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -84,7 +84,7 @@ class ArtworksBackFillNovelImportTest {
                         "xRestrict":0,"aiType":1,"description":"Description","seriesNavData":{"seriesId":"500","order":3,"title":"Series"},
                         "uploadDate":"2020-02-03T12:00:00+09:00","isOriginal":true,
                         "tags":{"tags":[{"tag":"fixture"}]},"content":"Different upstream body"}}
-                        """, new ObjectMapper(), WorkType.NOVEL, 42);
+                        """, JsonMapper.builderWithJackson2Defaults().build(), WorkType.NOVEL, 42);
                 try (var backfill = ArtworksBackFillDatabase.open(target)) {
                     var candidate = backfill.currentCandidate(WorkType.NOVEL, 42);
                     backfill.applyUpdates(candidate, result, true, true, true, true, true, true, true);

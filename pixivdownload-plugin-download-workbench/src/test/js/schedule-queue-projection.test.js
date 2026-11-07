@@ -20,14 +20,14 @@ test('来源失败机器码经来源命名空间本地化且未知码不直接�
     const translated = h.statusLight({
         sourceType: 'douyin.search',
         enabled: true,
-        lastStatus: 'ERROR',
-        lastMessage: 'douyin.schedule.upstream-response-invalid'
+        lastOutcome: 'ERROR',
+        outcomeCode: 'douyin.schedule.upstream-response-invalid'
     });
     const unknown = h.statusLight({
         sourceType: 'douyin.search',
         enabled: true,
-        lastStatus: 'ERROR',
-        lastMessage: 'douyin.schedule.private-machine-code'
+        lastOutcome: 'ERROR',
+        outcomeCode: 'douyin.schedule.private-machine-code'
     });
 
     assert.match(translated.text, /上游响应结构无法识别/);

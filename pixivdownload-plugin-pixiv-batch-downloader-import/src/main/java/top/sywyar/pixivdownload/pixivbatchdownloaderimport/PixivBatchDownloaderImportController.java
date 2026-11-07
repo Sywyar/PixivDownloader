@@ -1,11 +1,12 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImporter;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -36,10 +37,10 @@ public final class PixivBatchDownloaderImportController {
     private final Semaphore admission = new Semaphore(1);
     private final Semaphore historyBodies = new Semaphore(1);
     private final Map<String, Long> tokens = new LinkedHashMap<>();
-    private final ObjectMapper json = new ObjectMapper(JsonFactory.builder().streamReadConstraints(
+    private final ObjectMapper json = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder().streamReadConstraints(
             StreamReadConstraints.builder().maxNestingDepth(20).maxStringLength(3_000_000).build())
-            .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
-            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
 
     PixivBatchDownloaderImportController(WorkFileImporter importer, NamespaceMessageResolver messages, PixivBatchDownloaderImportDirectory directory, ApplicationModeProvider mode,
                                         PixivBatchDownloaderImportStatistics statistics, BrowserHistoryImport history, ImportDiagnostics diagnostics) {
@@ -108,7 +109,7 @@ public final class PixivBatchDownloaderImportController {
             return automaticError(request, 409, "DOWNLOAD_ADMISSION_REJECTED", stage, work, committed, rejected);
         } catch (PixivBatchDownloaderImportObservation.InvalidObservation invalid) {
             return automaticError(request, 400, invalid.getMessage(), stage, work, committed, invalid);
-        } catch (IllegalArgumentException | com.fasterxml.jackson.core.JacksonException invalid) {
+        } catch (IllegalArgumentException | tools.jackson.core.JacksonException invalid) {
             return automaticError(request, 400, "IMPORT_REJECTED", stage, work, committed, invalid);
         } catch (IOException unavailable) {
             return automaticError(request, 503, "IMPORT_FILE_UNAVAILABLE", stage, work, committed, unavailable);
@@ -183,7 +184,7 @@ public final class PixivBatchDownloaderImportController {
             diagnostics.failure(WARN, stage, "-", "-", rejected.text().key(), null);
             return ResponseEntity.status(409).header("Cache-Control", "no-store").body(ApiErrorResponse.of(
                     "HISTORY_REJECTED", localized(rejected.text(), request.getLocale())));
-        } catch (IllegalArgumentException | com.fasterxml.jackson.core.JacksonException invalid) {
+        } catch (IllegalArgumentException | tools.jackson.core.JacksonException invalid) {
             diagnostics.failure(WARN, stage, "-", "-", "IMPORT_REJECTED", invalid);
             return error(request, 400, "IMPORT_REJECTED");
         } catch (IOException unavailable) {

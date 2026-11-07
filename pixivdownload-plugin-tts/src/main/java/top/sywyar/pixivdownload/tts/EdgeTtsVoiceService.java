@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.tts;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -78,13 +78,13 @@ public class EdgeTtsVoiceService {
             }
             List<EdgeTtsVoice> out = new ArrayList<>();
             for (JsonNode v : root) {
-                String shortName = v.path("ShortName").asText("");
+                String shortName = v.path("ShortName").asString("");
                 if (shortName.isBlank()) continue;
                 out.add(new EdgeTtsVoice(
                         shortName,
-                        v.path("Locale").asText(""),
-                        v.path("Gender").asText(""),
-                        firstNonBlank(v.path("FriendlyName").asText(""), shortName)
+                        v.path("Locale").asString(""),
+                        v.path("Gender").asString(""),
+                        firstNonBlank(v.path("FriendlyName").asString(""), shortName)
                 ));
             }
             return out;

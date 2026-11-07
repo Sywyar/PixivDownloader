@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 
 import java.util.List;
@@ -32,7 +33,7 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
     /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "tts.narration.analysis";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     private static final String SYSTEM_PROMPT = """
             You are the analysis engine for a multi-voice audiobook ("AI 听小说"). You receive

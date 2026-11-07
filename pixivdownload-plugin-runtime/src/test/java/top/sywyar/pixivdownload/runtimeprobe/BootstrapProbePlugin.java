@@ -10,7 +10,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.List;
 
 /**
  * 真实可加载的外置探针插件（仅测试用）：镜像 recovery-sentinel 的最小外置插件形态——继承 {@link Plugin}、实现入口契约
@@ -44,12 +43,6 @@ public class BootstrapProbePlugin extends Plugin implements PixivPluginProvider 
     public PixivFeaturePlugin featurePlugin() {
         featurePluginCalls++;
         return new BootstrapProbeFeaturePlugin();
-    }
-
-    @Override
-    public List<Class<?>> configurationClasses() {
-        configurationClassesCalls++;
-        return List.of();
     }
 
     public int featurePluginCalls() {

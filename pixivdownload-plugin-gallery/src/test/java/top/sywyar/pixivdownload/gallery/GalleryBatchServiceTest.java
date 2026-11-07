@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gallery;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,13 +61,13 @@ class GalleryBatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
-                collectionMembership, archiveExportService, new ObjectMapper());
+                collectionMembership, archiveExportService, JsonMapper.builderWithJackson2Defaults().build());
     }
 
     @Test
     @DisplayName("批量筛选从 JSON 完整传递两种日期范围")
     void forwardsDateRangesFromJson() throws Exception {
-        var request = new ObjectMapper().readValue("""
+        var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
                 {"mode":"filter","filter":{"sort":"date","order":"asc",
                   "downloadedFrom":100,"downloadedBefore":200,
                   "uploadedFrom":300,"uploadedBefore":400}}

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -61,12 +61,6 @@ public class NovelPixivProxyController {
     private final NovelBrowserFetchTicketStore browserFetchTicketStore;
     private final MessageResolver messages;
 
-    private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
-        return AcquisitionCredentialResolver.resolve(
-                request == null ? null : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
-                legacyCredential);
-    }
-
     private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
         PixivProxyAccessDecision decision = pixivProxyAccessPolicy.evaluate(
                 requestOwnerIdentityResolver.resolveExistingOwnerUuid(request).orElse(null),
@@ -101,10 +95,10 @@ public class NovelPixivProxyController {
     @GetMapping("/novel/{novelId}/meta")
     public ResponseEntity<?> getNovelMeta(
             @PathVariable String novelId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         guardNovelForGuest(visibilityScope, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
@@ -123,7 +117,7 @@ public class NovelPixivProxyController {
         String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
         }
         JsonNode b = root.path("body");
         if (!b.isObject() || !matchesNovelId(b.path("id"), parsedId)) {
@@ -141,16 +135,16 @@ public class NovelPixivProxyController {
         if (value.isIntegralNumber()) {
             return value.canConvertToLong() && value.longValue() == expected;
         }
-        return value.isTextual() && Long.toString(expected).equals(value.textValue());
+        return value.isString() && Long.toString(expected).equals(value.stringValue());
     }
 
     @GetMapping("/novel/{novelId}/bookmark-count")
     public ResponseEntity<?> getNovelBookmarkCount(
             @PathVariable String novelId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         guardNovelForGuest(visibilityScope, novelId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
@@ -169,7 +163,7 @@ public class NovelPixivProxyController {
         String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
         }
         int bookmarkCount = root.path("body").path("bookmarkCount").asInt(-1);
         return ResponseEntity.ok(new NovelBookmarkCountResponse(bookmarkCount));
@@ -179,9 +173,9 @@ public class NovelPixivProxyController {
     public ResponseEntity<?> getNovelSeries(
             @PathVariable String seriesId,
             @RequestParam(defaultValue = "1") int page,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         long parsedId;
@@ -199,7 +193,7 @@ public class NovelPixivProxyController {
         String metaBody = pixivAjaxClient.get(metaUri, cookie);
         JsonNode metaRoot = objectMapper.readTree(metaBody);
         if (metaRoot.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(metaRoot.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(metaRoot.path("message").asString()));
         }
         JsonNode mb = metaRoot.path("body");
         NovelSeriesResponse.NovelSeriesMeta meta = NovelPixivResponseMapper.seriesMeta(mb, parsedId);
@@ -236,9 +230,9 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "all") String mode,
             @RequestParam(defaultValue = "s_tag") String sMode,
             @RequestParam(defaultValue = "1") int page,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
@@ -260,9 +254,9 @@ public class NovelPixivProxyController {
             @RequestParam(defaultValue = "s_tag") String sMode,
             @RequestParam(defaultValue = "1") int startPage,
             @RequestParam(defaultValue = "1") int endPage,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        String resolvedCredential = acquisitionCredential(request, cookie);
+        String resolvedCredential = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String validationError = validateSearchParams(order, mode, sMode);
@@ -285,20 +279,20 @@ public class NovelPixivProxyController {
     @GetMapping("/user/{userId}/novels")
     public ResponseEntity<?> getUserNovels(
             @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = pixivAjaxClient.get(
                 URI.create("https://www.pixiv.net/ajax/user/" + userId + "/profile/all"), cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
         }
         JsonNode b = root.path("body");
         List<String> ids = new ArrayList<>();
-        b.path("novels").fieldNames().forEachRemaining(ids::add);
+        b.path("novels").propertyNames().iterator().forEachRemaining(ids::add);
         ids.sort((a, c2) -> Long.compare(Long.parseLong(c2), Long.parseLong(a)));
         return ResponseEntity.ok(new UserNovelsResponse(ids));
     }
@@ -312,9 +306,9 @@ public class NovelPixivProxyController {
     public ResponseEntity<?> getUserNovelCards(
             @PathVariable String userId,
             @RequestParam List<String> ids,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         if (ids == null || ids.isEmpty()) {
@@ -333,7 +327,7 @@ public class NovelPixivProxyController {
         String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
         }
         List<NovelSearchResponse.NovelSearchItem> items =
                 NovelPixivResponseMapper.userNovelCards(root.path("body"), ids);
@@ -346,9 +340,9 @@ public class NovelPixivProxyController {
             @RequestParam(required = false) String tag,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "24") int limit,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
+        cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         if (!VALID_REST.contains(rest)) {
@@ -373,7 +367,7 @@ public class NovelPixivProxyController {
         String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
         }
         return ResponseEntity.ok(NovelPixivResponseMapper.bookmarks(
                 root.path("body"), safeOffset / safeLimit + 1));
@@ -401,7 +395,7 @@ public class NovelPixivProxyController {
         String body = pixivAjaxClient.get(searchUri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
-            throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
+            throw new IllegalArgumentException(root.path("message").asString(messages.get("pixiv.proxy.search.failed")));
         }
         return NovelPixivResponseMapper.search(root.path("body").path("novel"), safePage);
     }

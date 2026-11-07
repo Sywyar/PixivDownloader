@@ -1,6 +1,10 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport.history;
 
-import com.fasterxml.jackson.core.*;
+import tools.jackson.core.JsonToken;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import java.io.*;
 import java.nio.file.*;
@@ -83,11 +87,11 @@ final class HistoryRecords implements AutoCloseable {
                 if (parser.currentToken() != JsonToken.START_OBJECT) throw new Invalid("format");
                 String id = null, name = null;
                 while (parser.nextToken() != JsonToken.END_OBJECT) {
-                    if (parser.currentToken() != JsonToken.FIELD_NAME) throw new Invalid("format");
+                    if (parser.currentToken() != JsonToken.PROPERTY_NAME) throw new Invalid("format");
                     String field = parser.currentName();
                     if (!field.equals("id") && !field.equals("n") && !field.equals("d")) throw new Invalid("format");
                     if (parser.nextToken() != JsonToken.VALUE_STRING) throw new Invalid("format");
-                    String value = parser.getText();
+                    String value = parser.getString();
                     if (value.length() > 4096) throw new Invalid("limit");
                     if (field.equals("id")) id = value;
                     if (field.equals("n")) name = value;
@@ -113,6 +117,9 @@ final class HistoryRecords implements AutoCloseable {
                 records++;
             }
             if (parser.nextToken() != null) throw new Invalid("format");
+        } catch (JacksonException failure) {
+            if (failure.getCause() instanceof IOException inputFailure) throw inputFailure;
+            throw new IOException("Invalid history JSON", failure);
         } finally {
             IOException failure = null;
             for (var output : outputs.values()) try { output.close(); } catch (IOException exception) { failure = exception; }

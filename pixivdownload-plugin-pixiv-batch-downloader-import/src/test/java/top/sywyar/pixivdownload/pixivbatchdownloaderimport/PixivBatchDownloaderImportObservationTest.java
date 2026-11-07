@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -123,7 +123,7 @@ class PixivBatchDownloaderImportObservationTest {
     }
     private static final Path ROOT = Path.of(".").toAbsolutePath().normalize();
     private ObjectNode input(int type) throws Exception {
-        ObjectNode input = (ObjectNode) new ObjectMapper().readTree("""
+        ObjectNode input = (ObjectNode) JsonMapper.builderWithJackson2Defaults().build().readTree("""
                 {"schemaVersion":1,"source":"pixiv-batch-downloader","taskBatch":1,"tabId":2,
                 "metadata":{"id":"42","type":0,"title":"Title","authorId":"84","pageCount":1,
                 "restriction":0,"aiType":1,"tags":["tag"],"novelContent":"Novel content"},

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,7 +30,7 @@ class DatabaseSettingsControllerTest {
     private ConfigFileEditor editor;
     private DatabaseSettingsController controller;
     private PluginStatusService plugins;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @BeforeEach void prepare() throws Exception {
         previousData = System.getProperty(RuntimeFiles.DATA_DIR_PROPERTY);

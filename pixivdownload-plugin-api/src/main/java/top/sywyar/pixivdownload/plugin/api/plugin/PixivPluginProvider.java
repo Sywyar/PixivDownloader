@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
-import java.util.List;
 
 /**
  * 外置插件向核心暴露其 {@link PixivFeaturePlugin} 的入口契约。外置插件 jar 的主类
@@ -30,22 +29,4 @@ public interface PixivPluginProvider {
      */
     PixivFeaturePlugin featurePlugin();
 
-    /**
-     * 本外置插件需要由宿主装配的 Spring {@code @Configuration} 配置类。当前受信运行路径以包描述符的
-     * {@code pixiv.configuration-classes} 为唯一事实源，不调用本方法；这里仅保留给旧版宿主和插件工具兼容。
-     * 插件的 Bean（{@code @Service} / {@code @RestController} 等）仍由各配置类以 {@code @Bean} 显式装配，
-     * 不经核心根包扫描。
-     *
-     * <p>子 context 的 Bean 可注入父 context 暴露的 plugin-api 契约与 core-api 稳定语义端口，但<b>不得</b>
-     * 直接依赖宿主实现类；跨子 context 边界传递的类型限于 plugin-api、core-api、JDK 与宿主父 classloader
-     * 明确共享的规范依赖，以及经 PluginServices 调用的独立契约包纯值类型。
-     *
-     * <p>返回类型只用 JDK {@link Class}，本契约不引用 Spring 类型，保持 {@code plugin.api} 的零框架依赖。
-     * 默认返回空列表。新插件必须在包描述符声明配置类；不得依赖本方法让当前宿主发现配置类。
-     *
-     * @return 方法返回的列表
-     */
-    default List<Class<?>> configurationClasses() {
-        return List.of();
-    }
 }

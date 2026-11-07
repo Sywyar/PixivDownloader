@@ -4,7 +4,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -115,12 +115,12 @@ class GuiLauncherLoggingTest {
                     "FixtureNewPasswordForLogTest", "FixturePropertyForLogTest", "FixturePositionalForLogTest");
         }
         if (scenario.equals("setup")) {
-            var saved = new ObjectMapper().readTree(tempDir.resolve("state/setup_config.json").toFile());
+            var saved = JsonMapper.builderWithJackson2Defaults().build().readTree(tempDir.resolve("state/setup_config.json").toFile());
             assertThat(saved.path("setupComplete").asBoolean()).isTrue();
-            assertThat(saved.path("username").asText()).isEqualTo("fixture-admin");
-            assertThat(saved.path("mode").asText()).isEqualTo("solo");
+            assertThat(saved.path("username").asString()).isEqualTo("fixture-admin");
+            assertThat(saved.path("mode").asString()).isEqualTo("solo");
             assertThat(new BCryptPasswordEncoder().matches("FixturePasswordForLogTest",
-                    saved.path("passwordHash").asText())).isTrue();
+                    saved.path("passwordHash").asString())).isTrue();
         }
     }
 

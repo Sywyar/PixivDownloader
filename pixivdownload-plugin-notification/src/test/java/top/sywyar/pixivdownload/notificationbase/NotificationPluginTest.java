@@ -149,7 +149,7 @@ class NotificationPluginTest {
 
     @Test
     @DisplayName("站内信页面、API 与下载页入口均为插件自有且仅管理员可达")
-    void contributesAdministratorInbox() {
+    void contributesAdministratorInbox() throws Exception {
         NotificationPf4jPlugin pf4j = new NotificationPf4jPlugin();
 
         assertThat(plugin.routes()).extracting(route -> route.pathPattern())
@@ -184,7 +184,6 @@ class NotificationPluginTest {
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
-                    assertThat(table.checkExpression()).isNull();
                     assertThat(table.check()).isInstanceOf(top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Call.class);
                     });
             assertThat(schema.tables())
@@ -208,7 +207,12 @@ class NotificationPluginTest {
                                     "generated_time", "expires_time", "etag", "last_modified"));
         });
         assertThat(plugin.navigation()).isEmpty();
-        assertThat(pf4j.configurationClasses()).containsExactly(NotificationPluginConfiguration.class);
+        try (var input = getClass().getResourceAsStream("/plugin.properties")) {
+            var descriptor = new java.util.Properties();
+            descriptor.load(input);
+            assertThat(descriptor.getProperty("pixiv.configuration-classes"))
+                    .isEqualTo(NotificationPluginConfiguration.class.getName());
+        }
         assertThat(NotificationSink.class).isAssignableFrom(InboxNotificationSink.class);
     }
 

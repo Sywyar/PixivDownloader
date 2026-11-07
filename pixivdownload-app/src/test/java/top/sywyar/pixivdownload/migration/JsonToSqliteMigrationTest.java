@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.migration;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,7 +43,7 @@ class JsonToSqliteMigrationTest {
             top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
             sql.execute("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(1,'keep','{0}',1,'jpg',1)");
         }
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         Files.writeString(directory.resolve("1.meta.json"), new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
                 .curateArtwork(1, mapper.readTree("{\"id\":1,\"userId\":42}"), null, "forward").document().toString(),
                 StandardCharsets.UTF_8);
@@ -77,7 +78,7 @@ class JsonToSqliteMigrationTest {
     void reportsSnapshotFailures(boolean mixed) throws Exception {
         var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("metadata.db"));
         Files.writeString(directory.resolve("3.meta.json"), "{\"invalid\":true}");
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         if (mixed) Files.writeString(directory.resolve("4.meta.json"),
                 new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
                         .curateNovel(4, mapper.readTree("{\"id\":4}"), "forward").document().toString());

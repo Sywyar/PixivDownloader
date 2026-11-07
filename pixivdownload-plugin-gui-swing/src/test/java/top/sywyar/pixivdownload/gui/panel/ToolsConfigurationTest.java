@@ -46,7 +46,6 @@ class ToolsConfigurationTest {
                     case "backfillTask" -> java.util.Optional.of(snapshot);
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
@@ -90,7 +89,6 @@ class ToolsConfigurationTest {
                     case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
@@ -165,7 +163,6 @@ class ToolsConfigurationTest {
                     case "backfillTask" -> java.util.Optional.ofNullable(observed.get());
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> {
                         String requested = ((Locale) args[0]).getLanguage();
@@ -254,7 +251,6 @@ class ToolsConfigurationTest {
                     case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> throw new IllegalStateException("Configuration unavailable");
                     case "readDownloadRootFromConfig" -> "downloads";
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
@@ -298,7 +294,6 @@ class ToolsConfigurationTest {
                             false, false, 1, 2, 1, 1, 1, 0, 0, null, null, null, "backfill-fixture.html"));
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
@@ -347,7 +342,6 @@ class ToolsConfigurationTest {
                     case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> saved.get();
                     case "readDownloadRootFromConfig" -> root.get();
-                    case "resolveDatabasePath" -> Path.of("data/test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();

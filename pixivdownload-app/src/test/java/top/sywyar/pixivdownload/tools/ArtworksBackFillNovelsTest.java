@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,7 +24,7 @@ import static org.mockito.Mockito.*;
 @DisplayName("小说上传时间回填")
 class ArtworksBackFillNovelsTest {
     @TempDir Path directory;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private static final long LOCAL_TIME = 1580698800000L;
     private static final long NETWORK_TIME = 1612321200000L;
 

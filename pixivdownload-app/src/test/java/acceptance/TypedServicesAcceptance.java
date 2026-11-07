@@ -1,8 +1,9 @@
 package acceptance;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
@@ -14,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.*;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.*;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.*;
 import top.sywyar.pixivdownload.plugin.signature.*;
 import top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool;
@@ -33,7 +35,7 @@ import java.util.*;
  * 夹具由 test/resources/typed-services/build.py 以独立 SDK 仓库和已解压宿主目录构建。
  */
 public final class TypedServicesAcceptance {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private static Path root;
     private static PluginSupplyChainVerifier verifier;
     private static final Map<Path, SignatureMetadata> signatures = new HashMap<>();
@@ -79,7 +81,10 @@ public final class TypedServicesAcceptance {
             install(installer, Path.of(args[1]), true);
             install(installer, Path.of(args[2]), true);
             check(args.length == 6, "original published plugin argument is required");
-            install(installer, Path.of(args[5]), true);
+            var legacy = installer.prepareTransaction(Path.of(args[5]), false, origin(Path.of(args[5]), true, null));
+            check(legacy.result().outcome() == PluginInstallOutcome.REJECTED_INCOMPATIBLE
+                    && !legacy.readyToCommit() && legacy.result().installedPath() == null,
+                    "published SDK 1 plugin rejected before installation: " + legacy.result());
             install(installer, contract, false);
             install(installer, consumer, false);
             install(installer, fixtures.resolve("probe-contract.jar"), false);
@@ -91,6 +96,7 @@ public final class TypedServicesAcceptance {
                 install(installer, fixtures.resolve(id + ".jar"), false);
             }
         }
+        verifyInstalledLegacyPlugin(Path.of(args[5]));
         var app = new SpringApplication(PixivDownloadApplication.class);
         app.addInitializers(context -> {
             var session = PluginBootstrapSession.createContext(plugins, PluginEnabledSnapshot.empty(), ignored -> verifier);
@@ -121,35 +127,10 @@ public final class TypedServicesAcceptance {
             check(login.statusCode() == 200, "login: " + login.statusCode());
             String cookie = login.headers().allValues("set-cookie").stream()
                     .filter(value -> value.startsWith("pixiv_session=")).findFirst().orElseThrow().split(";")[0];
-            check(args.length == 6, "original published plugin argument is required");
-            {
-                var descriptor = PluginPackageReader.inspect(Path.of(args[5])).descriptor();
-                var legacy = context.getBean(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class).registeredPlugins()
-                    .stream().filter(item -> item.id().equals(descriptor.id())).findFirst().orElseThrow();
-                check(!legacy.plugin().guiThemes().isEmpty(), "published original theme plugin contributes actual themes");
-                var theme = legacy.plugin().guiThemes().stream()
-                        .filter(item -> item.appearance() == top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance.DARK)
-                        .findFirst().orElseThrow();
-                var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
-                java.awt.EventQueue.invokeAndWait(() -> {
-                    var before = javax.swing.UIManager.getLookAndFeel();
-                    try {
-                        theme.applyOnEventDispatchThread();
-                        check(javax.swing.UIManager.getLookAndFeel() != before, "old plugin theme entry changes the active look and feel");
-                        check(javax.swing.UIManager.getLookAndFeel().getClass().getClassLoader() == legacy.classLoader(),
-                                "theme implementation executes from the loaded original plugin");
-                    } catch (Throwable error) { failure.set(error); }
-                    finally {
-                        try { javax.swing.UIManager.setLookAndFeel(before); }
-                        catch (Exception error) { failure.set(error); }
-                    }
-                });
-                if (failure.get() != null) throw new AssertionError("original plugin theme invocation failed", failure.get());
-                check(legacy.plugin().credentialKeys().isEmpty() && legacy.plugin().serviceImports().isEmpty(),
-                    "new additive default contracts execute on unchanged old implementation");
-                System.out.println("ORIGINAL_PUBLISHED_PLUGIN_BINARY_PASSED id=" + descriptor.id()
-                    + " version=" + descriptor.version() + " entry=theme.applyOnEventDispatchThread sha256=" + PluginPackageIntegrity.sha256Hex(Path.of(args[5])));
-            }
+            var legacyDescriptor = PluginPackageReader.inspect(Path.of(args[5])).descriptor();
+            check(context.getBean(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class).registeredPlugins()
+                    .stream().noneMatch(item -> item.id().equals(legacyDescriptor.id())),
+                    "rejected original plugin contributes no runtime capabilities");
             check(contexts.contextFor("download-workbench").orElseThrow().isActive(), "workbench context active");
             var workbenchPage = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build()
                     .send(HttpRequest.newBuilder(URI.create(origin + "/pixiv-batch.html"))
@@ -444,7 +425,7 @@ public final class TypedServicesAcceptance {
         Class<?> api = consumer.getClassLoader().loadClass("acceptance.remotecontract.RemoteLedger");
         String identity;
         try (var input = api.getResourceAsStream("/META-INF/pixivdownload/schema/acceptance.remotecontract.RemoteLedger.remote.json")) {
-            identity = JSON.readTree(input).path("identity").asText();
+            identity = JSON.readTree(input).path("identity").asString();
         }
         var request = HttpRequest.newBuilder(URI.create(origin + "/api/remote-ledger/record"))
                 .header("Origin", origin).header("Cookie", cookie).header("Content-Type", "application/json")
@@ -528,8 +509,8 @@ public final class TypedServicesAcceptance {
             var response = post(client, origin, "/api/text-metrics", "{\"texts\":[\"abc\"]}", cookie, language);
             check(response.statusCode() == 503, "service unavailable status");
             var body = JSON.readTree(response.body());
-            check(body.size() == 2 && body.path("code").asText().equals("UNAVAILABLE"), "stable error code");
-            String error = body.path("error").asText();
+            check(body.size() == 2 && body.path("code").asString().equals("UNAVAILABLE"), "stable error code");
+            String error = body.path("error").asString();
             check(!error.isBlank() && !error.equals("service.unavailable"), "localized error field");
             if (previous != null) check(!previous.equals(error), "request language changes error only");
             previous = error;
@@ -568,6 +549,29 @@ public final class TypedServicesAcceptance {
         }
         return PluginPackageOrigin.forTrustedCatalog("isolated-acceptance", official,
                 Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), signature, Map.of(), confirmation);
+    }
+
+    private static void verifyInstalledLegacyPlugin(Path original) throws Exception {
+        Path directory = Files.createDirectory(root.resolve("installed-sdk1"));
+        Path installed = Files.copy(original, directory.resolve("legacy-original.jar"));
+        var descriptor = PluginPackageReader.inspect(installed).descriptor();
+        var source = origin(installed, true, null);
+        var verified = verifier.verifyArtifact(new ArtifactVerificationRequest(installed, descriptor.id(),
+                descriptor.version(), Files.size(installed), PluginPackageIntegrity.sha256Hex(installed),
+                signatures.get(installed), VerificationPolicy.officialRepository()));
+        check(verified.accepted(), "old artifact signature is valid before SDK admission");
+        new PluginProvenanceStore(directory).write(installed, source, verified);
+        try (var session = PluginBootstrapSession.createContext(directory, PluginEnabledSnapshot.empty(), ignored -> verifier).start()) {
+            check(session.status().loadedPluginIds().isEmpty() && session.status().startedPluginIds().isEmpty(),
+                    "installed SDK 1 plugin never loads or starts");
+            check(session.status().failures().stream().anyMatch(failure ->
+                    failure.reason().contains("requires incompatible SDK")),
+                    "startup reports SDK incompatibility, not a later linkage error: " + session.status().failures());
+        }
+        check(PluginPackageIntegrity.sha256Hex(installed).equals(PluginPackageIntegrity.sha256Hex(original)),
+                "legacy artifact bytes remain unchanged");
+        System.out.println("ORIGINAL_PUBLISHED_PLUGIN_BINARY_REJECTED id=" + descriptor.id()
+                + " version=" + descriptor.version() + " sha256=" + PluginPackageIntegrity.sha256Hex(original));
     }
 
     private static void install(ExternalPluginInstaller installer, Path jar, boolean official) throws Exception {

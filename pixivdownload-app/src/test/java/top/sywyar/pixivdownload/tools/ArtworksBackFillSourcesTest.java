@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,7 +27,7 @@ class ArtworksBackFillSourcesTest {
     void cleanDirectoryAfterResourcesClose() throws java.io.IOException {
         top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
     }
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

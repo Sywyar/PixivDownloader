@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -186,7 +187,7 @@ class SchedulePluginExceptionBoundaryTest {
                 return 0;
             }
         };
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         return new ScheduleExecutionEngine(
                 store, registry, new ScheduleRunState(), new ScheduleRunQueue(), config,
                 new ScheduleWorkPersistenceCodec(objectMapper),

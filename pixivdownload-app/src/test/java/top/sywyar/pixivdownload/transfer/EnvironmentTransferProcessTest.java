@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.transfer.archive.TransferArchive;
@@ -17,7 +18,7 @@ import static org.assertj.core.api.Assertions.*;
 class EnvironmentTransferProcessTest {
     @TempDir Path root;
     private Path config;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
 
     @BeforeEach void setup() throws Exception {
         config = Files.createDirectory(root.resolve("config")).resolve("config.yaml");
@@ -39,7 +40,7 @@ class EnvironmentTransferProcessTest {
         assertThat(status()).isEqualTo("SUCCEEDED");
         assertThat(Files.readString(config)).contains("# target", "server.port: 8123", "unknown: keep");
         var job = json.readTree(journal().toFile());
-        Path backup = journal().getParent().resolve(job.path("id").asText()).resolve("files/0.before");
+        Path backup = journal().getParent().resolve(job.path("id").asString()).resolve("files/0.before");
         assertThat(Files.readAllBytes(backup)).isEqualTo(original);
         assertThat(run("run")).isZero();
         assertThat(status()).isEqualTo("SUCCEEDED");
@@ -68,7 +69,7 @@ class EnvironmentTransferProcessTest {
     }
 
     private Path journal() { return root.resolve("data/environment-transfers/pending.json"); }
-    private String status() throws Exception { return json.readTree(journal().toFile()).path("status").asText(); }
+    private String status() throws Exception { return json.readTree(journal().toFile()).path("status").asString(); }
     private int run(String action) throws Exception {
         List<String> command = new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Dfile.encoding=UTF-8"));
         for (String name : List.of("config", "state", "data", "instance", "plugins"))

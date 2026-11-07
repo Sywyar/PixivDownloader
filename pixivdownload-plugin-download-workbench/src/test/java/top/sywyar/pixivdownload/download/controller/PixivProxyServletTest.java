@@ -1,13 +1,13 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.MethodParameter;
@@ -63,7 +63,7 @@ class PixivProxyServletTest {
 
     @BeforeAll
     void start() throws Exception {
-        var mapper = new ObjectMapper();
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
         var access = mock(PixivProxyAccessPolicy.class);
         when(access.evaluate(any(), anyBoolean())).thenReturn(
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));

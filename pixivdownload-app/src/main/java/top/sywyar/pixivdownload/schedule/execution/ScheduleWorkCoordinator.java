@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
@@ -180,7 +181,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             }
             try {
                 var detail = objectMapper.readTree(row.reasonDetailJson() == null ? "{}" : row.reasonDetailJson());
-                String action = detail == null ? "" : detail.path("userAction").asText("");
+                String action = detail == null ? "" : detail.path("userAction").asString("");
                 if (action.matches("[A-Z][A-Z0-9_]{0,63}")) {
                     userActions.put(work.key(), Map.of(row.reasonCode(), action));
                     if (detail.path("rememberForRun").asBoolean(false)) {
@@ -192,7 +193,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                             row.reasonCode(), "{\"requiresUserAction\":true}", row.attempts(), row.firstSeenTime(), row.lastAttemptTime());
                     store.upsertPendingWork(row);
                 }
-            } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            } catch (JacksonException invalid) {
                 throw new ScheduledExecutionException(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                         "schedule.pending.payload-invalid");
             }

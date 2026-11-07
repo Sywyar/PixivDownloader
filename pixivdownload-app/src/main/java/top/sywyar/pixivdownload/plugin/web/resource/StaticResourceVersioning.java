@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.web.resource;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Range;
@@ -36,7 +37,7 @@ import java.util.UUID;
 final class StaticResourceVersioning extends CssLinkResourceTransformer {
 
     static final Resource CORE_LOCATION = new ClassPathResource("static/");
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private final StaticResourceRegistry registry;
     private final PageContributionRegistry pages;
     private final top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications;
@@ -149,11 +150,11 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
             var publication = publications.read(pageId, request);
             if (publication.isEmpty()) return Optional.empty();
             var view = JSON.readTree(publication.orElseThrow().projection());
-            if (view == null || !pageId.equals(view.path("pageId").asText())) return Optional.empty();
+            if (view == null || !pageId.equals(view.path("pageId").asString())) return Optional.empty();
             var title = view.path("title");
-            return title.isTextual() && !title.textValue().isEmpty() && title.textValue().length() <= 256
-                    ? Optional.of(title.textValue()) : Optional.empty();
-        } catch (IOException | RuntimeException unavailable) {
+            return title.isString() && !title.stringValue().isEmpty() && title.stringValue().length() <= 256
+                    ? Optional.of(title.stringValue()) : Optional.empty();
+        } catch (RuntimeException unavailable) {
             org.slf4j.LoggerFactory.getLogger(StaticResourceVersioning.class)
                     .debug("PAGE_TITLE_UNAVAILABLE: {}", pageId);
             return Optional.empty();

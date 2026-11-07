@@ -82,7 +82,7 @@ function scheduleTaskCredentialPresentation(task) {
     if (!runtime || !task || typeof runtime.credentialTaskPresentation !== 'function') return null;
     try {
         return runtime.credentialTaskPresentation(
-            task.sourceType || task.type, task, {task});
+            task.sourceType, task, {task});
     } catch (e) {
         return null;
     }
@@ -94,14 +94,12 @@ function scheduleStatusLabel(task) {
     if (credentialPresentation && credentialPresentation.statusLabel) {
         return credentialPresentation.statusLabel;
     }
-    const code = typeof task === 'string' ? task : task && task.lastStatus;
-    if (!code) return bt('schedule.run-status.none', '尚未运行');
+    const code = task && (task.suspendReason || task.lastOutcome);
+    if (!code || code === 'NEVER') return bt('schedule.run-status.none', '尚未运行');
     if (code === 'OK') return bt('schedule.run-status.ok', '正常');
-    if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired',
-        '登录凭证已失效，请重新绑定有效凭证');
     if (code === 'ERROR') return bt('schedule.run-status.error', '运行出错');
-    if (code === 'PAUSED') return bt('schedule.run-status.paused', '已手动暂停');
-    if (code === 'OVERUSE_PAUSED') return bt('schedule.run-status.overuse-paused', '已暂停：检测到过度访问警告');
+    if (code === 'MANUAL') return bt('schedule.run-status.paused', '已手动暂停');
+    if (code === 'CREDENTIAL' || code === 'POLICY') return bt('schedule.light.suspended', '任务已挂起，等待恢复');
     if (code === 'SOURCE_UNAVAILABLE') return bt('schedule.light.source-unavailable', '来源能力当前不可用，等待插件恢复');
     if (code === 'EXECUTOR_UNAVAILABLE') return bt('schedule.light.executor-unavailable', '作品执行能力当前不可用，等待插件恢复');
     if (code === 'QUIESCED') return bt('schedule.light.quiesced', '插件正在安全停用，等待能力恢复');
@@ -117,7 +115,7 @@ function safeScheduleMachineCode(value) {
 function localizeScheduleMachineCode(value, sourceType) {
     if (value === 'DOWNLOAD_PATH_ACTION_REQUIRED') return bt('batch:path.overflow.waiting', null);
     const code = safeScheduleMachineCode(value);
-    if (!code) return null;
+    if (!code || code === 'NEVER') return null;
     if (code.startsWith('schedule.')) {
         const translated = bt(code, '');
         return translated && translated !== code ? translated : null;
@@ -142,7 +140,7 @@ function localizeScheduleMachineCode(value, sourceType) {
 }
 
 function scheduleFailureReason(t) {
-    return t ? localizeScheduleMachineCode(t.lastMessage, t.sourceType || t.type) : null;
+    return t ? localizeScheduleMachineCode((t.outcomeCode || t.outcomeMessage), t.sourceType) : null;
 }
 
 /**
@@ -174,7 +172,7 @@ function scheduleStatusLight(t) {
         return {tone: 'yellow', live: false, text: bt('schedule.light.quiesced', '插件正在安全停用，等待能力恢复')};
     }
     if (t.suspendReason === 'MIGRATION_ERROR') {
-        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType || t.type);
+        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType);
         return {
             tone: 'red',
             live: false,
@@ -192,20 +190,20 @@ function scheduleStatusLight(t) {
     }
     // 挂起态优先于中断结果：挂起任务不会被自动重排，不能显示「已重新排期补齐」。
     if (t.suspendReason && t.suspendReason !== 'MANUAL') {
-        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType || t.type);
+        const reason = localizeScheduleMachineCode(t.suspendCode, t.sourceType);
         return {
             tone: 'red',
             live: false,
             text: reason || bt('schedule.light.suspended', '任务已挂起，等待恢复')
         };
     }
-    if (t.suspendReason === 'MANUAL' || t.lastStatus === 'PAUSED') {
+    if (t.suspendReason === 'MANUAL') {
         return {tone: 'gray', live: false, text: bt('schedule.light.paused', '已手动暂停')};
     }
-    if (t.lastOutcome === 'INTERRUPTED' || t.lastStatus === 'INTERRUPTED') {
+    if (t.lastOutcome === 'INTERRUPTED') {
         return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
     }
-    if (t.lastStatus === 'ERROR') {
+    if (t.lastOutcome === 'ERROR') {
         const reason = scheduleFailureReason(t);
         return {
             tone: 'red',
@@ -215,7 +213,7 @@ function scheduleStatusLight(t) {
                 : bt('schedule.light.error', '运行失败')
         };
     }
-    if (t.lastStatus === 'OK') {
+    if (t.lastOutcome === 'OK') {
         return {tone: 'green', live: false, text: bt('schedule.light.ok', '运行成功，等待下次运行')};
     }
     if (t.lastRunTime != null) {
@@ -230,7 +228,7 @@ function fmtScheduleTime(ms) {
 }
 
 function scheduleTypeLabel(t) {
-    const sourceType = typeof t === 'string' ? t : t && (t.sourceType || t.type);
+    const sourceType = typeof t === 'string' ? t : t && (t.sourceType);
     const runtime = altScheduleSources();
     const descriptor = runtime && runtime.descriptor(sourceType);
     const presentation = (descriptor && descriptor.presentation) || (t && t.presentation);
@@ -280,7 +278,7 @@ function scheduleCredentialCapabilities(sourceType, context) {
 }
 
 function scheduleTaskCredentialUi(task) {
-    const sourceType = task.sourceType || task.type;
+    const sourceType = task.sourceType;
     const runtime = altScheduleSources();
     const sourceActive = task.sourceAvailable !== false && !!(runtime && runtime.isAvailable(sourceType));
     const capabilities = sourceActive
@@ -370,11 +368,10 @@ function renderScheduleMode(panel) {
 function scheduleVisibleTasks(tasks, query, filter) {
     const term = query.trim().toLocaleLowerCase();
     return tasks.filter(task => {
-        if (term && ![task.name, scheduleTypeLabel(task), scheduleSourceSummary(task), task.sourceType || task.type]
+        if (term && ![task.name, scheduleTypeLabel(task), scheduleSourceSummary(task), task.sourceType]
             .join(' ').toLocaleLowerCase().includes(term)) return false;
         if (filter === 'running') return ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState);
-        if (filter === 'paused') return !task.enabled || task.suspendReason === 'MANUAL'
-            || task.lastStatus === 'PAUSED';
+        if (filter === 'paused') return !task.enabled || task.suspendReason === 'MANUAL';
         if (filter === 'attention') return ['red', 'yellow'].includes(scheduleStatusLight(task).tone);
         return true;
     });
@@ -423,7 +420,7 @@ function renderScheduleTaskList() {
         const old = existing.get(String(task.id));
         const runtime = altScheduleSources();
         const signature = JSON.stringify([task,
-            !!runtime?.isAvailable(task.sourceType || task.type), scheduleTaskCredentialUi(task).showOverride]);
+            !!runtime?.isAvailable(task.sourceType), scheduleTaskCredentialUi(task).showOverride]);
         if (old && old._scheduleSignature === signature) {
             refreshAltText(old);
             if (list.children[index] !== old) list.insertBefore(old, list.children[index] || null);
@@ -523,7 +520,7 @@ async function applyScheduleCredentialPolicyAction(group, action, button) {
 function scheduleTaskCard(task) {
     const light = scheduleStatusLight(task);
     const credentialUi = scheduleTaskCredentialUi(task);
-    const sourceType = task.sourceType || task.type;
+    const sourceType = task.sourceType;
     const runtime = altScheduleSources();
     const sourceEditable = task.sourceAvailable !== false
         && runtime && runtime.isAvailable(sourceType);
@@ -531,8 +528,7 @@ function scheduleTaskCard(task) {
     card.dataset.taskId = String(task.id);
     card.setAttribute('aria-labelledby', 'abScheduleName-' + task.id);
     const busy = ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState);
-    const suspended = !!task.suspendReason
-        || task.lastStatus === 'PAUSED' || task.lastStatus === 'OVERUSE_PAUSED';
+    const suspended = !!task.suspendReason;
 
     const head = el('div', 'ab-schedule-head');
     const titleWrap = el('div', 'ab-schedule-title');

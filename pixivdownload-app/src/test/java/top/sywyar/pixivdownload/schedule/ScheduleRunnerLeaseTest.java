@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -248,7 +249,7 @@ class ScheduleRunnerLeaseTest {
             return Optional.empty();
         });
         ScheduleExecutor executor = new ScheduleExecutor(
-                store, registry, runState, new com.fasterxml.jackson.databind.ObjectMapper(),
+                store, registry, runState, JsonMapper.builderWithJackson2Defaults().build(),
                 mock(top.sywyar.pixivdownload.notification.NotificationDispatcher.class),
                 mock(top.sywyar.pixivdownload.i18n.MessageResolver.class),
                 mock(top.sywyar.pixivdownload.i18n.NamespaceMessageResolver.class),

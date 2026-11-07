@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.download.schedule.snapshot;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("计划任务快照与插画筛选")
 class ScheduleExecutorFilterTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     // ── 构造辅助 ─────────────────────────────────────────────────────────────────
 

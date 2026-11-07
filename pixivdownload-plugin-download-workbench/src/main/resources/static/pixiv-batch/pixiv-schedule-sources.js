@@ -56,7 +56,7 @@
     }
 
     function taskSourceType(task) {
-        return canonicalSourceType(task && (task.sourceType || task.type));
+        return canonicalSourceType(task && (task.sourceType));
     }
 
     function normalizedQuickSource(context) {
@@ -741,7 +741,7 @@
     function bindCredential(taskId, cookie, _context, lease) {
         const validation = validateCredential(cookie, null, lease);
         if (validation) return {ok: false, status: 'failed', error: validation};
-        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -762,8 +762,8 @@
     }
 
     function revokeCredential(taskId, _context, lease) {
-        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/revoke-cookie`, {
-            method: 'POST',
+        return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
+            method: 'DELETE',
             credentials: 'same-origin'
         }, lease, 'revoked');
     }

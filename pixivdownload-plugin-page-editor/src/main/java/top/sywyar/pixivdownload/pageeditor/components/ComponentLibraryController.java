@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.pageeditor.components;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -27,8 +27,8 @@ public final class ComponentLibraryController {
     }
     @PostMapping("/save") public ResponseEntity<?> save(HttpServletRequest request) throws IOException {
         JsonNode command = command(request);
-        if (!command.path("id").isTextual()) throw ComponentLibrary.invalid("PAGE_COMPONENT_ID_INVALID");
-        return ok(library.save(command.path("id").asText(), revision(command), command.path("source")));
+        if (!command.path("id").isString()) throw ComponentLibrary.invalid("PAGE_COMPONENT_ID_INVALID");
+        return ok(library.save(command.path("id").asString(), revision(command), command.path("source")));
     }
     @PostMapping("/{id}/publish") public ResponseEntity<?> publish(@PathVariable String id, HttpServletRequest request) throws IOException {
         return ok(library.publish(id, revision(command(request))));

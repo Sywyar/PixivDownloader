@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.download.schedule.persistence;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
@@ -14,7 +15,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduleCredentialRedactor;
 
-import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -128,7 +128,7 @@ public final class PixivSchedulePersistenceCodec {
         }
         JsonNode value = root.get("workId");
         parseLongText(value, "workId", false);
-        String decoded = value.textValue();
+        String decoded = value.stringValue();
         if (!work.key().id().equals(decoded)) {
             throw new IllegalArgumentException("Pixiv work key and payload id differ");
         }
@@ -155,7 +155,7 @@ public final class PixivSchedulePersistenceCodec {
         if (root.isEmpty()) {
             return null;
         }
-        if (!CREDENTIAL_POLICY_STATE_SCHEMA.equals(root.path("schema").asText())
+        if (!CREDENTIAL_POLICY_STATE_SCHEMA.equals(root.path("schema").asString())
                 || !root.path("version").isIntegralNumber()
                 || root.path("version").asInt() != CREDENTIAL_POLICY_STATE_VERSION) {
             throw new IllegalArgumentException("unsupported Pixiv credential policy state schema or version");
@@ -170,7 +170,7 @@ public final class PixivSchedulePersistenceCodec {
         if (!current.isEmpty()) {
             decodeAcknowledgedWarningTime(currentPolicyStateJson);
         }
-        ObjectNode updated = current.deepCopy();
+        ObjectNode updated = ((ObjectNode) current).deepCopy();
         updated.put("schema", CREDENTIAL_POLICY_STATE_SCHEMA);
         updated.put("version", CREDENTIAL_POLICY_STATE_VERSION);
         if (acknowledgedWarningTime == null) {
@@ -202,19 +202,19 @@ public final class PixivSchedulePersistenceCodec {
 
     private Map<String, String> presentationAttributes(JsonNode root) {
         LinkedHashMap<String, String> attributes = new LinkedHashMap<>();
-        String kind = root.path("kind").asText(WORK_TYPE_ILLUST).trim().toLowerCase(Locale.ROOT);
+        String kind = root.path("kind").asString(WORK_TYPE_ILLUST).trim().toLowerCase(Locale.ROOT);
         put(attributes, "kind", kind);
         JsonNode source = root.path("source");
         for (String field : List.of("userId", "word", "order", "mode", "sMode", "maxPages",
                 "seriesId", "rest", "collectionId")) {
             JsonNode value = source.get(field);
             if (value != null && value.isValueNode() && !value.isNull()) {
-                put(attributes, "source." + field, value.asText());
+                put(attributes, "source." + field, value.asString());
             }
         }
         JsonNode fetchLimit = root.get("fetchLimit");
         if (fetchLimit != null && fetchLimit.isValueNode() && !fetchLimit.isNull()) {
-            put(attributes, "fetchLimit", fetchLimit.asText());
+            put(attributes, "fetchLimit", fetchLimit.asString());
         }
         return Map.copyOf(attributes);
     }
@@ -234,8 +234,7 @@ public final class PixivSchedulePersistenceCodec {
     }
 
     private JsonNode parseJson(String json, String label) {
-        try (JsonParser parser = objectMapper.createParser(requireText(json, label))) {
-            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        try (JsonParser parser = objectMapper.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION).createParser(requireText(json, label))) {
             JsonNode root = objectMapper.readTree(parser);
             if (root == null) {
                 throw new IllegalArgumentException(label + " must not be JSON null");
@@ -244,30 +243,29 @@ public final class PixivSchedulePersistenceCodec {
                 throw new IllegalArgumentException(label + " must contain exactly one JSON value");
             }
             return root;
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException(label + " is invalid JSON", e);
-        } catch (IOException e) {
-            throw new IllegalStateException("failed to read " + label, e);
+
         }
     }
 
     private String write(JsonNode value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("failed to encode Pixiv schedule payload", e);
         }
     }
 
     private void rejectCredentialMaterial(JsonNode node, String label) {
         if (node.isObject()) {
-            node.fields().forEachRemaining(entry -> {
+            node.properties().iterator().forEachRemaining(entry -> {
                 if (ScheduleCredentialRedactor.isSensitiveFieldName(entry.getKey())
                         || (ScheduleCredentialRedactor.isSensitiveMetadataFieldName(entry.getKey())
                         && (!entry.getValue().isValueNode()
                         || entry.getValue().isNull()
                         || !ScheduleCredentialRedactor.isSafeMetadataValue(
-                        entry.getKey(), entry.getValue().asText())))) {
+                        entry.getKey(), entry.getValue().asString())))) {
                     throw new IllegalArgumentException(label + " contains forbidden credential material");
                 }
                 rejectCredentialMaterial(entry.getValue(), label);
@@ -278,8 +276,8 @@ public final class PixivSchedulePersistenceCodec {
             node.forEach(item -> rejectCredentialMaterial(item, label));
             return;
         }
-        if (node.isTextual()) {
-            String text = node.textValue();
+        if (node.isString()) {
+            String text = node.stringValue();
             String nestedJson = text.trim();
             if (nestedJson.startsWith("{") || nestedJson.startsWith("[")) {
                 JsonNode nested = readEmbeddedJson(nestedJson, label);
@@ -301,7 +299,7 @@ public final class PixivSchedulePersistenceCodec {
                 if (permissive != null && (permissive.isObject() || permissive.isArray())) {
                     throw strictFailure;
                 }
-            } catch (JsonProcessingException ignored) {
+            } catch (JacksonException ignored) {
                 // 以花括号开头的普通展示文本不是完整 JSON，不按嵌套载荷解释。
             }
             return null;
@@ -315,10 +313,10 @@ public final class PixivSchedulePersistenceCodec {
     }
 
     private static long parseLongText(JsonNode value, String field, boolean allowZero) {
-        if (value == null || !value.isTextual() || value.textValue().isBlank()) {
+        if (value == null || !value.isString() || value.stringValue().isBlank()) {
             throw new IllegalArgumentException(field + " must be a decimal string");
         }
-        String text = value.textValue();
+        String text = value.stringValue();
         try {
             long parsed = Long.parseLong(text);
             if (parsed < 0 || (!allowZero && parsed == 0) || !Long.toString(parsed).equals(text)) {

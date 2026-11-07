@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -150,7 +150,7 @@ public class NovelDownloadController {
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
                     "novel.request.invalid",
                     detail == null || detail.isBlank() ? "Invalid novel request" : detail));
-        } catch (IOException invalidUpstream) {
+        } catch (IOException | tools.jackson.core.JacksonException invalidUpstream) {
             log.warn("Pixiv novel response could not be parsed: novelId={}", command.getNovelId());
             return ResponseEntity.status(502).body(ApiErrorResponse.of(
                     "pixiv.proxy.novel.response.invalid",
@@ -191,7 +191,7 @@ public class NovelDownloadController {
                         : browserFetchTicketStore.issuePreviewFetchTicket(command.getNovelId(),
                                 imported.metadata(), imported.rawMetaJson(), ownerIdentity,
                                 AcquisitionCredentialResolver.resolve(httpRequest.getHeader(
-                                        AcquisitionCredentialResolver.HEADER_NAME), null));
+                                        AcquisitionCredentialResolver.HEADER_NAME)));
             }
             return ResponseEntity.status(409).cacheControl(CacheControl.noStore()).body(new PathActionResponse(
                     "DOWNLOAD_PATH_ACTION_REQUIRED", messages.get("download.path.action-required"),
@@ -228,7 +228,7 @@ public class NovelDownloadController {
             HttpServletRequest httpRequest,
             RequestOwnerIdentity ownerIdentity) throws IOException {
         String credential = AcquisitionCredentialResolver.resolve(
-                httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME), null);
+                httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME));
         if (command.getFetchToken() != null && !command.getFetchToken().isBlank()) {
             boolean allowBrowserImport = "solo".equals(applicationModeProvider.getMode())
                     && LocalRequestTrust.isLocalRequest(
@@ -294,7 +294,7 @@ public class NovelDownloadController {
             throw new IllegalArgumentException(messages.get("pixiv.proxy.novel.response.invalid"));
         }
         if (root.path("error").asBoolean(false)) {
-            String message = root.path("message").asText("").trim();
+            String message = root.path("message").asString("").trim();
             throw new IllegalArgumentException(message.isEmpty()
                     ? messages.get("pixiv.proxy.novel.response.invalid") : message);
         }

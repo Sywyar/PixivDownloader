@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,7 +53,7 @@ class WorkMetaBridgeConsistencyTest {
     @TempDir
     Path tempDir;
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     private SingleConnectionDataSource dataSource;
     private PixivDatabase pixivDatabase;
@@ -191,7 +192,7 @@ class WorkMetaBridgeConsistencyTest {
             assertThat(fromColumn.isOriginal())
                     .isEqualTo(fromSnapshot.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSnapshot.path("source").asText()).isEqualTo("schedule");
+            assertThat(fromSnapshot.path("source").asString()).isEqualTo("schedule");
         }
 
         @Test
@@ -213,7 +214,7 @@ class WorkMetaBridgeConsistencyTest {
             assertThat(fromColumn.isOriginal())
                     .isEqualTo(fromSnapshot.path("normalized").path("isOriginal").booleanValue())
                     .isEqualTo(true);
-            assertThat(fromSnapshot.path("source").asText()).isEqualTo("schedule");
+            assertThat(fromSnapshot.path("source").asString()).isEqualTo("schedule");
         }
     }
 

@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.translation;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.core.JacksonException;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -72,8 +73,8 @@ public class MachineTranslationClient implements AutoCloseable {
         // targets 是实际可翻译的方向，不能把仅能作为源语言的模型列作目标。
         for (JsonNode entry : json) {
             for (JsonNode target : entry.path("targets")) {
-                if (!target.isTextual() || target.asText().length() > 100) continue;
-                String code = language(target.asText());
+                if (!target.isString() || target.asString().length() > 100) continue;
+                String code = language(target.asString());
                 if (!code.isBlank()) found.putIfAbsent(code, new Language(code, Locale.forLanguageTag(code).getDisplayName(Locale.ENGLISH)));
                 if (found.size() > MAX_LANGUAGES) throw new Failure("translation.response-too-large", "too_many_languages", 200, null);
             }
@@ -200,7 +201,7 @@ public class MachineTranslationClient implements AutoCloseable {
             payload.put("format", "text");
             if (!config.getLibretranslateApiKey().isBlank()) payload.put("api_key", config.getLibretranslateApiKey());
             try { body = mapper.writeValueAsBytes(payload); }
-            catch (com.fasterxml.jackson.core.JsonProcessingException impossible) { throw new IllegalStateException("translation.invalid-request"); }
+            catch (JacksonException impossible) { throw new IllegalStateException("translation.invalid-request"); }
             contentType = MediaType.APPLICATION_JSON;
         } else throw new IllegalArgumentException("translation.unknown-engine");
         // 按实际输入预留 UTF-8 / JSON 与译文膨胀空间；不按整篇小说分配响应预算。
@@ -208,21 +209,21 @@ public class MachineTranslationClient implements AutoCloseable {
         JsonNode json = exchange(engine, uri, HttpMethod.POST, body, contentType, responseLimit);
         JsonNode values;
         if (engine.equals("youdao")) {
-            String code = json == null ? "" : json.path("errorCode").asText();
+            String code = json == null ? "" : json.path("errorCode").asString();
             if (!"0".equals(code)) throw new Failure(youdaoErrorKey(code), "provider_rejected", 200, code);
             if (json.path("errorIndex").size() != 0) throw new Failure("translation.invalid-response", "partial_translation", 200, null);
             values = batch ? json.path("translateResults") : mapper.createArrayNode().add(json.path("translation").path(0));
         } else values = json == null ? null : json.get("translatedText");
         if (values == null) throw new Failure("translation.invalid-response", "invalid_translation", 200, null);
-        if (!batch && values.isTextual()) values = mapper.createArrayNode().add(values);
+        if (!batch && values.isString()) values = mapper.createArrayNode().add(values);
         if (!values.isArray() || values.size() != texts.size())
             throw new Failure("translation.invalid-response", "invalid_translation_count", 200, null);
         List<String> result = new ArrayList<>(texts.size());
         for (JsonNode value : values) {
             JsonNode translated = engine.equals("youdao") && batch ? value.path("translation") : value;
-            if (!translated.isTextual() || translated.asText().isBlank())
+            if (!translated.isString() || translated.asString().isBlank())
                 throw new Failure("translation.invalid-response", "invalid_translation", 200, null);
-            result.add(translated.asText());
+            result.add(translated.asString());
         }
         return result;
     }
@@ -249,7 +250,7 @@ public class MachineTranslationClient implements AutoCloseable {
                 if (bytes.length > responseLimit) throw new Failure("translation.response-too-large", "response_too_large", status, null);
                 return mapper.readTree(new String(bytes, StandardCharsets.UTF_8));
             }
-        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+        } catch (JacksonException failure) {
             throw new Failure("translation.invalid-response", "invalid_json", 200, null);
         } catch (java.io.IOException | org.springframework.web.client.RestClientException failure) {
             throw new Failure("translation.remote-error", failure instanceof java.net.SocketTimeoutException

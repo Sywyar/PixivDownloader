@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.scripts;
 
-import com.fasterxml.jackson.core.io.JsonStringEncoder;
+import tools.jackson.core.io.JsonStringEncoder;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,7 +63,7 @@ final class UserscriptPresenceInstaller {
     }
 
     private static String quote(String value) {
-        return '"' + new String(JsonStringEncoder.getInstance().quoteAsString(value)) + '"';
+        return '"' + new String(JsonStringEncoder.getInstance().quoteAsCharArray(value)) + '"';
     }
 
     private static String readBootstrap() {

@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.plugin.management;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -32,9 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequestMapping("/api/plugins/database")
 public class DatabaseSettingsController {
     static final int MAX_DRAFT_BYTES = 64 * 1024;
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            .enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private final DesktopUiHost.ConfigFile config;
     private final DatabaseSettingsService settings;
     private final DatabaseTarget active;
@@ -126,7 +130,7 @@ public class DatabaseSettingsController {
             settings.startMigration(confirmation.token());
             return ResponseEntity.ok(Map.of("accepted", true));
         } catch (DraftTooLarge failure) { return error(request, 413, "gui.config.database.draft-too-large"); }
-        catch (IOException | IllegalArgumentException failure) { return error(request, 409, "gui.config.database.migration.failed"); }
+        catch (JacksonException | IOException | IllegalArgumentException failure) { return error(request, 409, "gui.config.database.migration.failed"); }
     }
 
     @GetMapping("/migration")
@@ -152,7 +156,12 @@ public class DatabaseSettingsController {
         if (request.getContentLengthLong() > MAX_DRAFT_BYTES) throw new DraftTooLarge();
         byte[] bytes = request.getInputStream().readNBytes(MAX_DRAFT_BYTES + 1);
         if (bytes.length > MAX_DRAFT_BYTES) throw new DraftTooLarge();
-        Draft draft = JSON.readValue(bytes, Draft.class);
+        Draft draft;
+        try {
+            draft = JSON.readValue(bytes, Draft.class);
+        } catch (JacksonException failure) {
+            throw new IOException("INVALID_DRAFT", failure);
+        }
         if (draft == null) throw new IOException("INVALID_DRAFT");
         var values = new LinkedHashMap<String, String>();
         if (draft.provider() != null) values.put("database.provider", draft.provider());

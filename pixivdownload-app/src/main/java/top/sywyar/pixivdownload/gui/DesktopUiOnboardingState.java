@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
@@ -11,7 +12,7 @@ import java.nio.file.Path;
 /** 应用拥有的桌面引导状态持久化实现。 */
 @Slf4j
 final class DesktopUiOnboardingState {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String SEEN = "onboarding-seen";
     private static final String PROXY = "proxy-configured";
     private static final String PROGRESS = "wizard-progress";

@@ -88,7 +88,7 @@ public final class ManagedPluginRestTemplate extends RestTemplate implements Aut
                 OutboundHttpStreamResponse response = client.exchangeStream(new OutboundHttpRequest(
                         uri,
                         method.name(),
-                        headers,
+                        headers.asMultiValueMap(),
                         body.toByteArray()));
                 try {
                     return new StableClientHttpResponse(response);

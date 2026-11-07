@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopEnvironmentTransfer.*;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
@@ -15,8 +15,10 @@ import java.util.*;
 
 /** 插件版本和仓库地址只作补齐提示；归档不能携带可执行包、信任根或审批记录。 */
 final class TransferInventory {
-    private static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
     private static final TransferArchive.Descriptor DESCRIPTOR = new TransferArchive.Descriptor("host",
             TransferArchive.Category.INVENTORY, "plugins.json", 1);
     record Package(String id, String version) {

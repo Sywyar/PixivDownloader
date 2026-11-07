@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
@@ -116,7 +117,7 @@ class ScheduleHostConfigurationTest {
         ScheduleConfig config = new ScheduleConfig();
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleRunQueue runQueue = new ScheduleRunQueue();
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         ScheduleExecutionEngine executionEngine = mock(ScheduleExecutionEngine.class);
         ScheduleCredentialService credentialService = mock(ScheduleCredentialService.class);
         ScheduleHostLifecycle hostIdentity = ScheduleTestHost.started(new ScheduleRunState());

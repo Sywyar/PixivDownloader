@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
-import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
@@ -227,7 +226,7 @@ class PluginApiOwnershipGuardTest {
                     "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
                     "PluginRuntimeTaskRejectedException")),
             Map.entry("插件 owner-scoped 存储协议", types(API_PREFIX + "storage",
-                    "EnvironmentFileContribution", "PluginDataSource", "PluginDatabase", "PluginMainDatabase", "RuntimePathProvider")),
+                    "EnvironmentFileContribution", "PluginDatabase", "PluginMainDatabase", "RuntimePathProvider")),
             Map.entry("出站 HTTP 传输协议", types(API_PREFIX + "http",
                     "OutboundHttpClient", "OutboundHttpClientFactory", "OutboundHttpClientProfile",
                     "OutboundHttpCookiePolicy", "OutboundHttpProxyProvider", "OutboundHttpRedirectPolicy",
@@ -309,7 +308,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("通知贡献协议", 5),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
-            Map.entry("插件 owner-scoped 存储协议", 5),
+            Map.entry("插件 owner-scoped 存储协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
             Map.entry("计划任务协议", 62),
@@ -572,10 +571,6 @@ class PluginApiOwnershipGuardTest {
                 }
                 return;
             }
-            if ((origin.equals(PluginDataSource.class.getName()) || origin.equals(API_PREFIX + "storage.PluginDatabase"))
-                    && target.equals(javax.sql.DataSource.class.getName())) {
-                return;
-            }
             if ((origin.equals(API_PREFIX + "database.DatabaseProvider")
                     || origin.equals(API_PREFIX + "database.DatabaseConnectionTarget"))
                     && Set.of("java.sql.Connection", "java.sql.SQLException").contains(target)) {
@@ -645,9 +640,6 @@ class PluginApiOwnershipGuardTest {
                         assertThat(method.getParameterCount()).isZero();
                     }
                 });
-        assertThat(PluginDataSource.class.getInterfaces())
-                .containsExactly(javax.sql.DataSource.class);
-        assertThat(PluginDataSource.class.getDeclaredMethods()).isEmpty();
     }
 
     @Test

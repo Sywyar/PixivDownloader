@@ -1,11 +1,11 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -38,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("真实登录入口在会话副作用之前执行精确代际验证")
 class OperationVerificationGateTest {
     @TempDir Path temporary;
-    final ObjectMapper json = new ObjectMapper();
+    final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     final ExternalCapabilityInvocationRegistry registry = new ExternalCapabilityInvocationRegistry();
     final List<AnnotationConfigApplicationContext> contexts = new ArrayList<>();
     SetupService setup;
@@ -208,7 +208,7 @@ class OperationVerificationGateTest {
     private String challengeToken() throws Exception {
         var response = prepare("", Map.of()).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_CHALLENGE"))
                 .andExpect(cookie().doesNotExist("pixiv_session")).andReturn().getResponse();
-        return json.readTree(response.getContentAsByteArray()).get("token").asText();
+        return json.readTree(response.getContentAsByteArray()).get("token").asString();
     }
     private org.springframework.test.web.servlet.ResultActions prepare(String token, Map<String, String> proofs) throws Exception {
         return mvc.perform(post(HookRequestFilter.PREPARE_PATH).header("Origin", "http://localhost")

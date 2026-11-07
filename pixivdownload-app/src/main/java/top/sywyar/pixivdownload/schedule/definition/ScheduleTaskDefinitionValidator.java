@@ -1,15 +1,15 @@
 package top.sywyar.pixivdownload.schedule.definition;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -75,8 +75,7 @@ public final class ScheduleTaskDefinitionValidator {
     }
 
     private JsonNode parseSingleJsonValue(String json, boolean requireObject) {
-        try (JsonParser parser = objectMapper.createParser(json)) {
-            parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        try (JsonParser parser = objectMapper.reader().with(StreamReadFeature.STRICT_DUPLICATE_DETECTION).createParser(json)) {
             JsonNode root = objectMapper.readTree(parser);
             if (root == null || (requireObject && !root.isObject())) {
                 throw new IllegalArgumentException("schedule definition must contain one JSON object");
@@ -85,14 +84,14 @@ public final class ScheduleTaskDefinitionValidator {
                 throw new IllegalArgumentException("schedule definition contains trailing JSON tokens");
             }
             return root;
-        } catch (IOException failure) {
+        } catch (JacksonException failure) {
             throw new IllegalArgumentException("schedule definition JSON is invalid");
         }
     }
 
     private void validateJsonNode(JsonNode node, int embeddedDepth) {
         if (node.isObject()) {
-            node.fields().forEachRemaining(entry -> {
+            node.properties().iterator().forEachRemaining(entry -> {
                 String fieldName = entry.getKey();
                 validateUnicodeScalarText(fieldName, "schedule definition field name");
                 if (ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName)) {
@@ -102,7 +101,7 @@ public final class ScheduleTaskDefinitionValidator {
                         && (!entry.getValue().isValueNode()
                         || entry.getValue().isNull()
                         || !ScheduledSensitiveFieldNames.isSafeMetadataValue(
-                        fieldName, entry.getValue().asText()))) {
+                        fieldName, entry.getValue().asString()))) {
                     throw new IllegalArgumentException(
                             "schedule definition contains invalid credential metadata");
                 }
@@ -114,10 +113,10 @@ public final class ScheduleTaskDefinitionValidator {
             node.forEach(child -> validateJsonNode(child, embeddedDepth));
             return;
         }
-        if (!node.isTextual()) {
+        if (!node.isString()) {
             return;
         }
-        String text = node.textValue();
+        String text = node.stringValue();
         validateUnicodeScalarText(text, "schedule definition text");
         String trimmed = text.trim();
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -145,7 +144,7 @@ public final class ScheduleTaskDefinitionValidator {
                 if (permissive != null && (permissive.isObject() || permissive.isArray())) {
                     throw strictFailure;
                 }
-            } catch (JsonProcessingException ignored) {
+            } catch (JacksonException ignored) {
                 // 以括号开头的普通来源文本不是完整 JSON，不按嵌入载荷解释。
             }
             return null;

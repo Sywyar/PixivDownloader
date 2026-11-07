@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.plugin.security;
 
-import com.fasterxml.jackson.core.*;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.*;
@@ -16,6 +18,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.util.ServletRequestPathUtils;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.setup.CsrfProtectionFilter;
 
@@ -26,9 +29,9 @@ public final class HookRequestFilter extends OncePerRequestFilter {
     public static final String PREPARE_PATH = "/api/operation-hooks/prepare";
     static final String PREPARATION = HookRequestFilter.class.getName();
     public static boolean isPreparation(HttpServletRequest request) { return request.getAttribute(PREPARATION) instanceof Preparation; }
-    static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(12).maxStringLength(65536).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(12).maxStringLength(65536).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     record Preparation(String method, String url, Map<String, String> headers, String token, Map<String, String> proofs,
             boolean nativeSubmit, Map<String, JsonNode> json, Map<String, List<String>> parameters, boolean resolveOnly) {
         Preparation(String method, String url, Map<String, String> headers, String token, Map<String, String> proofs,

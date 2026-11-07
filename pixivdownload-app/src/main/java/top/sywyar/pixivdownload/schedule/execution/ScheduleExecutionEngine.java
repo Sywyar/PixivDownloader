@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;

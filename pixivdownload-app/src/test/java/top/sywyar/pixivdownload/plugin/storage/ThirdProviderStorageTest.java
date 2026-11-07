@@ -160,7 +160,7 @@ class ThirdProviderStorageTest {
                 privateTarget.initializeStorage(connection, PrivateStorageSchema.merge(feature.privateSchema()));
             }
             var factory = new PluginApplicationContextFactory(PluginContextPropertySourceProvider.EMPTY,
-                    new PluginStreamRegistry(), new PluginRuntimeTaskRegistry(), null, null, module -> {
+                    new PluginStreamRegistry(), new PluginRuntimeTaskRegistry(), null, module -> {
                         var database = new AppPluginDatabase(module.sourcePluginId(), target, main, () -> privateSettings);
                         try { database.initialize(module.privateSchema(), module.storageMigrations()); return database; }
                         catch (Exception failure) { database.close(); throw new IllegalStateException(failure); }

@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
@@ -18,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("NovelDownloadController HTTP 投影契约")
 class NovelDownloadHttpProjectionContractTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("小说下载请求应保持年龄分级与标签的 camelCase wire 结构")
@@ -41,9 +42,9 @@ class NovelDownloadHttpProjectionContractTest {
         JsonNode json = objectMapper.valueToTree(request);
         assertThat(json.path("other").path("xRestrict").asInt()).isEqualTo(2);
         assertThat(json.path("other").has("xrestrict")).isFalse();
-        assertThat(json.path("other").path("tags").get(0).path("translatedName").asText())
+        assertThat(json.path("other").path("tags").get(0).path("translatedName").asString())
                 .isEqualTo("magic");
-        assertThat(json.path("other").path("seriesTags").get(0).path("name").asText())
+        assertThat(json.path("other").path("seriesTags").get(0).path("name").asString())
                 .isEqualTo("系列");
     }
 
@@ -72,8 +73,8 @@ class NovelDownloadHttpProjectionContractTest {
                 .build());
 
         assertThat(json.path("success").asBoolean()).isTrue();
-        assertThat(json.path("message").asText()).isEqualTo("started");
-        assertThat(json.path("downloadPath").asText()).isEqualTo("pending");
+        assertThat(json.path("message").asString()).isEqualTo("started");
+        assertThat(json.path("downloadPath").asString()).isEqualTo("pending");
         assertThat(json.path("downloadedCount").asInt()).isEqualTo(1);
     }
 
@@ -85,7 +86,7 @@ class NovelDownloadHttpProjectionContractTest {
 
         assertThat(json.path("success").asBoolean()).isTrue();
         assertThat(json.path("alreadyDownloaded").asBoolean()).isTrue();
-        assertThat(json.path("message").asText()).isEqualTo("already");
+        assertThat(json.path("message").asString()).isEqualTo("already");
     }
 
     @Test
@@ -95,9 +96,9 @@ class NovelDownloadHttpProjectionContractTest {
                 true, "quota", "token", 60L, 3, 10, 120L));
 
         assertThat(json.path("quotaExceeded").asBoolean()).isTrue();
-        assertThat(json.path("code").asText()).isEqualTo("download.quota.exceeded");
-        assertThat(json.path("error").asText()).isEqualTo("quota");
-        assertThat(json.path("archiveToken").asText()).isEqualTo("token");
+        assertThat(json.path("code").asString()).isEqualTo("download.quota.exceeded");
+        assertThat(json.path("error").asString()).isEqualTo("quota");
+        assertThat(json.path("archiveToken").asString()).isEqualTo("token");
         assertThat(json.path("archiveExpireSeconds").asLong()).isEqualTo(60L);
         assertThat(json.path("artworksUsed").asInt()).isEqualTo(3);
         assertThat(json.path("maxArtworks").asInt()).isEqualTo(10);
@@ -113,9 +114,9 @@ class NovelDownloadHttpProjectionContractTest {
                 WorkActionResult.success("bookmarked"),
                 WorkActionResult.exists("exists")));
 
-        assertThat(json.path("bookmarkResult").path("status").asText()).isEqualTo("success");
-        assertThat(json.path("bookmarkResult").path("message").asText()).isEqualTo("bookmarked");
-        assertThat(json.path("collectionResult").path("status").asText()).isEqualTo("exists");
-        assertThat(json.path("collectionResult").path("message").asText()).isEqualTo("exists");
+        assertThat(json.path("bookmarkResult").path("status").asString()).isEqualTo("success");
+        assertThat(json.path("bookmarkResult").path("message").asString()).isEqualTo("bookmarked");
+        assertThat(json.path("collectionResult").path("status").asString()).isEqualTo("exists");
+        assertThat(json.path("collectionResult").path("message").asString()).isEqualTo("exists");
     }
 }

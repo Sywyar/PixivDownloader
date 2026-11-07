@@ -84,17 +84,17 @@ public final class CommunityDirectoryService {
             if (pointer.path("schemaVersion").asInt() != 1) throw unavailable("unsupported directory pointer");
             var reference = pointer.get("directory");
             if (reference == null) throw unavailable("missing directory reference");
-            String path = reference.path("path").asText();
+            String path = reference.path("path").asString();
             if (!path.matches("generated/generations/[1-9][0-9]*/directory\\.json")) throw unavailable("invalid directory reference");
             URI url = base.resolve(path);
             byte[] rootBytes = previous != null && previous.url.equals(url)
-                    && previous.document.sha256().equals(reference.path("sha256").asText())
+                    && previous.document.sha256().equals(reference.path("sha256").asString())
                     ? previous.document.bytes() : fetch.apply(url.toString(), (long) ROOT_BYTES);
-            CommunityValues.verifyBytes(rootBytes, reference.path("size").asLong(), reference.path("sha256").asText(), "/directory");
+            CommunityValues.verifyBytes(rootBytes, reference.path("size").asLong(), reference.path("sha256").asString(), "/directory");
             var metadata = pointer.get("directorySignature");
             if (metadata == null) throw unavailable("missing directory signature");
             SignatureMetadata signature = new SignatureMetadata(metadata.path("formatVersion").asInt(),
-                    metadata.path("algorithm").asText(), metadata.path("keyId").asText(), metadata.path("value").asText());
+                    metadata.path("algorithm").asString(), metadata.path("keyId").asString(), metadata.path("value").asString());
             var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT, rootBytes);
             var root = DirectoryGeneration.verifyRoot(document, url, REPOSITORY_ID, signature, verifier);
             if (!path.equals("generated/generations/" + root.sequence() + "/directory.json")

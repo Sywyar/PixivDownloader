@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.notificationbase;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -105,7 +104,7 @@ class NotificationInboxControllerTest {
         assertThat(csp).contains("default-src 'none'", "sandbox allow-scripts")
                 .doesNotContain("allow-same-origin", "script-src 'none'", "script-src 'self'");
         assertThat(servletResponse.getHeaders("Content-Security-Policy")).containsExactly(csp);
-        assertThat(response.getHeaders()).doesNotContainKey("Content-Security-Policy");
+        assertThat(response.getHeaders().containsHeader("Content-Security-Policy")).isFalse();
         assertThat(response.getBody())
                 .startsWith("<!doctype html><script nonce=\"" + nonce + "\" data-source=\"" + CONTENT_URL + "\">")
                 .contains("parent.postMessage({", "type: 'pixiv-external-link'",
@@ -144,7 +143,7 @@ class NotificationInboxControllerTest {
 
     @Test
     @DisplayName("消息 JSON 只公开 HTML 可用标记，不内联正文")
-    void keepsHtmlOutOfMessageJson() throws JsonProcessingException {
+    void keepsHtmlOutOfMessageJson() {
         NotificationInboxService service = new NotificationInboxService(
                 new NotificationInboxServiceTest.MemoryMapper(), () -> true);
         NotificationMessage message = service.publishHtml(
@@ -156,7 +155,7 @@ class NotificationInboxControllerTest {
                 null,
                 new NotificationHtmlContent(null, "<p>private HTML</p>"));
 
-        String json = new ObjectMapper().writeValueAsString(message);
+        String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(message);
 
         assertThat(json).contains("\"hasHtmlContent\":true")
                 .doesNotContain("contentHtml", "private HTML");

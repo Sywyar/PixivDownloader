@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("作品元数据快照与查询列集中入库")
 class WorkMetadataPersistenceTest {
     @TempDir Path directory;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private SingleConnectionDataSource dataSource;
     private JdbcTemplate jdbc;
     private WorkMetaCaptureService service;

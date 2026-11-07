@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,7 +46,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             return;
         }
         persist(WorkType.ARTWORK, artworkId, curated,
-                ArtworkMetadataQuality.isMeaningfulTitle(artworkId, illustBody.path("illustTitle").asText(null)));
+                ArtworkMetadataQuality.isMeaningfulTitle(artworkId, illustBody.path("illustTitle").asString(null)));
     }
 
     private void captureArtworkJson(long artworkId, String artworkJson, String pagesJson, String source) {

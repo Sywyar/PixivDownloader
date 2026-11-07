@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -69,7 +70,7 @@ class NovelDownloadControllerIdentityTest {
     @Mock private MessageResolver messages;
     @Mock private NovelBrowserFetchTicketStore browserFetchTicketStore;
     @Mock private HttpServletRequest httpRequest;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("查询期间下载失败不混用前后终态与提示")
@@ -179,6 +180,21 @@ class NovelDownloadControllerIdentityTest {
                 """);
         lenient().when(httpRequest.getHeader(AcquisitionCredentialResolver.HEADER_NAME))
                 .thenReturn(null);
+    }
+
+    @Test
+    @DisplayName("上游返回非法 JSON 时返回网关错误且不提交下载")
+    void malformedUpstreamResponseDoesNotSubmitDownload() {
+        when(applicationModeProvider.getMode()).thenReturn("solo");
+        when(requestOwnerIdentityResolver.resolve(httpRequest)).thenReturn(RequestOwnerIdentity.adminScope());
+        when(requestOwnerIdentityResolver.isAdminAuthenticated(httpRequest)).thenReturn(true);
+        when(pixivAjaxClient.get(any(), nullable(String.class))).thenReturn("<html>unavailable</html>");
+        when(messages.get("pixiv.proxy.novel.response.invalid")).thenReturn("Invalid upstream response.");
+        var response = controller().downloadNovel(requestWithAdminOptions(), httpRequest);
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(((top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse) response.getBody()).code())
+                .isEqualTo("pixiv.proxy.novel.response.invalid");
+        verifyNoInteractions(novelDownloadService, visitorDownloadQuotaService);
     }
 
     @Test

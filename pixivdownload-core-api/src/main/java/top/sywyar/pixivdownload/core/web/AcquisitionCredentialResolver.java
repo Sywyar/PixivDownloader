@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.core.web;
 
 /**
- * 解析中立的浏览器采集凭据请求头，并在迁移期间兼容来源专用的旧请求头。
+ * 解析浏览器采集凭据请求头。
  */
 public final class AcquisitionCredentialResolver {
 
@@ -21,23 +21,13 @@ public final class AcquisitionCredentialResolver {
      * 查询并返回对应结果。
      *
      * @param acquisitionCredential 采集凭证
-     * @param legacyCredential 旧值凭证
      * @return 方法返回的字符串
      */
-    public static String resolve(String acquisitionCredential, String legacyCredential) {
-        String generic = normalize(acquisitionCredential);
-        String legacy = normalize(legacyCredential);
-        if (generic != null && legacy != null && !generic.equals(legacy)) {
-            throw new IllegalArgumentException("Conflicting acquisition credential headers");
-        }
-        return generic != null ? generic : legacy;
-    }
-
-    private static String normalize(String value) {
-        if (value == null) {
+    public static String resolve(String acquisitionCredential) {
+        if (acquisitionCredential == null) {
             return null;
         }
-        String normalized = value.trim();
+        String normalized = acquisitionCredential.trim();
         if (normalized.length() > MAX_LENGTH) {
             throw new IllegalArgumentException("Acquisition credential is too long");
         }

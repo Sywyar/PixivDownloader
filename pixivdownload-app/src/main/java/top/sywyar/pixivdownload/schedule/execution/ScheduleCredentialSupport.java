@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
@@ -282,7 +282,7 @@ final class ScheduleCredentialSupport {
         while (!pending.isEmpty()) {
             JsonNode node = pending.removeFirst();
             if (node.isObject()) {
-                var fields = node.fields();
+                var fields = node.properties().iterator();
                 while (fields.hasNext()) {
                     var field = fields.next();
                     if (credential.containsEcho(field.getKey())
@@ -291,15 +291,15 @@ final class ScheduleCredentialSupport {
                             && (!field.getValue().isValueNode()
                             || field.getValue().isNull()
                             || !ScheduleCredentialRedactor.isSafeMetadataValue(
-                            field.getKey(), field.getValue().asText())))) {
+                            field.getKey(), field.getValue().asString())))) {
                         throw pluginFailure("schedule.credential.invalid-policy-state");
                     }
                     pending.addLast(field.getValue());
                 }
             } else if (node.isArray()) {
                 node.forEach(pending::addLast);
-            } else if (node.isTextual()) {
-                String text = node.textValue();
+            } else if (node.isString()) {
+                String text = node.stringValue();
                 if (credential.containsEcho(text)) {
                     throw pluginFailure("schedule.credential.invalid-policy-state");
                 }
@@ -311,7 +311,7 @@ final class ScheduleCredentialSupport {
                 }
             } else if (node.isValueNode()
                     && !node.isNull()
-                    && credential.containsEcho(node.asText())) {
+                    && credential.containsEcho(node.asString())) {
                 throw pluginFailure("schedule.credential.invalid-policy-state");
             }
         }
@@ -322,7 +322,7 @@ final class ScheduleCredentialSupport {
             throws ScheduledExecutionException {
         try {
             return strictReader.readTree(json);
-        } catch (JsonProcessingException | IllegalArgumentException ignored) {
+        } catch (JacksonException | IllegalArgumentException ignored) {
             throw pluginFailure("schedule.credential.invalid-policy-state");
         }
     }
@@ -336,7 +336,7 @@ final class ScheduleCredentialSupport {
         try {
             JsonNode nested = strictReader.readTree(candidate);
             return nested != null && (nested.isObject() || nested.isArray()) ? nested : null;
-        } catch (JsonProcessingException | IllegalArgumentException strictFailure) {
+        } catch (JacksonException | IllegalArgumentException strictFailure) {
             try {
                 JsonNode permissive = objectMapper.readTree(candidate);
                 if (permissive != null && (permissive.isObject() || permissive.isArray())) {
@@ -344,7 +344,7 @@ final class ScheduleCredentialSupport {
                 }
             } catch (ScheduledExecutionException failure) {
                 throw failure;
-            } catch (JsonProcessingException | IllegalArgumentException ignored) {
+            } catch (JacksonException | IllegalArgumentException ignored) {
                 // 以花括号开头的普通文本不是嵌套 JSON，不按策略状态解释。
             }
             return null;

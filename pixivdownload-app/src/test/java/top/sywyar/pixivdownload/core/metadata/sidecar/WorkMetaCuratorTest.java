@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("WorkMetaCurator 归一化与剪枝")
 class WorkMetaCuratorTest {
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private final WorkMetaCurator curator = new WorkMetaCurator(mapper);
 
     private JsonNode json(String text) {
@@ -47,20 +48,20 @@ class WorkMetaCuratorTest {
 
         JsonNode doc = c.document();
         assertThat(doc.path("schemaVersion").asInt()).isEqualTo(1);
-        assertThat(doc.path("workType").asText()).isEqualTo("ARTWORK");
+        assertThat(doc.path("workType").asString()).isEqualTo("ARTWORK");
         assertThat(doc.path("workId").asLong()).isEqualTo(1L);
-        assertThat(doc.path("source").asText()).isEqualTo("schedule");
+        assertThat(doc.path("source").asString()).isEqualTo("schedule");
 
         JsonNode n = doc.path("normalized");
         assertThat(n.path("uploadTime").asLong()).isEqualTo(c.uploadTime());
         assertThat(n.path("isOriginal").asBoolean()).isFalse();
         assertThat(n.path("isUnlisted").asBoolean()).isFalse();
-        assertThat(n.path("captionTranslation").asText()).isEqualTo("译文");
+        assertThat(n.path("captionTranslation").asString()).isEqualTo("译文");
         assertThat(n.has("titleTranslation")).as("workTitle 为 null 不写").isFalse();
         assertThat(n.has("illustComment")).as("illustComment == description 不写").isFalse();
         assertThat(n.path("pages").get(0).path("width").asInt()).isEqualTo(1640);
         assertThat(n.path("pages").get(0).path("height").asInt()).isEqualTo(2360);
-        assertThat(n.path("pages").get(0).path("original").asText()).contains("x_p0.jpg");
+        assertThat(n.path("pages").get(0).path("original").asString()).contains("x_p0.jpg");
 
         JsonNode raw = doc.path("raw");
         assertThat(raw.has("bookmarkCount")).isFalse();
@@ -74,10 +75,10 @@ class WorkMetaCuratorTest {
         assertThat(raw.has("extraData")).isFalse();
         assertThat(raw.has("noLoginData")).isFalse();
         // A+B 原样保留（含长尾 restrict/alt）
-        assertThat(raw.path("description").asText()).isEqualTo("d");
+        assertThat(raw.path("description").asString()).isEqualTo("d");
         assertThat(raw.path("isOriginal").asBoolean()).isFalse();
         assertThat(raw.path("restrict").asInt()).isEqualTo(0);
-        assertThat(raw.path("alt").asText()).isEqualTo("a");
+        assertThat(raw.path("alt").asString()).isEqualTo("a");
     }
 
     @Test
@@ -110,15 +111,15 @@ class WorkMetaCuratorTest {
         assertThat(normalized.path("reuploadTime").asLong()).isEqualTo(epoch("2026-06-07T22:00:00+00:00"));
         assertThat(normalized.path("isOriginal").asBoolean()).isTrue();
         assertThat(normalized.path("isUnlisted").asBoolean(true)).isFalse();
-        assertThat(normalized.path("titleTranslation").asText()).isEqualTo("译名");
-        assertThat(normalized.path("captionTranslation").asText()).isEqualTo("译文");
+        assertThat(normalized.path("titleTranslation").asString()).isEqualTo("译名");
+        assertThat(normalized.path("captionTranslation").asString()).isEqualTo("译文");
 
         JsonNode raw = c.document().path("raw");
         assertThat(raw.has("content")).as("正文已在 raw_content，剥除").isFalse();
         assertThat(raw.has("textEmbeddedImages")).as("内嵌图已在 novel_images，剥除").isFalse();
         assertThat(raw.has("bookmarkCount")).isFalse();
         assertThat(raw.has("likeData")).isFalse();
-        assertThat(raw.path("description").asText()).isEqualTo("desc");
+        assertThat(raw.path("description").asString()).isEqualTo("desc");
         assertThat(c.document().path("workType").asText()).isEqualTo("NOVEL");
     }
 

@@ -5,6 +5,7 @@ import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.plugin.api.operation.*;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
@@ -14,10 +15,10 @@ import top.sywyar.pixivdownload.plugin.security.*;
 @RestController
 @RequestMapping("/api/web/operation-hooks")
 public final class OperationHooksController {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper(com.fasterxml.jackson.core.JsonFactory.builder()
-            .enable(com.fasterxml.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(com.fasterxml.jackson.core.StreamReadConstraints.builder().maxNestingDepth(24).build()).build())
-            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final tools.jackson.databind.ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
+            .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .streamReadConstraints(tools.jackson.core.StreamReadConstraints.builder().maxNestingDepth(24).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private final java.util.concurrent.Semaphore configurations = new java.util.concurrent.Semaphore(4);
     private final OperationEndpoints endpoints;
     private final ExternalCapabilityInvocationRegistry registry;

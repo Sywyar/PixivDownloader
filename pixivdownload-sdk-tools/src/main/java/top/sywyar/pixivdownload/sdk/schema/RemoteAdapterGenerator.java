@@ -55,12 +55,12 @@ public final class RemoteAdapterGenerator {
                     files.put(extension, bytes);
                 }
                 var descriptor = SchemaFiles.JSON.readTree(files.get(".remote.json"));
-                String identity = descriptor.path("identity").asText();
-                if (!identity.matches("[a-f0-9]{64}") || !descriptor.path("service").asText().equals(service)) {
+                String identity = descriptor.path("identity").asString();
+                if (!identity.matches("[a-f0-9]{64}") || !descriptor.path("service").asString().equals(service)) {
                     throw new IOException("SDK_REMOTE_CONTRACT");
                 }
                 for (var operation : descriptor.path("operations")) {
-                    if (!routes.add(operation.path("method").asText() + " " + operation.path("path").asText())) {
+                    if (!routes.add(operation.path("method").asString() + " " + operation.path("path").asString())) {
                         throw new IOException("SDK_REMOTE_ROUTE_COLLISION");
                     }
                 }

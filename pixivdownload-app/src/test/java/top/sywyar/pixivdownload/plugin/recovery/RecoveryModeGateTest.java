@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
@@ -100,7 +101,7 @@ class RecoveryModeGateTest {
                 "download-workbench",
                 "download-workbench",
                 "1.0.0",
-                VersionRequirement.of(1, 0),
+                VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(),
                 "top.sywyar.pixivdownload.download.DownloadWorkbenchPf4jPlugin",
                 plugin.displayNamespace(),

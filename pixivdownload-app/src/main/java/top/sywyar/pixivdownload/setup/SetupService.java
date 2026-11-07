@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;

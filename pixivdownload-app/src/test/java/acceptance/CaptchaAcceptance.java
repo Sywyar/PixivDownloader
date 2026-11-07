@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -19,7 +21,7 @@ import static acceptance.PageEditorAcceptance.*;
 
 /** 同一独立插件的本地计算、图片交互与官方在线测试服务，基础产物由既有入口冻结。 */
 final class CaptchaAcceptance {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final tools.jackson.databind.ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     static void verify(ConfigurableApplicationContext context, String origin, String cookie, Path fixed) throws Exception {
         var sensitive = new java.util.ArrayList<>(List.of("Isolated-page-password-2026",
                 "XXXX.DUMMY.TOKEN.XXXX", "1x0000000000000000000000000000000AA"));
@@ -102,8 +104,8 @@ final class CaptchaAcceptance {
                     var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
                     var challenge = login(origin, login);
                     check(challenge.statusCode() == 409, "official rejection configuration issues a challenge");
-                    login.put("token", JSON.readTree(challenge.body()).path("token").asText());
-                    sensitive.add(login.path("token").asText());
+                    login.put("token", JSON.readTree(challenge.body()).path("token").asString());
+                    sensitive.add(login.path("token").asString());
                     sensitive.add(secret);
                     login.putObject("proofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
                     var rejected = login(origin, login);
@@ -121,8 +123,8 @@ final class CaptchaAcceptance {
                 waitForLoginWindow();
                 var challenge = login(origin, login);
                 check(challenge.statusCode() == 409, "direct login still requires the published CAPTCHA");
-                login.put("token", JSON.readTree(challenge.body()).path("token").asText());
-                sensitive.add(login.path("token").asText());
+                login.put("token", JSON.readTree(challenge.body()).path("token").asString());
+                sensitive.add(login.path("token").asString());
                 login.putObject("proofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
                 proxy.setHost("127.0.0.1"); proxy.setPort(server.getLocalPort()); proxy.setEnabled(true);
                 int beforeFailure = denied.get();
@@ -253,8 +255,8 @@ final class CaptchaAcceptance {
         var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
         var challenge = login(origin, login);
         check(challenge.statusCode() == 409, "configured scheme issues a challenge without credentials for other schemes");
-        login.put("token", JSON.readTree(challenge.body()).path("token").asText());
-        sensitive.add(login.path("token").asText());
+        login.put("token", JSON.readTree(challenge.body()).path("token").asString());
+        sensitive.add(login.path("token").asString());
         login.putObject("proofs").put(policy, "stale-proof");
         var credentials = new PluginCredentialStore();
         try {
@@ -269,8 +271,8 @@ final class CaptchaAcceptance {
         System.out.println("CAPTCHA_CREDENTIAL_ROTATION_AND_ABSENCE_PASSED " + policy);
     }
 
-    private static java.net.http.HttpResponse<String> login(String origin, com.fasterxml.jackson.databind.node.ObjectNode command) throws Exception {
-        String token = command.path("token").asText();
+    private static java.net.http.HttpResponse<String> login(String origin, tools.jackson.databind.node.ObjectNode command) throws Exception {
+        String token = command.path("token").asString();
         if (!token.isEmpty()) {
             var envelope = JSON.createObjectNode().put("method", "POST").put("url", "/api/auth/login").put("token", token);
             envelope.putObject("headers").put("Content-Type", "application/json");

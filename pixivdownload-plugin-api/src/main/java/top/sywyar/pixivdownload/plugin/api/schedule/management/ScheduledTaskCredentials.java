@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.management;
 
-import java.util.Map;
-
 /**
  * 宿主必需的计划凭证管理端口，供已鉴权的管理入口适配既有协议。
  * 绑定和策略动作必须核验当前来源 / 策略 publication，并以任务版本 CAS 持久化；
@@ -26,16 +24,4 @@ public interface ScheduledTaskCredentials {
      */
     ScheduleTaskView revokeCredential(long taskId);
 
-    /**
-     * 对当前策略 publication 执行其声明的账号动作；能力缺席或换代时明确拒绝。
-     * @param ownerPluginId 策略所属插件标识
-     * @param policyId 当前策略标识
-     * @param accountKey 策略内的非敏感账号身份
-     * @param actionId 策略声明的账号动作标识
-     * @param parameters 动作声明的非敏感参数；不得包含凭据
-     * @throws ScheduleManagementException 参数、动作或当前 publication 不满足执行条件时抛出
-     */
-    void applyCurrentCredentialPolicyAction(
-            String ownerPluginId, String policyId, String accountKey,
-            String actionId, Map<String, String> parameters);
 }

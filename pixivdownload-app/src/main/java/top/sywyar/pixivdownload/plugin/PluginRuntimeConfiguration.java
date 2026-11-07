@@ -213,7 +213,6 @@ public class PluginRuntimeConfiguration {
                 pluginStreamRegistry,
                 pluginRuntimeTaskRegistry,
                 AppRuntimePathProvider::new,
-                null,
                 module -> databaseFactory.create(module.sourcePluginId(), module.privateSchema(), module.storageMigrations()),
                 module -> mainDatabase.getObject().forOwner(module.sourcePluginId(), module.sharedMainStorage()));
     }

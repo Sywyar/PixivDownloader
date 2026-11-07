@@ -43,5 +43,4 @@ public final class PixivBatchDownloaderImportPlugin extends Plugin implements Pi
             }
         };
     }
-    @Override public List<Class<?>> configurationClasses() { return List.of(PixivBatchDownloaderImportConfiguration.class); }
 }

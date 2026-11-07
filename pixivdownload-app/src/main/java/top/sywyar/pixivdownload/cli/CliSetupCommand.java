@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.cli;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
@@ -69,7 +70,7 @@ public final class CliSetupCommand {
     // 参数分类发生在首帧之前，不应初始化 CLI 执行才需要的对象。
     private static final class CommandResources {
         private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
-        private static final ObjectMapper MAPPER = new ObjectMapper();
+        private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
         private static final BufferedReader STDIN_READER =
                 new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
     }

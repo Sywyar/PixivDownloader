@@ -148,7 +148,6 @@ sandbox.window.PixivBatch.scheduleSources.credentialTaskPresentation = (_sourceT
 const suspendedTask = {
     enabled: true,
     sourceType: 'user-new',
-    lastStatus: 'OVERUSE_PAUSED',
     suspendReason: 'POLICY',
     suspendCode: 'pixiv.schedule.overuse'
 };

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.media;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -11,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecution
 import static org.junit.jupiter.api.Assertions.*;
 
 class MediaOutputSettingsTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private static final String OPTIONS = """
             {"imageFormats":"png,webp","ugoiraFormats":"zip,webp","mediaQuality":73,
              "mediaWebpLossless":true,"mediaMaximumEdge":1280}

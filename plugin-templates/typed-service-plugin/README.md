@@ -2,7 +2,7 @@
 
 [English](README_en.md)
 
-本多模块示例演示如何使用 PixivDownloader SDK 1.4+ 定义跨插件类型化服务契约、生成 JSON Schema 与管理员 HTTP 远程调用客户端，而无需在宿主中硬编码业务接口。
+本多模块示例演示如何使用 PixivDownloader SDK 2.x 定义跨插件类型化服务契约、生成 JSON Schema 与管理员 HTTP 远程调用客户端，而无需在宿主中硬编码业务接口。
 
 | 模块 | 职责 |
 | --- | --- |

@@ -2,7 +2,7 @@
 
 [简体中文](README.md)
 
-This multi-module example demonstrates how to define a cross-plugin typed service contract, generate JSON Schemas, and expose an administrator HTTP client and adapter using PixivDownloader SDK 1.4+ without adding business interfaces to the host.
+This multi-module example demonstrates how to define a cross-plugin typed service contract, generate JSON Schemas, and expose an administrator HTTP client and adapter using PixivDownloader SDK 2.x without adding business interfaces to the host.
 
 | Module | Purpose |
 | --- | --- |

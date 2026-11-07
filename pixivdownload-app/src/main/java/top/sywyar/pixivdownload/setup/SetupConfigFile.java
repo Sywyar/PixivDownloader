@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -42,7 +43,12 @@ public final class SetupConfigFile {
             throw new IOException("setup config requires a parent directory: " + path);
         }
         Files.createDirectories(parent);
-        byte[] next = mapper.writeValueAsBytes(config);
+        byte[] next;
+        try {
+            next = mapper.writeValueAsBytes(config);
+        } catch (JacksonException failure) {
+            throw new IOException("setup config could not be serialized", failure);
+        }
         requireBounded(next.length, path);
 
         if (backupCurrent && Files.isRegularFile(path)) {
@@ -72,7 +78,12 @@ public final class SetupConfigFile {
     }
 
     private static SetupConfig parse(byte[] bytes, ObjectMapper mapper) throws IOException {
-        SetupConfig config = mapper.readValue(bytes, SetupConfig.class);
+        SetupConfig config;
+        try {
+            config = mapper.readValue(bytes, SetupConfig.class);
+        } catch (JacksonException failure) {
+            throw new IOException("invalid setup config", failure);
+        }
         if (config == null) {
             throw new IOException("setup config must be an object");
         }

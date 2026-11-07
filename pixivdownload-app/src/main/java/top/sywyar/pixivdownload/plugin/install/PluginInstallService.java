@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.plugin.install;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,9 +46,10 @@ public class PluginInstallService {
 
     private static final Logger log = LoggerFactory.getLogger(PluginInstallService.class);
     static final int MAX_SIGNATURE_BYTES = 16 * 1024;
-    private static final ObjectMapper SIGNATURE_MAPPER = new ObjectMapper()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper SIGNATURE_MAPPER = JsonMapper.builderWithJackson2Defaults()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .build();
 
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final PluginDependencyResolver dependencyResolver;

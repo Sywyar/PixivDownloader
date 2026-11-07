@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.16</version>
+        <version>4.1.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>top.sywyar.lovepopup</groupId>
@@ -110,7 +110,7 @@
         <app.release.version>${project.version}</app.release.version>
         <app.build.channel>local</app.build.channel>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
-        <revision>1.4.0</revision>
+        <revision>2.0.0</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
         <pixivdownload.source.sha>HEAD</pixivdownload.source.sha>
         <flatten.maven.version>1.7.3</flatten.maven.version>
@@ -220,7 +220,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.40</version>
+                            <version>1.18.44</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

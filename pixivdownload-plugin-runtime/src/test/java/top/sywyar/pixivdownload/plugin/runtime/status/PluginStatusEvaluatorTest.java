@@ -63,7 +63,7 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("非可选依赖缺失 → 依赖方 MISSING_REQUIRED，诊断指明缺失依赖")
     void missingRequiredDependency() {
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(
@@ -77,7 +77,7 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("可选依赖缺失不阻断启动：依赖方保留 STARTED")
     void missingOptionalDependencyDoesNotBlock() {
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", true)));
 
         PluginStatusReport report = evaluator.evaluate(
@@ -90,8 +90,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖存在但版本不兼容 → 依赖方 INCOMPATIBLE_REQUIRED")
     void incompatibleDependencyVersion() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "2.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -108,8 +108,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖在场且版本兼容、但被禁用（DISABLED）→ 依赖方不再 STARTED（MISSING_REQUIRED），诊断含依赖与其状态")
     void disabledDependencyBlocksDependent() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -126,8 +126,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖运行期失败（FAILED）→ 依赖方降级为 MISSING_REQUIRED（不保持 STARTED）")
     void failedDependencyBlocksDependent() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -143,7 +143,7 @@ class PluginStatusEvaluatorTest {
     void incompatibleDependencyBlocksDependent() {
         PluginDescriptor dependency = descriptor("novel", "1.0",
                 VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR + 1), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -159,10 +159,10 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖不可用沿链传递：A→B→C，C 被禁用则 B、A 都不再 STARTED")
     void unavailabilityPropagatesTransitively() {
-        PluginDescriptor c = descriptor("c", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor b = descriptor("b", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor c = descriptor("c", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor b = descriptor("b", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("c", "1.0", false)));
-        PluginDescriptor a = descriptor("a", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor a = descriptor("a", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("b", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -178,8 +178,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("可选依赖即使不可用也不阻断：依赖方保留 STARTED")
     void unavailableOptionalDependencyDoesNotBlock() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", true)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(
@@ -192,8 +192,8 @@ class PluginStatusEvaluatorTest {
     @Test
     @DisplayName("依赖健康（STARTED）时依赖方照常 STARTED（不误降级）")
     void healthyDependencyKeepsDependentStarted() {
-        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(1, 0), List.of());
-        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(1, 0),
+        PluginDescriptor dependency = descriptor("novel", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", VersionRequirement.of(SdkVersion.MAJOR, SdkVersion.MINOR),
                 List.of(new PluginDependencyRef("novel", "1.0", false)));
 
         PluginStatusReport report = evaluator.evaluate(List.of(

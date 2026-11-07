@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.config;
 
 import org.apache.coyote.http11.Http11NioProtocol;
 import org.apache.tomcat.util.net.NioEndpoint;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;

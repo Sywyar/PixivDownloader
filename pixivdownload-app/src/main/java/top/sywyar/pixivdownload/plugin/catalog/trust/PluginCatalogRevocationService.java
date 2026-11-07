@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.catalog.trust;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;

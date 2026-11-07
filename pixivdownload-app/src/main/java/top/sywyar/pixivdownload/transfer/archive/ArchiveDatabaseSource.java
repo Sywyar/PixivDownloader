@@ -13,7 +13,7 @@ import java.util.*;
 /** 私有暂存中的中性数据库快照；归档地址和凭据不参与目标连接解析。 */
 public final class ArchiveDatabaseSource implements MigrationSource {
     private static final int MAX_METADATA_BYTES = 8 * 1024 * 1024;
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = MigrationSchemaJson.mapper();
+    private static final tools.jackson.databind.ObjectMapper JSON = MigrationSchemaJson.mapper();
     private final Metadata metadata;
     private final Map<String, Path> files;
     private final String revision;

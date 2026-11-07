@@ -2,7 +2,8 @@ package top.sywyar.pixivdownload.push.channel.telegram;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
@@ -28,7 +29,7 @@ import java.util.List;
 @Component
 public class TelegramPushChannel implements PushChannel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     private final TelegramConfig config;
     private final PushHttpSender sender;

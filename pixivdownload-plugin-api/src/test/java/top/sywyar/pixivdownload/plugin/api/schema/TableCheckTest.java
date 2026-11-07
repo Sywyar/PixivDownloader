@@ -25,7 +25,5 @@ class TableCheckTest {
         var declared = table.withCheck(check).withPreviousChecks(previous);
         previous.clear();
         assertThat(declared.previousChecks()).containsExactly(check);
-        assertThatThrownBy(() -> new TableSpec(table.name(), table.columns(), table.indexes(), "id=1", check))
-                .hasMessage("STORAGE_CHECK_INVALID");
     }
 }

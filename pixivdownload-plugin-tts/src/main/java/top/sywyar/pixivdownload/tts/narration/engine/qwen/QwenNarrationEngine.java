@@ -145,7 +145,7 @@ public class QwenNarrationEngine extends AbstractHttpNarrationEngine implements 
         String host = audioUri.getHost();
         String endpoint = host == null || host.isBlank() ? "temporary audio url" : "temporary audio url host " + host;
         if (e instanceof RestClientResponseException responseException) {
-            return "audio download failed: HTTP " + responseException.getRawStatusCode() + " from " + endpoint;
+            return "audio download failed: HTTP " + responseException.getStatusCode().value() + " from " + endpoint;
         }
         return "audio download failed: " + e.getClass().getSimpleName() + " from " + endpoint;
     }

@@ -1,4 +1,3 @@
-import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
@@ -25,7 +24,7 @@ class SdkCandidateProvenance {
         var key = new TrustedPluginKey(args[1], SignatureMetadata.ED25519, args[2],
                 TrustedPluginKey.State.ACTIVE, "SDK CI", "Ephemeral SDK candidate", false);
         var verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
-        var mapper = new ObjectMapper();
+        var mapper = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build();
         var store = new PluginProvenanceStore(layout.resolve("plugins"));
         for (var entry : mapper.readTree(layout.resolve("plugins-manifest.json").toFile())) {
             Path artifact = layout.resolve(entry.path("file").asText());

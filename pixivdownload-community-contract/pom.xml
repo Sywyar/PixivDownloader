@@ -41,7 +41,7 @@
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>json-schema-validator</artifactId>
-            <version>2.0.1</version>
+            <version>3.0.9</version>
         </dependency>
         <dependency>
             <groupId>io.github.erdtman</groupId>
@@ -49,7 +49,7 @@
             <version>1.1</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
+            <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
     </dependencies>

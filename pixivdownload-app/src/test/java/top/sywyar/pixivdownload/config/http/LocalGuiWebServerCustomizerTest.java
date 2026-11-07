@@ -13,10 +13,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
-import org.springframework.boot.web.embedded.tomcat.TomcatWebServer;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
-import org.springframework.boot.web.servlet.context.ServletWebServerInitializedEvent;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
+import org.springframework.boot.tomcat.TomcatWebServer;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.server.servlet.context.ServletWebServerInitializedEvent;
 import org.springframework.mock.env.MockEnvironment;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.config.HttpsWebServerCustomizer;
@@ -155,7 +155,7 @@ class LocalGuiWebServerCustomizerTest {
                 var connection = local.connection();
                 assertThat(connection.port()).isPositive().isNotEqualTo(server.getPort());
                 assertThat(connection.toString()).doesNotContain(tokens.getToken());
-                var bound = factory.getAdditionalTomcatConnectors().stream()
+                var bound = factory.getAdditionalConnectors().stream()
                         .filter(connector -> connector.getLocalPort() == connection.port()).findFirst().orElseThrow();
                 assertThat(((Http11NioProtocol) bound.getProtocolHandler()).getAddress().getHostAddress())
                         .isEqualTo("127.0.0.1");
@@ -191,7 +191,7 @@ class LocalGuiWebServerCustomizerTest {
                 assertThat(address.uri("/setup.html").toString()).isEqualTo(
                         (mode > 0 ? "https" : "http") + "://unreachable.invalid:" + server.getPort() + "/setup.html");
                 if (mode == 2) {
-                    int redirectPort = factory.getAdditionalTomcatConnectors().get(0).getLocalPort();
+                    int redirectPort = factory.getAdditionalConnectors().get(0).getLocalPort();
                     var redirect = request("http://localhost:" + redirectPort, "/setup.html?a=%E4%B8%AD", "");
                     assertThat(redirect.statusCode()).isBetween(300, 399);
                     assertThat(redirect.headers().firstValue("location")).contains(

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -73,7 +73,7 @@ class NovelDownloadControllerMergeDownloadTest {
                 requestOwnerIdentityResolver,
                 visitorDownloadQuotaService,
                 multiModeSettings,
-                new ObjectMapper(),
+                JsonMapper.builderWithJackson2Defaults().build(),
                 mock(PixivAjaxClient.class),
                 mock(PixivProxyAccessPolicy.class),
                 messages,

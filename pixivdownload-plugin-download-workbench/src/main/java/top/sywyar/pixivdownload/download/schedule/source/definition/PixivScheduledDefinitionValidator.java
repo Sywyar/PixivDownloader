@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download.schedule.source.definition;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 
@@ -47,7 +47,7 @@ public final class PixivScheduledDefinitionValidator {
     private static void validateSearchSource(JsonNode source)
             throws ScheduledExecutionException {
         JsonNode word = source.get("word");
-        if (word == null || !word.isTextual() || word.textValue().isBlank()) {
+        if (word == null || !word.isString() || word.stringValue().isBlank()) {
             throw invalidDefinition();
         }
         validateEnum(source, "order", Set.of("date_d", "date", "popular_d"));
@@ -109,7 +109,7 @@ public final class PixivScheduledDefinitionValidator {
             throws ScheduledExecutionException {
         JsonNode value = object.get(field);
         if (value != null && !value.isNull()
-                && (!value.isTextual() || !allowed.contains(value.textValue()))) {
+                && (!value.isString() || !allowed.contains(value.stringValue()))) {
             throw invalidDefinition();
         }
     }
@@ -123,7 +123,7 @@ public final class PixivScheduledDefinitionValidator {
             throw invalidDefinition();
         }
         for (JsonNode item : value) {
-            if (!item.isTextual()) {
+            if (!item.isString()) {
                 throw invalidDefinition();
             }
         }
@@ -170,10 +170,10 @@ public final class PixivScheduledDefinitionValidator {
         if (value.isIntegralNumber() && value.canConvertToInt()) {
             return value.intValue();
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             return null;
         }
-        String text = value.textValue().trim();
+        String text = value.stringValue().trim();
         if (!text.matches("-?[0-9]+")) {
             return null;
         }
@@ -191,10 +191,10 @@ public final class PixivScheduledDefinitionValidator {
         if (value.isIntegralNumber() && value.canConvertToLong()) {
             return value.longValue();
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             return null;
         }
-        String text = value.textValue().trim();
+        String text = value.stringValue().trim();
         if (!text.matches("-?[0-9]+")) {
             return null;
         }
@@ -207,7 +207,7 @@ public final class PixivScheduledDefinitionValidator {
 
     private static boolean hasNonBlankValue(JsonNode value) {
         return value != null && !value.isNull()
-                && !(value.isTextual() && value.textValue().isBlank());
+                && !(value.isString() && value.stringValue().isBlank());
     }
 
     private static void requirePositiveId(JsonNode value)
@@ -223,10 +223,10 @@ public final class PixivScheduledDefinitionValidator {
             }
             return;
         }
-        if (!value.isTextual()) {
+        if (!value.isString()) {
             throw invalidDefinition();
         }
-        String text = value.textValue().trim();
+        String text = value.stringValue().trim();
         if (!text.matches("[0-9]+")) {
             throw invalidDefinition();
         }

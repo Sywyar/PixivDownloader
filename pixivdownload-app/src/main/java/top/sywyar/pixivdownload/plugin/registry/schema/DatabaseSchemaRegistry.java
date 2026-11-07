@@ -524,7 +524,7 @@ public class DatabaseSchemaRegistry {
     }
 
     private static boolean acceptsPreviousCheck(TableSpec next, TableSpec previous) {
-        return Objects.equals(previous.checkExpression(), next.checkExpression()) && Objects.equals(previous.check(), next.check())
+        return Objects.equals(previous.check(), next.check())
                 || previous.check() != null && next.previousChecks().contains(previous.check());
     }
 

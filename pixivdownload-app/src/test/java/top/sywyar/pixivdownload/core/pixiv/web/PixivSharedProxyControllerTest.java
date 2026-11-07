@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
-import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.testsupport.HostTestMessages;
 
@@ -27,7 +26,7 @@ class PixivSharedProxyControllerTest {
     private final RequestOwnerIdentityResolver identity = mock(RequestOwnerIdentityResolver.class);
     private final MockHttpServletRequest request = new MockHttpServletRequest();
     private final PixivSharedProxyController controller = new PixivSharedProxyController(
-            new ObjectMapper(), ajax, mock(PixivThumbnailFetcher.class), access, identity, HostTestMessages.messages());
+            JsonMapper.builderWithJackson2Defaults().build(), ajax, mock(PixivThumbnailFetcher.class), access, identity, HostTestMessages.messages());
 
     private void allow() {
         when(identity.resolveExistingOwnerUuid(request)).thenReturn(Optional.of("fixture-owner"));
@@ -40,10 +39,9 @@ class PixivSharedProxyControllerTest {
     @DisplayName("用户元数据沿用统一取得凭据且 URL 只编码一次")
     void sharedUserMetadataPreservesCredentialAndUri() throws Exception {
         allow();
-        request.addHeader(AcquisitionCredentialResolver.HEADER_NAME, "fixture-credential");
         URI uri = URI.create("https://www.pixiv.net/ajax/user/test%20user?lang=zh");
         when(ajax.get(uri, "fixture-credential")).thenReturn("{\"body\":{\"name\":\"Fixture\"}}");
-        var response = controller.getUserMeta("test user", null, request);
+        var response = controller.getUserMeta("test user", "fixture-credential", request);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody()).isEqualTo(new PixivSharedProxyController.UserMetaResponse("Fixture", "test user"));
         verify(ajax).get(uri, "fixture-credential");
@@ -64,21 +62,19 @@ class PixivSharedProxyControllerTest {
     @DisplayName("当前用户查询使用统一凭据，无凭据时拒绝且不访问网络")
     void currentUserUsesCredentialWithoutNetwork() {
         allow();
-        request.addHeader(AcquisitionCredentialResolver.HEADER_NAME, "PHPSESSID=24680_fixture");
-        assertThat(controller.getMeUid(null, request).getBody())
+        assertThat(controller.getMeUid("PHPSESSID=24680_fixture", request).getBody())
                 .isEqualTo(new PixivSharedProxyController.MeUidResponse("24680"));
-        request.removeHeader(AcquisitionCredentialResolver.HEADER_NAME);
         assertThat(controller.getMeUid(null, request).getStatusCode().value()).isEqualTo(401);
         verifyNoInteractions(ajax);
     }
 
     @Test
-    @DisplayName("两种请求头凭据冲突时在权限查询和网络访问前拒绝")
-    void conflictingCredentialsFailClosed() {
-        request.addHeader(AcquisitionCredentialResolver.HEADER_NAME, "fixture-credential");
-        assertThatThrownBy(() -> controller.getUserMeta("123", "other-credential", request))
+    @DisplayName("超长凭据在权限查询和网络访问前拒绝")
+    void oversizedCredentialFailsClosed() {
+        String oversized = "x".repeat(16_385);
+        assertThatThrownBy(() -> controller.getUserMeta("123", oversized, request))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> controller.getMeUid("other-credential", request))
+        assertThatThrownBy(() -> controller.getMeUid(oversized, request))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(ajax, access, identity);
     }

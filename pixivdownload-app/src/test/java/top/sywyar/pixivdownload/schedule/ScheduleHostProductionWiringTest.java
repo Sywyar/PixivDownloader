@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
@@ -67,7 +68,7 @@ class ScheduleHostProductionWiringTest {
             ScheduleCapabilityAccess registry,
             ScheduleExecutionEngine engine) {
         ScheduleHostConfiguration configuration = new ScheduleHostConfiguration();
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         return configuration.scheduleExecutor(
                 mock(ScheduledTaskStore.class),
                 registry,

@@ -35,7 +35,6 @@ class DesktopPageLayoutTest {
                         yield new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     }
                     case "readDownloadRootFromConfig" -> ".";
-                    case "resolveDatabasePath" -> Path.of("data", "test.db");
                     case "supportsDatabaseFileSelection" -> true;
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "localhost", 8080, false, 1000, 0, false);
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);

@@ -9,12 +9,13 @@ import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.Statement;
 import java.sql.DriverManager;
 import javax.sql.DataSource;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 @DisplayName("站内信数据库 Mapper")
 class NotificationInboxMapperTest {
@@ -55,10 +56,16 @@ class NotificationInboxMapperTest {
     void upgradesHistoricalActiveConstraint(String engine) throws Exception {
         var source = dataSource(engine);
         var tables = DECLARATION.tables().stream().map(t -> t.name().equals("notification_messages")
-                ? new top.sywyar.pixivdownload.plugin.api.schema.TableSpec(t.name(), t.columns(), t.indexes(),
-                        "category IN ('download','announcement','survey','system') AND severity IN ('INFO','WARNING','ERROR') "
-                        + "AND length(trim(title))>0 AND length(trim(body))>0 AND (content_html IS NULL OR length(content_html)>0) "
-                        + "AND created_time>=0 AND (read_time IS NULL OR read_time>=created_time) AND (deleted_time IS NULL OR deleted_time>=created_time)")
+                ? new top.sywyar.pixivdownload.plugin.api.schema.TableSpec(t.name(), t.columns(), t.indexes())
+                    .withCheck(call(AND,
+                        call(IN, column(t.name(), "category"), value("download"), value("announcement"), value("survey"), value("system")),
+                        call(IN, column(t.name(), "severity"), value("INFO"), value("WARNING"), value("ERROR")),
+                        call(GREATER, call(LENGTH, call(TRIM, column(t.name(), "title"))), value(0)),
+                        call(GREATER, call(LENGTH, call(TRIM, column(t.name(), "body"))), value(0)),
+                        call(OR, call(IS_NULL, column(t.name(), "content_html")), call(GREATER, call(LENGTH, column(t.name(), "content_html")), value(0))),
+                        call(GREATER_EQUAL, column(t.name(), "created_time"), value(0)),
+                        call(OR, call(IS_NULL, column(t.name(), "read_time")), call(GREATER_EQUAL, column(t.name(), "read_time"), column(t.name(), "created_time"))),
+                        call(OR, call(IS_NULL, column(t.name(), "deleted_time")), call(GREATER_EQUAL, column(t.name(), "deleted_time"), column(t.name(), "created_time")))))
                 : t).toList();
         var legacy = new top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema(1, tables, List.of(), List.of());
         try (var connection = source.getConnection(); var sql = connection.createStatement()) {

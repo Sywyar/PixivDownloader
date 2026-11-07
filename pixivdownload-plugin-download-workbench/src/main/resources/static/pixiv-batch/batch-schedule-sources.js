@@ -100,7 +100,7 @@ window.PixivBatch.scheduleSources = (function () {
         };
         const task = raw.editingTask;
         // 原定义只交给同一来源，保留未知字段和字段缺席语义。
-        if (task && handler(task.sourceType || task.type) === entry) {
+        if (task && handler(task.sourceType) === entry) {
             out.editingTask = Object.freeze({
                 sourceType: entry.descriptor.sourceType,
                 paramsJson: text(task.paramsJson)
@@ -357,14 +357,14 @@ window.PixivBatch.scheduleSources = (function () {
     }
 
     function restoreTask(task, context) {
-        const sourceType = text(task && (task.sourceType || task.type));
+        const sourceType = text(task && (task.sourceType));
         const entry = handler(sourceType);
         return invokeSync(sourceType, 'restore',
             [task, entry ? scopedSourceContext(entry, context) : context], null);
     }
 
     function summary(task, context) {
-        const sourceType = text(task && (task.sourceType || task.type));
+        const sourceType = text(task && (task.sourceType));
         const entry = handler(sourceType);
         return invokeSync(sourceType, 'summary',
             [task, entry ? scopedSourceContext(entry, context) : context], null);

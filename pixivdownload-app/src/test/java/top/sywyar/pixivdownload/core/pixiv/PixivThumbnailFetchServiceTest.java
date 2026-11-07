@@ -66,7 +66,7 @@ class PixivThumbnailFetchServiceTest {
                     HttpHeaders headers = request.getHeaders();
                     assertThat(headers.getFirst(HttpHeaders.USER_AGENT)).isEqualTo(PixivRequestHeaders.USER_AGENT);
                     assertThat(headers.getFirst(HttpHeaders.REFERER)).isEqualTo(PixivRequestHeaders.PIXIV_HOME);
-                    assertThat(headers)
+                    assertThat(headers.asMultiValueMap())
                             .containsEntry("Sec-Fetch-Dest", List.of("image"))
                             .containsEntry("Sec-Fetch-Mode", List.of("no-cors"))
                             .containsEntry("Sec-Fetch-Site", List.of("cross-site"))

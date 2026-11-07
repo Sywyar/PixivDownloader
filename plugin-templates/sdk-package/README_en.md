@@ -67,9 +67,25 @@ Use `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SDK_VERSIO
 - **Customizing identity**: Update `src/main/resources/plugin.properties`, Java packages, routes, i18n namespaces, `plugin.version`, `plugin.provider`, and `pixiv.risk-signals` (see `contracts/community/v1/catalogs.json`) consistently.
 - **Core contract boundaries**:
   - **Paths, credentials, and network**: Declare settings with `GuiConfigContribution`, resolve owner paths via `RuntimePathProvider`, manage secrets via `credentialKeys()` and `PluginCredentials`, and create outbound HTTP / WebSocket clients via `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`.
-  - **Databases and migration**: Declare private schemas and ordered conversions via `PixivFeaturePlugin.privateSchema()` and `privateStorageMigrations()`, and query/mutate via `PluginDatabase` (`read` / `transaction` with `Query` / `Expression`, supporting SQLite, PostgreSQL, and offline migration via `DatabaseMigrationProvider`). Use `PluginMainDatabase` only for host-registered tables or `sharedMainStorage()` domains. Legacy `PluginDataSource` supports SQLite only.
+  - **Databases and migration**: Declare private schemas and ordered conversions via `PixivFeaturePlugin.privateSchema()` and `privateStorageMigrations()`, and query/mutate via `PluginDatabase` (`read` / `transaction` with `Query` / `Expression`, supporting SQLite, PostgreSQL, and offline migration via `DatabaseMigrationProvider`). Use `PluginMainDatabase` only for host-registered tables or `sharedMainStorage()` domains.
   - **Download tasks and file import**: Optionally register `DownloadSubmissionHandler`, `DownloadOptionsHook`, `DownloadAdmissionPolicy`, and `DownloadObserver` beans (using `RequestOwnerIdentityResolver` for HTTP callers), and register read-only local files via `WorkFileImporter`.
   - **Lifecycle verification**: Before publishing, verify installation, `stop` (rejecting new work, draining in-flight tasks, withdrawing routes/capabilities), `reload` (replacing generation and ClassLoader), and full-restart boundaries for `process-restart` plugins.
+
+### Migrating from SDK 1.x
+
+SDK 2.x uses JDK 25, Spring 7, Servlet 6.1, and Jackson 3. The host checks the SDK major version and rejects SDK 1.x packages during installation and startup. Update the source and rebuild; changing `plugin.requires` alone does not complete the migration. Spring and Jackson types come from the host; do not bundle older versions in the plugin.
+
+| Removed entry | Replacement |
+| --- | --- |
+| `PluginDataSource` | Inject the current owner's `PluginDatabase` and use neutral queries and transactions |
+| SQL string CHECK in `TableSpec` | Use `withCheck(Expression)` and declare known historical constraints with `withPreviousChecks` |
+| `PixivPluginProvider.configurationClasses()` | Declare configuration classes in `pixiv.configuration-classes` in `plugin.properties` and register explicit `@Bean` methods |
+| `DesktopUiHost.resolveDatabasePath` | Use neutral `databaseSettings()` and tool commands without assuming a file database |
+| Constructors with an implicit locale policy | Pass an explicit `LocaleBundlePolicy` to `ResourceBundleMessageResolver` |
+| `X-Pixiv-Cookie` and schedule `authorize-cookie` / `revoke-cookie` | Use `X-Acquisition-Credential` and `POST` / `DELETE /api/schedule/tasks/{id}/credential`; binding requires the source `activationToken` |
+| Schedule view fields `type`, `lastStatus`, `lastMessage`, `runStartedTime`, `pendingRetryArmed` | Use `sourceType`, `runState`, `lastOutcome` / `outcomeCode` / `outcomeMessage`, `suspendReason`, and `lastRunTime`; read credential state from `credentialPolicy` |
+
+Jackson data binding and streaming APIs use `tools.jackson.*`; annotations remain in `com.fasterxml.jackson.annotation`. `HttpHeaders` no longer implements `Map`; call `asMultiValueMap()` when needed. After compilation, verify plugin wiring, JSON input and output, persisted data, stopping, and generation replacement.
 
 ### HTTP callbacks and page forms
 

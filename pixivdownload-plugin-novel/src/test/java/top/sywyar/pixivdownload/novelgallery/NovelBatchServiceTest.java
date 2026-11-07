@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,13 +85,13 @@ class NovelBatchServiceTest {
         });
         service = new NovelBatchService(novelGalleryService, workMetadataRepository,
                 novelWorkDetailsRepository, workAssetService, workCollectionMembership,
-                archiveExportService, new ObjectMapper(), novelExportService);
+                archiveExportService, JsonMapper.builderWithJackson2Defaults().build(), novelExportService);
     }
 
     @Test
     @DisplayName("批量筛选从 JSON 完整传递两种日期范围")
     void forwardsDateRangesFromJson() throws Exception {
-        var request = new ObjectMapper().readValue("""
+        var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
                 {"mode":"filter","filter":{"sort":"date","order":"asc",
                   "downloadedFrom":100,"downloadedBefore":200,
                   "uploadedFrom":300,"uploadedBefore":400}}
@@ -284,7 +284,7 @@ class NovelBatchServiceTest {
                 workMetadataRepository, workAssetService,
                 top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages.messageResolver());
         service = new NovelBatchService(novelGalleryService, workMetadataRepository, novelWorkDetailsRepository,
-                workAssetService, workCollectionMembership, archiveExportService, new ObjectMapper(), renderer);
+                workAssetService, workCollectionMembership, archiveExportService, JsonMapper.builderWithJackson2Defaults().build(), renderer);
 
         service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao");
         var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);

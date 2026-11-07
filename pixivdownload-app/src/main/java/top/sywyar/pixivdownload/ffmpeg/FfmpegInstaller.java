@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -48,7 +49,7 @@ public final class FfmpegInstaller {
     static final String RELEASE_MANIFEST_NAME = "ffmpeg-release.json";
     static final String RELEASE_REPOSITORY_ID = "ffmpeg-stable";
     private static final int MAX_METADATA_BYTES = 1024 * 1024;
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String FFMPEG_LICENSE = "ffmpeg-LGPLv2.1.txt";
     private static final String LIBWEBP_LICENSE = "libwebp-COPYING.txt";
     private static final String LIBWEBP_PATENTS = "libwebp-PATENTS.txt";
@@ -232,7 +233,7 @@ public final class FfmpegInstaller {
         }
         JsonNode sizeNode = asset.get("expectedSizeBytes");
         long expectedSize = sizeNode != null && sizeNode.canConvertToLong() ? sizeNode.asLong() : -1L;
-        String sha256 = asset.path("sha256").asText("").trim();
+        String sha256 = asset.path("sha256").asString("").trim();
         if (expectedSize <= 0L || !sha256.matches("(?i)[0-9a-f]{64}")) {
             throw integrityFailure("ASSET_METADATA_INVALID");
         }

@@ -20,7 +20,6 @@ import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.schedule.*;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
@@ -134,7 +133,7 @@ class StartupFailureManagementBootTest {
         mvc.perform(multipart("/api/plugins/install").file(new MockMultipartFile("file", replacement.getFileName().toString(),
                         "application/java-archive", Files.readAllBytes(replacement)))
                         .file(new MockMultipartFile("signature", "signature.json", "application/json",
-                                context.getBean(com.fasterxml.jackson.databind.ObjectMapper.class).writeValueAsBytes(signature)))
+                                context.getBean(tools.jackson.databind.ObjectMapper.class).writeValueAsBytes(signature)))
                         .param("confirmTrust", PluginPackageIntegrity.sha256Hex(replacement)))
                 .andDo(result -> assertThat(result.getResponse().getStatus())
                         .as("%s; %s", result.getResponse().getContentAsString(StandardCharsets.UTF_8),

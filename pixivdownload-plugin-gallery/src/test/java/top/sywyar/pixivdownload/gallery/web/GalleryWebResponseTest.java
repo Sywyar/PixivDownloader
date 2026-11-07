@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.gallery.web;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("gallery 插件私有 HTTP 投影")
 class GalleryWebResponseTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("作品与分页响应保持既有 JSON 字段且详情标签不新增目录计数")
@@ -52,7 +53,7 @@ class GalleryWebResponseTest {
 
     private static Set<String> fieldNames(JsonNode node) {
         Set<String> fields = new LinkedHashSet<>();
-        node.fieldNames().forEachRemaining(fields::add);
+        node.propertyNames().iterator().forEachRemaining(fields::add);
         return fields;
     }
 }

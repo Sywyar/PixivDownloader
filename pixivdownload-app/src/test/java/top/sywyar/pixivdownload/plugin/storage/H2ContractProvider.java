@@ -218,8 +218,6 @@ public final class H2ContractProvider implements DatabaseProvider, top.sywyar.pi
             // H2 DDL 会提交事务；夹具仅允许在独立预置或空迁移目标阶段创建结构。
             if (!connection.getAutoCommit()) throw new SQLException("STORAGE_TRANSACTIONAL_DDL_UNSUPPORTED", "0A000");
             for (var table : declared.tables()) {
-                if (table.checkExpression() != null && !table.checkExpression().equals("id = 1"))
-                    throw new SQLException("FIXTURE_SCHEMA_UNSUPPORTED", "0A000");
                 for (var column : table.columns()) physicalType(column.type());
             }
             var created = new ArrayList<String>();
@@ -233,8 +231,7 @@ public final class H2ContractProvider implements DatabaseProvider, top.sywyar.pi
                 columns.add("PRIMARY KEY (" + String.join(",", MigrationSchema.primaryKey(table).stream().map(JdbcMigrationSupport::quote).toList()) + ")");
                 for (var index : table.indexes()) if (index.origin() == IndexOrigin.UNIQUE_CONSTRAINT)
                     columns.add("UNIQUE (" + quoted(index.columns()) + ")");
-                String check = table.check() == null ? table.checkExpression()
-                        : top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcSchemaCheck.render(table,
+                String check = top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcSchemaCheck.render(table,
                                 text -> "NOT REGEXP_LIKE(" + text + ", '[^0-9a-f]')");
                 if (check != null && !check.isBlank()) columns.add("CHECK (" + check + ")");
                 execute(connection, "CREATE TABLE " + quote(table.name()) + " (" + String.join(",", columns) + ")");

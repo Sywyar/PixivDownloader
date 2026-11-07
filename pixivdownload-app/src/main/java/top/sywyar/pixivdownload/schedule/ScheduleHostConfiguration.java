@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.task.ThreadPoolTaskExecutorBuilder;
 import org.springframework.boot.context.properties.ConfigurationProperties;

@@ -8,7 +8,7 @@ import java.util.Objects;
 
 /**
  * 一个从外置插件包发现的功能插件的运行时安装条目：描述符 + 运行时基线状态 + 解析用 classloader + 插件实例。
- * 这是发现桥接 {@link PixivPluginDiscoveryBridge#inspect} 产出的中性载体——只承载 {@code plugin.api} 契约
+ * 这是发现桥接 {@link PixivPluginDiscoveryBridge#inspectLoadedPackage} 产出的中性载体——只承载 {@code plugin.api} 契约
  * （{@link PixivFeaturePlugin}）、描述符 / 状态模型与 JDK 类型，<b>不</b>泄露任何 PF4J 实现类型。
  *
  * <p>{@link #status} 是发现阶段已能判定的<b>基线</b>状态：

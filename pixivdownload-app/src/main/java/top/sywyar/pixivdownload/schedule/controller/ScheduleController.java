@@ -103,7 +103,7 @@ public class ScheduleController {
             @RequestHeader(AcquisitionCredentialResolver.HEADER_NAME)
             String acquisitionCredential) {
         String credential = AcquisitionCredentialResolver.resolve(
-                acquisitionCredential, null);
+                acquisitionCredential);
         return scheduleService.bindCredential(id, credential, request.activationToken());
     }
 

@@ -29,7 +29,7 @@ mvn -f plugin-templates/pom.xml clean verify "-Dpixivdownload.sdk.tools=/absolut
 | `com.example.pixivdownload.minimal` | 你的 Java 包名及对应源码/测试目录层级 |
 | `ExampleMinimal` | 你的 Java 类名前缀 |
 | `0.1.0` | 插件 artifact 版本与 `plugin.version` |
-| `<pixivdownload.sdk.version>1.4.0</pixivdownload.sdk.version>` 与 `plugin.requires=1.4` | 目标 SDK 版本；稳定 SDK 填 `major.minor`，预发布 SDK 填 `=完整SDK版本`（如 `plugin.requires==7.2.3-rc.4`） |
+| `<pixivdownload.sdk.version>2.0.0</pixivdownload.sdk.version>` 与 `plugin.requires=2.0` | 目标 SDK 版本；稳定 SDK 填 `major.minor`，预发布 SDK 填 `=完整SDK版本`（如 `plugin.requires==7.2.3-rc.4`） |
 | `plugin.provider=Example Developer` | 你的发布者名称 |
 
 ## 3. 依赖与公共契约边界
@@ -39,18 +39,18 @@ mvn -f plugin-templates/pom.xml clean verify "-Dpixivdownload.sdk.tools=/absolut
 ```kotlin
 // Gradle
 dependencies {
-    compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:1.4.0")
+    compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:2.0.0")
 }
 ```
 
 ```scala
 // sbt
-libraryDependencies += "io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "1.4.0" % Provided
+libraryDependencies += "io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "2.0.0" % Provided
 ```
 
 ```xml
 <!-- Ivy（仅映射编译配置，勿加入 runtime 配置） -->
-<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk" rev="1.4.0" conf="compile->default"/>
+<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk" rev="2.0.0" conf="compile->default"/>
 ```
 
 跨构建工具（Maven / Gradle / sbt）编译与作用域检查命令：
@@ -60,4 +60,4 @@ node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-la
 ```
 
 - **执行模式与装配**：`plugin.properties` 中的 `pixiv.execution-mode`、`pixiv.lifecycle-policy` 与可选 `pixiv.configuration-classes` 为运行期权威声明。`host-process-full-trust` 插件必须通过配置类 `@Bean` 显式注册 Bean，禁止依赖宿主根包扫描。
-- **架构禁区**：严禁依赖 `pixivdownload-app`、宿主内部实现、`plugin-runtime`/installer/signature 内部类、宿主 mapper 或官方插件私有类。私有持久化使用 owner-bound `PluginDatabase`（旧 `PluginDataSource` 仅支持 SQLite）；参与主库协作仅使用 `PluginMainDatabase`。默认产物为不含 `BOOT-INF/` 与宿主共享类的 thin JAR。
+- **架构禁区**：严禁依赖 `pixivdownload-app`、宿主内部实现、`plugin-runtime`/installer/signature 内部类、宿主 mapper 或官方插件私有类。私有持久化使用 owner-bound `PluginDatabase`；参与主库协作仅使用 `PluginMainDatabase`。默认产物为不含 `BOOT-INF/` 与宿主共享类的 thin JAR。

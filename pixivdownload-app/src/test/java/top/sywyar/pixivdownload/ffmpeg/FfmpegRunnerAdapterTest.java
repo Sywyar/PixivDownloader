@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -221,7 +222,7 @@ class FfmpegRunnerAdapterTest {
         byte[] original = Files.readAllBytes(video);
         try (var paths = org.mockito.Mockito.mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class)) {
             paths.when(top.sywyar.pixivdownload.config.RuntimeFiles::galleryThumbnailDirectory).thenReturn(directory.resolve("cache"));
-            var decoder = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, new com.fasterxml.jackson.databind.ObjectMapper());
+            var decoder = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build());
             assertEquals(8, decoder.read(video, 8).getWidth());
             assertArrayEquals(original, Files.readAllBytes(video));
             try (var files = Files.list(directory.resolve("cache"))) { assertEquals(0, files.count()); }
@@ -240,7 +241,7 @@ class FfmpegRunnerAdapterTest {
         byte[] original = Files.readAllBytes(webp);
         try (var paths = org.mockito.Mockito.mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class)) {
             paths.when(top.sywyar.pixivdownload.config.RuntimeFiles::galleryThumbnailDirectory).thenReturn(directory.resolve("cache"));
-            var decoder = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, new com.fasterxml.jackson.databind.ObjectMapper());
+            var decoder = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(runner, JsonMapper.builderWithJackson2Defaults().build());
             BufferedImage thumbnail = decoder.read(webp, 8);
             assertEquals(8, thumbnail.getWidth());
             assertTrue(top.sywyar.pixivdownload.core.hash.ImageHasher.dHash(decoder.read(webp, 0)).isPresent());

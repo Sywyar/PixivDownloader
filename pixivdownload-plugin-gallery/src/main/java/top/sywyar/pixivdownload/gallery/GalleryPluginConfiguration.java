@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.gallery;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;

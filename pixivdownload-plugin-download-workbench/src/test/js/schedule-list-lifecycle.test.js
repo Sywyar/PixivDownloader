@@ -46,13 +46,13 @@ for (const action of ['collapse', 'leave', 'next-run']) {
             querySelector: () => wrap,
             queueVue: {ensureScheduleQueue: () => true, syncScheduleQueue() {}, unmountScheduleQueue() {}}});
         h.state.mode = 'schedule';
-        h.replaceTasks([{...task, runState: 'RUNNING', runStartedTime: 100}]);
+        h.replaceTasks([{...task, runState: 'RUNNING', lastRunTime: 100}]);
         h.setExpanded(7, true);
         const pending = h.fetchQueue(7);
         await new Promise(resolve => setImmediate(resolve));
         if (action === 'collapse') h.toggleQueue(7);
         if (action === 'leave') { h.stopPolling(); h.state.mode = 'user'; }
-        if (action === 'next-run') h.replaceTasks([{...task, runState: 'RUNNING', runStartedTime: 200}]);
+        if (action === 'next-run') h.replaceTasks([{...task, runState: 'RUNNING', lastRunTime: 200}]);
         old.resolve({startedTime: 100, items: [{workType: 'example', workId: 'old', status: 'downloading'}]});
         await pending;
         assert.equal(h.getQueueModel(7).length, 0);
@@ -75,7 +75,7 @@ test('运行结束时旧队列读取仍在途，结算后继续取得终态快�
     querySelector: () => ({querySelector: () => body}),
     queueVue: {ensureScheduleQueue: () => true, syncScheduleQueue() {}, unmountScheduleQueue() {}}});
     h.state.mode = 'schedule';
-    h.replaceTasks([{...task, runState: 'RUNNING', runStartedTime: 100}]);
+    h.replaceTasks([{...task, runState: 'RUNNING', lastRunTime: 100}]);
     h.setExpanded(7, true);
     h.refreshQueues();
     await new Promise(resolve => setImmediate(resolve));

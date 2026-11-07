@@ -44,8 +44,8 @@ test('简单日程自然显示，复杂 Cron 保留原文，下次时间只使�
     const task = {enabled: true, nextRunTime: new Date(2027, 0, 1, 3, 0).getTime()};
     assert.equal(context.scheduleNextLabel(task, now), 'schedule.manage.next schedule.manage.tomorrow 03:00 AM');
     assert.equal(context.scheduleNextLabel(task, new Date(2027, 0, 1)), 'schedule.manage.next schedule.manage.today 03:00 AM');
-    for (const extra of [{enabled: false}, {suspendReason: 'MANUAL'}, {lastStatus: 'PAUSED'}, {nextRunTime: 'invalid'}, {nextRunTime: null}]) {
+    for (const extra of [{enabled: false}, {suspendReason: 'MANUAL'}, {suspendReason: 'USER_ACTION_REQUIRED'}, {nextRunTime: 'invalid'}, {nextRunTime: null}]) {
         assert.equal(context.scheduleNextLabel({...task, ...extra}, now), '');
     }
-    assert.equal(context.scheduleStatusLight({enabled: true, suspendReason: 'MANUAL', lastStatus: 'OK'}).text, 'schedule.light.paused');
+    assert.equal(context.scheduleStatusLight({enabled: true, suspendReason: 'MANUAL', lastOutcome: 'OK'}).text, 'schedule.light.paused');
 });

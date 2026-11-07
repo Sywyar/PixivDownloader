@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -15,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("插画下载 / 搜索 HTTP 投影契约")
 class DownloadHttpProjectionContractTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("插画下载请求应绑定 camelCase 分级与布尔字段，且不暴露全小写别名")
@@ -50,7 +51,7 @@ class DownloadHttpProjectionContractTest {
         JsonNode json = objectMapper.valueToTree(response);
         assertThat(json.path("xRestrict").asInt()).isEqualTo(2);
         assertThat(json.path("isAi").asBoolean()).isTrue();
-        assertThat(json.path("rawMetaJson").asText()).contains("illustTitle");
+        assertThat(json.path("rawMetaJson").asString()).contains("illustTitle");
         assertThat(json.has("xrestrict")).isFalse();
         assertThat(json.has("ai")).isFalse();
     }

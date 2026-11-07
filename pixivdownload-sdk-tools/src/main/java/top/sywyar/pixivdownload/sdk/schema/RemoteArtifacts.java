@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.sdk.schema;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -60,24 +60,24 @@ final class RemoteArtifacts {
 
     private static String type(JsonNode schema) throws IOException {
         if (schema.has("anyOf")) return "(" + type(schema.path("anyOf").get(0)) + " | null)";
-        if (schema.has("$ref")) return typeName(schema.path("$ref").asText().substring("#/$defs/".length()));
-        return switch (schema.path("type").asText()) {
+        if (schema.has("$ref")) return typeName(schema.path("$ref").asString().substring("#/$defs/".length()));
+        return switch (schema.path("type").asString()) {
             case "boolean" -> "boolean";
             case "integer" -> "number";
             case "string" -> {
-                if (schema.has("x-encoding")) yield "EncodedValue<\"" + schema.path("x-encoding").asText() + "\">";
+                if (schema.has("x-encoding")) yield "EncodedValue<\"" + schema.path("x-encoding").asString() + "\">";
                 if (!schema.has("enum")) yield "string";
                 List<String> values = new ArrayList<>();
-                for (var item : schema.path("enum")) values.add(SchemaFiles.JSON.writeValueAsString(item.asText()));
+                for (var item : schema.path("enum")) values.add(SchemaFiles.JSON.writeValueAsString(item.asString()));
                 yield String.join(" | ", values);
             }
             case "array" -> "ReadonlyArray<" + type(schema.path("items")) + ">";
             case "object" -> {
                 if (!schema.has("properties")) yield "Readonly<Record<string, " + type(schema.path("additionalProperties")) + ">>";
                 Set<String> required = new HashSet<>();
-                schema.path("required").forEach(n -> required.add(n.asText()));
+                schema.path("required").forEach(n -> required.add(n.asString()));
                 StringBuilder result = new StringBuilder("{ ");
-                var fields = schema.path("properties").fields();
+                var fields = schema.path("properties").properties().iterator();
                 while (fields.hasNext()) {
                     var field = fields.next();
                     result.append("readonly ").append(SchemaFiles.JSON.writeValueAsString(field.getKey()))
@@ -92,9 +92,9 @@ final class RemoteArtifacts {
     private static String types(ObjectNode contract) throws IOException {
         Map<String, JsonNode> definitions = new TreeMap<>();
         for (JsonNode operation : contract.path("operations")) for (String direction : List.of("request", "response")) {
-            operation.path(direction).path("$defs").fields().forEachRemaining(e -> definitions.put(e.getKey(), e.getValue()));
+            operation.path(direction).path("$defs").properties().iterator().forEachRemaining(e -> definitions.put(e.getKey(), e.getValue()));
         }
-        StringBuilder result = new StringBuilder("// 契约身份: ").append(contract.path("identity").asText()).append("\n");
+        StringBuilder result = new StringBuilder("// 契约身份: ").append(contract.path("identity").asString()).append("\n");
         result.append("""
                 export type EncodedValue<K extends string> = string & { readonly __sdkEncoding: K };
                 export declare const wireValues: {
@@ -111,20 +111,20 @@ final class RemoteArtifacts {
                 """);
         for (var definition : definitions.entrySet())
             result.append("type ").append(typeName(definition.getKey())).append(" = ").append(type(definition.getValue())).append(";\n");
-        var operations = contract.path("operations").fields();
+        var operations = contract.path("operations").properties().iterator();
         while (operations.hasNext()) {
             var operation = operations.next();
             result.append("export type ").append(operation.getKey()).append("_Request = ").append(type(operation.getValue().path("request"))).append(";\n")
                     .append("export type ").append(operation.getKey()).append("_Response = ").append(type(operation.getValue().path("response"))).append(";\n");
         }
         result.append("export declare class RemoteError extends Error { readonly code: string; }\nexport declare const contractIdentity: string;\nexport declare function createClient(fetcher?: typeof fetch): {\n");
-        contract.path("operations").fieldNames().forEachRemaining(name -> result.append("  ").append(name).append("(request: ").append(name)
+        contract.path("operations").propertyNames().iterator().forEachRemaining(name -> result.append("  ").append(name).append("(request: ").append(name)
                 .append("_Request, options?: { signal?: AbortSignal }): Promise<").append(name).append("_Response>;\n"));
         return result.append("};\n").toString();
     }
 
     private static String adapter(ObjectNode contract) {
-        String service = contract.path("service").asText();
+        String service = contract.path("service").asString();
         String adapter = RemoteAdapterGenerator.adapterName(service);
         String pack = adapter.substring(0, adapter.lastIndexOf('.'));
         String simple = adapter.substring(adapter.lastIndexOf('.') + 1);
@@ -138,23 +138,23 @@ final class RemoteArtifacts {
                 .append("  public ").append(simple).append("(RemoteOperations operations) { this.operations = operations; }\n")
                 .append("  public static java.util.List<WebRouteContribution> routes() { return java.util.List.of(");
         List<String> routes = new ArrayList<>();
-        var operations = contract.path("operations").fields();
+        var operations = contract.path("operations").properties().iterator();
         while (operations.hasNext()) {
             var operation = operations.next();
-            routes.add("new WebRouteContribution(\"" + operation.getValue().path("path").asText()
+            routes.add("new WebRouteContribution(\"" + operation.getValue().path("path").asString()
                     + "\", AccessPolicy.ADMIN, java.util.Set.of(HttpMethod.POST), false)");
         }
         result.append(String.join(",", routes)).append("); }\n");
-        operations = contract.path("operations").fields();
+        operations = contract.path("operations").properties().iterator();
         int handler = 0;
         while (operations.hasNext()) {
             var operation = operations.next();
-            result.append("  @PostMapping(value=\"").append(operation.getValue().path("path").asText())
+            result.append("  @PostMapping(value=\"").append(operation.getValue().path("path").asString())
                     .append("\", produces=\"application/json\") public ResponseEntity<String> remoteOperation").append(handler++)
                     .append("() {\n")
-                    .append("    var response = operations.invoke(new ServiceKey<>(\"").append(contract.path("owner").asText())
+                    .append("    var response = operations.invoke(new ServiceKey<>(\"").append(contract.path("owner").asString())
                     .append("\", ").append(service).append(".class), \"").append(operation.getKey()).append("\", \"")
-                    .append(contract.path("identity").asText()).append("\");\n")
+                    .append(contract.path("identity").asString()).append("\");\n")
                     .append("    return ResponseEntity.status(response.status()).header(\"X-Pixiv-Contract\", response.identity())")
                     .append(".contentType(org.springframework.http.MediaType.APPLICATION_JSON).body(response.json());\n  }\n");
         }

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.narration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.when;
 @DisplayName("AI 听小说脚本编排 / 持久化服务")
 class NovelNarrationScriptServiceTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
     @DisplayName("混合句从拆分、分析、持久化到合成保持旁白与小李各自的音色")

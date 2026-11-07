@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.plugin.web.page;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
 import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
 import top.sywyar.pixivdownload.plugin.api.service.ServiceProvider;
@@ -56,7 +57,7 @@ public final class WebPublications implements PagePublications {
     public ObjectNode projection(String id, Page stored, String revision) {
         ObjectNode value = object(stored.projection());
         var owner = catalog.pages().stream().filter(page -> page.definition().id().equals(id)).findFirst();
-        if (owner.isEmpty() || !contract(owner.get().definition()).equals(value.path("ownerContract").asText()))
+        if (owner.isEmpty() || !contract(owner.get().definition()).equals(value.path("ownerContract").asString()))
             throw invalid("PAGE_OWNER_CHANGED");
         value.put("revision", revision);
         value.put("publication", owner.map(PageCatalog.AvailablePage::publication).orElse(""));
@@ -67,8 +68,8 @@ public final class WebPublications implements PagePublications {
 
     private static void resolve(JsonNode node, Map<String, PageCatalog.AvailableComponent> available) {
         if (node.has("componentType")) {
-            var component = available.get(node.path("componentType").asText());
-            if (component == null || !contract(component.definition()).equals(node.path("componentContract").asText()))
+            var component = available.get(node.path("componentType").asString());
+            if (component == null || !contract(component.definition()).equals(node.path("componentContract").asString()))
                 throw invalid("PAGE_COMPONENT_UNAVAILABLE");
             else ((ObjectNode) node).put("publication", component.publication());
         }
@@ -136,7 +137,7 @@ public final class WebPublications implements PagePublications {
             var document = object(change.document());
             var definition = PageActions.apply(page.definition(), document, catalog);
             ObjectNode view = object(change.projection());
-            if (!view.path("pageId").asText().equals(change.page()) || view.path("title").asText().length() > 256)
+            if (!view.path("pageId").asString().equals(change.page()) || view.path("title").asString().length() > 256)
                 throw invalid("PAGE_DOCUMENT_INVALID");
             List<Binding> found = new ArrayList<>();
             var regions = new HashSet<String>();
@@ -209,7 +210,7 @@ public final class WebPublications implements PagePublications {
                 Plan plan = new Plan(expected, fingerprint, changes, impacts, permissions.stream().distinct().toList(), hookChanges);
                 return action.run(plan, candidate);
             });
-        } catch (IOException failure) { throw new IllegalStateException("PAGE_PUBLICATION_FAILED", failure); }
+        } catch (JacksonException | IOException failure) { throw new IllegalStateException("PAGE_PUBLICATION_FAILED", failure); }
     }
 
     private record Binding(String policy, PageInteraction protocol, PageInteraction.Target target) { }
@@ -252,8 +253,8 @@ public final class WebPublications implements PagePublications {
         var covered = new HashSet<String>();
         var actions = PageActions.read(page.document());
         for (var target : object(page.projection()).path("targets")) {
-            String reference = target.path("operation").asText();
-            boolean single = actions.stream().anyMatch(action -> action.id().equals(target.path("id").asText()) && !action.endpoint().isEmpty());
+            String reference = target.path("operation").asString();
+            boolean single = actions.stream().anyMatch(action -> action.id().equals(target.path("id").asString()) && !action.endpoint().isEmpty());
             boolean resolved = false;
             for (var endpoint : endpoints) if (single ? endpoint.id().equals(reference)
                     : endpoint.operation().equals(reference) || groups.getOrDefault(reference, List.of()).contains(endpoint.id())) {
@@ -275,19 +276,19 @@ public final class WebPublications implements PagePublications {
             Set<String> publications, int[] budget, int depth) {
         if (!node.isObject() || ++budget[0] > 512 || depth > 24) throw invalid("PAGE_DOCUMENT_BUDGET");
         ((ObjectNode) node).remove("publication");
-        if (node.path("type").asText().equals("page-region")) {
+        if (node.path("type").asString().equals("page-region")) {
             String parent = region;
-            region = node.path("region").asText();
+            region = node.path("region").asString();
             String current = region;
             var definition = page.regions().stream().filter(value -> value.id().equals(current) && value.parent().equals(parent))
                     .findFirst().orElseThrow(() -> invalid("PAGE_REGION_PARENT"));
             if (!regions.add(region)) throw invalid("PAGE_REGION_DUPLICATE");
             ((ObjectNode) node).put("container", definition.container()).put("previewHidden", definition.previewHidden()).put("labelKey", definition.labelKey());
         }
-        if (node.path("type").asText().equals("page-component")) {
-            String instance = node.path("instanceId").asText();
+        if (node.path("type").asString().equals("page-component")) {
+            String instance = node.path("instanceId").asString();
             if (!instance.matches("[A-Za-z0-9_-]{1,64}") || !instances.add(instance)) throw invalid("PAGE_INSTANCE_INVALID");
-            var available = components.get(node.path("componentType").asText());
+            var available = components.get(node.path("componentType").asString());
             if (available == null || available.definition().version() != node.path("configVersion").asInt())
                 throw invalid("PAGE_COMPONENT_UNAVAILABLE");
             PageComponent component = available.definition();
@@ -310,7 +311,7 @@ public final class WebPublications implements PagePublications {
                     if (!targets.isEmpty()) break;
                     scope = page.regions().stream().filter(value -> value.id().equals(current)).findFirst().orElseThrow().parent();
                 }
-                var target = targets.stream().filter(value -> value.id().equals(node.path("target").asText())
+                var target = targets.stream().filter(value -> value.id().equals(node.path("target").asString())
                         && value.protocols().stream().anyMatch(protocol -> OperationPolicies.compatible(protocol, component.participation().protocol())))
                         .findFirst().orElseThrow(() -> invalid("PAGE_BINDING_INVALID"));
                 if (counts.merge(target.id(), 1, Integer::sum) > target.maximumParticipants()) throw invalid("PAGE_BINDING_CAPACITY");
@@ -330,7 +331,7 @@ public final class WebPublications implements PagePublications {
         Map<String, Map<String, List<Requirement>>> byOperation = new TreeMap<>();
         for (var page : after.entrySet()) {
             var grouped = new TreeMap<String, List<Requirement>>();
-            object(page.getValue().projection()).path("targets").forEach(target -> grouped.put(target.path("operation").asText(), new ArrayList<>()));
+            object(page.getValue().projection()).path("targets").forEach(target -> grouped.put(target.path("operation").asString(), new ArrayList<>()));
             page.getValue().requirements().forEach(value -> grouped.computeIfAbsent(value.operation(), ignored -> new ArrayList<>()).add(value));
             grouped.forEach((operation, values) -> {
                 byOperation.computeIfAbsent(operation, ignored -> new TreeMap<>()).put(page.getKey(), values);
@@ -348,8 +349,8 @@ public final class WebPublications implements PagePublications {
         if (!conflicts.isEmpty()) throw new PagePublications.Conflict(List.copyOf(conflicts));
         Set<String> affected = new TreeSet<>();
         for (String page : changed) {
-            if (before.containsKey(page)) object(before.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asText()));
-            object(after.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asText()));
+            if (before.containsKey(page)) object(before.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asString()));
+            object(after.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asString()));
             for (var state : List.of(before, after)) if (state.containsKey(page)) state.get(page).hooks().forEach(hook -> {
                 affected.add(hook.operation());
                 if (!hook.binding().endpoint().isEmpty()) affected.add(hook.binding().endpoint());
@@ -367,7 +368,7 @@ public final class WebPublications implements PagePublications {
         catalog.components().forEach(component -> values.put(component.definition().type(), component)); return values;
     }
     private static JsonNode objectSchema(String json) {
-        try { return JSON.readTree(json); } catch (IOException failure) { throw invalid("PAGE_DOCUMENT_INVALID"); }
+        try { return JSON.readTree(json); } catch (JacksonException failure) { throw invalid("PAGE_DOCUMENT_INVALID"); }
     }
     private static ObjectNode object(String value) {
         if (value == null || value.length() > 1024 * 1024 || value.getBytes(StandardCharsets.UTF_8).length > 1024 * 1024)

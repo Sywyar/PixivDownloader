@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.translation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.schema.*;
 import top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
@@ -33,11 +34,11 @@ public final class TranslationJobStore {
     }
     String encode(Object value) {
         try { return json.writeValueAsString(value); }
-        catch (java.io.IOException e) { throw new IllegalStateException("translation.job-storage", e); }
+        catch (JacksonException e) { throw new IllegalStateException("translation.job-storage", e); }
     }
     <T> T decode(String value, Class<T> type) {
         try { return json.readValue(value, type); }
-        catch (java.io.IOException e) { throw new IllegalStateException("translation.job-storage", e); }
+        catch (JacksonException e) { throw new IllegalStateException("translation.job-storage", e); }
     }
     List<TranslationJobs.Job> all() {
         try {

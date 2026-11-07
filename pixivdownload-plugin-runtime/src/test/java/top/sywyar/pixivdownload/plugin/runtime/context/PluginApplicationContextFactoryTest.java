@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
-import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
@@ -365,14 +365,14 @@ class PluginApplicationContextFactoryTest {
     @DisplayName("路径与数据库能力由宿主按 child context owner 固化并在关闭时释放")
     void injectsOwnerScopedStorageCapabilitiesAndClosesDataSource() {
         AtomicInteger dataSourceCreations = new AtomicInteger();
-        CloseablePluginDataSource dataSource = mock(CloseablePluginDataSource.class);
+        CloseablePluginDatabase dataSource = mock(CloseablePluginDatabase.class);
         PluginApplicationContextFactory storageFactory = new PluginApplicationContextFactory(
                 PluginContextPropertySourceProvider.EMPTY,
                 streamRegistry,
                 taskRegistry,
                 TestRuntimePathProvider::new,
                 owner -> {
-                    assertThat(owner).isEqualTo("storage-owner");
+                    assertThat(owner.sourcePluginId()).isEqualTo("storage-owner");
                     dataSourceCreations.incrementAndGet();
                     return dataSource;
                 });
@@ -392,7 +392,7 @@ class PluginApplicationContextFactoryTest {
             assertThat(bean.dataSource()).isSameAs(dataSource);
             assertThat(dataSourceCreations).hasValue(1);
             assertThat(parent.getBeanNamesForType(RuntimePathProvider.class)).isEmpty();
-            assertThat(parent.getBeanNamesForType(PluginDataSource.class)).isEmpty();
+            assertThat(parent.getBeanNamesForType(PluginDatabase.class)).isEmpty();
 
             child.close();
             verify(dataSource).close();
@@ -403,7 +403,7 @@ class PluginApplicationContextFactoryTest {
     @DisplayName("未使用私有数据库的插件不创建数据源")
     void pluginDataSourceRemainsLazyUntilRequested() {
         AtomicInteger dataSourceCreations = new AtomicInteger();
-        CloseablePluginDataSource dataSource = mock(CloseablePluginDataSource.class);
+        CloseablePluginDatabase dataSource = mock(CloseablePluginDatabase.class);
         PluginApplicationContextFactory storageFactory = new PluginApplicationContextFactory(
                 PluginContextPropertySourceProvider.EMPTY,
                 streamRegistry,
@@ -420,7 +420,7 @@ class PluginApplicationContextFactoryTest {
                     "lazy-owner", getClass().getClassLoader(), List.of()));
             assertThat(dataSourceCreations).hasValue(0);
 
-            assertThat(child.getBean(PluginDataSource.class)).isSameAs(dataSource);
+            assertThat(child.getBean(PluginDatabase.class)).isSameAs(dataSource);
             assertThat(dataSourceCreations).hasValue(1);
 
             child.close();
@@ -646,7 +646,7 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    interface CloseablePluginDataSource extends PluginDataSource {
+    interface CloseablePluginDatabase extends PluginDatabase {
         void close();
     }
 
@@ -667,13 +667,13 @@ class PluginApplicationContextFactoryTest {
         }
     }
 
-    record StoragePluginBean(RuntimePathProvider paths, PluginDataSource dataSource) {
+    record StoragePluginBean(RuntimePathProvider paths, PluginDatabase dataSource) {
     }
 
     @Configuration
     static class StoragePluginConfig {
         @Bean
-        StoragePluginBean storagePluginBean(RuntimePathProvider paths, PluginDataSource dataSource) {
+        StoragePluginBean storagePluginBean(RuntimePathProvider paths, PluginDatabase dataSource) {
             return new StoragePluginBean(paths, dataSource);
         }
     }

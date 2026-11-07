@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.persistence;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
@@ -17,7 +18,7 @@ class SchedulePersistenceConfigurationTest {
     void providesCodecAndMigrationAdapter() {
         DownloadWorkbenchPluginConfiguration configuration =
                 new DownloadWorkbenchPluginConfiguration();
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
 
         PixivSchedulePersistenceCodec codec =
                 configuration.pixivSchedulePersistenceCodec(objectMapper);

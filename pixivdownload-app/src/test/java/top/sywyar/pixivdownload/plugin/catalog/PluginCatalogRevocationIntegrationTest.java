@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,7 +36,7 @@ import static org.mockito.Mockito.*;
 @DisplayName("市场、安装与离线启动共享已验签撤销状态")
 class PluginCatalogRevocationIntegrationTest {
     @TempDir Path temp;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private final Map<String, byte[]> responses = new HashMap<>();
     private final PluginCatalogService catalog = mock(PluginCatalogService.class);
     private final PluginStatusService installed = mock(PluginStatusService.class);

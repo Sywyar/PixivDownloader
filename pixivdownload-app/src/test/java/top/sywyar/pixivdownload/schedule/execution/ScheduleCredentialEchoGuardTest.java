@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -134,7 +135,7 @@ class ScheduleCredentialEchoGuardTest {
     @Test
     @DisplayName("JSON 标量按解析后的字段边界检测短数字与转义字符串")
     void materialMatchesDecodedJsonScalarBoundaries() {
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         try (ScheduleCredentialMaterial numeric = new ScheduleCredentialMaterial(
                 "sid=12345", "fixture-reference", null);
              ScheduleCredentialMaterial exponent = new ScheduleCredentialMaterial(

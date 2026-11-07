@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.transfer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -17,7 +18,7 @@ import static org.mockito.Mockito.*;
 class EnvironmentFilesTest {
     @TempDir Path root;
     private final Map<String, String> previous = new HashMap<>();
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     private final TransferArchive archive = new TransferArchive();
     private final char[] password = "fixture-secret".toCharArray();
 
@@ -66,8 +67,8 @@ class EnvironmentFilesTest {
         transaction.prepare(replacements);
         transaction.commit();
         var restored = json.readTree(target.toFile());
-        assertThat(restored.path("mode").textValue()).isEqualTo("multi");
-        assertThat(restored.path("username").textValue()).isEqualTo("source");
+        assertThat(restored.path("mode").stringValue()).isEqualTo("multi");
+        assertThat(restored.path("username").stringValue()).isEqualTo("source");
         assertThat(restored.path("sessions").isEmpty()).isTrue();
         assertThat(Files.readAllBytes(root.resolve("transaction/0.before"))).isEqualTo(before);
     }

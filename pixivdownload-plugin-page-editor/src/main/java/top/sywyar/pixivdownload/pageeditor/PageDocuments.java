@@ -1,20 +1,24 @@
 package top.sywyar.pixivdownload.pageeditor;
 
-import com.fasterxml.jackson.core.*;
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.*;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.json.JsonFactory;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 import top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary;
-import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /** GrapesJS 存档归编辑器所有；正式投影仅包含校验后的布局与插件纯值配置。 */
 public final class PageDocuments {
     static final int MAX_BYTES = 1024 * 1024;
-    static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(64).build()).build()).configureForJackson2()
+            .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private static final Set<String> TYPES = Set.of("wrapper", "page-box", "page-text", "page-link", "page-component", "page-region");
     private static final Set<String> NODE_FIELDS = Set.of("type", "attributes", "style", "components", "content",
             "region", "componentType", "instanceId", "configVersion", "configuration", "role", "href", "target");
@@ -29,7 +33,7 @@ public final class PageDocuments {
     static JsonNode parse(byte[] input) {
         if (input.length > MAX_BYTES) throw invalid("PAGE_DOCUMENT_BUDGET");
         try { JsonNode result = JSON.readTree(input); if (result == null) throw invalid("PAGE_DOCUMENT_INVALID"); return result; }
-        catch (IOException failure) { throw invalid("PAGE_DOCUMENT_INVALID"); }
+        catch (JacksonException failure) { throw invalid("PAGE_DOCUMENT_INVALID"); }
     }
     static IllegalArgumentException invalid(String code) { return new IllegalArgumentException(code); }
     EditablePage page(String id) {
@@ -66,10 +70,10 @@ public final class PageDocuments {
     }
 
     boolean usesDefaultLayout(ObjectNode view) {
-        if (!view.path("title").asText().isEmpty() || !view.path("connections").isEmpty()) return false;
-        String id = view.path("pageId").asText();
+        if (!view.path("title").asString().isEmpty() || !view.path("connections").isEmpty()) return false;
+        String id = view.path("pageId").asString();
         ObjectNode source = initial(id);
-        ObjectNode comparison = view.deepCopy();
+        ObjectNode comparison = ((ObjectNode) view).deepCopy();
         removeRepeatedStyles(comparison);
         clearLayoutIds(comparison.path("body"));
         ObjectNode baseline = validate(id, source, source, true);
@@ -84,11 +88,11 @@ public final class PageDocuments {
         var styles = (ArrayNode) view.path("styles");
         for (int index = styles.size() - 1; index >= 0; index--) {
             JsonNode rule = styles.get(index);
-            if (!rule.path("media").asText().isEmpty()) continue;
+            if (!rule.path("media").asString().isEmpty()) continue;
             boolean repeated = true;
             for (JsonNode id : rule.path("ids")) {
-                JsonNode node = nodes.get(id.asText());
-                var fields = rule.path("style").fields();
+                JsonNode node = nodes.get(id.asString());
+                var fields = rule.path("style").properties().iterator();
                 while (fields.hasNext()) {
                     var field = fields.next();
                     if (node == null || !field.getValue().equals(node.path("style").path(field.getKey()))) repeated = false;
@@ -100,7 +104,7 @@ public final class PageDocuments {
     }
 
     private static void indexLayout(JsonNode node, Map<String, JsonNode> nodes) {
-        nodes.put(node.path("id").asText(), node);
+        nodes.put(node.path("id").asString(), node);
         node.path("children").forEach(child -> indexLayout(child, nodes));
     }
 
@@ -112,8 +116,8 @@ public final class PageDocuments {
 
     public ObjectNode validate(String id, JsonNode doc, JsonNode previous, boolean publishing) {
         if (!doc.isObject() || !doc.path("format").isIntegralNumber() || doc.path("format").asInt() != 1
-                || !doc.path("pageId").isTextual() || !doc.path("pageId").asText().equals(id)
-                || !doc.path("title").isTextual() || doc.path("title").asText().length() > 256) throw invalid("PAGE_DOCUMENT_INVALID");
+                || !doc.path("pageId").isString() || !doc.path("pageId").asString().equals(id)
+                || !doc.path("title").isString() || doc.path("title").asString().length() > 256) throw invalid("PAGE_DOCUMENT_INVALID");
         parse(doc.toString());
         fields(doc, Set.of("format", "pageId", "title", "project", "connections", "hooks", "actions"));
         if (doc.has("hooks")) {
@@ -125,13 +129,13 @@ public final class PageDocuments {
                     if (!hook.path("fields").isArray() || hook.path("fields").size() > 16) throw invalid("PAGE_HOOK_INVALID");
                     for (var field : hook.path("fields")) fields(field, Set.of("source", "path", "name"));
                 }
-                if (!hook.path("id").isTextual() || !hook.path("id").asText().matches("[a-zA-Z0-9:._-]{1,128}")
-                        || !ids.add(hook.path("id").asText()) || !hook.path("order").isIntegralNumber()
-                        || !hook.path("order").canConvertToInt() || !hook.path("configuration").isTextual()
-                        || hook.path("configuration").asText().getBytes(StandardCharsets.UTF_8).length > 16384)
+                if (!hook.path("id").isString() || !hook.path("id").asString().matches("[a-zA-Z0-9:._-]{1,128}")
+                        || !ids.add(hook.path("id").asString()) || !hook.path("order").isIntegralNumber()
+                        || !hook.path("order").canConvertToInt() || !hook.path("configuration").isString()
+                        || hook.path("configuration").asString().getBytes(StandardCharsets.UTF_8).length > 16384)
                     throw invalid("PAGE_HOOK_BINDING_INVALID");
                 for (String key : List.of("hook", "operation", "endpoint", "phase", "completion"))
-                    if (!hook.path(key).isTextual() || hook.path(key).asText().length() > 128) throw invalid("PAGE_HOOK_BINDING_INVALID");
+                    if (!hook.path(key).isString() || hook.path(key).asString().length() > 128) throw invalid("PAGE_HOOK_BINDING_INVALID");
             }
         }
         fields(doc.path("project"), Set.of("pages", "styles"));
@@ -142,7 +146,7 @@ public final class PageDocuments {
         fields(pages.get(0), Set.of("frames"));
         if (!pages.get(0).path("frames").isArray()) throw invalid("PAGE_DOCUMENT_INVALID");
         fields(pages.get(0).path("frames").get(0), Set.of("component"));
-        if (!pages.get(0).path("frames").get(0).path("component").path("type").asText().equals("wrapper"))
+        if (!pages.get(0).path("frames").get(0).path("component").path("type").asString().equals("wrapper"))
             throw invalid("PAGE_DOCUMENT_INVALID");
         var context = new Check(page, publishing, previous);
         JsonNode body = node(pages.get(0).path("frames").get(0).path("component"), context, 0, "");
@@ -152,17 +156,17 @@ public final class PageDocuments {
         if (!rules.isMissingNode() && (!rules.isArray() || rules.size() > 512)) throw invalid("PAGE_STYLE_INVALID");
         for (JsonNode rule : rules) {
             fields(rule, Set.of("selectors", "style", "mediaText"));
-            String media = rule.path("mediaText").asText("");
+            String media = rule.path("mediaText").asString("");
             if (!media.isEmpty() && !media.matches("\\(max-width: [0-9]+(?:\\.[0-9]+)?(?:px|em)\\)")) throw invalid("PAGE_STYLE_INVALID");
             ArrayNode ids = JSON.createArrayNode();
             if (!rule.path("selectors").isArray()) throw invalid("PAGE_STYLE_INVALID");
             for (JsonNode selector : rule.path("selectors")) {
-                if (!selector.isTextual()) {
+                if (!selector.isString()) {
                     fields(selector, Set.of("name", "type", "label", "active", "private", "protected"));
                     if (!selector.path("type").isIntegralNumber() || selector.path("type").asInt() != 2)
                         throw invalid("PAGE_STYLE_INVALID");
                 }
-                String name = selector.isTextual() ? selector.asText().replaceFirst("^#", "") : selector.path("name").asText();
+                String name = selector.isString() ? selector.asString().replaceFirst("^#", "") : selector.path("name").asString();
                 if (!context.ids.contains(name)) throw invalid("PAGE_STYLE_INVALID"); ids.add(name);
             }
             if (ids.isEmpty()) throw invalid("PAGE_STYLE_INVALID");
@@ -172,20 +176,20 @@ public final class PageDocuments {
         if (!connections.isArray() || connections.size() > 256) throw invalid("PAGE_CONNECTION_INVALID");
         for (JsonNode link : connections) {
             fields(link, Set.of("from", "to", "input", "output"));
-            var from = context.instances.get(link.path("from").asText()); var to = context.instances.get(link.path("to").asText());
+            var from = context.instances.get(link.path("from").asString()); var to = context.instances.get(link.path("to").asString());
             if (from == null || to == null) {
                 boolean saved = previous != null && previous.path("connections").isArray()
                         && java.util.stream.StreamSupport.stream(previous.path("connections").spliterator(), false).anyMatch(link::equals);
                 if (publishing || !saved) throw invalid("PAGE_CONNECTION_INVALID");
             } else {
-                var output = from.outputs().stream().filter(port -> port.name().equals(link.path("output").asText())).findFirst().orElse(null);
-                var input = to.inputs().stream().filter(port -> port.name().equals(link.path("input").asText())).findFirst().orElse(null);
+                var output = from.outputs().stream().filter(port -> port.name().equals(link.path("output").asString())).findFirst().orElse(null);
+                var input = to.inputs().stream().filter(port -> port.name().equals(link.path("input").asString())).findFirst().orElse(null);
                 if (output == null || input == null || !output.contractId().equals(input.contractId())
                         || !parse(output.schema()).equals(parse(input.schema()))) throw invalid("PAGE_CONNECTION_INVALID");
             }
         }
         validateConnectionGraph(connections);
-        var view = JSON.createObjectNode().put("format", 1).put("pageId", id).put("title", doc.path("title").asText());
+        var view = JSON.createObjectNode().put("format", 1).put("pageId", id).put("title", doc.path("title").asString());
         view.put("namespace", page.namespace()).put("publication", availablePage.publication());
         // 预览代码不进入匿名正式投影。
         if (!publishing) view.put("previewModuleUrl", page.previewModuleUrl());
@@ -203,12 +207,12 @@ public final class PageDocuments {
             List<PageInteraction.Action> values = JSON.readerForListOf(PageInteraction.Action.class).readValue(actions);
             return page.withActions(values, catalog.components().stream().map(value -> value.definition().participation())
                     .filter(Objects::nonNull).map(PageInteraction.Participant::protocol).distinct().toList());
-        } catch (IOException failure) { throw invalid("PAGE_ACTION_INVALID"); }
+        } catch (JacksonException failure) { throw invalid("PAGE_ACTION_INVALID"); }
     }
 
     /** 唯一匹配形成显式草稿绑定；不保存运行中挑战或证明。 */
     public ObjectNode normalize(String id, JsonNode draft, JsonNode previous) {
-        ObjectNode normalized = draft.deepCopy();
+        ObjectNode normalized = ((ObjectNode) draft).deepCopy();
         var bindings = new HashMap<String, String>();
         collectBindings(validate(id, normalized, previous, false).path("body"), bindings);
         applyBindings(normalized.at("/project/pages/0/frames/0/component"), bindings);
@@ -217,13 +221,13 @@ public final class PageDocuments {
 
     private static void collectBindings(JsonNode node, Map<String, String> bindings) {
         if (node.has("instanceId") && !node.path("unavailable").asBoolean())
-            bindings.put(node.path("instanceId").asText(), node.path("target").asText());
+            bindings.put(node.path("instanceId").asString(), node.path("target").asString());
         node.path("children").forEach(child -> collectBindings(child, bindings));
     }
 
     private static void applyBindings(JsonNode node, Map<String, String> bindings) {
-        if (node.path("type").asText().equals("page-component")) {
-            String target = bindings.get(node.path("instanceId").asText());
+        if (node.path("type").asString().equals("page-component")) {
+            String target = bindings.get(node.path("instanceId").asString());
             if (target != null && !target.isEmpty()) ((ObjectNode) node).put("target", target);
             else if (target != null) ((ObjectNode) node).remove("target");
         }
@@ -234,8 +238,8 @@ public final class PageDocuments {
         var edges = new HashMap<String, Set<String>>();
         var unique = new HashSet<String>();
         for (JsonNode link : connections) {
-            String from = link.path("from").asText(), to = link.path("to").asText();
-            if (!unique.add(from + "." + link.path("output").asText() + ":" + to + "." + link.path("input").asText()))
+            String from = link.path("from").asString(), to = link.path("to").asString();
+            if (!unique.add(from + "." + link.path("output").asString() + ":" + to + "." + link.path("input").asString()))
                 throw invalid("PAGE_CONNECTION_INVALID");
             edges.computeIfAbsent(from, ignored -> new HashSet<>()).add(to);
         }
@@ -268,23 +272,23 @@ public final class PageDocuments {
     private JsonNode node(JsonNode node, Check check, int depth, String parentRegion) {
         if (!node.isObject() || ++check.count > 512 || depth > 24) throw invalid("PAGE_DOCUMENT_BUDGET");
         fields(node, NODE_FIELDS);
-        String type = node.path("type").asText();
+        String type = node.path("type").asString();
         if (!TYPES.contains(type) || type.equals("wrapper") && depth != 0) throw invalid("PAGE_NODE_INVALID");
         if (node.has("attributes")) fields(node.get("attributes"), Set.of("id"));
-        String id = node.path("attributes").path("id").asText("");
+        String id = node.path("attributes").path("id").asString("");
         if (!id.isEmpty() && (!id.matches("[A-Za-z][A-Za-z0-9_-]{0,63}") || !check.ids.add(id))) throw invalid("PAGE_INSTANCE_INVALID");
-        var attrs = node.path("attributes").fieldNames();
+        var attrs = node.path("attributes").propertyNames().iterator();
         while (attrs.hasNext()) if (!attrs.next().equals("id")) throw invalid("PAGE_NODE_INVALID");
         ObjectNode out = JSON.createObjectNode().put("type", type).put("id", id);
         out.set("style", PageStyles.validate(node.path("style")));
         boolean container = type.equals("wrapper") || type.equals("page-box");
         if (type.equals("page-box")) {
-            String role = node.path("role").asText("section");
+            String role = node.path("role").asString("section");
             if (!Set.of("section", "header", "main", "footer").contains(role)) throw invalid("PAGE_NODE_INVALID");
             out.put("role", role);
         }
         if (type.equals("page-region")) {
-            String region = node.path("region").asText();
+            String region = node.path("region").asString();
             PageRegion definition = check.regionDefinitions.get(region);
             if (definition == null || !check.regions.add(region)) throw invalid("PAGE_REQUIRED_REGION");
             if (!definition.parent().equals(parentRegion)) throw invalid("PAGE_REGION_PARENT");
@@ -292,7 +296,7 @@ public final class PageDocuments {
             out.put("region", region).put("container", container).put("labelKey", definition.labelKey())
                     .put("previewHidden", definition.previewHidden());
         } else if (type.equals("page-component")) {
-            String component = node.path("componentType").asText(); String instance = node.path("instanceId").asText();
+            String component = node.path("componentType").asString(); String instance = node.path("instanceId").asString();
             if (!instance.matches("[A-Za-z0-9_-]{1,64}") || !check.instanceIds.add(instance)) throw invalid("PAGE_INSTANCE_INVALID");
             var available = check.available.get(component);
             JsonNode configuration = node.get("configuration");
@@ -317,10 +321,10 @@ public final class PageDocuments {
             out.put("componentType", component).put("instanceId", instance).put("configVersion", node.path("configVersion").asInt());
             out.set("configuration", configuration.deepCopy());
         } else if (type.equals("page-text") || type.equals("page-link")) {
-            String content = node.path("content").asText();
+            String content = node.path("content").asString();
             if (content.contains("<") || content.contains(">")) throw invalid("PAGE_TEXT_INVALID");
             out.put("content", content);
-            if (type.equals("page-link")) out.put("href", PagePresentation.link(node.path("href").asText()));
+            if (type.equals("page-link")) out.put("href", PagePresentation.link(node.path("href").asString()));
         }
         JsonNode children = node.path("components");
         if (!children.isMissingNode() && !children.isArray()) throw invalid("PAGE_NODE_INVALID");
@@ -347,7 +351,7 @@ public final class PageDocuments {
             }
             scope = check.regionDefinitions.get(scope).parent();
         }
-        String selected = source.path("target").asText("");
+        String selected = source.path("target").asString("");
         PageInteraction.Target target = selected.isEmpty() ? (candidates.size() == 1 ? candidates.get(0) : null)
                 : candidates.stream().filter(value -> value.id().equals(selected)).findFirst()
                         .orElseThrow(() -> invalid("PAGE_BINDING_INVALID"));
@@ -369,13 +373,13 @@ public final class PageDocuments {
     }
     private static void fields(JsonNode node, Set<String> allowed) {
         if (!node.isObject()) throw invalid("PAGE_DOCUMENT_INVALID");
-        node.fieldNames().forEachRemaining(name -> {
+        node.propertyNames().iterator().forEachRemaining(name -> {
             if (!allowed.contains(name)) throw invalid("PAGE_DOCUMENT_INVALID");
         });
     }
     private static boolean preserved(JsonNode previous, String instance, JsonNode node) {
         if (previous == null) return false;
-        if (previous.isObject() && previous.path("instanceId").asText().equals(instance))
+        if (previous.isObject() && previous.path("instanceId").asString().equals(instance))
             return previous.path("componentType").equals(node.path("componentType"))
                     && previous.path("configVersion").equals(node.path("configVersion"))
                     && previous.path("configuration").equals(node.path("configuration"));

@@ -4,7 +4,6 @@ import org.pf4j.Plugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
-import java.util.List;
 
 /**
  * gallery 外置插件的 PF4J 主类。展示层贡献由 {@link GalleryPlugin} 声明，业务 Bean 由
@@ -18,8 +17,4 @@ public class GalleryPf4jPlugin extends Plugin implements PixivPluginProvider {
         return new GalleryPlugin();
     }
 
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(GalleryPluginConfiguration.class);
-    }
 }

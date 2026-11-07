@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.pageeditor.components;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -42,11 +42,11 @@ public final class ComponentSandboxController {
                         </head><body><div id="root"></div></body></html>
                         """;
             }
-            case "style.css" -> { type = "text/css;charset=UTF-8"; content = "html,body{margin:0;background:transparent}:where(body:not([hidden]),#root:not([hidden])){display:flow-root}\n" + source.path("css").asText(); }
+            case "style.css" -> { type = "text/css;charset=UTF-8"; content = "html,body{margin:0;background:transparent}:where(body:not([hidden]),#root:not([hidden])){display:flow-root}\n" + source.path("css").asString(); }
             case "definition.js" -> {
                 type = "text/javascript;charset=UTF-8";
                 content = "window.componentDefinition = {html:" + source.path("html") + ",properties:" + source.path("properties")
-                        + ",mount:function(root,context){\"use strict\";\n" + source.path("javascript").asText() + "\n}};";
+                        + ",mount:function(root,context){\"use strict\";\n" + source.path("javascript").asString() + "\n}};";
             }
             default -> { return ResponseEntity.notFound().build(); }
         }

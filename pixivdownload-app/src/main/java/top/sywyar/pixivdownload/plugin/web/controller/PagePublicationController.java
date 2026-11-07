@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
@@ -24,7 +25,7 @@ public final class PagePublicationController {
     private final RouteAccessRegistry routes;
     private final OperationEndpoints endpoints;
     private final WebPublicationStore store;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = JsonMapper.builderWithJackson2Defaults().build();
     public PagePublicationController(PageContributionRegistry registry,
             top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications,
             RequestOwnerIdentityResolver identities, RouteAccessRegistry routes, OperationEndpoints endpoints, WebPublicationStore store) {

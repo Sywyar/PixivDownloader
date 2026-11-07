@@ -159,7 +159,7 @@ class CommunityDirectoryServiceTest {
         void invalidateSignature() {
             String url = BASE.resolve("generated/current.json").toString();
             var pointer = CommunityJson.strictTree(documents.get(url), 64 * 1024);
-            ((com.fasterxml.jackson.databind.node.ObjectNode) pointer.get("directorySignature"))
+            ((tools.jackson.databind.node.ObjectNode) pointer.get("directorySignature"))
                     .put("value", Base64.getEncoder().encodeToString(new byte[64]));
             documents.put(url, CommunityJson.encode(pointer));
         }

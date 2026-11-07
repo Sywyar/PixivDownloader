@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -196,7 +197,7 @@ class PluginTemplateRuntimeRegistrationTest {
             ExternalCapabilityDrain retiredDrain;
             try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext();
                  AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
-                parent.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+                parent.registerBean(ObjectMapper.class, () -> JsonMapper.builderWithJackson2Defaults().build());
                 parent.registerBean(DownloadLifecycle.class, () -> lifecycle);
                 parent.registerBean(RequestOwnerIdentityResolver.class,
                         () -> ignored -> RequestOwnerIdentity.owner("owner-a"));

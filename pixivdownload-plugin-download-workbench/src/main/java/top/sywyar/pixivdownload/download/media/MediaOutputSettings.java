@@ -40,10 +40,10 @@ public class MediaOutputSettings {
         if (value < 0 || value > 16_383) throw new IllegalArgumentException("Invalid media maximum edge");
         maximumEdge = value;
     }
-    public static MediaOutputSettings fromJson(com.fasterxml.jackson.databind.JsonNode node) {
+    public static MediaOutputSettings fromJson(tools.jackson.databind.JsonNode node) {
         var settings = new MediaOutputSettings();
-        settings.setImageFormats(node.path("imageFormats").asText(DOWNLOAD_IMAGE_FORMATS));
-        settings.setUgoiraFormats(node.path("ugoiraFormats").asText(DOWNLOAD_UGOIRA_FORMATS));
+        settings.setImageFormats(node.path("imageFormats").asString(DOWNLOAD_IMAGE_FORMATS));
+        settings.setUgoiraFormats(node.path("ugoiraFormats").asString(DOWNLOAD_UGOIRA_FORMATS));
         settings.setQuality(readInteger(node.path("mediaQuality"), DOWNLOAD_MEDIA_QUALITY));
         settings.setMaximumEdge(readInteger(node.path("mediaMaximumEdge"), DOWNLOAD_MEDIA_MAXIMUM_EDGE));
         settings.setWebpLossless(node.hasNonNull("mediaWebpLossless")
@@ -51,13 +51,13 @@ public class MediaOutputSettings {
         return settings;
     }
 
-    public static int readInteger(com.fasterxml.jackson.databind.JsonNode value, int defaultValue) {
+    public static int readInteger(tools.jackson.databind.JsonNode value, int defaultValue) {
         if (value == null || value.isNull() || value.isMissingNode()) return defaultValue;
         if (!value.isIntegralNumber() || !value.canConvertToInt()) throw new IllegalArgumentException("Invalid media integer");
         return value.intValue();
     }
 
-    public static boolean readBoolean(com.fasterxml.jackson.databind.JsonNode value) {
+    public static boolean readBoolean(tools.jackson.databind.JsonNode value) {
         if (value == null || value.isNull() || value.isMissingNode()) return false;
         if (!value.isBoolean()) throw new IllegalArgumentException("Invalid media boolean");
         return value.booleanValue();

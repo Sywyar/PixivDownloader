@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.ai;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
@@ -53,8 +54,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Slf4j
 public class OpenAiCompatibleAiClient implements AiChatClient {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults()
+            .disable(tools.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
     private static final String MODELS_PATH = "/models";
@@ -239,7 +240,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
                         || !cursors.add(cursor) || response.data().isEmpty()) throw modelListFailure();
             }
             throw modelListFailure();
-        } catch (IOException | RestClientException | IllegalArgumentException e) {
+        } catch (JacksonException | IOException | RestClientException | IllegalArgumentException e) {
             throw modelListFailure();
         }
     }

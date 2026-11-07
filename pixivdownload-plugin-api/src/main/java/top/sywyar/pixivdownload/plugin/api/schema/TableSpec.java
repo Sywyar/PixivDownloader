@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
  * @param name 名称
  * @param columns 列集合
  * @param indexes 索引列表
- * @param checkExpression 已发布的旧 SQL 入口，由提供者校验支持范围，不保证跨引擎兼容；新声明使用 check
  * @param check 当前表的中性行约束；FALSE 拒绝写入，TRUE 或 NULL 接受
  * @param previousChecks owner 明确允许升级的旧行约束；仅用于匹配迁移源，不放宽当前约束
  * @param previousPrimaryKey 允许扩展的旧联合主键；新主键必须以它为前缀，新增键列须非空且有默认值
@@ -19,7 +18,6 @@ public record TableSpec(
         String name,
         List<ColumnSpec> columns,
         List<IndexSpec> indexes,
-        String checkExpression,
         Expression check,
         List<Expression> previousChecks,
         List<String> previousPrimaryKey
@@ -30,7 +28,6 @@ public record TableSpec(
      * @param name 名称
      * @param columns 列集合
      * @param indexes 索引列表
-     * @param checkExpression 检查表达式
      * @param check 中性行约束，不允许子查询、聚合、传入行或其它表引用
      * @param previousChecks 可迁入的旧中性行约束，缺省为空
      * @param previousPrimaryKey 可扩展的旧联合主键，缺省为空
@@ -49,24 +46,22 @@ public record TableSpec(
                     .anyMatch(c -> !c.notNull() || c.defaultValue() == null || c.autoIncrement()))
                 throw new IllegalArgumentException("STORAGE_PRIMARY_KEY_MIGRATION_INVALID");
         }
-        if (check != null && (checkExpression != null && !checkExpression.isBlank()
-                || !"BOOLEAN".equals(checkType(name, columns, check)))) throw invalidCheck();
+        if (check != null && !"BOOLEAN".equals(checkType(name, columns, check))) throw invalidCheck();
         if (!previousChecks.isEmpty() && check == null) throw invalidCheck();
         for (var previous : previousChecks)
             if (!"BOOLEAN".equals(checkType(name, columns, previous))) throw invalidCheck();
     }
 
-    /** 保留既有约束声明的构造入口。
+    /** 创建携带已知旧约束的声明。
      * @param name 表名
      * @param columns 列集合
      * @param indexes 索引集合
-     * @param checkExpression 旧 SQL 约束
      * @param check 当前中性约束
      * @param previousChecks 可迁入的旧中性约束
      */
     public TableSpec(String name, List<ColumnSpec> columns, List<IndexSpec> indexes,
-                     String checkExpression, Expression check, List<Expression> previousChecks) {
-        this(name, columns, indexes, checkExpression, check, previousChecks, List.of());
+                     Expression check, List<Expression> previousChecks) {
+        this(name, columns, indexes, check, previousChecks, List.of());
     }
 
     /** 在保留数据的调用方事务内扩展已知联合主键；提供者必须拒绝未知结构与受依赖约束阻止的变更。
@@ -74,40 +69,27 @@ public record TableSpec(
      * @return 携带升级声明的新表定义
      */
     public TableSpec withPreviousPrimaryKey(List<String> columns) {
-        return new TableSpec(name, this.columns, indexes, checkExpression, check, previousChecks, columns);
+        return new TableSpec(name, this.columns, indexes, check, previousChecks, columns);
     }
 
     /**
-     * 保留既有中性声明的二进制构造入口。
+     * 创建当前中性约束声明。
      * @param name 表名
      * @param columns 列集合
      * @param indexes 索引集合
-     * @param checkExpression 旧 SQL 表达式
-     * @param check 当前中性约束
+     * @param check 当前中性约束，没有约束时为 null
      */
-    public TableSpec(String name, List<ColumnSpec> columns, List<IndexSpec> indexes,
-                     String checkExpression, Expression check) {
-        this(name, columns, indexes, checkExpression, check, List.of());
+    public TableSpec(String name, List<ColumnSpec> columns, List<IndexSpec> indexes, Expression check) {
+        this(name, columns, indexes, check, List.of(), List.of());
     }
 
     /**
-     * 保留旧 SQL 声明的二进制调用入口；支持范围由提供者决定。
-     * @param name 表名
-     * @param columns 列集合
-     * @param indexes 索引集合
-     * @param checkExpression 提供者校验的旧表达式
-     */
-    public TableSpec(String name, List<ColumnSpec> columns, List<IndexSpec> indexes, String checkExpression) {
-        this(name, columns, indexes, checkExpression, null);
-    }
-
-    /**
-     * 返回携带中性约束的新声明；不会同时保留旧 SQL。
+     * 返回携带中性约束的新声明。
      * @param expression 当前表的中性行约束
      * @return 新声明
      */
     public TableSpec withCheck(Expression expression) {
-        return new TableSpec(name, columns, indexes, null, java.util.Objects.requireNonNull(expression), previousChecks, previousPrimaryKey);
+        return new TableSpec(name, columns, indexes, java.util.Objects.requireNonNull(expression), previousChecks, previousPrimaryKey);
     }
 
     /**
@@ -117,7 +99,7 @@ public record TableSpec(
      * @return 新声明
      */
     public TableSpec withPreviousChecks(List<Expression> expressions) {
-        return new TableSpec(name, columns, indexes, checkExpression, check, java.util.Objects.requireNonNull(expressions), previousPrimaryKey);
+        return new TableSpec(name, columns, indexes, check, java.util.Objects.requireNonNull(expressions), previousPrimaryKey);
     }
 
     private static String checkType(String table, List<ColumnSpec> columns, Expression expression) {

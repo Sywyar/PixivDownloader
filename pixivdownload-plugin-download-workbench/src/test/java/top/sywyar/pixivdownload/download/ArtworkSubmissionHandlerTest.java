@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,7 +22,7 @@ class ArtworkSubmissionHandlerTest {
         var executor = mock(ArtworkDownloadExecutor.class);
         var meta = new PixivFetchService.ArtworkMeta(1, "Manga", 1, false, 7L, "Author",
                 null, null, 2, 2, List.of(), "Description", null);
-        var raw = new ObjectMapper().readTree("{\"id\":\"42\",\"title\":\"Manga\"}");
+        var raw = JsonMapper.builderWithJackson2Defaults().build().readTree("{\"id\":\"42\",\"title\":\"Manga\"}");
         when(fetch.fetchArtworkMetaCapture("42", "credential")).thenReturn(new PixivFetchService.ArtworkMetaCapture(meta, raw));
         var urls = List.of("https://i.pximg.net/first.jpg", "https://i.pximg.net/second.jpg");
         when(fetch.resolveArtworkPages("42", "credential")).thenReturn(new PixivFetchService.ArtworkPages(urls, raw));

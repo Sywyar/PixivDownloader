@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.tools;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -48,7 +49,7 @@ final class ArtworksBackFillUnreachableStore {
             if (root == null || !root.isObject()) {
                 return store;
             }
-            Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+            Iterator<Map.Entry<String, JsonNode>> fields = root.properties().iterator();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> field = fields.next();
                 long id;
@@ -60,14 +61,14 @@ final class ArtworksBackFillUnreachableStore {
                     continue;
                 }
                 JsonNode value = field.getValue();
-                String reason = value.path("reason").asText("");
+                String reason = value.path("reason").asString("");
                 long firstSeenAt = value.path("firstSeenAt").asLong(0L);
                 long lastSeenAt = value.path("lastSeenAt").asLong(firstSeenAt);
                 int attempts = value.path("attempts").asInt(1);
                 store.entries.put(key(field.getKey().startsWith("novel:") ? WorkType.NOVEL : WorkType.ARTWORK, id),
                         new Entry(reason, firstSeenAt, lastSeenAt, attempts, value.path("restricted").asBoolean(false)));
             }
-        } catch (IOException e) {
+        } catch (JacksonException | IOException e) {
             log.warn(message("artworks-backfill.unreachable.load-failed", path, e.getMessage()));
         }
         return store;

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -192,7 +192,7 @@ class PluginReleaseScriptsTest {
     @DisplayName("市场清单身份字段从官方 descriptor/i18n 派生，curation 只保留市场专属字段")
     void marketIdentityMetadataIsCanonicalDescriptorDerived() throws Exception {
         String generator = script("generate-market-manifest.ps1");
-        JsonNode curation = new ObjectMapper().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
+        JsonNode curation = JsonMapper.builderWithJackson2Defaults().build().readTree(repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
         List<OfficialPlugin> officialPlugins = officialDistributionPlugins();
         Set<String> officialPluginIds = officialPluginIds();
 
@@ -273,12 +273,12 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("市场策展将通知与 PostHog 插件归为依赖、Compose 归为界面")
     void marketCurationClassifiesDependenciesAndUi() throws Exception {
-        JsonNode curation = new ObjectMapper().readTree(
+        JsonNode curation = JsonMapper.builderWithJackson2Defaults().build().readTree(
                 repoRoot().resolve("scripts").resolve("market-curation.json").toFile());
 
-        assertThat(curation.path("notification").path("category").asText()).isEqualTo("dependency");
-        assertThat(curation.path("posthog").path("category").asText()).isEqualTo("dependency");
-        assertThat(curation.path("gui-compose").path("category").asText()).isEqualTo("ui");
+        assertThat(curation.path("notification").path("category").asString()).isEqualTo("dependency");
+        assertThat(curation.path("posthog").path("category").asString()).isEqualTo("dependency");
+        assertThat(curation.path("gui-compose").path("category").asString()).isEqualTo("ui");
     }
 
     @Test
@@ -314,7 +314,7 @@ class PluginReleaseScriptsTest {
         String officialPom = Files.readString(
                 repoRoot().resolve("pixivdownload-official-plugins/pom.xml"), StandardCharsets.UTF_8);
         String common = script("plugin-distribution-common.ps1");
-        JsonNode curation = new ObjectMapper().readTree(
+        JsonNode curation = JsonMapper.builderWithJackson2Defaults().build().readTree(
                 repoRoot().resolve("scripts/market-curation.json").toFile());
 
         assertThat(rootPom).doesNotContain("<module>pixivdownload-plugin-douyin</module>");
@@ -740,17 +740,17 @@ class PluginReleaseScriptsTest {
     @Test
     @DisplayName("JavaScript 测试脚本覆盖所有模块测试且 YAML 解析器仅为开发依赖")
     void javascriptTestScriptsCoverAllModules() throws Exception {
-        JsonNode packageJson = new ObjectMapper().readTree(repoRoot().resolve("package.json").toFile());
+        JsonNode packageJson = JsonMapper.builderWithJackson2Defaults().build().readTree(repoRoot().resolve("package.json").toFile());
 
         assertThat(packageJson.path("private").asBoolean()).isTrue();
-        assertThat(packageJson.path("scripts").path("test:js").asText())
+        assertThat(packageJson.path("scripts").path("test:js").asString())
                 .isEqualTo("node --test \"pixivdownload-*/src/test/js/*.test.js\" "
                         + "\"plugin-templates/*/src/test/js/*.test.js\" "
                         + "\"scripts/ci/test/*.test.mjs\"");
-        assertThat(packageJson.path("scripts").path("test:web-standards").asText())
+        assertThat(packageJson.path("scripts").path("test:web-standards").asString())
                 .isEqualTo("node scripts/check-web-standards.mjs");
         assertThat(packageJson.has("dependencies")).isFalse();
-        assertThat(packageJson.path("devDependencies").path("yaml").asText())
+        assertThat(packageJson.path("devDependencies").path("yaml").asString())
                 .isNotBlank();
     }
 
@@ -824,13 +824,13 @@ class PluginReleaseScriptsTest {
                         + "$rows=@(New-InstallerCatalogProjectionRows -ManifestPath '" + psQuote(manifest)
                         + "' -Language 'en' -SdkVersion '1.0.0'); "
                         + "ConvertTo-Json -InputObject $rows -Depth 4 -Compress");
-        JsonNode rows = new ObjectMapper().readTree(rowsJson);
+        JsonNode rows = JsonMapper.builderWithJackson2Defaults().build().readTree(rowsJson);
         assertThat(rows.isArray()).isTrue();
         assertThat(rows.size()).isEqualTo(1);
-        assertThat(rows.get(0).path("PluginId").asText()).isEqualTo("optional-sample");
-        assertThat(rows.get(0).path("Version").asText()).isEqualTo("1.2.3");
-        assertThat(rows.get(0).path("DisplayName").asText()).isEqualTo("Optional Sample");
-        assertThat(rows.get(0).path("Summary").asText()).isEqualTo("Install on demand");
+        assertThat(rows.get(0).path("PluginId").asString()).isEqualTo("optional-sample");
+        assertThat(rows.get(0).path("Version").asString()).isEqualTo("1.2.3");
+        assertThat(rows.get(0).path("DisplayName").asString()).isEqualTo("Optional Sample");
+        assertThat(rows.get(0).path("Summary").asString()).isEqualTo("Install on demand");
 
         CommandResult failure = runPowerShellResult(
                 "$ErrorActionPreference='Stop'; "
@@ -887,15 +887,15 @@ class PluginReleaseScriptsTest {
         assertThat(stored.trustDecision().approvalType())
                 .isEqualTo(top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision.ApprovalType.EXACT_ARTIFACT);
 
-        JsonNode manifest = new ObjectMapper().readTree(
+        JsonNode manifest = JsonMapper.builderWithJackson2Defaults().build().readTree(
                 Files.readString(plugins.resolve("plugins-manifest.json"), StandardCharsets.UTF_8));
         JsonNode entry = manifest.isArray() ? manifest.get(0) : manifest;
-        assertThat(entry.path("id").asText()).isEqualTo("sample");
-        assertThat(entry.path("version").asText()).isEqualTo("1.0.0");
-        assertThat(entry.path("requires").asText()).isEqualTo("1.0");
-        assertThat(entry.path("file").asText()).isEqualTo("sample-module.jar");
-        assertThat(entry.path("source").asText()).isEqualTo("LOCAL_UPLOAD");
-        assertThat(entry.path("verification").asText()).isEqualTo("UNSIGNED_ALLOWED");
+        assertThat(entry.path("id").asString()).isEqualTo("sample");
+        assertThat(entry.path("version").asString()).isEqualTo("1.0.0");
+        assertThat(entry.path("requires").asString()).isEqualTo("1.0");
+        assertThat(entry.path("file").asString()).isEqualTo("sample-module.jar");
+        assertThat(entry.path("source").asString()).isEqualTo("LOCAL_UPLOAD");
+        assertThat(entry.path("verification").asString()).isEqualTo("UNSIGNED_ALLOWED");
 
         byte[] stagedArtifact = Files.readAllBytes(artifact);
         writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0", false);
@@ -1965,14 +1965,14 @@ class PluginReleaseScriptsTest {
     }
 
     private static List<OfficialPlugin> officialDistributionPlugins(String functionName) throws Exception {
-        JsonNode values = new ObjectMapper().readTree(runPowerShell(
+        JsonNode values = JsonMapper.builderWithJackson2Defaults().build().readTree(runPowerShell(
                 "$ErrorActionPreference='Stop'; "
                         + ". './scripts/plugin-distribution-common.ps1'; "
                         + "$items=@(" + functionName + "); "
                         + "ConvertTo-Json -InputObject $items -Depth 4 -Compress"));
         List<OfficialPlugin> plugins = new ArrayList<>();
         for (JsonNode value : values) {
-            plugins.add(new OfficialPlugin(value.path("Id").asText(), value.path("Module").asText()));
+            plugins.add(new OfficialPlugin(value.path("Id").asString(), value.path("Module").asString()));
         }
         assertThat(plugins).as("official plugins").isNotEmpty();
         assertThat(plugins).allSatisfy(plugin -> {
@@ -2083,14 +2083,14 @@ class PluginReleaseScriptsTest {
     }
 
     private static void assertTextField(JsonNode entry, String pluginId, String field) {
-        assertThat(entry.path(field).asText()).as("%s %s must not be blank", pluginId, field).isNotBlank();
+        assertThat(entry.path(field).asString()).as("%s %s must not be blank", pluginId, field).isNotBlank();
     }
 
     private static void assertLocalizedText(JsonNode entry, String pluginId, String field) {
         JsonNode localized = entry.path(field);
         assertThat(localized.isObject()).as("%s %s must be localized object", pluginId, field).isTrue();
-        assertThat(localized.path("zh").asText()).as("%s %s.zh must not be blank", pluginId, field).isNotBlank();
-        assertThat(localized.path("en").asText()).as("%s %s.en must not be blank", pluginId, field).isNotBlank();
+        assertThat(localized.path("zh").asString()).as("%s %s.zh must not be blank", pluginId, field).isNotBlank();
+        assertThat(localized.path("en").asString()).as("%s %s.en must not be blank", pluginId, field).isNotBlank();
     }
 
     private static Path repoRoot() {

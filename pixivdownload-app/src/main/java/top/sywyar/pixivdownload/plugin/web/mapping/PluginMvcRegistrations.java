@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.mapping;
 
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcRegistrations;
+import org.springframework.boot.webmvc.autoconfigure.WebMvcRegistrations;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginControllerRegistrar;

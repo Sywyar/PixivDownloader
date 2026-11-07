@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.sdk.community.candidate;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 import top.sywyar.pixivdownload.sdk.community.project.PluginProjectLocator;
@@ -35,7 +35,7 @@ public final class CandidateCommand {
                 if (!input.path("outputs").isArray() || !input.path("runAttempt").isIntegralNumber()) throw new ContractException("CANDIDATE_INVALID", "");
                 yield SourceCandidate.create(Path.of(text(input, "gitRoot")),
                         new BuildProfile(text(p, "id"), text(p, "projectDir"), text(p, "artifactPath")),
-                        StreamSupport.stream(input.get("outputs").spliterator(), false).map(JsonNode::textValue).toList(),
+                        StreamSupport.stream(input.get("outputs").spliterator(), false).map(JsonNode::stringValue).toList(),
                         text(input, "modelVersion"), text(input, "repositoryId"), text(input, "repository"), text(input, "sourceCommit"),
                         text(input, "runId"), input.get("runAttempt").longValue(), Path.of(text(input, "destination")));
             }
@@ -45,7 +45,7 @@ public final class CandidateCommand {
     }
 
     private static String text(JsonNode input, String field) {
-        if (input == null || !input.path(field).isTextual()) throw new ContractException("CANDIDATE_INVALID", "/" + field);
-        return input.get(field).textValue();
+        if (input == null || !input.path(field).isString()) throw new ContractException("CANDIDATE_INVALID", "/" + field);
+        return input.get(field).stringValue();
     }
 }

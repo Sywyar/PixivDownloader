@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.push.channel.webhook;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.push.OutboundRequest;
@@ -29,7 +30,7 @@ import java.util.List;
 @Component
 public class WebhookPushChannel implements PushChannel {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String DEFAULT_TEMPLATE = "{\"title\":\"{{title}}\",\"content\":\"{{content}}\"}";
     private static final String PLACEHOLDER_TITLE = "{{title}}";
     private static final String PLACEHOLDER_CONTENT = "{{content}}";

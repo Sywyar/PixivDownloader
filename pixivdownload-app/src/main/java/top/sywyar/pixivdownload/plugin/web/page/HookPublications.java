@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.web.page;
 import java.io.IOException;
 import java.util.*;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.plugin.api.operation.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationHookCapabilityAdapter;
@@ -236,13 +237,13 @@ public final class HookPublications {
                 binding.endpoint().isEmpty() ? binding.operation() : binding.endpoint(), "");
     }
 
-    private void addComponents(com.fasterxml.jackson.databind.JsonNode node, EditablePage page, List<PageInteraction.Action> actions, List<OperationBinding> bindings, int depth) {
+    private void addComponents(tools.jackson.databind.JsonNode node, EditablePage page, List<PageInteraction.Action> actions, List<OperationBinding> bindings, int depth) {
         if (depth > 24) throw invalid("PAGE_DOCUMENT_BUDGET");
-        if (node.path("type").asText().equals("page-component")) {
-            var component = pages.components().stream().filter(value -> value.definition().type().equals(node.path("componentType").asText()))
+        if (node.path("type").asString().equals("page-component")) {
+            var component = pages.components().stream().filter(value -> value.definition().type().equals(node.path("componentType").asString()))
                     .findFirst().map(PageCatalog.AvailableComponent::definition).orElse(null);
             if (component != null && component.participation() != null) {
-                var target = page.targets().stream().filter(value -> value.id().equals(node.path("target").asText()))
+                var target = page.targets().stream().filter(value -> value.id().equals(node.path("target").asString()))
                         .findFirst().orElseThrow(() -> invalid("PAGE_BINDING_INVALID"));
                 var action = actions.stream().filter(value -> value.id().equals(target.id())).findFirst().orElse(null);
                 String endpoint = action == null ? "" : action.endpoint();
@@ -280,7 +281,7 @@ public final class HookPublications {
     private static boolean same(String a, String b) throws IOException { return JSON.readTree(a).equals(JSON.readTree(b)); }
     private static String contract(Object value) {
         try { return hash(JSON.writeValueAsBytes(value)); }
-        catch (IOException failure) { throw invalid("PAGE_HOOK_CONTRACT_INVALID"); }
+        catch (JacksonException failure) { throw invalid("PAGE_HOOK_CONTRACT_INVALID"); }
     }
     private static IllegalArgumentException invalid(String code) { return new IllegalArgumentException(code); }
 }

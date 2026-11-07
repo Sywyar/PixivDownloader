@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.push.channel;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpEntity;
@@ -36,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("推送通道凭证脱敏")
 class PushChannelSecretRedactionTest {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
     private static final RenderedMessage MESSAGE = new RenderedMessage(
             "标题", "正文", PushFormat.PLAIN_TEXT, NotificationSeverity.INFO);
 
@@ -70,7 +71,7 @@ class PushChannelSecretRedactionTest {
                 new FeishuSettings("FEISHU-WEBHOOK-KEY-1234", secret, false), MESSAGE);
 
         JsonNode requestBody = JSON.readTree(transport.body());
-        String sign = requestBody.path("sign").asText();
+        String sign = requestBody.path("sign").asString();
         assertThat(sign).isNotBlank();
         assertThat(result.detail()).contains("***")
                 .doesNotContain(secret, sign);

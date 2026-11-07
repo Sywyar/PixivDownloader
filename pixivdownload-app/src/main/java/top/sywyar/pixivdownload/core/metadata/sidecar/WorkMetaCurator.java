@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.core.metadata.sidecar;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -60,7 +60,7 @@ public class WorkMetaCurator {
                 || !snapshot.path("schemaVersion").isIntegralNumber()
                 || !snapshot.path("schemaVersion").canConvertToInt()
                 || snapshot.path("schemaVersion").asInt() != SCHEMA_VERSION
-                || !type.name().equals(snapshot.path("workType").asText())
+                || !type.name().equals(snapshot.path("workType").asString())
                 || !snapshot.path("workId").isIntegralNumber()
                 || !snapshot.path("workId").canConvertToLong()
                 || snapshot.path("workId").asLong() != id
@@ -69,15 +69,15 @@ public class WorkMetaCurator {
                 || estimateBytes(snapshot) > MAX_DOCUMENT_BYTES) {
             throw new IllegalArgumentException("INVALID_WORK_METADATA");
         }
-        if (!snapshot.path("source").isTextual() || snapshot.path("source").textValue().length() > MAX_TEXT_FIELD
-                || !snapshot.path("fetchedAt").isTextual()) throw new IllegalArgumentException("INVALID_METADATA_SOURCE");
-        try { Instant.parse(snapshot.path("fetchedAt").textValue()); }
+        if (!snapshot.path("source").isString() || snapshot.path("source").stringValue().length() > MAX_TEXT_FIELD
+                || !snapshot.path("fetchedAt").isString()) throw new IllegalArgumentException("INVALID_METADATA_SOURCE");
+        try { Instant.parse(snapshot.path("fetchedAt").stringValue()); }
         catch (java.time.format.DateTimeParseException invalid) { throw new IllegalArgumentException("INVALID_METADATA_TIME"); }
         JsonNode raw = snapshot.path("raw");
-        if (raw.has("id") && !Long.toString(id).equals(raw.path("id").asText())) {
+        if (raw.has("id") && !Long.toString(id).equals(raw.path("id").asString())) {
             throw new IllegalArgumentException("WORK_METADATA_ID_MISMATCH");
         }
-        ObjectNode document = snapshot.deepCopy();
+        ObjectNode document = ((ObjectNode) snapshot).deepCopy();
         ObjectNode pruned = prune(raw, COMMON_STRIP);
         if (type == WorkType.NOVEL) NOVEL_EXTRA_STRIP.forEach(pruned::remove);
         document.set("raw", pruned);
@@ -169,7 +169,7 @@ public class WorkMetaCurator {
         if (body == null || !body.isObject()) {
             return objectMapper.createObjectNode();
         }
-        ObjectNode copy = body.deepCopy();
+        ObjectNode copy = ((ObjectNode) body).deepCopy();
         stripKeys.forEach(copy::remove);
         return copy;
     }
@@ -183,7 +183,7 @@ public class WorkMetaCurator {
             ObjectNode p = pages.addObject();
             p.put("width", page.path("width").asInt(0));
             p.put("height", page.path("height").asInt(0));
-            String original = page.path("urls").path("original").asText("");
+            String original = page.path("urls").path("original").asString("");
             if (!original.isEmpty()) {
                 p.put("original", original);
             }
@@ -211,7 +211,7 @@ public class WorkMetaCurator {
         if (comment == null) {
             return;
         }
-        String description = body.path("description").asText("");
+        String description = body.path("description").asString("");
         if (!comment.equals(description)) {
             normalized.put("illustComment", truncate(comment));
         }
@@ -246,8 +246,8 @@ public class WorkMetaCurator {
         if (node.isNumber()) {
             return normalizeEpochMillis(node.asLong());
         }
-        if (node.isTextual()) {
-            String text = node.asText("").trim();
+        if (node.isString()) {
+            String text = node.asString("").trim();
             if (text.isEmpty()) {
                 return null;
             }
@@ -283,7 +283,7 @@ public class WorkMetaCurator {
         if (node.isMissingNode() || node.isNull()) {
             return null;
         }
-        String text = node.asText("");
+        String text = node.asString("");
         return text.isEmpty() ? null : text;
     }
 

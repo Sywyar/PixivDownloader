@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.persistence;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ScheduleWorkPersistenceCodecTest {
 
     private final ScheduleWorkPersistenceCodec codec =
-            new ScheduleWorkPersistenceCodec(new ObjectMapper());
+            new ScheduleWorkPersistenceCodec(JsonMapper.builderWithJackson2Defaults().build());
 
     @Test
     @DisplayName("不透明 ID 按字符串原样往返")
@@ -305,7 +305,7 @@ class ScheduleWorkPersistenceCodecTest {
     void acceptsRedactedDetail() throws Exception {
         String redacted = ScheduleCredentialRedactor.redact(
                 "Authorization: Bearer pending-secret token: second-secret");
-        String detailJson = new ObjectMapper().writeValueAsString(Map.of("message", redacted));
+        String detailJson = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(Map.of("message", redacted));
 
         ScheduledPendingWork pending = codec.toPendingWork(
                 1L, work("example.work", "id-detail", "{}"),

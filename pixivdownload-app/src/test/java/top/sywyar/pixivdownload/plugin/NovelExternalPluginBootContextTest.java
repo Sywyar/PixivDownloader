@@ -33,7 +33,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
-
+import tools.jackson.databind.json.JsonMapper;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
@@ -390,7 +390,7 @@ class NovelExternalPluginBootContextTest {
                             .content("{\"ids\":[732],\"format\":\"zip\",\"groupBy\":\"id\",\"variant\":\"zh-CN@youdao\"}"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                     .andReturn().getResponse().getContentAsString();
-            String token = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response).get("archiveToken").asText();
+            String token = JsonMapper.builderWithJackson2Defaults().build().readTree(response).get("archiveToken").asString();
             var archives = applicationContext.getBean(top.sywyar.pixivdownload.quota.UserQuotaService.class);
             try {
                 long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
@@ -569,15 +569,15 @@ class NovelExternalPluginBootContextTest {
             }
             translationServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             translationServer.createContext("/translate", exchange -> {
-                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var mapper = JsonMapper.builderWithJackson2Defaults().build();
                 var query = mapper.readTree(exchange.getRequestBody()).path("q");
                 translationRequests.incrementAndGet();
                 Object translated;
                 if (query.isArray()) {
                     var values = new java.util.ArrayList<String>();
-                    query.forEach(text -> values.add("translated:" + text.asText()));
+                    query.forEach(text -> values.add("translated:" + text.asString()));
                     translated = values;
-                } else translated = "translated:" + query.asText();
+                } else translated = "translated:" + query.asString();
                 byte[] response = mapper.writeValueAsBytes(Map.of("translatedText", translated));
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, response.length);

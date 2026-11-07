@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.download;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -21,7 +21,7 @@ class NovelSubmissionHandlerTest {
     void fetchesContentAndRejectsInjectedOptions() {
         var client = mock(PixivAjaxClient.class);
         var downloads = mock(NovelDownloadService.class);
-        var handler = new NovelSubmissionHandler(client, new ObjectMapper(), downloads);
+        var handler = new NovelSubmissionHandler(client, JsonMapper.builderWithJackson2Defaults().build(), downloads);
         var uri = URI.create("https://www.pixiv.net/ajax/novel/42?lang=zh");
         when(client.get(uri, "credential")).thenReturn("""
                 {"error":false,"body":{"id":"42","title":"Story","content":"Text","userId":"7","userName":"Author"}}
