@@ -238,7 +238,9 @@ export async function checkEvent({ repo, event, eventName, core, api = github })
                 conclusion: run.status === 'completed' ? 'failure' : null };
         }
         const evidence = await inspectRun({ repo, runId: run.id, api, core });
-        assertCurrentEvidence(evidence, api, core);
+        if (assertCurrentEvidence(evidence, api, core) === null) {
+            return { ignored: true, reason: 'PR merged with the verified parents and tree', runId: run.id };
+        }
         return evidence;
     }
     if (eventName !== 'push' || event.ref !== 'refs/heads/master') fail('unsupported check event');
@@ -279,10 +281,11 @@ export function assertCurrentEvidence(evidence, api = github, core) {
     const run = readRun(evidence.runId, api);
     assertRun(run);
     const pr = api(`${PREFIX}/pulls/${integer(evidence.pullRequest)}`);
+    const merged = pr.state === 'closed' && pr.merged === true && Boolean(pr.merged_at);
     const status = run.status === 'completed' ? 'completed' : 'in_progress';
     const conclusion = status === 'completed' ? (run.conclusion === 'success' ? 'success' : 'failure') : null;
-    if (pr.number !== evidence.pullRequest || pr.state !== 'open' || pr.base?.repo?.id !== REPO_ID || pr.base?.ref !== 'master'
-        || pr.base?.sha !== evidence.base || pr.head?.sha !== evidence.head
+    if (pr.number !== evidence.pullRequest || (pr.state !== 'open' && !merged) || pr.base?.repo?.id !== REPO_ID || pr.base?.ref !== 'master'
+        || (!merged && pr.base?.sha !== evidence.base) || pr.head?.sha !== evidence.head
         || pr.head?.repo?.id !== run.head_repository?.id || pr.head?.ref !== run.head_branch
         || pullRequestNumber(run) !== evidence.pullRequest || run.run_attempt !== evidence.attempt || run.head_sha !== evidence.head
         || evidence.status !== status || evidence.conclusion !== conclusion) {
@@ -290,21 +293,22 @@ export function assertCurrentEvidence(evidence, api = github, core) {
     }
     assertLatestPullRequestRun(run, evidence.pullRequest, api);
     const currentMerge = sha(pr.merge_commit_sha);
-    if (currentMerge !== evidence.merge) {
+    if (merged || currentMerge !== evidence.merge) {
         if (evidence.conclusion !== 'success' || !core) fail('changed PR merge needs protected execution evidence');
         const merge = api(`${PREFIX}/git/commits/${currentMerge}`);
         if (core.verifyIntegratedTree(evidence, merge) !== currentMerge) fail('PR merge response has a different identity');
     }
-    return currentMerge;
+    // 合并后 base.sha 可随主线推进；实际 C 的双亲和树仍须由受保护核心核对。
+    return merged ? null : currentMerge;
 }
 
 export function publishCurrentChecks(evidence, token, core, api = github) {
-    assertCurrentEvidence(evidence, api, core);
+    if (assertCurrentEvidence(evidence, api, core) === null) return false;
     // 原被测 M 保留复验证据；PR 的原生检查关联使用稳定的 head，临时 M 可被 GitHub 重建。
     const targets = [...new Set([evidence.merge, evidence.head])];
     try {
         for (const target of targets) publishChecks(evidence, token, api, target);
-        assertCurrentEvidence(evidence, api, core);
+        return assertCurrentEvidence(evidence, api, core) !== null;
     } catch (error) {
         // 多次 API 写入并非原子操作；重跑、更新或部分写入失败时撤销本轮全部目标的成功。
         let revokeError;
@@ -354,7 +358,10 @@ async function main() {
     if (process.argv.includes('--publish')) {
         if (evidence.ignored) { console.log(JSON.stringify(evidence)); return; }
         if (process.env.GITHUB_EVENT_NAME !== 'workflow_run' || !evidence.merge) fail('master verification does not publish checks');
-        publishCurrentChecks(evidence, process.env.GATE_APP_TOKEN, core);
+        if (!publishCurrentChecks(evidence, process.env.GATE_APP_TOKEN, core)) {
+            console.log(JSON.stringify({ ignored: true, reason: 'PR merged with the verified parents and tree', runId: evidence.runId }));
+            return;
+        }
     }
     console.log(JSON.stringify(evidence));
 }
