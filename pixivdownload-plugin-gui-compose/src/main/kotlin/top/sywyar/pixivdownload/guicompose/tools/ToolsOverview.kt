@@ -88,12 +88,8 @@ internal fun ToolsOverview(
     }
     val activity = node.activity()
     val runningActivity = activity?.takeIf { it.running() }
-    val activeMedia = (listOf(node.media()) + mediaTools).mapNotNull { tool ->
-        descendants(tool).filterIsInstance<Progress>().firstOrNull()?.let { tool to it }
-    }
-    val activeImports = fileImports.mapNotNull { tool ->
-        descendants(tool).filterIsInstance<Progress>().firstOrNull()?.let { tool to it }
-    }
+    val activeMedia = activeToolProgress(sequenceOf(node.media()) + mediaTools.asSequence()).toList()
+    val activeImports = activeToolProgress(fileImports.asSequence()).toList()
     val mediaProgress = activeMedia.firstOrNull()?.second
     if (selectedImport != null) {
         FileImportWorkspace(selectedImport, text, emit, { selected = null }, modifier)
@@ -254,6 +250,15 @@ internal fun ToolsOverview(
         }
     }
 }
+
+private fun activeToolProgress(nodes: Sequence<DesktopUiNode>) =
+    nodes.filterIsInstance<Group>().mapNotNull { tool ->
+        descendants(tool).filterIsInstance<Progress>().firstOrNull()?.let { tool to it }
+    }
+
+internal fun DesktopUiNode.ToolsOverview.runningTaskCount(): Int =
+    (if (activity()?.running() == true) 1 else 0) +
+        activeToolProgress(sequenceOf(media()) + mediaTools().asSequence() + fileImports().asSequence()).count()
 
 internal fun workspaceText(text: (TextToken) -> String, key: String): String =
     text(TextToken("gui-compose", "gui.compose.tools.workspace.$key", "", emptyList()))

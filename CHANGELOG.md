@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- Compose 左侧工具入口显示运行任务数量，并沿边框显示滚动线段；任务结束后自动隐藏。
 - 插件管理与市场页精简重复信息，通用说明按需展开；没有插件更新时隐藏更新横幅。
 - 发行包默认使用 JVM 启动缓存；Java 分发包通过启动脚本在首次正常退出后生成缓存，应用、Java 环境或 JVM 参数变化时重建。
 - 宿主、官方插件和 SDK 统一使用 Java 25、Spring Boot 4 和 SDK 2.x；SDK 1.x 插件需迁移并重新构建，安装和启动时会明确拒绝不兼容包。
