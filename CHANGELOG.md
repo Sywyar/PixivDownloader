@@ -59,6 +59,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复启用应用代理时，Fake-IP DNS 导致官方更新检查与安装包下载被误拦截的问题。
+
 - 修复油猴脚本从非默认端口安装后仍默认连接 6999 的问题，保留用户已保存的连接地址。
 - 修复两版下载页导入 Netscape 格式 Cookie 时丢失换行或遗漏 HttpOnly 登录字段的问题。
 - 修复 Windows 上动图处理结束后偶发遗留临时帧目录的问题；清理仍失败时记录告警，保留已保存的作品文件。

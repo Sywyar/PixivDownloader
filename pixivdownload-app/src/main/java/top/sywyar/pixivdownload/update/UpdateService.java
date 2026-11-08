@@ -14,9 +14,6 @@ import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
-import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
-import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
@@ -37,7 +34,6 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -86,11 +82,6 @@ public class UpdateService {
     private static final long MAX_INSTALLER_BYTES = 500L * 1024L * 1024L;
     /** 静默检查的最小间隔：24 小时。 */
     private static final long AUTO_CHECK_MIN_INTERVAL_MS = 24L * 3600L * 1000L;
-    private static final PluginRepository UPDATE_REPOSITORY = new PluginRepository(
-            "official-update", "", UpdateConfig.DEFAULT_MANIFEST_URL,
-            true, true, true, RepositoryProxyPolicy.CUSTOM, RepositoryProxyPolicy.CUSTOM.configId(),
-            true, true, false, true,
-            30_000, 60_000, MAX_MANIFEST_BYTES, MAX_INSTALLER_BYTES, List.of());
 
     /**
      * 用于从已验签的原始 manifest 字节反序列化。未知字段仅用于向后兼容，不绕过必填字段校验。
@@ -102,7 +93,7 @@ public class UpdateService {
     private final AppMessages messages;
     private final PluginSupplyChainVerifier manifestVerifier;
     private final Path trustStatePath;
-    private final PluginCatalogClientProvider httpClientProvider;
+    private final UpdateHttpClientProvider httpClientProvider;
 
     /**
      * 最近一次安装包下载的进度；null 表示尚未发起下载。
@@ -122,7 +113,7 @@ public class UpdateService {
     @Autowired
     public UpdateService(UpdateConfig updateConfig,
                          AppMessages messages,
-                         PluginCatalogClientProvider httpClientProvider) {
+                         UpdateHttpClientProvider httpClientProvider) {
         this(updateConfig, messages,
                 updateManifestVerifier(), RuntimeFiles.resolveUpdateTrustStatePath(), httpClientProvider);
     }
@@ -135,7 +126,7 @@ public class UpdateService {
                   AppMessages messages,
                   PluginSupplyChainVerifier manifestVerifier,
                   Path trustStatePath,
-                  PluginCatalogClientProvider httpClientProvider) {
+                  UpdateHttpClientProvider httpClientProvider) {
         this.updateConfig = updateConfig;
         this.messages = messages;
         this.manifestVerifier = manifestVerifier;
@@ -297,7 +288,7 @@ public class UpdateService {
     private byte[] fetchBounded(String url, long maxBytes, boolean signature) throws IOException {
         byte[] body;
         try {
-            body = httpClientProvider.clientFor(UPDATE_REPOSITORY).fetchBytes(url.trim(), maxBytes);
+            body = httpClientProvider.clientFor(url).fetchBytes(url.trim(), maxBytes);
         } catch (PluginCatalogException e) {
             throw UpdateCheckException.classify(e, signature);
         }
@@ -555,7 +546,7 @@ public class UpdateService {
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
 
         try {
-            httpClientProvider.clientFor(UPDATE_REPOSITORY).streamToFile(url, MAX_INSTALLER_BYTES, tmp,
+            httpClientProvider.clientFor(url).streamToFile(url, MAX_INSTALLER_BYTES, tmp,
                     received -> currentDownloadProgress = new DownloadProgress(
                             received, declaredSize, false, false, null, null));
         } catch (PluginCatalogException e) {
