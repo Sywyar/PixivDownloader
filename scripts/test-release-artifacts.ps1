@@ -237,10 +237,10 @@ function Test-ApplicationLayout {
     param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot,
         [switch]$AdverseScenarios)
     if ($null -eq $script:ReleaseTools) {
-        $jar = if (Test-Path -LiteralPath (Join-Path $Root 'app') -PathType Container) {
-            Join-Path $Root "app/PixivDownload-$Version.jar"
-        } else {
+        $jar = if (Test-Path -LiteralPath (Join-Path $Root "PixivDownload-$Version.jar") -PathType Leaf) {
             Join-Path $Root "PixivDownload-$Version.jar"
+        } else {
+            Join-Path $Root "app/PixivDownload-$Version.jar"
         }
         $jar = Resolve-RequiredFile $jar "$Label application JAR"
         $script:ReleaseTools = Initialize-ReleaseProbe -ApplicationJar $jar -Destination (Join-Path $context.Session 'probe-tools')

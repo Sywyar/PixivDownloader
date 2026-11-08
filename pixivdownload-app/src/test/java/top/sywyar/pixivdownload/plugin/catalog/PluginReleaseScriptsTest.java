@@ -513,8 +513,8 @@ class PluginReleaseScriptsTest {
         assertThat(inno).doesNotContain("ParsePluginCatalogOutput");
         assertThat(inno).doesNotContain("LoadStringsFromFile(OutputPath");
         assertThat(inno).doesNotContain("solidbreak");
-        assertThat(inno).doesNotContain("SetTimer@user32.dll");
-        assertThat(inno).doesNotContain("KillTimer@user32.dll");
+        assertThat(inno).contains("PreviewSetTimer(PreviewTableHost.Handle, 1, 25, 0)");
+        assertThat(inno).contains("PreviewKillTimer(PreviewTableHost.Handle, 1)");
         assertThat(inno).doesNotContain("StartPluginCatalogTimer");
         assertThat(inno).doesNotContain("PluginCatalogTimerProc");
         assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogTimerProc)");
@@ -1175,7 +1175,7 @@ class PluginReleaseScriptsTest {
         String distribution = script("assemble-plugin-distribution.ps1");
 
         assertThat(distribution).contains(
-                "Writing launch scripts",
+                "Preparing extracted application and launch scripts",
                 "$coreJarName = \"PixivDownload-$Version.jar\"",
                 "$runBat = $runBat.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
                 "$runSh = $runSh.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
@@ -1193,7 +1193,7 @@ class PluginReleaseScriptsTest {
                 "set \"APP_HOME=%~dp0\"",
                 "cd /d \"%APP_HOME%\" || exit /b 1",
                 "\"-Dpixivdownload.plugins-dir=%APP_HOME%plugins\"",
-                "\"%APP_HOME%PixivDownload-VERSION.jar\" %*")
+                "\"%APP_HOME%app\\PixivDownload-VERSION.jar\" top.sywyar.pixivdownload.startup.DistributionLauncher run %*")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
         // run.sh 契约：#!/usr/bin/env sh / 自解析目录 / plugins-dir / 精确 JAR 名 / "$@" / exec。
         Matcher runSh = Pattern.compile("#!/usr/bin/env sh(?<body>.*?\"\\$@\")", Pattern.DOTALL)
@@ -1204,7 +1204,8 @@ class PluginReleaseScriptsTest {
                 "APP_HOME=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)",
                 "cd \"$APP_HOME\"",
                 "\"-Dpixivdownload.plugins-dir=$APP_HOME/plugins\"",
-                "\"$APP_HOME/PixivDownload-VERSION.jar\" \\",
+                "\"$APP_HOME/app/PixivDownload-VERSION.jar\" \\",
+                "top.sywyar.pixivdownload.startup.DistributionLauncher run \\",
                 "\"$@\"")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
     }
@@ -1363,7 +1364,7 @@ class PluginReleaseScriptsTest {
 
         assertThat(dockerfile).contains(
                 "ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader",
-                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/app/ app/",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS",

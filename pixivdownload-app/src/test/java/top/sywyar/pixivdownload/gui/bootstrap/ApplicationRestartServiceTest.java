@@ -103,6 +103,18 @@ class ApplicationRestartServiceTest {
     }
 
     @Test
+    @DisplayName("AOT 分发重启重新校验缓存，不继承上次录制输出")
+    void distributionRestartReentersCacheOwner() {
+        assertThat(ApplicationRestartService.restartCommand("java", List.of("--server.port=7001"),
+                List.of(top.sywyar.pixivdownload.startup.DistributionLauncher.JVM_MARKER,
+                        "-XX:AOTMode=record", "-XX:AOTConfiguration=recording.aot.config",
+                        "-XX:AOTCacheOutput=recording.aot", "-Dfile.encoding=UTF-8"), null, "app path/application.jar"))
+                .containsExactly("java", top.sywyar.pixivdownload.startup.DistributionLauncher.JVM_MARKER,
+                        "-Dfile.encoding=UTF-8", "-cp", "app path/application.jar",
+                        "top.sywyar.pixivdownload.startup.DistributionLauncher", "run", "--server.port=7001");
+    }
+
+    @Test
     @DisplayName("重启端点拒绝非本地来源，创建进程失败不能返回成功")
     void endpointReportsRestartAdmission() {
         var service = mock(ApplicationRestartService.class);

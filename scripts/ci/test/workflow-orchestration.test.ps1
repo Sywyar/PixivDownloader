@@ -342,10 +342,13 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             [IO.Directory]::CreateDirectory($DestinationPath) | Out-Null
             [IO.File]::WriteAllText((Join-Path $DestinationPath 'run.bat'), 'fixture')
             [IO.File]::WriteAllText((Join-Path $DestinationPath "PixivDownload-$Version.jar"), 'fixture')
+            [IO.Directory]::CreateDirectory((Join-Path $DestinationPath 'app')) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $DestinationPath "app/PixivDownload-$Version.jar"), 'extracted fixture')
         }
         function Initialize-ReleaseProbe {
             param($ApplicationJar, $Destination)
             if (-not (Test-Path -LiteralPath $ApplicationJar -PathType Leaf)) { throw 'Missing application API input.' }
+            Assert-Equal ([IO.File]::ReadAllText($ApplicationJar)) 'fixture'
             $script:probes.Add($ApplicationJar)
             return @{ Agent = 'fixture'; Fixture = 'fixture' }
         }
@@ -1048,7 +1051,7 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
             $scripts = Join-Path $root 'scripts'
             [IO.Directory]::CreateDirectory($scripts) | Out-Null
             foreach ($name in @('package-local.ps1', 'plugin-distribution-common.ps1', 'ffmpeg-release-integrity.ps1',
-                    'package-local-plugin-staging.ps1', 'package-local-installer-catalog.ps1')) {
+                    'package-local-plugin-staging.ps1', 'package-local-installer-catalog.ps1', 'distribution-aot.ps1')) {
                 Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
             }
             $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'

@@ -457,10 +457,23 @@ function Write-UnsignedLocalPluginProvenanceSidecar {
 function Assert-NoPrivateKeyMaterial {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return }
-    $hits = Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
-        Select-String -SimpleMatch "BEGIN PRIVATE KEY" -List -ErrorAction SilentlyContinue
-    if ($hits) {
-        throw "Private key material found under output directory: $($hits[0].Path)"
+    $header = '-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----'
+    $buffer = New-Object char[] 16384
+    foreach ($file in Get-ChildItem -LiteralPath $Path -Recurse -File) {
+        $reader = [IO.StreamReader]::new($file.FullName, [Text.Encoding]::UTF8, $true)
+        try {
+            $tail = ''
+            while (($count = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $text = $tail + [string]::new($buffer, 0, $count)
+                if ($text -match ($header + '[\sA-Za-z0-9+/=]')) {
+                    throw "Private key material found under output directory: $($file.FullName)"
+                }
+                $tail = $text.Substring([Math]::Max(0, $text.Length - 128))
+            }
+            if ($tail -match ($header + '$')) {
+                throw "Private key material found under output directory: $($file.FullName)"
+            }
+        } finally { $reader.Dispose() }
     }
 }
 

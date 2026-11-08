@@ -456,9 +456,33 @@ try {
         await page.locator('#to').selectOption(await page.locator('#to option').nth(2).getAttribute('value'));
         await page.locator('#connect button').click();
         await page.waitForFunction(() => document.querySelectorAll('#connections > p').length === 2);
-        await selectLayer('page-box', 'header');
-        await page.locator('.gjs-sm-property__padding-top input').fill('20');
-        await page.locator('.gjs-sm-property__padding-top input').press('Tab');
+        await page.locator('#structure-tab').click();
+        const headerStyle = await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0];
+            const header = editor.getWrapper().findType('page-box').find(model => model.get('role') === 'header');
+            const selection = document.getElementById('selection');
+            selection.value = header.getId(); selection.dispatchEvent(new Event('change', {bubbles: true}));
+            // 同一任务内选择并输入，避免延后刷新的 StyleManager 掩盖旧目标。
+            const input = document.querySelector('.gjs-sm-property__padding-top input');
+            input.value = '20'; input.dispatchEvent(new Event('change', {bubbles: true}));
+            return {expected: header.getId(), actual: editor.StyleManager.getSelected()?.getComponent()?.getId()
+                || editor.StyleManager.getSelected()?.getId()};
+        });
+        assert.equal(headerStyle.actual, headerStyle.expected, 'style controls immediately follow the selected component');
+        const viewportStyle = await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0], viewport = document.getElementById('viewport');
+            viewport.value = 'Mobile'; viewport.dispatchEvent(new Event('change', {bubbles: true}));
+            const input = document.querySelector('.gjs-sm-property__padding-top input');
+            input.value = '31'; input.dispatchEvent(new Event('change', {bubbles: true}));
+            const mobile = editor.StyleManager.getSelected();
+            const result = {media: mobile.get('mediaText'), padding: mobile.getStyle().padding};
+            viewport.value = 'Desktop'; viewport.dispatchEvent(new Event('change', {bubbles: true}));
+            result.desktop = editor.StyleManager.getSelected().getStyle().padding;
+            return result;
+        });
+        assert.match(viewportStyle.media, /640/);
+        assert.match(viewportStyle.padding, /^31px(?: |$)/);
+        assert.match(viewportStyle.desktop, /^20px(?: |$)/, 'viewport changes must not overwrite desktop styles');
         await selectLayer('page-box', 'footer');
         await page.locator('#add-tab').click();
         await page.getByRole('button', {name: 'Link', exact: true}).press('Enter');

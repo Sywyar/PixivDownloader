@@ -129,6 +129,8 @@ public final class RuntimeFiles {
         return resolveDirectory(STATE_DIR_PROPERTY, DEFAULT_STATE_DIR);
     }
 
+    public static Path aotCacheDirectory() { return stateDirectory().resolve("aot"); }
+
     public static Path resolvePluginStateDirectory(String pluginId) {
         return resolvePluginDirectory(stateDirectory(), pluginId);
     }

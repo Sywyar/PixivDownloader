@@ -34,6 +34,28 @@ function Assert-Archive([string]$Path, [string]$Directory, [string]$Prefix = '')
 }
 
 try {
+    & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $scanRoot = Join-Path $fixture 'private-key-scan'
+        $sample = Join-Path $scanRoot 'application.aot'
+        $header = '-----BEGIN PRIVATE KEY-----'
+        Write-FixtureFile $sample ("binary" + [char]0 + $header + [char]0 + "constant")
+        Assert-NoPrivateKeyMaterial $scanRoot
+        foreach ($prefix in @('', 'RSA ', 'EC ', 'ENCRYPTED ', 'OPENSSH ')) {
+            foreach ($offset in @(0, 16370, 16384)) {
+                $pem = '-----BEGIN ' + $prefix + "PRIVATE KEY-----`n" + ('A' * 64) + "`n-----END " + $prefix + 'PRIVATE KEY-----'
+                Write-FixtureFile $sample (('x' * $offset) + $pem)
+                $rejected = $false
+                try { Assert-NoPrivateKeyMaterial $scanRoot }
+                catch {
+                    if (-not $_.Exception.Message.StartsWith('Private key material found')) { throw }
+                    $rejected = $true
+                }
+                Assert-Equal $rejected $true
+            }
+        }
+        Remove-Item -LiteralPath $sample
+    }
     foreach ($suffix in @('plain', '[source]')) {
         & {
             $root = Join-Path $fixture "java-$suffix"
@@ -59,6 +81,8 @@ if ($PrebuiltJar -cne $inputJar -or $PrebuiltPluginsDir -cne $pluginInputs -or $
 $selected = @(Get-OfficialDistributionPlugins -IncludeOptional:(!$DefaultDownloader))
 [IO.Directory]::CreateDirectory((Join-Path $OutputDir 'plugins/provenance')) | Out-Null
 Copy-Item -LiteralPath $PrebuiltJar -Destination (Join-Path $OutputDir "PixivDownload-$Version.jar")
+Write-FixtureFile (Join-Path $OutputDir "app/PixivDownload-$Version.jar") 'extracted entry'
+Write-FixtureFile (Join-Path $OutputDir 'app/lib/dependency.jar') 'dependency'
 foreach ($name in @('run.bat', 'run.sh', 'SHA256SUMS')) { Write-FixtureFile (Join-Path $OutputDir $name) $name }
 $entries = @($selected | ForEach-Object {
     $file = "plugins/$($_.Id).jar"
@@ -75,6 +99,8 @@ if (-not $DefaultDownloader) {
     switch ($fault) {
         'core' { Write-FixtureFile (Join-Path $OutputDir "PixivDownload-$Version.jar") 'wrong core' }
         'launcher' { Remove-Item -LiteralPath (Join-Path $OutputDir 'run.sh') }
+        'extracted' { Remove-Item -LiteralPath (Join-Path $OutputDir "app/PixivDownload-$Version.jar") }
+        'libraries' { Remove-Item -LiteralPath (Join-Path $OutputDir 'app/lib/dependency.jar') }
         'aggregate' { Write-FixtureFile (Join-Path $OutputDir 'SHA256SUMS') '' }
         'set' { $entries = @($entries | Select-Object -Skip 1) }
         'duplicate' { $entries += $entries[0] }
@@ -93,11 +119,12 @@ Write-FixtureFile (Join-Path $OutputDir 'plugins-manifest.json') (ConvertTo-Json
             $parameters = @{Version='1.2.3'; PrebuiltJar=$inputJar; PrebuiltPluginsDir=$pluginInputs; SignatureToolJar=$signatureTool; OutputDir=$output}
             $errors = @{
                 core='core jar SHA-256 differs'; launcher='missing launch script'; aggregate='SHA256SUMS missing or empty';
+                extracted='extracted application entry or libraries missing'; libraries='extracted application entry or libraries missing';
                 set='manifest plugin id set'; duplicate='duplicate plugin ids'; extra='staged plugin artifacts do not match';
                 checksum='.sha256 sidecar differs'; artifact='actual artifact SHA-256 differs'; signature='Missing .sig sidecar';
                 provenance='provenance status'; unsigned='LOCAL-UNSIGNED-BUILD.txt must not exist'
             }
-            foreach ($fault in @('none', 'core', 'launcher', 'aggregate', 'set', 'duplicate', 'extra', 'checksum', 'artifact', 'signature', 'provenance', 'unsigned', 'none')) {
+            foreach ($fault in @('none', 'core', 'launcher', 'extracted', 'libraries', 'aggregate', 'set', 'duplicate', 'extra', 'checksum', 'artifact', 'signature', 'provenance', 'unsigned', 'none')) {
                 $failed = $false
                 try { & (Join-Path $scripts 'package-java-distributions.ps1') @parameters }
                 catch {
@@ -125,6 +152,26 @@ Write-FixtureFile (Join-Path $OutputDir 'plugins-manifest.json') (ConvertTo-Json
             $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
             Write-FixtureFile (Join-Path $root $metadata) ([IO.File]::ReadAllText((Join-Path $repo $metadata), $utf8))
             Write-FixtureFile (Join-Path $scripts 'set-windows-exe-requested-execution-level.ps1') 'param($Path, $Level)'
+            Write-FixtureFile (Join-Path $scripts 'distribution-aot.ps1') @'
+function Expand-DistributionApplication {
+    param($Java, $Jar, $Destination)
+    $entry = Join-Path $Destination ([IO.Path]::GetFileName($Jar))
+    Write-FixtureFile $entry 'extracted application fixture'
+    return $entry
+}
+function New-DistributionAotCache {
+    param($Java, $Jar, $Cache, $Training)
+    Assert-Equal (Test-Path -LiteralPath $Jar) $true
+    Write-FixtureFile $Cache 'AOT fixture'
+}
+function Test-DistributionAotCache {
+    param($Java, $Jar, $Cache, $Training)
+    Assert-Equal (Test-Path -LiteralPath $Jar) $true
+    Assert-Equal ([IO.File]::ReadAllText($Cache, $utf8)) 'AOT fixture'
+    $config = Join-Path (Split-Path (Split-Path $Jar)) 'PixivDownload.cfg'
+    Assert-Equal @([IO.File]::ReadAllLines($config) | Where-Object { $_.StartsWith('app.classpath=') }).Count 1
+}
+'@
             Write-FixtureFile (Join-Path $scripts 'runtime-security/test-runtime-trust.ps1') @'
 param($RuntimeHome)
 Assert-Equal $RuntimeHome (Join-Path $root 'build/runtime')
@@ -157,8 +204,12 @@ if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
             function jlink { $global:LASTEXITCODE = 0 }
             function jpackage {
                 $image = Join-Path $args[[Array]::IndexOf($args, '--dest') + 1] 'PixivDownload'
+                Assert-Equal ($args -contains '-XX:AOTMode=auto') $true
+                Assert-Equal ($args -contains '-XX:AOTCache=$APPDIR/application.aot') $true
+                $input = $args[[Array]::IndexOf($args, '--input') + 1]
                 Write-FixtureFile (Join-Path $image 'PixivDownload.exe') 'launcher fixture'
-                Write-FixtureFile (Join-Path $image 'app/core.jar') 'core fixture'
+                Copy-Item -LiteralPath $input -Destination (Join-Path $image 'app') -Recurse
+                Write-FixtureFile (Join-Path $image 'app/PixivDownload.cfg') ('app.classpath=$APPDIR\application\PixivDownload-1.2.3.jar' + "`napp.classpath=extra.jar`n")
                 Write-FixtureFile (Join-Path $image 'runtime/payload [nested].txt') 'runtime fixture'
                 $global:LASTEXITCODE = 0
             }
