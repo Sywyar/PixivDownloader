@@ -51,9 +51,11 @@ UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+WizardSizePercent=130,120
 PrivilegesRequired=admin
 DisablePrecompiledFileVerifications=setupldr
 UsePreviousAppDir=yes
+DisableDirPage=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchiveExtraction=full
@@ -71,6 +73,7 @@ Name: "ja"; MessagesFile: "compiler:Default.isl,Japanese.isl"
 Name: "ko"; MessagesFile: "compiler:Default.isl,Korean.isl"
 
 [CustomMessages]
+#include "PixivDownload-preview-messages.iss.inc"
 #include "PixivDownload-relocation-messages.iss.inc"
 en.OptionalTasksGroup=Optional setup tasks:
 zhcn.OptionalTasksGroup=可选安装任务：
@@ -297,19 +300,20 @@ ko.AppRunningAbort=PixivDownload가 실행 중이어서 설치를 계속할 수 
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
 ; 残留在 {app}\app 下。安装文件复制前先清空该目录，避免旧版本 jar 堆积。
 ; 用户数据（config.yaml、pixiv-download\ 等）位于 {app} 根目录而非 {app}\app，不受影响。
-; 故意不清空 {app}\plugins：官方默认安装插件以稳定文件名（<module>.jar）随 app-image 携带，[Files] 的
-; ignoreversion 会就地覆盖同名文件、不留旧版本残留；用户自行安装的第三方插件（不同文件名）不在安装器
-; 文件清单内，升级时既不复制也不删除，得以保留。插件启用 / 禁用状态存放在 {app}\config\config.yaml
-; （plugins.<id>.enabled），同样位于 {app} 根目录、升级时不受影响。
+; 按已校验的预览筛选插件及附属文件，保留插件配置。
 Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
 ; 本地 unsigned 测试包会由后续 [Files] 重新复制此标记；正式包没有该文件，故升级时保持删除，
 ; 避免曾安装测试包的目录永久显示为 unsigned。
 Type: files; Name: "{app}\plugins\LOCAL-UNSIGNED-BUILD.txt"; Check: ShouldInstallApplicationFiles
 
 [Files]
-; app-image 根目录已含 plugins\（package-local.ps1 预置的官方默认安装插件 jar + 校验文件 + manifest）；
-; 此处递归复制即把 plugins\ 一并装入 {app}\plugins。
-Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
+; 固实压缩按顺序解压，预览辅助文件必须位于应用载荷之前。
+#if FileExists(AddBackslash(AppImageDir) + "plugins\plugins-manifest.json")
+Source: "{#AppImageDir}\plugins\plugins-manifest.json"; DestDir: "{tmp}"; DestName: "bundled-plugins.json"; Flags: dontcopy
+#endif
+Source: "installer-plugin-plan.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "..\..\..\scripts\plugin-package-metadata.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "..\..\..\pixivdownload-app\src\main\resources\i18n\locales.json"; DestDir: "{tmp}"; Flags: dontcopy
 #if InstallerPluginCatalogEnabled == "1"
 Source: "{#AppImageDir}\installer-catalog\manifest.json"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json"; Flags: dontcopy
 Source: "{#AppImageDir}\installer-catalog\manifest.json.sig"; DestDir: "{tmp}"; DestName: "installer-plugin-catalog.json.sig"; Flags: dontcopy
@@ -319,6 +323,8 @@ Source: "..\..\..\scripts\ffmpeg-release-integrity.ps1"; DestDir: "{tmp}"; Flags
 Source: "installer-ffmpeg-download.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "installer-plugin-install.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "installer-progress.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+; 文件复制与安装后的同 ID 清理使用同一份选择。
+Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallPlannedFile
 
 [Registry]
 Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
@@ -429,6 +435,8 @@ var
   ExistingInstallationResolved: Boolean;
   ExistingInstallationFound: Boolean;
   ExistingInstallDir: String;
+  RegisteredInstallDir, ConfirmedInstallDir: String;
+  ExistingLocationMissing: Boolean;
   ExistingUninstallCommand: String;
   LegacyMsiProductCode: String;
   ShowMaintenancePage: Boolean;
@@ -474,4 +482,5 @@ end;
 #include "PixivDownload-relocation.iss.inc"
 #include "PixivDownload-plugins.iss.inc"
 #include "PixivDownload-ffmpeg.iss.inc"
+#include "PixivDownload-preview.iss.inc"
 #include "PixivDownload-lifecycle.iss.inc"

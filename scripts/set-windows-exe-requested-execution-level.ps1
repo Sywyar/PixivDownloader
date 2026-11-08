@@ -46,20 +46,58 @@ function Get-MtCommand {
 }
 
 $mtCommand = Get-MtCommand
-$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString("N"))
+if (-not ('PixivDownload.ManifestResource' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+namespace PixivDownload {
+    public static class ManifestResource {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+        [DllImport("kernel32.dll")]
+        private static extern bool FreeLibrary(IntPtr module);
+        public static bool Exists(string path) {
+            IntPtr module = LoadLibraryEx(path, IntPtr.Zero, 0x22);
+            if (module == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                if (FindResource(module, new IntPtr(1), new IntPtr(24)) != IntPtr.Zero) return true;
+                int error = Marshal.GetLastWin32Error();
+                if (error == 1812 || error == 1813 || error == 1814) return false;
+                throw new Win32Exception(error);
+            } finally { FreeLibrary(module); }
+        }
+    }
+}
+'@
+}
+$tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
+$tempDir = Join-Path $tempBase ([System.Guid]::NewGuid().ToString("N"))
 $manifestPath = Join-Path $tempDir "launcher.manifest"
 
 try {
     New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 
-    & $mtCommand "-nologo" "-inputresource:$Path;#1" "-out:$manifestPath"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to extract manifest from $Path"
-    }
-
     $xml = New-Object System.Xml.XmlDocument
     $xml.PreserveWhitespace = $true
-    $xml.Load($manifestPath)
+    if ([PixivDownload.ManifestResource]::Exists($targetFile.FullName)) {
+        & $mtCommand "-nologo" "-inputresource:$Path;#1" "-out:$manifestPath"
+        if ($LASTEXITCODE -ne 0) { throw "Failed to extract manifest from $Path" }
+        $xml.Load($manifestPath)
+    } else {
+        $xml.LoadXml(@'
+<?xml version="1.0" encoding="UTF-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security><requestedPrivileges>
+      <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+    </requestedPrivileges></security>
+  </trustInfo>
+</assembly>
+'@)
+    }
 
     $namespaceManager = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
     $namespaceManager.AddNamespace("asmv3", "urn:schemas-microsoft-com:asm.v3")
@@ -90,6 +128,8 @@ try {
     }
 } finally {
     if (Test-Path -LiteralPath $tempDir) {
-        Remove-Item -Recurse -Force -LiteralPath $tempDir
+        $resolved = [IO.Path]::GetFullPath($tempDir)
+        if ((Split-Path -Parent $resolved).TrimEnd('\', '/') -ne $tempBase) { throw 'Unsafe manifest cleanup.' }
+        Remove-Item -Recurse -Force -LiteralPath $resolved
     }
 }

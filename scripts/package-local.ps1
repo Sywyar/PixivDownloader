@@ -354,7 +354,7 @@ try {
         "--output", $RuntimeDir
     )
 
-    Write-Step "Removing distrusted CA from bundled runtime"
+    Write-Step "Applying bundled runtime certificate restrictions"
     Invoke-External "java" @(
         "-Dfile.encoding=UTF-8", "--source", "17",
         (Join-Path $PSScriptRoot "runtime-security/RemoveDistrustedCa.java"),

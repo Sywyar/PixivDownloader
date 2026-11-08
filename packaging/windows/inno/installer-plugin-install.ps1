@@ -15,6 +15,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot 'installer-progress.ps1')
+$metadataScript = Join-Path $PSScriptRoot 'plugin-package-metadata.ps1'
+if (-not (Test-Path -LiteralPath $metadataScript)) { $metadataScript = Join-Path $PSScriptRoot '../../../scripts/plugin-package-metadata.ps1' }
+. $metadataScript
 
 function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord) {
     if ($null -eq $ErrorRecord) {
@@ -170,55 +173,10 @@ function Get-PackageExtension([string]$Url) {
     throw "Package URL must end with .jar or .zip: $Url"
 }
 
-function Import-ZipFileAssembly {
-    if (([System.Management.Automation.PSTypeName]"System.IO.Compression.ZipFile").Type) {
-        return
-    }
-    foreach ($assemblyName in @("System.IO.Compression.FileSystem", "System.IO.Compression.ZipFile", "System.IO.Compression")) {
-        try {
-            Add-Type -AssemblyName $assemblyName -ErrorAction Stop
-            if (([System.Management.Automation.PSTypeName]"System.IO.Compression.ZipFile").Type) {
-                return
-            }
-        } catch {
-            # Try the next assembly name.
-        }
-    }
-    throw "Unable to load System.IO.Compression.ZipFile assembly."
-}
-
 function Read-PluginDescriptorFromPackage([string]$Path) {
-    Import-ZipFileAssembly
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
-    try {
-        $entry = $archive.GetEntry("plugin.properties")
-        if ($null -eq $entry) {
-            return [pscustomobject]@{ PluginId = ""; Version = "" }
-        }
-        $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
-        try {
-            $text = $reader.ReadToEnd()
-        } finally {
-            $reader.Dispose()
-        }
-    } finally {
-        $archive.Dispose()
-    }
-    $pluginId = ""
-    $version = ""
-    foreach ($line in ($text -split "`r?`n")) {
-        $trimmed = $line.Trim()
-        if ($trimmed -eq "" -or $trimmed.StartsWith("#")) { continue }
-        $idx = $trimmed.IndexOf("=")
-        if ($idx -lt 1) { continue }
-        $key = $trimmed.Substring(0, $idx).Trim()
-        $value = $trimmed.Substring($idx + 1).Trim()
-        if ($key -eq "plugin.id") { $pluginId = $value }
-        if ($key -eq "plugin.version") { $version = $value }
-    }
-    return [pscustomobject]@{ PluginId = $pluginId; Version = $version }
+    $metadata = Get-PluginPackageMetadata $Path -IdentityOnly
+    return [pscustomobject]@{ PluginId = $metadata.id; Version = $metadata.version }
 }
-
 function Remove-ArtifactWithCompanions([string]$ArtifactPath) {
     $artifact = Get-Item -LiteralPath $ArtifactPath -ErrorAction Stop
     $provenance = Join-Path (Join-Path $artifact.Directory.FullName "provenance") ($artifact.Name + ".pixiv-plugin-provenance")

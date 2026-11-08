@@ -37,6 +37,7 @@ procedure ExtractPluginInstallerSupportFiles;
 begin
   ExtractTemporaryFile(PluginInstallScriptName);
   ExtractTemporaryFile('installer-progress.ps1');
+  ExtractTemporaryFile('plugin-package-metadata.ps1');
 #if InstallerPluginCatalogEnabled == "1"
   ExtractTemporaryFile('installer-plugin-catalog.json');
   ExtractTemporaryFile('installer-plugin-catalog.json.sig');
@@ -230,31 +231,4 @@ begin
     ProgressPath, CustomMessage('PluginFailed'), @ApplyPluginInstallProgress);
   SetPluginInstallProgress(CustomMessage('PluginCompleted'), '', 100);
   PluginInstalled := True;
-end;
-
-procedure ReconcileBundledDefaultPlugins;
-var
-  ScriptPath: String;
-  ManifestPath: String;
-  Params: String;
-  ResultCode: Integer;
-begin
-  ManifestPath := ExpandConstant('{app}\plugins\plugins-manifest.json');
-  if not FileExists(ManifestPath) then
-  begin
-    Log('No bundled plugin manifest found; skipping default-plugin reconciliation.');
-    exit;
-  end;
-  ExtractPluginInstallerSupportFiles;
-  ScriptPath := ExpandConstant('{tmp}\' + PluginInstallScriptName);
-  Params :=
-    '-ReconcileBundledDefaults' +
-    ' -ManifestFile ' + QuoteArg(ManifestPath) +
-    ' -InstallDir ' + QuoteArg(ExpandConstant('{app}'));
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -ExecutionPolicy Bypass -File ' + QuoteArg(ScriptPath) + ' ' + Params,
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    RaiseException('Could not start bundled plugin reconciliation: ' + SysErrorMessage(ResultCode));
-  if ResultCode <> 0 then
-    RaiseException('Bundled plugin reconciliation failed with exit code ' + IntToStr(ResultCode) + '.');
 end;

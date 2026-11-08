@@ -68,6 +68,8 @@ begin
   { Inno 已按 /DIR、UsePreviousAppDir 与 GetDefaultInstallDir 解析目标，不覆盖显式路径。 }
   if not SameInstallationDirectory(ExistingInstallDir, WizardDirValue) then
     ShowMaintenancePage := False;
+  if ExistingLocationMissing then
+    WizardForm.SelectDirLabel.Caption := CustomMessage('InstallationLocationMissing');
 
   if ShowMaintenancePage then
   begin
@@ -194,12 +196,16 @@ begin
   FfmpegDetailLabel.Width := WizardForm.ProgressGauge.Width;
   FfmpegDetailLabel.Caption := '';
   FfmpegDetailLabel.Visible := False;
-
+  InitializePluginPreview;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
+  { 旧目录缺失时保留目录选择；正常更新及显式指定的现有程序目录仍直接进入预览。 }
+  if (PageID = wpSelectDir) and (ExistingUninstallCommand <> '') and
+    ((not ExistingLocationMissing) or IsUsableInstallDir(ExpandConstant('{param:DIR|}'))) then
+    Result := True;
   if ShowMaintenancePage then
   begin
     if (MaintenanceMode = MaintenanceRepairMode) and
@@ -215,11 +221,21 @@ begin
     Result := True;
   if Assigned(OptionalPluginsPage) and (PageID = OptionalPluginsPage.ID) and (not ShouldShowOptionalPluginsPage) then
     Result := True;
+  if Assigned(PluginPreviewPage) and (PageID = PluginPreviewPage.ID) and (not ShouldInstallApplicationFiles) then
+    Result := True;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  if CurPageID = wpSelectDir then
+    Result := ConfirmInstallationDirectory(True) = '';
+  if Assigned(PluginPreviewPage) and (CurPageID = PluginPreviewPage.ID) then
+  begin
+    if PreviewBusy or PreviewPending then begin Result := False; exit; end;
+    if not PreviewLoaded then SchedulePluginPreview;
+    Result := PreviewLoaded and (PreviewBlockedCount = 0) and (not PreviewEditing);
+  end;
   if ShowMaintenancePage then
   begin
     if CurPageID = MaintenancePage.ID then
@@ -242,6 +258,7 @@ end;
 
 procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
 begin
+  if PreviewBusy then begin Cancel := False; Confirm := False; exit; end;
   if MaintenanceClosingAfterUninstall then
   begin
     Cancel := True;
@@ -268,6 +285,8 @@ var
   FfmpegRequested: Boolean;
   PluginRequested: Boolean;
 begin
+  if Assigned(PluginPreviewPage) and (CurPageID <> PluginPreviewPage.ID) then
+    CancelPendingPluginPreview;
   if (CurPageID <> wpInstalling) and
      ((not Assigned(OptionalPluginsPage)) or (CurPageID <> OptionalPluginsPage.ID)) then
     WizardForm.NextButton.Enabled := True;
@@ -276,6 +295,8 @@ begin
   begin
     LoadPackagedInstallerPluginCatalog;
   end
+  else if Assigned(PluginPreviewPage) and (CurPageID = PluginPreviewPage.ID) then
+    SchedulePluginPreview
   else if CurPageID = wpInstalling then
   begin
     FfmpegRequested := IsFfmpegRequested;
@@ -357,12 +378,15 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  Result := ConfirmInstallationDirectory(False);
+  if Result <> '' then exit;
   Result := EnsureApplicationClosed;
   if Result <> '' then
     exit;
   if ShouldInstallApplicationFiles then
   begin
-    Result := PrepareInstallationRelocation;
+    Result := ValidatePluginPreview;
+    if Result = '' then Result := PrepareInstallationRelocation;
     if Result = '' then Result := RemoveLegacyMsiSilently(NeedsRestart);
   end;
 end;
@@ -374,7 +398,7 @@ begin
   if (CurStep = ssPostInstall) and ShouldInstallApplicationFiles then
   begin
     FinishInstallationRegistration;
-    ReconcileBundledDefaultPlugins;
+    FinalizePluginPreview;
   end;
 
   if (CurStep = ssPostInstall) and AnyPluginSelected then

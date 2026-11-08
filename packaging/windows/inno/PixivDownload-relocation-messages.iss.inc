@@ -23,3 +23,23 @@ zhcn.UninstallStartupFailed=无法移除开机启动快捷方式。请检查其�
 zhhant.UninstallStartupFailed=無法移除開機啟動捷徑。請檢查其權限和目錄連結後重新執行解除安裝程式。
 ja.UninstallStartupFailed=自動起動ショートカットを削除できませんでした。アクセス権とフォルダーのリンクを確認してから、アンインストーラーを再実行してください。
 ko.UninstallStartupFailed=시작 프로그램 바로 가기를 제거하지 못했습니다. 권한과 연결된 폴더를 확인한 후 제거 프로그램을 다시 실행하세요.
+en.InstallationLocationMissing=PixivDownload was not found at the registered location. If you moved its folder, select the new location.
+zhcn.InstallationLocationMissing=登记位置中未找到 PixivDownload。如果移动过程序文件夹，请选择新位置。
+zhhant.InstallationLocationMissing=登記位置中未找到 PixivDownload。如果移動過程式資料夾，請選擇新位置。
+ja.InstallationLocationMissing=登録先に PixivDownload が見つかりません。フォルダーを移動した場合は、新しい場所を選択してください。
+ko.InstallationLocationMissing=등록된 위치에서 PixivDownload를 찾을 수 없습니다. 폴더를 옮겼다면 새 위치를 선택하세요.
+en.InstallationLocationReinstall=PixivDownload was not found in this folder:%n%n%1%n%nReinstall here?
+zhcn.InstallationLocationReinstall=此目录中未找到 PixivDownload：%n%n%1%n%n要在此重新安装吗？
+zhhant.InstallationLocationReinstall=此目錄中未找到 PixivDownload：%n%n%1%n%n要在此重新安裝嗎？
+ja.InstallationLocationReinstall=このフォルダーに PixivDownload が見つかりません：%n%n%1%n%nここに再インストールしますか？
+ko.InstallationLocationReinstall=이 폴더에서 PixivDownload를 찾을 수 없습니다:%n%n%1%n%n여기에 다시 설치하시겠습니까?
+en.InstallationLocationRequired=Confirm the installation location to continue.
+zhcn.InstallationLocationRequired=请确认安装位置后继续。
+zhhant.InstallationLocationRequired=請確認安裝位置後繼續。
+ja.InstallationLocationRequired=インストール先を確認してから続行してください。
+ko.InstallationLocationRequired=설치 위치를 확인한 후 계속하세요.
+en.InstallationLocationSilent=PixivDownload was not found at the registered location. Specify /DIR explicitly. Changing the registered location also requires /RELOCATE=1.
+zhcn.InstallationLocationSilent=登记位置中未找到 PixivDownload。请显式指定 /DIR；更改已登记的位置还需指定 /RELOCATE=1。
+zhhant.InstallationLocationSilent=登記位置中未找到 PixivDownload。請明確指定 /DIR；變更已登記的位置還需指定 /RELOCATE=1。
+ja.InstallationLocationSilent=登録先に PixivDownload が見つかりません。/DIR を明示的に指定してください。登録先を変更する場合は /RELOCATE=1 も必要です。
+ko.InstallationLocationSilent=등록된 위치에서 PixivDownload를 찾을 수 없습니다. /DIR을 명시하세요. 등록 위치를 변경하려면 /RELOCATE=1도 필요합니다.

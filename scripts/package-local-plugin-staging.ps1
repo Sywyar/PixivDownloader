@@ -34,6 +34,7 @@ function Stage-OfficialPlugins {
         [string]$SignatureToolJar,
         [switch]$AllowUnsignedLocalPlugins
     )
+    . (Join-Path $PSScriptRoot 'plugin-package-metadata.ps1')
     $pluginsDir = Join-Path $AppDir "plugins"
     New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -84,12 +85,18 @@ function Stage-OfficialPlugins {
             [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
                 $sha $signature $verifiedAt)
         }
+        $preview = Get-PluginPackageMetadata $targetArtifact
+        $artifactFiles = @($stableName, "$stableName.sha256", "provenance/$stableName.pixiv-plugin-provenance")
+        if ($signature) { $artifactFiles += "$stableName.sig" }
         $manifest += [ordered]@{
             id = $plugin.Id
+            description = $preview.description
+            displayNames = $preview.displayNames
             version = $descriptor["plugin.version"]
             requires = $descriptor["plugin.requires"]
             required = ($requiredPluginIds -contains $plugin.Id)
             file = $stableName
+            files = $artifactFiles
             sha256 = $sha
             source = $provenanceSource
             verification = $verificationStatus

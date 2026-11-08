@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([Parameter(Mandatory = $true)][string]$RuntimeHome)
+param(
+    [Parameter(Mandatory = $true)][string]$RuntimeHome,
+    [ValidateSet('All', 'Cleanup', 'Runtime')][string]$Check = 'All'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -14,9 +17,16 @@ try {
         (Join-Path $PSScriptRoot 'RuntimeTrustTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Runtime trust probe compilation failed.' }
     $fixtures = Join-Path $PSScriptRoot 'fixtures'
-    & $runtimeJava '-Dfile.encoding=UTF-8' '-Dcom.sun.security.enableAIAcaIssuers=false' `
-        -cp $work RuntimeTrustTest $fixtures $work
-    if ($LASTEXITCODE -ne 0) { throw 'Runtime trust verification failed.' }
+    $checks = switch ($Check) {
+        'All' { 'Cleanup'; 'Runtime' }
+        'Cleanup' { 'Cleanup' }
+        'Runtime' { 'Runtime' }
+    }
+    foreach ($phase in $checks) {
+        & $runtimeJava '-Dfile.encoding=UTF-8' '-Dcom.sun.security.enableAIAcaIssuers=false' `
+            -cp $work RuntimeTrustTest $phase $fixtures $work
+        if ($LASTEXITCODE -ne 0) { throw "$phase verification failed for $RuntimeHome (exit code $LASTEXITCODE)." }
+    }
 } finally {
     $resolved = [IO.Path]::GetFullPath($work)
     if ((Split-Path -Parent $resolved).TrimEnd('\', '/') -ne $tempBase -or

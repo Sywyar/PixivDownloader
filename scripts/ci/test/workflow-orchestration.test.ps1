@@ -1247,6 +1247,7 @@ function Verify-Package($Item, [string]$ArtifactPath, [string]$SignaturePath) {
 '@
         $driver = Join-Path $fixture 'installer-with-local-download.ps1'
         Copy-Item -LiteralPath (Join-Path $repo 'packaging/windows/inno/installer-progress.ps1') -Destination $fixture
+        Copy-Item -LiteralPath (Join-Path $repo 'scripts/plugin-package-metadata.ps1') -Destination $fixture
         [IO.File]::WriteAllText($driver, ([IO.File]::ReadAllText($installer).Insert($program.Functions[-1].Extent.EndOffset, $boundaries)), [Text.UTF8Encoding]::new($false))
         foreach ($case in @('success', 'verify-failure')) {
             $root = Join-Path $fixture "installer-execute-$case"
@@ -1282,10 +1283,15 @@ function Verify-Package($Item, [string]$ArtifactPath, [string]$SignaturePath) {
     }
     if ($env:OS -eq 'Windows_NT') {
         & {
+            & (Join-Path $PSScriptRoot 'exe-manifest.test.ps1')
             $program = Read-Program (Join-Path $repo 'scripts/package-local.ps1')
             $compilerFunction = $program.Functions | Where-Object { $_.Name -eq 'Get-InnoSetupCompiler' }
             . ([scriptblock]::Create($compilerFunction.Extent.Text))
+            & (Join-Path $PSScriptRoot 'installer-preview.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
             & (Join-Path $PSScriptRoot 'installer-helper.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
+            & (Join-Path $PSScriptRoot 'installer-preview-native.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
+            & (Join-Path $PSScriptRoot 'installer-preview-startup.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
+            & (Join-Path $PSScriptRoot 'installer-location.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
         }
     }
     Write-Host 'PASS: complete acceptance across independent groups, verified candidate reuse, prebuilt rejection and publication failure propagation.'

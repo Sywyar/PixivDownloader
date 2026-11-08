@@ -327,33 +327,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Windows 升级按随包 manifest 清理同 id 旧包，保留清单外插件")
-    void installerUpgradeReconcilesOnlyBundledDefaultPluginIds() throws Exception {
-        String inno = innoScript();
-        String installerInstall = innoSupportScript("installer-plugin-install.ps1");
-
-        assertThat(installerInstall).contains(
-                "ParameterSetName = \"Reconcile\"",
-                "[switch]$ReconcileBundledDefaults",
-                "function Reconcile-BundledDefaultPlugins",
-                "Get-Prop $entry \"id\"",
-                "Get-Prop $entry \"version\"",
-                "Get-Prop $entry \"file\"",
-                "Read-PluginDescriptorFromPackage $stableArtifact",
-                "Remove-SupersededInstalledPlugins $pluginsDir $pluginId $stableArtifact",
-                "\"$($artifact.FullName).sig.json\"");
-        assertThat(inno).contains(
-                "procedure ReconcileBundledDefaultPlugins;",
-                "{app}\\plugins\\plugins-manifest.json",
-                "-ReconcileBundledDefaults",
-                "ewWaitUntilTerminated",
-                "(CurStep = ssPostInstall) and ShouldInstallApplicationFiles");
-        assertThat(inno).doesNotContain(
-                "{app}\\plugins\\douyin-*",
-                "Type: filesandordirs; Name: \"{app}\\plugins\"");
-    }
-
-    @Test
     @DisplayName("Windows 主程序与安装器 loader 均请求管理员权限")
     void windowsLauncherAndInstallerLoaderRequestAdministratorRights() throws Exception {
         String windows = script("package-local.ps1");
@@ -550,7 +523,8 @@ class PluginReleaseScriptsTest {
         assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogProjectionTimerProc)");
         assertThat(inno).doesNotContain("SchedulePackagedInstallerPluginCatalogLoad");
         assertThat(inno).doesNotContain("while (not IsPluginCatalogOutputReady(OutputPath))");
-        assertThat(inno).doesNotContain("WizardForm.NextButton.Enabled := False");
+        assertThat(innoSupportScript("PixivDownload-plugins.iss.inc"))
+                .doesNotContain("WizardForm.NextButton.Enabled := False");
         assertThat(inno).doesNotContainPattern("if\\s+ShouldShowOptionalPluginsPage\\s+then\\s+StartPluginCatalogTimer");
         Matcher initializeWizard = Pattern.compile("procedure InitializeWizard;(?<body>.*?)function ShouldSkipPage",
                 Pattern.DOTALL).matcher(inno);
@@ -573,7 +547,6 @@ class PluginReleaseScriptsTest {
                 "[System.Net.WebRequest]::GetSystemWebProxy()",
                 "Write-State (\"ERROR|\" + (Escape-StateField (Format-Error $_)))",
                 "function Remove-SupersededInstalledPlugins",
-                "plugin.id",
                 "$item.PluginId + \"-\" + $item.Version + $ext",
                 "Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target",
                 "$($artifact.FullName).sha256",
