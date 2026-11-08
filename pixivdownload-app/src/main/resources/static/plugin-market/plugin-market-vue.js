@@ -71,10 +71,6 @@
             function open() { vm.openDetail(card.pluginId); }
             return h('article', { key: card.pluginId, class: ['pmk-card', card.colorClass,
                 card.focusReason ? 'pmk-card--suspected' : '', card.artifactMismatch ? 'pmk-card--mismatch' : ''] }, [
-                h('div', { class: 'pmk-card-banner', onClick: open }, [
-                    icon(['pmk-card-banner-glyph', card.iconClass]), icon(['pmk-card-banner-bg', card.iconClass]),
-                    h('span', { class: 'pmk-card-banner-cat' }, [icon(card.categoryIcon), card.categoryLabel])
-                ]),
                 h('div', { class: 'pmk-card-body' }, [
                     h('div', { class: 'pmk-card-head' }, [
                         marketIcon(card, 'pmk-card-icon'),
@@ -89,7 +85,8 @@
                                 vm.showCardVerification(card) ? h('span', { class: ['pmk-verification-badge', 'pmk-verification-badge--' + badge.tone], title: badge.title || null },
                                     [icon(['fa-solid', badge.icon]), h('span', t(badge.labelKey, badge.status))]) : null
                             ]),
-                            h('div', { class: 'pmk-card-sub' }, card.sub)
+                            h('div', { class: 'pmk-card-sub' }, card.sub),
+                            h('div', { class: 'pmk-card-category' }, card.categoryLabel)
                         ])
                     ]),
                     vm.showCardRating(card) ? h('div', { class: 'pmk-rating' }, [
@@ -121,11 +118,16 @@
         }
         function body() {
             return h('div', { class: 'pmk-body' }, [
-                h('aside', { class: 'pmk-sidebar' }, [
+                h('button', {
+                    type: 'button', class: 'pmk-btn pmk-btn--gray pmk-browse-toggle',
+                    'aria-expanded': vm.browseExpanded, 'aria-controls': 'pmk-browse',
+                    onClick: function () { vm.browseExpanded = !vm.browseExpanded; }
+                }, [icon('fa-solid fa-filter'), t('sidebar.browse') + ' / ' + t('sidebar.filter')]),
+                h('aside', { id: 'pmk-browse', class: 'pmk-sidebar', 'data-expanded': vm.browseExpanded }, [
                     h('div', { class: 'pmk-side-card' }, [
                         h('div', { class: 'pmk-side-label' }, t('sidebar.browse', '浏览分类')),
                         h('div', { class: 'pmk-cat-list' }, vm.categoryList.map(function (cat) {
-                            return h('button', { key: cat.id, class: ['pmk-cat', { active: cat.id === vm.category }], onClick: function () { vm.setCategory(cat.id); } },
+                            return h('button', { key: cat.id, class: ['pmk-cat', { active: cat.id === vm.category }], 'aria-pressed': cat.id === vm.category, onClick: function () { vm.setCategory(cat.id); } },
                                 [icon(cat.icon), h('span', { class: 'pmk-cat-name' }, cat.label), h('span', { class: 'pmk-cat-count' }, String(cat.count))]);
                         })),
                         h('div', { class: 'pmk-side-divider' }),
@@ -151,11 +153,11 @@
                             h('p', { class: 'pmk-toolbar-description' }, vm.categoryDescription)
                         ]),
                         h('div', { class: 'pmk-search' }, [icon('fa-solid fa-magnifying-glass'),
-                            Vue.withDirectives(h('input', { type: 'text', placeholder: t('search.placeholder', '搜索插件、作者或标签…'), autocomplete: 'off',
+                            Vue.withDirectives(h('input', { type: 'search', placeholder: t('search.placeholder', '搜索插件、作者或标签…'), 'aria-label': t('search.placeholder'), autocomplete: 'off',
                                 'onUpdate:modelValue': function (value) { vm.search = value; } }), [[Vue.vModelText, vm.search]])
                         ]),
                         h('span', { class: 'pmk-sort-label' }, t('sort.label', '排序')),
-                        Vue.withDirectives(h('select', { class: 'pmk-sort', 'onUpdate:modelValue': function (value) { vm.sort = value; } },
+                        Vue.withDirectives(h('select', { class: 'pmk-sort', 'aria-label': t('sort.label'), 'onUpdate:modelValue': function (value) { vm.sort = value; } },
                             vm.sortOptions.map(function (opt) { return h('option', { key: opt, value: opt }, t('sort.' + opt, opt)); })), [[Vue.vModelSelect, vm.sort]])
                     ]),
                     vm.catalog && vm.catalog.focusIncomplete ? h('p', {class: 'pmk-banner pmk-banner--warn'}, t('recovery.focus-incomplete')) : null,
@@ -302,13 +304,13 @@
                 h('div', [h('h1', { class: 'pmk-title' }, [icon('fa-solid fa-store'), h('span', t('page.heading', '插件市场'))]),
                     h('p', { class: 'pmk-subtitle' }, t('page.subtitle', '从受信仓库浏览并安装插件'))]),
                 h('div', { class: 'pmk-titlebar-actions' }, [
-                    h('div', { class: 'pmk-seg', role: 'tablist' }, [
-                        h('span', { class: 'pmk-seg-item active' }, [icon('fa-solid fa-store'), h('span', t('seg.market', '市场'))]),
+                    h('div', { class: 'pmk-seg' }, [
+                        h('span', { class: 'pmk-seg-item active', 'aria-current': 'page' }, [icon('fa-solid fa-store'), h('span', t('seg.market', '市场'))]),
                         h('a', { class: 'pmk-seg-item', href: '/plugin-manage.html' }, [icon('fa-solid fa-puzzle-piece'),
                             h('span', t('seg.installed', '已安装')), h('span', { class: 'pmk-seg-count' }, String(vm.installedCount))])
                     ]),
                     PMK.operations ? h('span', { class: 'pmk-operations-trigger', ref: PMK.operations.mountButton }) : null,
-                    h('button', { class: 'pmk-btn pmk-btn--teal', onClick: vm.reload, disabled: vm.loading }, [icon('fa-solid fa-rotate'), h('span', t('refresh', '刷新'))])
+                    h('button', { class: 'pmk-btn pmk-btn--gray', onClick: vm.reload, disabled: vm.loading }, [icon('fa-solid fa-rotate'), h('span', t('refresh', '刷新'))])
                 ])
             ]),
             PMK.operations ? h('div', { ref: PMK.operations.mountPanel }) : null,
@@ -321,7 +323,7 @@
                 vm.repositories.length ? h('div', { class: 'pmk-repos' }, [h('span', { class: 'pmk-repos-label' }, t('section.repositories', '受信仓库')),
                     vm.repositories.map(function (repo) {
                         return h('button', { key: repo.repositoryId, class: ['pmk-repo-chip', { active: repo.repositoryId === vm.activeRepositoryId }],
-                            disabled: !repo.enabled, title: vm.repoTitle(repo), onClick: function () { vm.switchRepository(repo); } }, [
+                            disabled: !repo.enabled, 'aria-pressed': repo.repositoryId === vm.activeRepositoryId, title: vm.repoTitle(repo), onClick: function () { vm.switchRepository(repo); } }, [
                             icon('fa-solid ' + (repo.official ? 'fa-circle-check' : 'fa-folder')), h('span', { class: 'pmk-repo-chip-name' }, repo.displayName || repo.repositoryId),
                             repo.repositoryId === vm.activeRepositoryId ? h('span', { class: 'pmk-repo-chip-meta' }, t('repo.active', '当前'))
                                 : !repo.enabled ? h('span', { class: 'pmk-repo-chip-meta' }, t('repo.disabled', '已禁用'))
@@ -330,12 +332,14 @@
                     })]) : null,
                 vm.hostElevated ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-triangle-exclamation'),
                     h('div', { class: 'pmk-banner-body' }, t('host.elevated.notice', '宿主正在以高权限运行；所有宿主进程完全信任插件都会继承当前高权限。'))]) : null,
-                h('div', { class: 'pmk-banner pmk-banner--warn pmk-security-notice' }, [icon('fa-solid fa-shield-halved'),
-                    h('div', { class: 'pmk-banner-body' }, t('security.notice', '插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。'))]),
                 vm.showCatalogLoading ? loading() : vm.showCatalogError ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'),
                     h('div', { class: 'pmk-banner-body' }, [h('div', { class: 'pmk-banner-title' }, t('error.catalog.title', '无法加载插件清单')), h('div', t(vm.catalogError))])])
                     : vm.showBody ? body() : null
             ],
+            h('details', {class: 'pmk-security-notice accordion accordion-item pixiv-disclosure'}, [
+                h('summary', {class: 'accordion-button collapsed'}, [icon('fa-solid fa-shield-halved'), t('security.notice.title')]),
+                h('div', {class: 'accordion-body'}, t('security.notice'))
+            ]),
             h('div', { class: 'pmk-disclaimer' }, t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')),
             modal()
         ]);
@@ -358,6 +362,7 @@
                     recoveryMode: false,
                     hostElevated: false,
                     filtersInitialized: false,
+                    browseExpanded: false,
                     sdkVersion: '',
                     repositories: [],
                     activeRepositoryId: null,

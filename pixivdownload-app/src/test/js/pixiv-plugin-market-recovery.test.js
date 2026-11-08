@@ -152,22 +152,36 @@ function fixture() {
     };
     sandbox.PixivFeedback = {confirm: async () => true};
     market.recovery.mount();
-    const buttons = () => root.children.find(child => child.className === 'pmk-recovery-actions').children;
+    const buttons = () => root.children.find(child => child.className === 'pmk-recovery-actions')?.children || [];
     return {root, market, calls, sandbox, events, buttons, setReport(value) { report = value; }};
 }
 
-test('正常模式和无法确认状态时，前端按钮与动作都禁用', async () => {
+test('正常模式隐藏恢复区域，查询失败保留错误且禁止操作', async () => {
     const f = fixture();
-    assert.ok(f.buttons().every(button => button.disabled));
+    assert.equal(f.root.hidden, true);
+    assert.equal(f.root.children.length, 0);
     await f.market.recovery.refresh();
-    assert.ok(f.buttons().every(button => button.disabled));
+    assert.equal(f.root.hidden, true);
+    assert.equal(f.root.children.length, 0);
     assert.equal(await f.market.recovery.perform('restart'), false);
     assert.equal(await f.market.recovery.perform('exit'), false);
     f.market.api.fetchRecovery = async () => { throw new Error('offline'); };
     await f.market.recovery.refresh();
     assert.ok(f.market.recovery.installationBlocked());
-    assert.ok(f.buttons().every(button => button.disabled));
+    assert.equal(f.root.hidden, false);
+    assert.equal(f.buttons().length, 0);
+    assert.equal(f.root.children[0].role, 'alert');
+    assert.match(f.root.children[0].textContent, /recovery.status-unavailable/);
     assert.deepEqual(f.calls, []);
+    f.market.api.fetchRecovery = async () => null;
+    await f.market.recovery.refresh();
+    assert.equal(f.root.hidden, false);
+    assert.equal(f.buttons().length, 0);
+    assert.ok(f.market.recovery.installationBlocked());
+    f.market.api.fetchRecovery = async () => ({active: false});
+    await f.market.recovery.refresh();
+    assert.equal(f.root.hidden, true);
+    assert.equal(f.root.children.length, 0);
 });
 
 test('共享恢复面板显示恢复标题和后端错误摘要，恢复正常后撤下提示', async () => {
@@ -175,12 +189,14 @@ test('共享恢复面板显示恢复标题和后端错误摘要，恢复正常�
     f.setReport({active: true, recoveryMode: true, actionsAllowed: true, errors: ['fixture failure']});
     await f.market.recovery.refresh();
     assert.match(f.root.children[0].textContent, /recovery.banner.title/);
+    assert.equal(f.root.hidden, false);
+    assert.equal(f.buttons().length, 2);
     const details = f.root.children.find(child => child.tag === 'details');
     assert.equal(details.children.find(child => child.tag === 'ul').children[0].textContent, 'fixture failure');
     f.setReport({active: false});
     await f.market.recovery.refresh();
-    assert.ok(!f.root.children.some(child => child.tag === 'h2'));
-    assert.ok(f.buttons().every(button => button.disabled));
+    assert.equal(f.root.hidden, true);
+    assert.equal(f.root.children.length, 0);
 });
 
 test('无 GUI 允许操作，但确认后状态已恢复或远端不获准时不能提交', async () => {

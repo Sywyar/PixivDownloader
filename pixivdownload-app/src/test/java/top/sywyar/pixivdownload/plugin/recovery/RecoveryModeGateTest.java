@@ -210,6 +210,7 @@ class RecoveryModeGateTest {
             "/actuator/health", "/actuator/health/readiness", "/actuator/info",
             "/api/plugins/status", "/api/gui/plugins/status", "/api/gui/status", "/api/i18n/web",
             "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
+            "/plugin-manage.html", "/plugin-manage/plugin-manage-init.js", "/plugin-manage/plugin-manage.css",
             "/api/plugins/recovery",
             "/api/navigation",
             "/error/404.html", "/error/error.css", "/error/error.js",
@@ -226,7 +227,7 @@ class RecoveryModeGateTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/", "/index.html", "/plugin-manage.html", "/sdk.html", "/pixiv-gallery.html"})
+    @ValueSource(strings = {"/", "/index.html", "/sdk.html", "/pixiv-gallery.html"})
     @DisplayName("恢复模式中业务页面仅路由到市场，不新增 SDK 页面例外")
     void redirectsAllBusinessPages(String path) throws Exception {
         request.setMethod("GET");
@@ -268,6 +269,21 @@ class RecoveryModeGateTest {
         activeGate().doFilterInternal(request, response, chain);
 
         verify(chain).doFilter(request, response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/plugin-manage.html", "/plugin-manage/plugin-manage-init.js"})
+    @DisplayName("恢复模式只允许读取插件管理页面，不放行其它方法")
+    void managementPageOnlyAllowsReadMethods(String path) throws Exception {
+        request.setRequestURI(path);
+        request.setMethod("POST");
+        activeGate().doFilterInternal(request, response, chain);
+        assertThat(response.getStatus()).isEqualTo(302);
+        verify(chain, never()).doFilter(any(), any());
+        request.setMethod("HEAD");
+        var headResponse = new MockHttpServletResponse();
+        activeGate().doFilterInternal(request, headResponse, chain);
+        verify(chain).doFilter(request, headResponse);
     }
 
     @Test

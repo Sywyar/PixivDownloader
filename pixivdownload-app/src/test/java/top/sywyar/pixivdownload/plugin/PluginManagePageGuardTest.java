@@ -87,14 +87,13 @@ class PluginManagePageGuardTest {
     }
 
     @Test
-    @DisplayName("页面关键锚点：顶部导航 slot（app.top）、语言 / 主题锚点、刷新 / 安装按钮、统计 / 标签 / 搜索 / 网格容器")
+    @DisplayName("页面关键锚点：顶部导航 slot（app.top）、语言 / 主题锚点、刷新 / 安装按钮、标签 / 搜索 / 网格容器")
     void pageDeclaresMountAnchors() throws IOException {
         String html = read(HTML);
         assertThat(html).as("顶部应用导航栏 slot").contains("data-nav-slot=\"app.top\"");
         assertThat(html).as("语言 / 主题切换锚点").contains("id=\"langSwitcherAnchor\"");
         assertThat(html).as("刷新按钮").contains("id=\"refreshBtn\"");
         assertThat(html).as("本地安装按钮").contains("id=\"installBtn\"");
-        assertThat(html).as("概览统计容器").contains("id=\"pm-stats\"");
         assertThat(html).as("筛选标签容器").contains("id=\"pm-tabs\"");
         assertThat(html).as("搜索输入").contains("id=\"pm-search-input\"");
         assertThat(html).as("插件卡片网格容器").contains("id=\"pm-grid\"");

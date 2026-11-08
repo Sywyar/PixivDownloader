@@ -64,6 +64,25 @@ async function page(initialReport = report('initial'), createClient = options =>
     return { context, PM, nodes, events, requests, mounts, render, refresh: () => node('refreshBtn').click(), node };
 }
 
+test('更新横幅只显示可用更新、SDK 限制或检查失败，零更新与未查询不占位', async () => {
+    const p = await page();
+    const render = summary => {
+        p.events.get('pixivnav:rendered')({ detail: {updateSummary: summary} });
+        return p.node('pm-updates');
+    };
+    for (const summary of [undefined, {enabled: false}, {enabled: true, compatibleUpdates: 0, sdkBlockedUpdates: 0, checkFailed: false}]) {
+        const box = render(summary);
+        assert.equal(box.hidden, true);
+        assert.equal(box.children.length, 0);
+    }
+    for (const [field, key] of [['compatibleUpdates', 'compatible'], ['sdkBlockedUpdates', 'sdkBlocked'], ['checkFailed', 'failed']]) {
+        const box = render({enabled: true, [field]: 1});
+        assert.equal(box.hidden, false);
+        assert.ok(box.children.some(child => child.textContent === 'en-US:plugins:updates.' + key));
+    }
+    assert.equal(render({enabled: true}).hidden, true);
+});
+
 for (const state of [
     { status: 'DISABLED' },
     { status: 'STOPPED' },

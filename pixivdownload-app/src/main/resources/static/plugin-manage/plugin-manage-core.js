@@ -430,16 +430,6 @@
         return list;
     }
 
-    // 概览统计：已安装 / 已启用为真实计数；外置 / 必须替代设计稿的「可更新 / 占用空间」（后端暂无对应数据来源）。
-    function stats(models) {
-        return {
-            total: models.length,
-            enabled: models.filter(function (p) { return p.enabled; }).length,
-            external: models.filter(function (p) { return p.source === 'external'; }).length,
-            required: models.filter(function (p) { return p.requiredByPolicy; }).length
-        };
-    }
-
     // —— 本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse） ——
 
     // 本地预校验：文件名是否为受支持的扩展名（.jar / .zip，大小写不敏感）。仅作即时反馈；包是否合法仍以后端为准。
@@ -634,7 +624,6 @@
         allViewModels: allViewModels,
         tabsModel: tabsModel,
         filterModels: filterModels,
-        stats: stats,
         hasAcceptedExtension: hasAcceptedExtension,
         hasAcceptedSignatureExtension: hasAcceptedSignatureExtension,
         buildInstallResult: buildInstallResult,

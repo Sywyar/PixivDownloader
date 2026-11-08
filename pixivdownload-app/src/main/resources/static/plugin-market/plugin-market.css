@@ -12,8 +12,8 @@
     --border: #dddddd;
     --text: #333333;
     --text-secondary: #555555;
-    --muted: #888888;
-    --faint: #aaaaaa;
+    --muted: #666666;
+    --faint: #666666;
     --brand: #28a745;
     --brand-text: #ffffff;
     --warning-bg: #fff8e1;
@@ -220,7 +220,6 @@ textarea {
 .pmk-btn i { font-size: 0.75rem; }
 
 .pmk-btn--primary { background: var(--brand); }
-.pmk-btn--teal { background: var(--accent-teal); }
 .pmk-btn--amber { background: var(--accent-amber); }
 
 .pmk-btn--gray, .pmk-btn--outline { background: transparent; color: var(--text-secondary); border-color: var(--border); }
@@ -278,6 +277,7 @@ textarea {
 
 /* ── 主体：侧栏 + 主栏 ── */
 .pmk-body { display: flex; gap: 24px; align-items: flex-start; }
+.pmk-browse-toggle { display: none; }
 
 .pmk-sidebar {
     width: 232px; flex-shrink: 0; position: sticky; top: 20px;
@@ -385,24 +385,17 @@ textarea {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius-md); box-shadow: var(--shadow-card);
     overflow: hidden; display: flex; flex-direction: column;
-    transition: transform var(--transition), box-shadow var(--transition);
+    transition: box-shadow var(--transition);
 }
-.pmk-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-raised); }
+.pmk-card:hover { box-shadow: var(--shadow-raised); }
 
-.pmk-card-banner {
-    position: relative; height: 96px; flex-shrink: 0; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; overflow: hidden;
-    /* 每插件强调色对角渐变（强调色由受控 token 决定，--pmk-accent 在 pmk-accent--<token> 设置） */
-    background: linear-gradient(135deg, var(--pmk-accent, var(--accent-gray)) 0%, color-mix(in srgb, var(--pmk-accent, var(--accent-gray)) 52%, #fff) 100%);
+.pmk-card-category { font-size: .75rem; color: var(--muted); margin-top: .25rem; }
+
+.pmk-page :is(button, a, select):focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 3px;
 }
-.pmk-card-banner-glyph { font-size: 2.5rem; color: rgba(255, 255, 255, .94); }
-.pmk-card-banner-bg { position: absolute; right: -8px; bottom: -22px; font-size: 5.375rem; color: rgba(255, 255, 255, .13); pointer-events: none; }
-.pmk-card-banner-cat {
-    position: absolute; top: 9px; left: 9px;
-    display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(0, 0, 0, .26); color: #fff; font-size: 0.6875rem; font-weight: 600;
-    padding: 3px 8px; border-radius: var(--radius-pill);
-}
+.pmk-security-notice > .accordion-body { max-width: var(--layout-reading); line-height: 1.6; }
 
 .pmk-card-body { padding: 14px 15px 15px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 
@@ -667,7 +660,7 @@ textarea {
 .pmk-toast--info { border-left-color: var(--accent-pixiv); }
 
 /* ── 响应式 ── */
-@media (max-width: 960px) {
+@media (max-width: 56.25em) {
     .app-nav {
         height: auto;
         min-height: 52px;
@@ -709,7 +702,9 @@ textarea {
     }
 
     .pmk-body { flex-direction: column; }
-    .pmk-sidebar { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; }
+    .pmk-browse-toggle { display: inline-flex; }
+    .pmk-sidebar { width: 100%; position: static; flex-direction: row; flex-wrap: wrap; display: none; }
+    .pmk-sidebar[data-expanded="true"] { display: flex; }
     .pmk-side-card { flex: 1; min-width: 220px; }
     .pmk-version-card { flex: 1; min-width: 220px; }
     .pmk-modal-body { grid-template-columns: 1fr; gap: 20px; }
@@ -743,6 +738,7 @@ textarea {
         justify-content: stretch;
     }
     .pmk-sidebar { flex-direction: column; }
+    .pmk-browse-toggle { flex: 0 0 auto; }
     .pmk-side-card, .pmk-version-card { min-width: 0; }
 }
 
@@ -945,16 +941,4 @@ button.pmk-card-name:focus-visible { outline: 2px solid var(--brand); outline-of
 .pmk-badge.pmk-badge--mismatch { background: color-mix(in srgb, var(--status-red) 12%, transparent); color: var(--status-red); }
 .pmk-badge.pmk-badge--state { background: var(--warning-bg); color: var(--warning-text); }
 
-.pmk-database { overflow-wrap: anywhere; }
-.pmk-database details { display: block; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.pmk-database details.pmk-database-details { padding: .5rem 0; background: transparent; border: 0; border-radius: 0; }
-.pmk-database-store { padding-block: .75rem; border-block-end: 1px solid var(--border); }
-.pmk-database-store p { margin-block: .5rem; }
-.pmk-database summary { cursor: pointer; font-weight: 600; }
-.pmk-database p { color: var(--text-secondary); }
-.pmk-database-form { max-width: var(--layout-form-width, 42rem); display: grid; gap: 1rem; margin-block: 1rem; }
-.pmk-database-remote:not([hidden]) { display: grid; gap: 1rem; }
-.pmk-database-field { display: grid; gap: .375rem; min-width: 0; }
-.pmk-database-field input, .pmk-database-field select { width: 100%; min-width: 0; min-height: var(--layout-control-height); box-sizing: border-box; padding: .5rem; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xs); }
-.pmk-database-clear { display: flex; gap: .5rem; align-items: center; }
-.pmk-database :is(input, select, button, summary, a):focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.pmk-recovery[hidden] { display: none; }

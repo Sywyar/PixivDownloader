@@ -88,9 +88,9 @@ class PluginMarketPageGuardTest {
         assertThat(html).contains("/plugin-market/plugin-market.css");
         assertThat(html).contains("id=\"pmk-app-root\"");
         assertThat(html).contains("id=\"pmk-recovery\"");
-        assertThat(html).doesNotContain("repository-import", "pmk-repository-url");
-        assertThat(read(INIT)).doesNotContain("mountRepositoryImport");
-        assertThat(read(API)).doesNotContain("/repositories/import/");
+        assertThat(html).doesNotContain("repository-import", "pmk-repository-url", "pmk-database", "plugin-market-database.js");
+        assertThat(read(INIT)).doesNotContain("mountRepositoryImport", "PMK.database");
+        assertThat(read(API)).doesNotContain("/repositories/import/", "/api/plugins/database");
     }
 
     @Test

@@ -95,7 +95,8 @@
             (iconUrl ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(iconUrl) + '">' : '') + '</span>' +
             '<div class="pmk-card-titleblock"><div class="pmk-card-name-row">' +
             '<span class="pmk-card-name">' + esc(card.name) + '</span>' + badges + '</div>' +
-            '<div class="pmk-card-sub">' + esc(card.sub) + '</div></div></div>' +
+            '<div class="pmk-card-sub">' + esc(card.sub) + '</div>' +
+            '<div class="pmk-card-category">' + esc(card.categoryLabel) + '</div></div></div>' +
             rating +
             (card.desc ? '<p class="pmk-card-desc">' + esc(card.desc) + '</p>' : '') +
             tags +
@@ -134,7 +135,7 @@
         var active = repo.repositoryId === state.activeRepositoryId;
         var metaText = active ? t('repo.active', '当前') : (!repo.enabled ? t('repo.disabled', '已禁用') : '');
         var attrs = (!repo.enabled || active) ? ' disabled' : ' data-pmk-repo="' + esc(repo.repositoryId) + '"';
-        return '<button class="pmk-repo-chip' + (active ? ' active' : '') + '"' + attrs + '>' +
+        return '<button class="pmk-repo-chip' + (active ? ' active' : '') + '" aria-pressed="' + active + '"' + attrs + '>' +
             '<i class="fa-solid ' + (repo.official ? 'fa-circle-check' : 'fa-folder') + '"></i>' +
             '<span class="pmk-repo-chip-name">' + esc(repo.displayName || repo.repositoryId) + '</span>' +
             (metaText ? '<span class="pmk-repo-chip-meta">' + esc(metaText) + '</span>' : '') + '</button>';
@@ -142,7 +143,7 @@
 
     function categoryChips() {
         return PMK.data.categoryList(state.catalog).map(function (cat) {
-            return '<button class="pmk-repo-chip' + (cat.id === state.category ? ' active' : '') + '" data-pmk-cat="' + esc(cat.id) + '">' +
+            return '<button class="pmk-repo-chip' + (cat.id === state.category ? ' active' : '') + '" aria-pressed="' + (cat.id === state.category) + '" data-pmk-cat="' + esc(cat.id) + '">' +
                 '<i class="' + esc(cat.icon) + '"></i><span class="pmk-repo-chip-name">' + esc(cat.label) + '</span>' +
                 '<span class="pmk-repo-chip-meta">' + cat.count + '</span></button>';
         }).join('');
@@ -168,11 +169,11 @@
             '<h1 class="pmk-title"><i class="fa-solid fa-store"></i><span>' + esc(t('page.heading', '插件市场')) + '</span></h1>' +
             '<p class="pmk-subtitle">' + esc(t('page.subtitle', '从受信仓库浏览并安装插件')) + '</p></div>' +
             '<div class="pmk-titlebar-actions"><div class="pmk-seg">' +
-            '<span class="pmk-seg-item active"><i class="fa-solid fa-store"></i><span>' + esc(t('seg.market', '市场')) + '</span></span>' +
+            '<span class="pmk-seg-item active" aria-current="page"><i class="fa-solid fa-store"></i><span>' + esc(t('seg.market', '市场')) + '</span></span>' +
             '<a class="pmk-seg-item" href="/plugin-manage.html"><i class="fa-solid fa-puzzle-piece"></i><span>' + esc(t('seg.installed', '已安装')) + '</span>' +
             '<span class="pmk-seg-count">' + (state.catalog ? state.catalog.installedCount : 0) + '</span></a></div>' +
             '<span class="pmk-operations-trigger" data-pmk-operations-trigger></span>' +
-            '<button class="pmk-btn pmk-btn--teal" data-pmk-refresh><i class="fa-solid fa-rotate"></i><span>' + esc(t('refresh', '刷新')) + '</span></button>' +
+            '<button class="pmk-btn pmk-btn--gray" data-pmk-refresh><i class="fa-solid fa-rotate"></i><span>' + esc(t('refresh', '刷新')) + '</span></button>' +
             '</div></div><div data-pmk-operations-panel hidden></div>';
 
         // 降级诊断条（明确告知已回退为基础视图）。
@@ -201,10 +202,6 @@
                 '<div class="pmk-banner-body">' + esc(t('host.elevated.notice',
                     '宿主正在以高权限运行；所有宿主进程完全信任插件都会继承当前高权限。')) + '</div></div>';
         }
-        body += '<div class="pmk-banner pmk-banner--warn pmk-security-notice">' +
-            '<i class="fa-solid fa-shield-halved"></i><div class="pmk-banner-body">' +
-            esc(t('security.notice', '插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。')) +
-            '</div></div>';
         if (state.masterEnabled && state.catalogError) {
             body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
                 '<div class="pmk-banner-title">' + esc(t('error.catalog.title', '无法加载插件清单')) + '</div><div>' + esc(t(state.catalogError)) + '</div></div></div>';
@@ -217,20 +214,29 @@
                 esc(PMK.categoryLabel(state.category)) + '</span></div><p class="pmk-toolbar-description">' +
                 esc(PMK.categoryDescription(state.category)) + '</p></div>' +
                 '<div class="pmk-search"><i class="fa-solid fa-magnifying-glass"></i>' +
-                '<input type="text" id="pmk-fb-search" value="' + esc(state.search) + '" placeholder="' + esc(t('search.placeholder', '搜索插件、作者或标签…')) + '" autocomplete="off"></div></div>' +
+                '<input type="search" id="pmk-fb-search" value="' + esc(state.search) + '" aria-label="' + esc(t('search.placeholder')) + '" placeholder="' + esc(t('search.placeholder', '搜索插件、作者或标签…')) + '" autocomplete="off"></div></div>' +
                 '<div id="pmk-fb-grid">' + gridHtml() + '</div>';
             if (state.catalog.nextCursor) body += '<div class="pmk-load-more"><button class="pmk-btn pmk-btn--gray" data-pmk-more' +
                 (state.loadingMore ? ' disabled' : '') + '>' +
                 esc(t('pagination.more', '加载更多')) + '</button></div>';
         }
-        return head + degraded + body + '<div class="pmk-disclaimer">' + esc(t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')) + '</div>';
+        return head + degraded + body;
     }
 
     function paint() {
         if (!rootEl || !PMK.state.pageActive) return;
         var focused = document.activeElement;
         var restoreFocus = focused && focused.closest && focused.closest('.pmk-operations, .pmk-operations-trigger');
-        rootEl.innerHTML = '<div class="pmk-page">' + shellHtml() + '</div>';
+        var previousHelp = rootEl.querySelector('.pmk-security-notice');
+        var helpOpen = previousHelp && previousHelp.open;
+        var helpFocused = previousHelp && previousHelp.contains(focused);
+        rootEl.innerHTML = '<div class="pmk-page">' + shellHtml() +
+            '<details class="pmk-security-notice accordion accordion-item pixiv-disclosure"' + (helpOpen ? ' open' : '') + '>' +
+            '<summary class="accordion-button collapsed"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>' +
+            esc(t('security.notice.title')) + '</summary><div class="accordion-body">' +
+            esc(t('security.notice')) + '</div></details>' +
+            '<div class="pmk-disclaimer">' + esc(t('disclaimer')) + '</div></div>';
+        if (helpFocused) rootEl.querySelector('.pmk-security-notice summary').focus({preventScroll: true});
         if (PMK.operations) {
             PMK.operations.mountButton(rootEl.querySelector('[data-pmk-operations-trigger]'));
             PMK.operations.mountPanel(rootEl.querySelector('[data-pmk-operations-panel]'));
@@ -251,6 +257,7 @@
         var chips = rootEl ? rootEl.querySelectorAll('[data-pmk-cat]') : [];
         for (var i = 0; i < chips.length; i++) {
             chips[i].classList.toggle('active', chips[i].getAttribute('data-pmk-cat') === state.category);
+            chips[i].setAttribute('aria-pressed', chips[i].getAttribute('data-pmk-cat') === state.category);
         }
     }
 

@@ -93,7 +93,7 @@ class DatabaseUnavailableBootContextTest {
                 assertThat(archive).exists();
                 var client = java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
                 String base = "http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort();
-                for (String page : java.util.List.of("/", "/index.html", "/plugin-manage.html", "/pixiv-gallery.html")) {
+                for (String page : java.util.List.of("/", "/index.html", "/pixiv-gallery.html")) {
                     var response = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + page)).GET().build(),
                             java.net.http.HttpResponse.BodyHandlers.ofString());
                     assertThat(response.statusCode()).isEqualTo(302);
@@ -114,23 +114,26 @@ class DatabaseUnavailableBootContextTest {
                         java.net.http.HttpResponse.BodyHandlers.ofString());
                 assertThat(market.statusCode()).isEqualTo(401);
                 String cookie = "pixiv_session=" + setup.createSession(false);
-                for (String repair : java.util.List.of("/plugin-market.html", "/api/plugins/status", "/api/plugin-market/repositories", "/api/plugins/database")) {
+                var anonymousManagement = client.send(java.net.http.HttpRequest.newBuilder(
+                                java.net.URI.create(base + "/plugin-manage.html")).GET().build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofString());
+                assertThat(anonymousManagement.statusCode()).isEqualTo(302);
+                assertThat(anonymousManagement.headers().firstValue("Location").orElseThrow()).contains("/login.html");
+                for (String repair : java.util.List.of("/plugin-market.html", "/plugin-manage.html",
+                        "/plugin-manage/plugin-manage-init.js", "/api/plugins/status", "/api/plugin-market/repositories", "/api/plugins/recovery")) {
                     var repairResponse = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + repair))
                                     .header("Cookie", cookie).GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
                     assertThat(repairResponse.statusCode()).as(repair).isEqualTo(200);
                 }
-                var unauthorizedDatabase = client.send(java.net.http.HttpRequest.newBuilder(
-                                java.net.URI.create(base + "/api/plugins/database")).GET().build(),
-                        java.net.http.HttpResponse.BodyHandlers.ofString());
-                assertThat(unauthorizedDatabase.statusCode()).isEqualTo(401);
                 byte[] savedConfig = Files.readAllBytes(config);
-                for (String origin : java.util.List.of("", "https://foreign.example", base)) {
-                    var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + "/api/plugins/database"))
-                            .header("Cookie", cookie).header("Content-Type", "application/json");
-                    if (!origin.isEmpty()) request.header("Origin", origin);
+                for (String endpoint : java.util.List.of("", "/check", "/preview", "/migrate", "/migration")) {
+                    var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + "/api/plugins/database" + endpoint))
+                            .header("Cookie", cookie).header("Origin", base).header("Content-Type", "application/json");
                     var rejected = client.send(request.POST(java.net.http.HttpRequest.BodyPublishers.ofString(
                                     "{\"provider\":\"missing-fixture\"}")).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
-                    assertThat(rejected.statusCode()).as(origin).isEqualTo(origin.equals(base) ? 400 : 403);
+                    assertThat(rejected.statusCode()).as(endpoint).isEqualTo(404);
+                    var absent = client.send(request.GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+                    assertThat(absent.statusCode()).as(endpoint).isEqualTo(404);
                 }
                 assertThat(Files.readAllBytes(config)).isEqualTo(savedConfig);
                 assertThatThrownBy(() -> context.getBean(DataSource.class).getConnection())

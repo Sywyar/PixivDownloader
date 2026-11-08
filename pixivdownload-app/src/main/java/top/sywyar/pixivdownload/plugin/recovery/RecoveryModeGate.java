@@ -29,7 +29,8 @@ import java.util.Optional;
  *
  * <p>恢复模式下放行的最小入口：容器健康探针（{@code /actuator/health*}、{@code /actuator/info}）、插件状态 / 安装 /
  * 修复 API（{@code /api/plugins/**}）、插件市场页面 / 静态 / API（{@code /plugin-market.html}、{@code /plugin-market/**}、
- * {@code /api/plugin-market/**}）、本机 GUI 的状态、初始化与重启入口（仍受本地 + 令牌校验）、i18n
+ * {@code /api/plugin-market/**}）、插件管理页及静态资源的 GET / HEAD（继续经管理员鉴权）、
+ * 本机 GUI 的状态、初始化与重启入口（仍受本地 + 令牌校验）、i18n
  * 文案（{@code /api/i18n/**}）、核心认证与 setup 入口（{@code /api/auth/**}、{@code /api/setup/**} 与 {@code /login.html}、
  * {@code /setup.html} 页面外壳及其同名目录静态资源）、状态页（{@code /error/**}）以及插件市场渲染所需的基础静态资源
  * （{@code /js/}、{@code /css/}、{@code /vendor/}）与导航端点（{@code /api/navigation}）。核心认证 / setup / 市场入口仅放行到后续 {@code AuthFilter} /
@@ -78,6 +79,7 @@ public class RecoveryModeGate extends OncePerRequestFilter {
         return isHealthProbe(path)
                 || path.startsWith("/api/plugins/")
                 || isPluginMarketEntry(path)
+                || isPluginManagementEntry(path, method)
                 || isGuiRecoveryEntry(path, method)
                 || path.startsWith("/api/i18n/")
                 || path.equals("/api/navigation")
@@ -91,6 +93,11 @@ public class RecoveryModeGate extends OncePerRequestFilter {
                     || path.equals("/api/gui/onboarding");
         }
         return "POST".equals(method) && (path.equals("/api/gui/restart") || path.equals("/api/gui/setup/init"));
+    }
+
+    private static boolean isPluginManagementEntry(String path, String method) {
+        return ("GET".equals(method) || "HEAD".equals(method))
+                && (path.equals("/plugin-manage.html") || path.startsWith("/plugin-manage/"));
     }
 
     /**
