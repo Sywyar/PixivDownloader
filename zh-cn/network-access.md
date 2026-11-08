@@ -25,7 +25,7 @@
 
 | 所有者 | 目标地址 | 用途与发送内容 | 触发与关闭方式 |
 | --- | --- | --- | --- |
-| 应用宿主（更新检查与下载） | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 及 `.sig`、nightly 同名清单、已验签清单中的安装包 URL（含 GitHub Release CDN 重定向） | 检查更新并校验内置 Ed25519 签名（清单/签名上限 1 MiB / 16 KiB）；仅在用户确认更新后下载安装包（上限 500 MiB，核对精确大小与 SHA-256）。不发送当前版本、Cookie 或凭据 | `update.enabled` 与 `update.auto-check` 默认开启（启用 nightly 时独立检查两路清单）；沿用宿主代理，最多 5 跳公网 HTTPS 重定向。关闭上述配置即可停用 |
+| 应用宿主（更新检查与下载） | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 及 `.sig`、nightly 同名清单、已验签清单中的安装包 URL（含 GitHub Release CDN 重定向） | 检查更新并校验内置 Ed25519 签名（清单/签名上限 1 MiB / 16 KiB）；仅在用户确认更新后下载安装包（上限 500 MiB，核对精确大小与 SHA-256）。不发送当前版本、Cookie 或凭据 | `update.enabled` 与 `update.auto-check` 默认开启（启用 nightly 时独立检查两路清单）；沿用宿主代理，最多 5 跳 HTTPS 重定向。本项目 GitHub Release 入口的整条链路限于 `github.com`、`githubusercontent.com` 及其子域；启用代理时由代理解析域名，不受本机 Fake-IP 影响。直连和自定义更新地址仍逐跳检查公网 IP。关闭上述配置即可停用 |
 | 应用宿主（介绍页字体） | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 浏览器加载 Noto Sans SC 字体，仅暴露标准浏览器连接信息 | 打开 `intro.html` 时触发；不经后端代理，屏蔽域名后自动回退本地字体 |
 | 应用宿主（连通性探测） | `https://www.pixiv.net/` | 检测后端到 Pixiv 的连通性，不携带 Pixiv Cookie | 首次配置引导或手动执行探测时触发，无后台心跳 |
 | `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、相邻 `.sig` 及 `.../announcements/<message-id>/<locale>.html` | 校验官方 Ed25519 签名、有效期、递增序号与正文 SHA-256，仅为未知或摘要变化的公告下载多语言受控 HTML 并保存在本地；不发送 Cookie 或应用凭据 | 启动后随机等待 0–30 分钟，之后每 6 小时（±15%）检查（支持 `ETag`/`Last-Modified` 条件请求与退避）。沿用宿主代理；禁用或卸载 `notification` 即停止 |
