@@ -71,7 +71,7 @@ async function searchPage() {
             assertCurrent() {}, isCurrent: () => true})});
     vm.runInContext(readFileSync(resolve(root, '../batch-init.js'), 'utf8'), c);
     for (const name of ['bindDeclarativeActions', 'detectMode', 'detectAuthState', 'loadServerState',
-        'applyCookieHint', 'updateAuthButtons', 'setCookieFmt', 'applyCookieDependentUi',
+        'applyCookieHint', 'updateAuthButtons', 'setCookieInputValue', 'applyCookieDependentUi',
         'applySearchKindUI', 'applyNovelSettingsVisibility', 'resetPreviewCollapse',
         'renderSearchResults', 'renderSearchPagination', 'updateBatchLimitNote',
         'updateScheduleFetchLimitVisibility']) c[name] = () => {};

@@ -90,6 +90,70 @@ test('经典页等待 Cookie 写入成功才发布保存状态，保存期间拒
     assert.equal(h.document.getElementById('cookie-save').disabled, false);
 });
 
+test('经典页粘贴 Netscape 时先解析再填入密码框，保存前不改变已有凭据及格式', async () => {
+    const h = await setup();
+    const raw = '# Netscape HTTP Cookie File\r\n#HttpOnly_.pixiv.net\tTRUE\t/\tTRUE\t0\tPHPSESSID\tfixture==\r\n';
+    h.input.type = 'password';
+    h.context.setCookieFmt('netscape');
+    let prevented = false;
+    for (const listener of h.input.listeners.get('paste') || []) {
+        listener({clipboardData: {getData: () => raw}, preventDefault() { prevented = true; }});
+    }
+    assert.equal(prevented, true);
+    assert.equal(h.input.value, 'PHPSESSID=fixture==');
+    assert.equal(h.input.type, 'password');
+    assert.equal(h.context.getCookie(), h.previous);
+    assert.equal(h.context.getCookieFmt(), 'header');
+    assert.equal(h.requests.length, 0);
+    await h.click('cookie-toggle');
+    assert.equal(h.input.type, 'text');
+    await h.click('cookie-toggle');
+    assert.equal(h.input.type, 'password');
+    await h.click('cookie-save');
+    assert.equal(h.context.getCookie(), 'PHPSESSID=fixture==');
+    assert.equal(h.context.getCookieFmt(), 'header');
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests[0].body.state.pixiv_cookie_fmt, 'header');
+    assert.equal(h.statuses.at(-1).message.key, 'status.cookie-saved');
+});
+
+test('经典页 Netscape 粘贴无效时保留草稿，读取已有多行 Cookie 不写回存储', async () => {
+    const h = await setup();
+    h.context.setCookieFmt('netscape');
+    for (const listener of h.input.listeners.get('paste') || []) {
+        listener({clipboardData: {getData: () => ''},
+            preventDefault() { assert.fail('无文本的剪贴板不应被处理'); }});
+    }
+    assert.equal(h.input.value, h.previous);
+    for (const listener of h.input.listeners.get('paste') || []) {
+        listener({clipboardData: {getData: () => '# comment\ninvalid'}, preventDefault() {}});
+    }
+    assert.equal(h.input.value, h.previous);
+    assert.equal(h.statuses.at(-1).tone, 'error');
+    assert.equal(h.requests.length, 0);
+    const raw = '#HttpOnly_.pixiv.net\tTRUE\t/\tTRUE\t0\tPHPSESSID\tstored==\n';
+    h.context.setCookieInputValue(raw, 'netscape');
+    assert.equal(h.input.value, 'PHPSESSID=stored==');
+    assert.equal(h.context.getCookieInputHeaderString(), 'PHPSESSID=stored==');
+    assert.equal(h.context.getCookie(), h.previous);
+    assert.equal(h.requests.length, 0);
+});
+
+test('经典页格式与内容一起保存，失败时保留已保存格式且可以重试', async () => {
+    const h = await setup();
+    h.context.setCookieFmt('json');
+    h.input.value = '{"PHPSESSID":"json-fixture"}';
+    assert.equal(h.context.getCookieFmt(), 'header');
+    h.context.fetch = async () => ({ok: false, status: 503});
+    await h.click('cookie-save');
+    assert.equal(h.context.getCookie(), h.previous);
+    assert.equal(h.context.getCookieFmt(), 'header');
+    h.context.fetch = async () => ({ok: true});
+    await h.click('cookie-save');
+    assert.equal(h.context.getCookie(), 'PHPSESSID=json-fixture');
+    assert.equal(h.context.getCookieFmt(), 'json');
+});
+
 test('经典页手动保存和清除取消旧导入，迟到正文不能改回旧凭据', async () => {
     for (const action of ['cookie-save', 'cookie-clear']) {
         const h = await setup();

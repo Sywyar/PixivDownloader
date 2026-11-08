@@ -18,17 +18,10 @@ function validateAndParseCookie(raw, fmt) {
                 throw new Error(bt('cookie.error.invalid-json', '需要 JSON 对象格式 {"key":"value",...}'));
             headerString = Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
         } else if (fmt === 'netscape') {
-            const lines = raw.split('\n')
-                .filter(l => l.trim() && !l.trim().startsWith('#'))
-                .map(l => {
-                    const p = l.split('\t');
-                    return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
-                })
-                .filter(Boolean);
-            if (!lines.length) {
+            headerString = parseCookieToHeaderString(raw, fmt);
+            if (!headerString) {
                 throw new Error(bt('cookie.error.invalid-netscape', '未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）'));
             }
-            headerString = lines.join('; ');
         } else {
             headerString = raw.trim();
         }

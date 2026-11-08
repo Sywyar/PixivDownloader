@@ -132,13 +132,19 @@
         // Cookie
         const savedCookie = storeGet('pixiv_cookie') || '';
         const cookieInput = document.getElementById('cookie-input');
-        cookieInput.value = savedCookie;
+        setCookieInputValue(savedCookie, getCookieFmt());
         cookieInput.addEventListener('input', applyCookieDependentUi);
-        setCookieFmt(getCookieFmt());
+        cookieInput.addEventListener('paste', event => {
+            if (getCookieInputFmt() !== 'netscape' || !event.clipboardData) return;
+            const raw = event.clipboardData.getData('text/plain');
+            if (!raw) return;
+            event.preventDefault();
+            setCookieInputValue(raw, 'netscape');
+        });
 
         document.getElementById('cookie-save').addEventListener('click', async () => {
             const raw = document.getElementById('cookie-input').value.trim();
-            const result = validateAndParseCookie(raw, getCookieFmt());
+            const result = validateAndParseCookie(raw, getCookieInputFmt());
             if (!result.ok) {
                 setCookieStatus({key: 'status.cookie-save-failed', fallback: 'Cookie 保存失败：{message}', args: {message: result.errorMessage}}, 'error');
                 return;

@@ -95,6 +95,22 @@ test('Cookie 保存等待持久化后关闭弹窗，翻译重绘保留新状态�
     assert.equal(h.requests[0].state.pixiv_cookie_fmt, 'json');
 });
 
+test('新版 Netscape 编辑器保存完整多行原文，重开后仍识别 HttpOnly 登录字段', async () => {
+    const h = setup();
+    const editor = h.open();
+    await h.click(editor.body.querySelector('[data-value="netscape"]'));
+    const raw = '# Netscape HTTP Cookie File\n#HttpOnly_.pixiv.net\tTRUE\t/\tTRUE\t0\tPHPSESSID\tfixture==\n'
+        + '.pixiv.net\tTRUE\t/\tFALSE\t0\tpreference\ta%2Bb';
+    editor.input.value = raw;
+    await h.click(editor.save);
+    assert.equal(h.context.getStoredCookie('pixiv'), raw);
+    assert.equal(h.context.getCookieFmt(), 'netscape');
+    assert.equal(h.context.cookieHasPhpsessid(), true);
+    assert.equal(h.context.pixivHeader()['X-Acquisition-Credential'], 'PHPSESSID=fixture==; preference=a%2Bb');
+    assert.equal(h.modal.open, false);
+    assert.equal(h.open().input.value, raw);
+});
+
 test('无效输入和持久化失败保留弹窗与已保存 Cookie，重试成功后才更新状态', async () => {
     const h = setup();
     h.run("serverState = {pixiv_cookie:'PHPSESSID=previous', pixiv_cookie_fmt:'header'}");

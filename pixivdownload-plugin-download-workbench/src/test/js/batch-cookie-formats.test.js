@@ -15,6 +15,7 @@ function pageCookies(page) {
     const c = vm.createContext({
         console: {warn: value => warnings.push(value)},
         bt: key => key,
+        resolveStatusMessage: message => message.key,
         document: {getElementById: id => id === 'cookie-input' ? input : null},
         storeGet: key => values.get(key),
         storeSet: (key, value) => values.set(key, value),
@@ -32,6 +33,32 @@ function pageCookies(page) {
 }
 
 for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
+    test(`${page} Netscape 导入、保存校验与请求头读取保留 HttpOnly 登录字段`, () => {
+        const {c, values} = pageCookies(page);
+        for (const newline of ['\n', '\r\n']) {
+            const raw = [
+                '# Netscape HTTP Cookie File',
+                '# ordinary comment',
+                '#HttpOnly_.pixiv.net\tTRUE\t/\tTRUE\t0\tPHPSESSID\tfixture=with==padding',
+                '.pixiv.net\tTRUE\t/\tFALSE\t0\tpreference\tvalue%2Bencoded',
+                '.pixiv.net\tTRUE\t/\tFALSE\t0\tempty\t',
+                ''
+            ].join(newline);
+            const expected = 'PHPSESSID=fixture=with==padding; preference=value%2Bencoded; empty=';
+            assert.equal(c.parseCookieToHeaderString(raw, 'netscape'), expected);
+            const result = c.validateAndParseCookie(raw, 'netscape');
+            assert.equal(result.ok, true);
+            assert.equal(result.count, 3);
+            assert.equal(result.warnings.length, 0);
+            values.set('pixiv_cookie', raw);
+            values.set('pixiv_cookie_fmt', 'netscape');
+            assert.equal(c.getCookie(), expected);
+            assert.equal(c.pixivHeader()['X-Acquisition-Credential'], expected);
+        }
+        assert.equal(c.validateAndParseCookie('# comment\ninvalid', 'netscape').ok, false);
+        assert.equal(c.validateAndParseCookie('#HttpOnly_.pixiv.net\tTRUE\t/', 'netscape').ok, false);
+    });
+
     test(`${page} Cookie 读取保留格式归一化、原值与解析失败回退`, () => {
         const {c, warnings} = pageCookies(page);
         assert.equal(c.parseCookieToHeaderString('', 'json'), '');

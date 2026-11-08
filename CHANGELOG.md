@@ -56,6 +56,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复两版下载页导入 Netscape 格式 Cookie 时丢失换行或遗漏 HttpOnly 登录字段的问题。
 - 修复 Windows 上动图处理结束后偶发遗留临时帧目录的问题；清理仍失败时记录告警，保留已保存的作品文件。
 - 修复 Compose 工具任务结束后再次打开仍显示上次结果的问题；重新运行时进入参数表单，运行中的任务仍可继续查看进度。
 - 桌面启动按作品缺失数据自动回填，并暂缓已确认受限作品的重复联网；工具页仍可手动重试。
