@@ -129,7 +129,7 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 
 .ab-script-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 9px;
     flex-wrap: wrap;
 }
@@ -141,9 +141,29 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 }
 
 .ab-script-version {
-    font-size: 0.6875rem;
-    color: var(--faint);
-    font-family: var(--mono);
+    display: grid;
+    overflow-wrap: anywhere;
+    gap: 2px;
+    margin-inline-start: auto;
+    max-width: 100%;
+    text-align: end;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+}
+
+.ab-script-version [data-state="update-available"] {
+    color: var(--warn);
+    font-weight: 600;
+}
+
+.ab-script-version [data-state="detected"] {
+    color: var(--ok);
+}
+
+.ab-script-version [data-state="covered"] {
+    color: var(--brand-strong);
 }
 
 .ab-script-desc {

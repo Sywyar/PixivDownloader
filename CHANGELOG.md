@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- 两版下载页合并展示油猴脚本的检测状态与可安装版本，标明可更新或较旧版本，相同版本不再重复显示。
 - Compose 左侧工具入口显示运行任务数量，并沿边框显示滚动线段；任务结束后自动隐藏。
 - 插件管理与市场页精简重复信息，通用说明按需展开；没有插件更新时隐藏更新横幅。
 - 发行包默认使用 JVM 启动缓存；Java 分发包通过启动脚本在首次正常退出后生成缓存，应用、Java 环境或 JVM 参数变化时重建。
@@ -58,6 +59,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复油猴脚本从非默认端口安装后仍默认连接 6999 的问题，保留用户已保存的连接地址。
 - 修复两版下载页导入 Netscape 格式 Cookie 时丢失换行或遗漏 HttpOnly 登录字段的问题。
 - 修复 Windows 上动图处理结束后偶发遗留临时帧目录的问题；清理仍失败时记录告警，保留已保存的作品文件。
 - 修复 Compose 工具任务结束后再次打开仍显示上次结果的问题；重新运行时进入参数表单，运行中的任务仍可继续查看进度。

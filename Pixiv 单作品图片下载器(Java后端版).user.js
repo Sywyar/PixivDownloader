@@ -14,6 +14,8 @@
 // @connect      i.pximg.net
 // @connect      www.pixiv.net
 // @connect      localhost
+// @connect      127.0.0.1
+// @connect      ::1
 // @connect      YOUR_SERVER_HOST
 // @run-at       document-start
 // @pixiv-presence-page /pixiv-batch.html
@@ -25,8 +27,26 @@
     // @pixiv-presence-bootstrap
 
     // 配置后端服务地址
+    // >>> SHARED:installed-server.js
+    function installedServer() {
+        const info = typeof GM_info !== 'undefined' ? GM_info
+            : typeof GM !== 'undefined' ? GM.info : null;
+        for (const address of [info?.script?.downloadURL, info?.script?.updateURL, info?.scriptUpdateURL]) {
+            try {
+                const url = new URL(address);
+                const route = url.pathname.match(/^(.*)\/api\/scripts\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\.user\.js|\/install)$/);
+                if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+                    && !url.search && !url.hash && route) {
+                    return url.origin + route[1];
+                }
+            } catch (_) { /* 直接从源码安装时可能没有后端安装地址。 */ }
+        }
+        return 'http://localhost:6999';
+    }
+    // <<< SHARED:installed-server.js
+    const DEFAULT_SERVER = installedServer();
     const KEY_SERVER_URL = 'pixiv_server_base';
-    let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
+    let serverBase = GM_getValue(KEY_SERVER_URL, DEFAULT_SERVER).replace(/\/$/, '');
 
     const KEY_USER_UUID = 'pixiv_user_uuid';
     const KEY_BOOKMARK_AFTER_DL = 'pixiv_bookmark_after_dl';
@@ -2856,7 +2876,7 @@
     GM_registerMenuCommand(t('single.menu.server', '⚙️ 设置服务器地址'), () => {
         const input = prompt(t('single.prompt.server', '请输入后端服务器地址（不含末尾斜杠）:'), serverBase);
         if (input !== null) {
-            serverBase = input.trim().replace(/\/$/, '') || 'http://localhost:6999';
+            serverBase = input.trim().replace(/\/$/, '') || DEFAULT_SERVER;
             GM_setValue(KEY_SERVER_URL, serverBase);
             createDownloadUI();
             alert(t('single.alert.server-updated', null, { serverBase: serverBase }));

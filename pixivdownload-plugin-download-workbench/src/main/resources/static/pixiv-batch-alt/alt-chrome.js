@@ -418,13 +418,11 @@ async function openScriptsModal() {
         card.style.setProperty('--stagger', String(idx));
         const head = el('div', 'ab-script-head');
         head.appendChild(el('strong', 'ab-script-name', s.name));
-        if (s.version) head.appendChild(el('span', 'ab-script-version', bt('batch:userscripts.available-version', undefined, {version: s.version})));
+        const status = el('span', 'ab-script-version');
+        head.appendChild(status);
+        statuses.push([s, status]);
         card.appendChild(head);
         if (s.description) card.appendChild(el('p', 'ab-script-desc', s.description));
-        const status = el('p', 'ab-script-desc', bt('batch:userscripts.detecting'));
-        status.setAttribute('role', 'status');
-        statuses.push([s.id, status]);
-        card.appendChild(status);
         const actions = el('div', 'ab-script-actions');
         const installBtn = el('button', 'ab-btn ab-btn--primary ab-btn--sm');
         installBtn.type = 'button';
@@ -444,10 +442,10 @@ async function openScriptsModal() {
     });
     const detect = async () => {
         refresh.disabled = true;
-        statuses.forEach(([, node]) => { node.textContent = bt('batch:userscripts.detecting'); });
+        statuses.forEach(([script, node]) => PixivUserscriptDetection.renderVersion(node, script, null, bt));
         const found = await PixivUserscriptDetection.probe(result.items.map(s => s.id));
         if (!body.isConnected) return;
-        statuses.forEach(([id, node]) => { node.textContent = PixivUserscriptDetection.describe(id, found, bt); });
+        statuses.forEach(([script, node]) => PixivUserscriptDetection.renderVersion(node, script, found, bt));
         refresh.disabled = false;
     };
     refresh.addEventListener('click', detect);

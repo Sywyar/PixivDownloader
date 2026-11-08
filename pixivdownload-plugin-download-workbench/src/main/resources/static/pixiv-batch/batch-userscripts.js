@@ -61,7 +61,7 @@
                 item.innerHTML =
                     '<div class="userscript-card-head">' +
                         '<strong class="userscript-card-title">' + escHtml(s.displayName) + '</strong>' +
-                        '<span class="userscript-card-version">' + escHtml(bt('userscripts.available-version', undefined, {version: s.version})) + '</span>' +
+                        '<span class="userscript-card-version"></span>' +
                     '</div>' +
                     '<div class="userscript-card-desc">' + escHtml(s.description) + '</div>' +
                     '<div class="userscript-card-actions">' +
@@ -73,18 +73,15 @@
                             escHtml(bt('userscripts.view-source', '📄 查看源码')) +
                         '</a>' +
                     '</div>';
-                const status = document.createElement('p');
-                status.className = 'userscript-card-desc';
-                status.setAttribute('role', 'status');
-                status.textContent = bt('userscripts.detecting');
-                item.appendChild(status);
-                statuses.push([s.id, status]);
+                const status = item.querySelector('.userscript-card-version');
+                PixivUserscriptDetection.renderVersion(status, s, null, bt);
+                statuses.push([s, status]);
                 list.appendChild(item);
             });
             refresh.disabled = true;
             const detected = await PixivUserscriptDetection.probe(data.scripts.map(s => s.id));
             if (generation !== _userscriptsGeneration) return;
-            statuses.forEach(([id, node]) => { node.textContent = PixivUserscriptDetection.describe(id, detected, bt); });
+            statuses.forEach(([script, node]) => PixivUserscriptDetection.renderVersion(node, script, detected, bt));
             refresh.disabled = false;
         } catch (e) {
             if (generation !== _userscriptsGeneration) return;
