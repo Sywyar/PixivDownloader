@@ -370,6 +370,8 @@ class UpdateServiceTest {
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("size mismatch");
             assertThat(part).doesNotExist();
+            assertThat(service.getDownloadProgress().failed()).isTrue();
+            assertThat(service.getDownloadProgress().error()).isEqualTo("update.download.failed");
         } finally {
             restoreProperty("os.name", oldOsName);
             restoreProperty("os.arch", oldOsArch);
@@ -432,6 +434,26 @@ class UpdateServiceTest {
                 .map(java.lang.reflect.Method::getName)
                 .filter(name -> name.startsWith("set"))
                 .toList()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("异步下载失败状态只保存安全错误码")
+    void asyncDownloadFailureDoesNotStoreInternalDetails() throws Exception {
+        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(UpdateHttpClientProvider.class)) {
+            @Override
+            void downloadInstaller(UpdateCheckResult check) throws IOException {
+                throw new IOException("internal-probe C:/private/update token=private-value");
+            }
+        };
+        var lastResult = UpdateService.class.getDeclaredField("lastResult");
+        lastResult.setAccessible(true);
+        lastResult.set(service, UpdateCheckResult.builder().updateAvailable(true)
+                .assetUrl("https://example.com/update.exe").assetSizeBytes(30).build());
+        service.startDownloadAsync(false);
+        org.awaitility.Awaitility.await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(service.getDownloadProgress().failed()).isTrue();
+            assertThat(service.getDownloadProgress().error()).isEqualTo("update.download.failed");
+        });
     }
 
     @Test

@@ -475,7 +475,7 @@ public class NovelDownloadService implements NovelDownloader {
             log.error("novel download failed: id={}", novelId, e);
             status.fail(e instanceof DownloadPathRejectedException
                     ? messages.get("download.path.segment.invalid", other.getUsername())
-                    : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+                    : messages.get("error.unexpected"));
         } finally {
             if (!recorded) downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
                     ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));

@@ -11,7 +11,7 @@
     "error.invite-expired": "邀請碼無效或已失效",
     "error.invite-invalid": "邀請碼無效",
     "error.login-failed": "登入失敗",
-    "error.network": "網路錯誤：{message}",
+    "error.network": "連線失敗，請稍後重試",
     "field.password": "密碼",
     "field.password.placeholder": "密碼",
     "field.username": "使用者名稱",

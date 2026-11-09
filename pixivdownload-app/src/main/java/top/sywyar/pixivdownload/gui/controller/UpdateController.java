@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.update.UpdateCheckResult;
 import top.sywyar.pixivdownload.update.UpdateService;
 
@@ -72,7 +73,9 @@ public class UpdateController {
             updateService.startDownloadAsync("nightly".equalsIgnoreCase(channel));
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+            log.warn("Update download could not start", e);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiErrorResponse.of(
+                    "update.download.start-failed", messages.get("update.download.start-failed")));
         }
     }
 
@@ -85,6 +88,10 @@ public class UpdateController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         UpdateService.DownloadProgress progress = updateService.getDownloadProgress();
+        if (progress != null && progress.failed()) {
+            progress = new UpdateService.DownloadProgress(progress.received(), progress.total(), progress.done(),
+                    true, messages.get("update.download.failed"), null);
+        }
         return progress == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(progress);
     }
 
@@ -100,7 +107,7 @@ public class UpdateController {
         } catch (IOException e) {
             log.warn(messages.getForLog("update.log.install.launch-failed", e.getMessage()), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", e.getMessage()));
+                    .body(ApiErrorResponse.of("update.install.failed", messages.get("update.install.failed")));
         }
     }
 }

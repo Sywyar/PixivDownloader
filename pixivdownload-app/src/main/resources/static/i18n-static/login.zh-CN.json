@@ -11,7 +11,7 @@
     "error.invite-expired": "邀请码无效或已失效",
     "error.invite-invalid": "邀请码无效",
     "error.login-failed": "登录失败",
-    "error.network": "网络错误：{message}",
+    "error.network": "连接失败，请稍后重试",
     "field.password": "密码",
     "field.password.placeholder": "密码",
     "field.username": "用户名",

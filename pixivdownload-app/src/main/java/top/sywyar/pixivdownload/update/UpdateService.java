@@ -76,6 +76,7 @@ public class UpdateService {
 
     /** installer 临时存放目录（运行目录下）。 */
     private static final Path INSTALLER_CACHE_DIR = Path.of("update-cache");
+    private static final String DOWNLOAD_FAILED_CODE = "update.download.failed";
     private static final long MAX_MANIFEST_BYTES = 1024L * 1024L;
     private static final long MAX_SIGNATURE_BYTES = 16L * 1024L;
     /** 安装包硬上限，避免清单声明异常导致磁盘塞满。 */
@@ -390,10 +391,11 @@ public class UpdateService {
             try {
                 downloadInstaller(selected);
             } catch (Exception e) {
+                log.warn(forLog("update.log.download.failed", e.getMessage()), e);
                 DownloadProgress cur = currentDownloadProgress;
                 if (cur == null || (!cur.done() && !cur.failed())) {
                     currentDownloadProgress = new DownloadProgress(
-                            cur != null ? cur.received() : 0, declaredSize, false, true, e.getMessage(), null);
+                            cur != null ? cur.received() : 0, declaredSize, false, true, DOWNLOAD_FAILED_CODE, null);
                 }
             } finally {
                 downloadInProgress = false;
@@ -555,7 +557,7 @@ public class UpdateService {
             String errMsg = cause != null ? cause.getMessage() : e.getMessage();
             currentDownloadProgress = new DownloadProgress(
                     currentDownloadProgress != null ? currentDownloadProgress.received() : 0,
-                    declaredSize, false, true, errMsg, null);
+                    declaredSize, false, true, DOWNLOAD_FAILED_CODE, null);
             throw new IOException(forLog("update.log.download.failed", errMsg), e);
         }
 
@@ -565,14 +567,14 @@ public class UpdateService {
             Files.deleteIfExists(tmp);
             String msg = forLog("update.log.download.failed",
                     "size mismatch: expected " + declaredSize + ", actual " + finalSize);
-            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, msg, null);
+            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, DOWNLOAD_FAILED_CODE, null);
             throw new IOException(msg);
         }
         String actual = sha256(tmp);
         if (expected == null || !expected.matches("(?i)[0-9a-f]{64}") || !expected.equalsIgnoreCase(actual)) {
             Files.deleteIfExists(tmp);
             String msg = forLog("update.log.download.checksum-mismatch", expected, actual);
-            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, msg, null);
+            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, DOWNLOAD_FAILED_CODE, null);
             throw new IOException(msg);
         }
 

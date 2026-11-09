@@ -257,24 +257,37 @@ window.PixivGallery = window.PixivGallery || {};
                 'Accept': 'application/json',
                 ...(options.headers || {}),
             },
+        }).catch(error => {
+            if (error.name === 'AbortError') throw error;
+            throw Object.assign(new Error(t('toast.action-failed', '操作失败')), {code: 'NETWORK_ERROR', status: 0});
         });
         if (res.status === 401) {
             window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
-            throw new Error('Unauthorized');
+            throw Object.assign(new Error(t('toast.action-failed', '操作失败')), {code: 'auth.required', status: 401});
         }
         if (!res.ok) {
-            let msg = `HTTP ${res.status}`;
+            let msg = t('toast.action-failed', '操作失败');
+            let code = '';
             try {
                 const j = await res.json();
-                if (j && j.error) msg = j.error;
-                else if (j && j.message) msg = j.message;
+                if (j && typeof j.code === 'string') {
+                    code = j.code;
+                    const businessFailure = ['DATABASE_UNAVAILABLE', 'plugin.unavailable.quiesced',
+                        'error.pixiv.upstream.unauthorized', 'error.pixiv.upstream.failed',
+                        'error.pixiv.response.too-large'].includes(code);
+                    if ((res.status < 500 || businessFailure) && typeof j.error === 'string') msg = j.error;
+                }
             } catch (_) {
             }
-            throw new Error(msg);
+            throw Object.assign(new Error(msg), {code, status: res.status});
         }
         const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) return res.json();
-        return res.text();
+        try {
+            return await (ct.includes('application/json') ? res.json() : res.text());
+        } catch (error) {
+            if (error.name === 'AbortError') throw error;
+            throw Object.assign(new Error(t('toast.action-failed', '操作失败')), {code: 'INVALID_RESPONSE', status: res.status});
+        }
     }
 
     function toast(msg, type = '') {

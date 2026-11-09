@@ -11,7 +11,7 @@
     "error.invite-expired": "Invalid or expired invite code",
     "error.invite-invalid": "Invalid invite code",
     "error.login-failed": "Login failed",
-    "error.network": "Network error: {message}",
+    "error.network": "Connection failed. Please try again later.",
     "field.password": "Password",
     "field.password.placeholder": "Password",
     "field.username": "Username",

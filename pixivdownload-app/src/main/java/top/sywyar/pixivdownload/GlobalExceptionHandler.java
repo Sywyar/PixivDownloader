@@ -103,9 +103,8 @@ public class GlobalExceptionHandler {
         String message = messages.getOrDefault(
                 locale,
                 "work.delete.path-unsafe",
-                "删除目标路径不安全，已中止文件与数据库清理: {0}",
-                e.path());
-        String logDetail = messages.getForLog("work.delete.path-unsafe", e.path());
+                "删除目标路径不安全，已中止文件与数据库清理，请检查下载目录");
+        String logDetail = messages.getForLog("work.delete.path-unsafe") + " [path=" + e.path() + "]";
         log.warn(logMessage("error.log.request.failed", logDetail));
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error("work.delete.path-unsafe", message));
     }
@@ -132,11 +131,20 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException e) {
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException e, Locale locale) {
         String detail = fallbackLogDetail(e.getReason(), e.getStatusCode().toString());
         log.warn(logMessage("error.log.request.failed", detail));
+        String messageCode = switch (e.getStatusCode().value()) {
+            case 400 -> "error.request.param.invalid";
+            case 401 -> "auth.unauthorized";
+            case 403 -> "error.request.security";
+            case 404 -> "error.request.not-found";
+            case 405 -> "http.status.405";
+            case 429 -> "auth.too-many-requests";
+            default -> "error.unexpected";
+        };
         return ResponseEntity.status(e.getStatusCode())
-                .body(error("http.status." + e.getStatusCode().value(), detail));
+                .body(error("http.status." + e.getStatusCode().value(), messages.get(locale, messageCode)));
     }
 
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
@@ -147,10 +155,10 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(SecurityException.class)
-    public ResponseEntity<ApiErrorResponse> handleSecurity(SecurityException e) {
+    public ResponseEntity<ApiErrorResponse> handleSecurity(SecurityException e, Locale locale) {
         log.warn(logMessage("error.log.security.failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
-        return ResponseEntity.badRequest().body(error("error.request.security", fallbackLogDetail(
-                e.getMessage(), e.getClass().getSimpleName())));
+        return ResponseEntity.badRequest().body(error("error.request.security",
+                messages.get(locale, "error.request.security")));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -190,9 +198,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException e, Locale locale) {
         String rawMessage = e.getMessage();
-        String message = rawMessage == null || rawMessage.isBlank()
-                ? messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误")
-                : rawMessage;
+        String message = messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误");
         log.warn(logMessage("error.log.request.failed", fallbackLogDetail(rawMessage, e.getClass().getSimpleName())));
         return ResponseEntity.badRequest().body(error("error.request.param.invalid", message));
     }
@@ -221,7 +227,7 @@ public class GlobalExceptionHandler {
                     fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
             return ResponseEntity.noContent().build();
         }
-        String message = messages.getOrDefault(locale, "error.io", "服务器 IO 错误: {0}", e.getMessage());
+        String message = messages.getOrDefault(locale, "error.io", "服务器读写失败，请稍后重试");
         log.error(logMessage("error.log.io.exception", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())), e);
         return ResponseEntity.internalServerError().body(error("error.io", message));
     }
@@ -265,10 +271,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleGeneric(Exception e, Locale locale) {
-        String message = e.getMessage();
-        if (message == null || message.isBlank()) {
-            message = messages.getOrDefault(locale, "error.unexpected", "发生未处理异常");
-        }
+        String message = messages.getOrDefault(locale, "error.unexpected", "发生未处理异常");
         log.error(logMessage("error.log.unexpected.exception"), e);
         return ResponseEntity.internalServerError().body(error("error.unexpected", message));
     }

@@ -72,20 +72,20 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("SecurityException 应返回 400 和错误消息")
+    @DisplayName("安全异常应返回受控的 400 提示")
     void shouldHandle400ForSecurityException() {
         SecurityException ex = new SecurityException("只允许 HTTPS 协议的下载 URL");
 
-        ResponseEntity<ApiErrorResponse> response = handler.handleSecurity(ex);
+        ResponseEntity<ApiErrorResponse> response = handler.handleSecurity(ex, Locale.US);
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("error.request.security");
-        assertThat(response.getBody().error()).isEqualTo("只允许 HTTPS 协议的下载 URL");
+        assertThat(response.getBody().error()).isEqualTo(TestI18nBeans.appMessages().get(Locale.US, "error.request.security"));
     }
 
     @Test
-    @DisplayName("非法参数应返回 400 并保留具体错误消息")
+    @DisplayName("未知参数异常应返回 400 且不回显原始消息")
     void shouldHandle400ForIllegalArgumentException() {
         IllegalArgumentException ex = new IllegalArgumentException(
                 "Conflicting acquisition credential headers");
@@ -96,11 +96,11 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("error.request.param.invalid");
         assertThat(response.getBody().error())
-                .isEqualTo("Conflicting acquisition credential headers");
+                .isEqualTo(TestI18nBeans.appMessages().get(Locale.US, "error.request.param.invalid"));
     }
 
     @Test
-    @DisplayName("通用异常应返回 500 和错误消息")
+    @DisplayName("通用异常应返回本地化的安全提示")
     void shouldHandle500ForGenericException() {
         Exception ex = new RuntimeException("意外错误");
 
@@ -109,7 +109,7 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(500);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("error.unexpected");
-        assertThat(response.getBody().error()).isEqualTo("意外错误");
+        assertThat(response.getBody().error()).isEqualTo(TestI18nBeans.appMessages().get(Locale.SIMPLIFIED_CHINESE, "error.unexpected"));
     }
 
     @Test
@@ -240,7 +240,7 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("不安全删除路径应映射为包含具体路径的本地化 409")
+    @DisplayName("不安全删除路径应返回本地化 409 且不暴露服务器路径")
     void shouldMapUnsafeDeletionPathToLocalizedConflict() {
         ResponseEntity<ApiErrorResponse> response = handler.handleUnsafeDeletionPath(
                 new UnsafeDeletionPathException("C:\\downloads\\linked"),
@@ -250,7 +250,45 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().code()).isEqualTo("work.delete.path-unsafe");
         assertThat(response.getBody().error())
-                .isEqualTo("删除目标路径不安全，已中止文件与数据库清理: C:\\downloads\\linked");
+                .isEqualTo(TestI18nBeans.appMessages().get(Locale.SIMPLIFIED_CHINESE, "work.delete.path-unsafe"))
+                .doesNotContain("C:\\downloads\\linked");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "generic,500,error.unexpected", "linkage,500,error.unexpected",
+            "io,500,error.io", "security,400,error.request.security",
+            "argument,400,error.request.param.invalid", "status,404,http.status.404"
+    })
+    @DisplayName("真实 MVC 异常响应保留状态与错误码且不暴露诊断或嵌套原因")
+    void mvcFailuresDoNotExposeDiagnostics(String kind, int statusCode, String code) throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new FailureController()).setControllerAdvice(handler).build();
+        for (Locale locale : new Locale[]{Locale.US, Locale.SIMPLIFIED_CHINESE}) {
+            String body = mvc.perform(get("/api/error-fixture").param("kind", kind).locale(locale))
+                    .andExpect(status().is(statusCode))
+                    .andExpect(jsonPath("$.code").value(code))
+                    .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages().get(locale,
+                            kind.equals("status") ? "error.request.not-found" : code)))
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(body).doesNotContain("internal-probe", "NoSuchMethodError", "Handler dispatch failed", "stackTrace");
+        }
+    }
+
+    @RestController
+    static class FailureController {
+        @GetMapping("/api/error-fixture")
+        String fail(@RequestParam("kind") String kind) throws IOException {
+            String detail = "internal-probe C:/private/database.db token=private-value";
+            switch (kind) {
+                case "linkage" -> throw new NoSuchMethodError(detail);
+                case "io" -> throw new IOException(detail);
+                case "security" -> throw new SecurityException(detail);
+                case "argument" -> throw new IllegalArgumentException(detail);
+                case "status" -> throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, detail);
+                default -> throw new RuntimeException(detail, new IllegalStateException(detail));
+            }
+        }
     }
 
     @Test

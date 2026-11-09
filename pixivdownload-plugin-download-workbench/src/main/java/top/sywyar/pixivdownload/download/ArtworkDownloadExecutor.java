@@ -1356,10 +1356,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     localized.messageArgs()
             );
         }
-        String message = error.getMessage();
-        if (message == null || message.isBlank()) {
-            return messages.get(Locale.getDefault(), "error.unexpected");
-        }
-        return message;
+        return messages.get(Locale.getDefault(), "error.unexpected");
     }
 }

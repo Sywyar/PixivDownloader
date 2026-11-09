@@ -137,8 +137,10 @@ async function doLogin() {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (data.error) {
+      if (data && typeof data.code === 'string' && typeof data.error === 'string' && res.status < 500) {
         showLoginErrorText(data.error);
+      } else if (res.status >= 500) {
+        showLoginErrorKey('error.network', '连接失败，请稍后重试');
       } else {
         showLoginErrorKey('error.login-failed', '登录失败');
       }
@@ -148,7 +150,7 @@ async function doLogin() {
     window.location.href = getRedirect();
   } catch (e) {
     if (e.name === 'AbortError') { setAuthButtonsDisabled(false); return; }
-    showLoginErrorKey('error.network', 'error.network', {message: e.message});
+    showLoginErrorKey('error.network', '连接失败，请稍后重试');
     setAuthButtonsDisabled(false);
   }
 }
@@ -171,8 +173,10 @@ async function doInviteRedeem() {
     });
     const data = await res.json();
     if (!res.ok) {
-      if (data.error) {
+      if (data && typeof data.code === 'string' && typeof data.error === 'string' && res.status < 500) {
         showInviteErrorText(data.error);
+      } else if (res.status >= 500) {
+        showInviteErrorKey('error.network', '连接失败，请稍后重试');
       } else {
         showInviteErrorKey('error.invite-invalid', '邀请码无效');
       }
@@ -183,7 +187,7 @@ async function doInviteRedeem() {
     window.location.href = data.redirect || '/';
   } catch (e) {
     if (e.name === 'AbortError') { setAuthButtonsDisabled(false); return; }
-    showInviteErrorKey('error.network', 'error.network', {message: e.message});
+    showInviteErrorKey('error.network', '连接失败，请稍后重试');
     setAuthButtonsDisabled(false);
   }
 }

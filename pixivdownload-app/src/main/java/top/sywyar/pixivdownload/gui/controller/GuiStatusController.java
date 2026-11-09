@@ -116,7 +116,7 @@ public class GuiStatusController {
     }
 
     @PostMapping("/config/reload")
-    public ResponseEntity<GuiConfigReloadResponse> reloadConfig(
+    public ResponseEntity<?> reloadConfig(
             @RequestBody(required = false) GuiConfigReloadRequest body,
             HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -127,14 +127,10 @@ public class GuiStatusController {
             RuntimeConfigReloadService.ReloadResult result = runtimeConfigReloadService.reloadHotConfig(
                     body == null ? List.of() : body.changedKeys());
             return ResponseEntity.ok(new GuiConfigReloadResponse(true, result.appliedKeys(), "ok"));
-        } catch (IOException e) {
-            log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()));
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new GuiConfigReloadResponse(false, List.of(), e.getMessage()));
-        } catch (RuntimeException e) {
+        } catch (IOException | RuntimeException e) {
             log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new GuiConfigReloadResponse(false, List.of(), e.getMessage()));
+                    .body(ApiErrorResponse.of("gui.config.reload.failed", messages.get("gui.config.reload.failed")));
         }
     }
 
