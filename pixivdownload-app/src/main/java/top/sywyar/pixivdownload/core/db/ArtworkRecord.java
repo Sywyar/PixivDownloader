@@ -20,8 +20,34 @@ public record ArtworkRecord(
         Long seriesOrder,
         boolean deleted,
         Long uploadTime,
-        Boolean isOriginal
+        Boolean isOriginal,
+        Long createTime,
+        Long updateTime,
+        Long reuploadTime
 ) {
+    public ArtworkRecord(long artworkId,
+        String title,
+        String folder,
+        int count,
+        String extensions,
+        long time,
+        boolean moved,
+        String moveFolder,
+        Long moveTime,
+        Integer xRestrict,
+        Boolean isAi,
+        Long authorId,
+        String description,
+        Long fileName,
+        Long fileAuthorNameId,
+        Long seriesId,
+        Long seriesOrder,
+        boolean deleted,
+        Long uploadTime,
+        Boolean isOriginal) {
+        this(artworkId, title, folder, count, extensions, time, moved, moveFolder, moveTime, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, deleted, uploadTime, isOriginal, null, null, null);
+    }
+
     public ArtworkRecord(long artworkId,
                          String title,
                          String folder,

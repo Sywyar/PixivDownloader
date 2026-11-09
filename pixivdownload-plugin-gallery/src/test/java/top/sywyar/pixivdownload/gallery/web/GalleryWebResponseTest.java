@@ -27,11 +27,12 @@ class GalleryWebResponseTest {
                 50L, 3L, "series", false);
 
         JsonNode artworkJson = objectMapper.valueToTree(artwork);
+        assertThat(artworkJson.path("time").asLong()).isEqualTo(100L);
         assertThat(fieldNames(artworkJson)).containsExactlyInAnyOrder(
                 "artworkId", "title", "folder", "count", "extensions", "time", "moved",
                 "moveFolder", "moveTime", "xRestrict", "isAi", "authorId", "authorName",
                 "description", "fileName", "fileNameTemplate", "tags", "seriesId",
-                "seriesOrder", "seriesTitle", "deleted", "uploadTime");
+                "seriesOrder", "seriesTitle", "deleted", "uploadTime", "createTime", "updateTime", "reuploadTime");
         assertThat(fieldNames(artworkJson.path("tags").get(0)))
                 .containsExactlyInAnyOrder("tagId", "name", "translatedName");
 

@@ -66,6 +66,21 @@ class PixivDatabaseTest {
     }
 
     @Test
+    @DisplayName("下载与导入保留登记时间，重新下载更新该时间")
+    void preservesRecordTimeForImportsAndDownloads() {
+        var imported = InsertArtworkArgument.builder().artworkId(123L).title("fixture").folder("/fixture")
+                .count(1).extensions("jpg").time(1234L).fileName(1L).build();
+        pixivDatabase.insertArtwork(imported);
+        assertThat(pixivDatabase.getArtwork(123L).time()).isEqualTo(1234L);
+        pixivDatabase.recordDownloadedArtwork(imported);
+        var record = pixivDatabase.getArtwork(123L);
+        assertThat(record.time()).isEqualTo(1234L);
+        pixivDatabase.recordDownloadedArtwork(InsertArtworkArgument.builder().artworkId(123L).title("fixture")
+                .folder("/fixture").count(1).extensions("jpg").time(5678L).fileName(1L).build());
+        assertThat(pixivDatabase.getArtwork(123L).time()).isEqualTo(5678L);
+    }
+
+    @Test
     @DisplayName("真实 SQLite 软删除事务失败时同时恢复文件、命名事实与作品记录")
     void deletionRollsBackFilesAndDatabase(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
         String property = top.sywyar.pixivdownload.config.RuntimeFiles.DATA_DIR_PROPERTY;

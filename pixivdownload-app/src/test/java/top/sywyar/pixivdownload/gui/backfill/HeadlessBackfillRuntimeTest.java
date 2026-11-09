@@ -98,7 +98,7 @@ class HeadlessBackfillRuntimeTest {
                 assertEquals(1, result.get().filledUploadTime());
                 assertEquals(0, pool.getHikariPoolMXBean().getActiveConnections());
                 try (var connection = pool.getConnection(); var statement = connection.createStatement();
-                     var row = statement.executeQuery("SELECT upload_time FROM novels WHERE novel_id=1")) {
+                     var row = statement.executeQuery("SELECT source_upload_time FROM novels WHERE novel_id=1")) {
                     assertTrue(row.next());
                     assertEquals(1580698800000L, row.getLong(1));
                 }

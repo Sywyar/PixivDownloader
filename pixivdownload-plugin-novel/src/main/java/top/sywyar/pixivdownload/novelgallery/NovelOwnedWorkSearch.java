@@ -115,6 +115,8 @@ public final class NovelOwnedWorkSearch {
                 .restriction(query.restriction())
                 .uploadTimeRange(query.uploadedFrom(), query.uploadedBefore())
                 .downloadTimeRange(query.downloadedFrom(), query.downloadedBefore())
+                .sourceTimeField(query.sourceTimeField())
+                .sourceTimeRanges(query.createdFrom(), query.createdBefore(), query.updatedFrom(), query.updatedBefore(), query.reuploadedFrom(), query.reuploadedBefore())
                 .build();
     }
 }

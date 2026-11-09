@@ -29,7 +29,11 @@ public class WorkMetadataStore {
         String table = type == WorkType.ARTWORK ? "artworks" : "novels";
         String key = type == WorkType.ARTWORK ? "artwork_id" : "novel_id";
         var changes = new LinkedHashMap<String, Expression>();
-        changes.put("upload_time", value(meta.uploadTime()));
+        changes.put("source_upload_time", call(COALESCE, value(meta.uploadTime()), column(table, "source_upload_time")));
+        changes.put("create_time", call(COALESCE, value(meta.createTime()), column(table, "create_time")));
+        changes.put("update_time", call(COALESCE, value(meta.updateTime()), column(table, "update_time")));
+        changes.put("reupload_time", call(COALESCE, value(meta.reuploadTime()), column(table, "reupload_time")));
+        changes.put("time_projection_version", value(2));
         changes.put("metadata_json", call(COALESCE, value(document), column(table, "metadata_json")));
         Expression where = call(AND, call(EQUAL, column(table, key), value(id)), call(EQUAL, column(table, "deleted"), value(0)));
         if (type == WorkType.ARTWORK) {

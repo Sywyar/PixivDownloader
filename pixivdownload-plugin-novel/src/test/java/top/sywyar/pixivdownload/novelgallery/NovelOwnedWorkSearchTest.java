@@ -111,6 +111,7 @@ class NovelOwnedWorkSearchTest {
                 .excludedSeriesIds(List.of(16L))
                 .uploadTimeRange(100L, 200L)
                 .downloadTimeRange(300L, 400L)
+                .sourceTimeRanges(500L, 600L, 700L, 800L, 900L, 1000L)
                 .restriction(restriction)
                 .build();
         when(workQueryService.searchAll(any())).thenReturn(List.of(
@@ -134,7 +135,8 @@ class NovelOwnedWorkSearchTest {
         assertThat(hostQuery.getValue()).isEqualTo(new WorkQuery(
                 WorkType.NOVEL, 0, 2, "date", "desc", "标题", "title", "yes", "no",
                 List.of("txt"), List.of(11L), List.of(12L), List.of(13L), List.of(14L),
-                List.of(88L), List.of(89L), List.of(90L), List.of(15L), List.of(16L), restriction, 100L, 200L, 300L, 400L));
+                List.of(88L), List.of(89L), List.of(90L), List.of(15L), List.of(16L), restriction, 100L, 200L, 300L, 400L)
+                .withSourceTimeRanges(500L, 600L, 700L, 800L, 900L, 1000L));
         verifyNoInteractions(novelDatabase);
     }
 

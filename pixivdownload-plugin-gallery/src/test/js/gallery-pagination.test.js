@@ -33,13 +33,14 @@ function harness(saved, respond) {
         }
     };
     vm.createContext(sandbox);
-    for (const file of ['gallery-state.js', 'gallery-collections.js', 'gallery-views.js']) {
+    for (const file of ['gallery-state.js', 'gallery-dates.js', 'gallery-collections.js', 'gallery-views.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/pixiv-gallery', file), 'utf8'), sandbox);
     }
+    const renderCards = sandbox.renderGallery;
     sandbox.renderGallery = items => rendered.push(items);
     sandbox.restoreGalleryState();
     return {
-        sandbox, requests, rendered, nodes,
+        sandbox, requests, rendered, nodes, renderCards,
         state: vm.runInContext('state', sandbox),
         persisted() {
             for (const fn of timers.values()) fn();
@@ -48,6 +49,22 @@ function harness(saved, respond) {
         }
     };
 }
+
+test('下载时间排序不在图片卡片显示日期，其他日期排序仍显示对应时间', () => {
+    const h = harness({sort: 'date'}, () => ({}));
+    h.sandbox.HEART_SVG = '';
+    h.sandbox.loadMembershipsForCurrentPage = () => {};
+    const item = {artworkId: 1, title: 'Title', authorName: 'Author', uploadTime: 1000};
+    for (const time of [2000, null]) {
+        h.renderCards([{...item, time}]);
+        assert.doesNotMatch(h.nodes.get('galleryGrid').innerHTML, /work-upload-time|work.download-time/);
+        assert.match(h.nodes.get('galleryGrid').innerHTML, /Title/);
+    }
+    h.state.sort = 'uploadTime';
+    h.renderCards([item]);
+    assert.match(h.nodes.get('galleryGrid').innerHTML, /work-upload-time/);
+    assert.match(h.nodes.get('galleryGrid').innerHTML, /work.upload-time/);
+});
 
 test('恢复越界页码后补查首页，保留搜索筛选排序并保存校正页码', async () => {
     const saved = {page: 2, search: 'sample', searchType: 'title', sort: 'artworkId', order: 'asc',

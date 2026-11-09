@@ -46,7 +46,7 @@ class ArtworksBackFillSourcesTest {
             try (var connection = target.openConnection(); var sql = connection.createStatement()) {
                 if (deleted) sql.execute("UPDATE artworks SET deleted=1");
                 else {
-                    sql.execute("UPDATE artworks SET author_id=42,r18=0,is_ai=0,description='concurrent',series_id=7,series_order=9,upload_time=1234");
+                    sql.execute("UPDATE artworks SET author_id=42,r18=0,is_ai=0,description='concurrent',series_id=7,series_order=9,source_upload_time=1234");
                     sql.execute("INSERT INTO authors(author_id,name,updated_time) VALUES(42,'concurrent author',1)");
                     sql.execute("INSERT INTO manga_series(series_id,title,author_id,updated_time) VALUES(7,'concurrent series',42,1)");
                     sql.execute("INSERT INTO tags(tag_id,name) VALUES(1,'concurrent tag')");
@@ -68,7 +68,7 @@ class ArtworksBackFillSourcesTest {
                     .containsOnly(0);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT r18,is_ai,description,upload_time,series_order FROM artworks WHERE artwork_id=1")) {
+             var row = sql.executeQuery("SELECT r18,is_ai,description,source_upload_time,series_order FROM artworks WHERE artwork_id=1")) {
             assertThat(row.next()).isTrue();
             if (deleted) for (int index = 1; index <= 5; index++) assertThat(row.getObject(index)).isNull();
             else {
@@ -111,7 +111,7 @@ class ArtworksBackFillSourcesTest {
         String snapshot = new WorkMetaCurator(mapper).curateArtwork(1,
                 mapper.readTree("{\"id\":1,\"userId\":42}"), null, "forward").document().toString();
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-            sql.execute("UPDATE artworks SET author_id=NULL,is_ai=0,description='keep',series_id=0,upload_time=1234");
+            sql.execute("UPDATE artworks SET author_id=NULL,is_ai=0,description='keep',series_id=0,source_upload_time=1234");
             sql.execute("INSERT INTO tags(tag_id,name) VALUES(1,'fixture')");
             sql.execute("INSERT INTO artwork_tags(artwork_id,tag_id) VALUES(1,1)");
             try (var update = connection.prepareStatement("UPDATE artworks SET metadata_json=?")) {
@@ -198,7 +198,7 @@ class ArtworksBackFillSourcesTest {
             verify(client, times(1)).query(2);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT description,upload_time,metadata_json FROM artworks WHERE artwork_id=1")) {
+             var row = sql.executeQuery("SELECT description,source_upload_time,metadata_json FROM artworks WHERE artwork_id=1")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getString(1)).isEqualTo("old description");
             assertThat(row.getObject(2)).isNull();
@@ -218,7 +218,7 @@ class ArtworksBackFillSourcesTest {
                 mapper.readTree("{\"id\":1,\"description\":\"local\",\"seriesNavData\":{\"seriesId\":7,\"order\":3,\"title\":\"old-series\"}}"),
                 null, "forward").document().toString();
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-            sql.executeUpdate("UPDATE artworks SET is_ai=0,upload_time=1000");
+            sql.executeUpdate("UPDATE artworks SET is_ai=0,source_upload_time=1000");
             sql.executeUpdate("INSERT INTO tags(tag_id,name) VALUES(1,'fixture')");
             sql.executeUpdate("INSERT INTO artwork_tags(artwork_id,tag_id) VALUES(1,1)");
             try (var update = connection.prepareStatement("UPDATE artworks SET metadata_json=? WHERE artwork_id=1")) {
@@ -253,7 +253,7 @@ class ArtworksBackFillSourcesTest {
             if (networkAvailable) assertThat(ArtworksBackFill.run(options).processed()).isZero();
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT a.series_id,a.series_order,s.title,a.description,a.upload_time FROM artworks a "
+             var row = sql.executeQuery("SELECT a.series_id,a.series_order,s.title,a.description,a.source_upload_time FROM artworks a "
                      + "LEFT JOIN manga_series s ON a.series_id=s.series_id")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getLong(1)).isEqualTo(8);
@@ -410,8 +410,10 @@ class ArtworksBackFillSourcesTest {
         }
         var network = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(BODY.replace("local", "network")), 4567L, true);
         var client = mock(ArtworksBackFillPixivClient.class);
-        when(client.query(1)).thenReturn(network);
-        when(client.queryNovel(3)).thenReturn(network);
+        when(client.query(1)).thenReturn(network.withMetadata(new WorkMetaCurator(mapper)
+                .curateArtwork(1, mapper.readTree(BODY.replace("local", "network")), null, "backfill")));
+        when(client.queryNovel(3)).thenReturn(network.withMetadata(new WorkMetaCurator(mapper)
+                .curateNovel(3, mapper.readTree(BODY.replace("\"1\"", "\"3\"").replace("local", "network")), "backfill")));
         try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 invocation -> invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
@@ -424,7 +426,7 @@ class ArtworksBackFillSourcesTest {
             verify(client, times(alwaysNetwork ? 1 : 0)).queryNovel(3);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT r18,author_id,description,upload_time,metadata_json FROM artworks")) {
+             var row = sql.executeQuery("SELECT r18,author_id,description,source_upload_time,metadata_json FROM artworks")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getInt(1)).isEqualTo(1);
             assertThat(row.getLong(2)).isEqualTo(7);
@@ -434,7 +436,7 @@ class ArtworksBackFillSourcesTest {
         }
         assertThat(directory.resolve("1.meta.json")).exists();
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT upload_time FROM novels WHERE novel_id=3")) {
+             var row = sql.executeQuery("SELECT source_upload_time FROM novels WHERE novel_id=3")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getLong(1)).isEqualTo(alwaysNetwork ? 4567L : 1580698800000L);
         }
@@ -468,7 +470,7 @@ class ArtworksBackFillSourcesTest {
             verify(client, never()).query(anyLong());
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT description,upload_time,metadata_json FROM artworks")) {
+             var row = sql.executeQuery("SELECT description,source_upload_time,metadata_json FROM artworks")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getString(1)).isNull();
             assertThat(row.getObject(2)).isNull();
@@ -504,7 +506,7 @@ class ArtworksBackFillSourcesTest {
             verify(client).query(1);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT description, upload_time FROM artworks")) {
+             var row = sql.executeQuery("SELECT description, source_upload_time FROM artworks")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getString(1)).isEqualTo("local");
             assertThat(row.getLong(2)).isEqualTo(4567L);

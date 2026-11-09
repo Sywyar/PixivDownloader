@@ -105,7 +105,7 @@ public class WorkDescriptionRepairTask implements MaintenanceTask {
             JsonNode document = reader.readTree(snapshot);
             if (document == null || !document.path("schemaVersion").isIntegralNumber()
                     || !document.path("schemaVersion").canConvertToInt()
-                    || document.path("schemaVersion").intValue() != 1
+                    || (document.path("schemaVersion").intValue() < 1 || document.path("schemaVersion").intValue() > 2)
                     || !document.path("workId").isIntegralNumber() || !document.path("workId").canConvertToLong()
                     || document.path("workId").longValue() != id
                     || !type.name().equals(document.path("workType").asString())

@@ -93,7 +93,7 @@ function rerenderDynamic() {
     if (!rerenderPayload) return;
     const d = rerenderPayload.data;
     renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
-    renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.uploadTime });
+    renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.uploadTime, createTime: d.createTime });
     applyDescriptionForLang(rerenderPayload.translation);
     renderTags(d.tags || []);
     if (cachedSeriesNav) {
@@ -118,7 +118,7 @@ async function renderLocal(view) {
         textLength: view.textLength,
         readingTimeSeconds: view.readingTimeSeconds,
         language: view.xLanguage,
-        uploadTimestamp: view.uploadTime
+        uploadTimestamp: view.uploadTime, createTime: view.createTime
     });
     renderDescription(view.description);
     renderTags(view.tags || []);
@@ -233,13 +233,13 @@ function renderMetaRow(o) {
     if (o.language) {
         parts.push(`<span>${escapeHtml(pageI18n.t('meta.language', null, { lang: o.language }))}</span>`);
     }
-    if (o.uploadTimestamp) {
-        const d = new Date(o.uploadTimestamp);
+    const publishedTime = o.createTime || o.uploadTimestamp;
+    if (publishedTime) {
+        const d = new Date(publishedTime);
         if (!isNaN(d.getTime())) {
-            parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload', null, { time: d.toLocaleString() }))}</span>`);
+            parts.push(`<span>${escapeHtml(pageI18n.t('meta.published', null, { time: d.toLocaleString() }))}</span>`);
         }
     }
-    if (!o.uploadTimestamp) parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload-unknown', 'Upload time unknown'))}</span>`);
     document.getElementById('novel-meta-row').innerHTML = parts.join('');
 }
 

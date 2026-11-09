@@ -23,7 +23,7 @@ class WorkMetadataTest {
                         "authorId", "authorName", "seriesId", "seriesOrder", "seriesTitle",
                         "tags", "downloadTime", "pageCount", "extensions", "folder", "moved",
                         "moveFolder", "moveTime", "fileNameTemplateRef",
-                        "uploadTime", "isOriginal");
+                        "uploadTime", "isOriginal", "createTime", "updateTime", "reuploadTime");
         assertThatThrownBy(() -> Class.forName(
                 "top.sywyar.pixivdownload.core.work.model.NovelWorkDetails"))
                 .isInstanceOf(ClassNotFoundException.class);

@@ -126,7 +126,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.moveTime(),
                     new WorkFileNameTemplateRef(rec.fileName(), templates.get(templateId)),
                     rec.uploadTime(),
-                    rec.isOriginal()));
+                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime()));
         }
         return out;
     }
@@ -198,7 +198,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                             ? null
                             : new WorkFileNameTemplateRef(rec.fileName(), templates.get(rec.fileName())),
                     rec.uploadTime(),
-                    rec.isOriginal()));
+                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime()));
         }
         return out;
     }

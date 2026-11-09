@@ -39,7 +39,7 @@ class ArtworksBackFillNovelsTest {
         completeNovelFields(target);
         for (long id = 3; id <= 5; id++) {
             String snapshot = new WorkMetaCurator(mapper).curateNovel(id,
-                    mapper.readTree("{\"id\":" + id + ",\"uploadTimestamp\":1580698800}"), "forward").document().toString();
+                    mapper.readTree("{\"id\":" + id + ",\"uploadTimestamp\":1580698800,\"createDate\":\"2020-01-01T00:00:00Z\",\"updateDate\":\"2020-03-01T00:00:00Z\"}"), "forward").document().toString();
             if (sidecar) Files.writeString(directory.resolve(id + ".meta.json"), snapshot);
             else try (var connection = target.openConnection(); var sql = connection.prepareStatement("UPDATE novels SET metadata_json=? WHERE novel_id=?")) {
                 sql.setString(1, snapshot); sql.setLong(2, id); sql.executeUpdate();
@@ -67,6 +67,10 @@ class ArtworksBackFillNovelsTest {
             assertThat(actualProgress).isEqualTo(dryProgress).contains("0/1", "1/1");
             assertThat(uploadTime(target, 3)).isEqualTo(LOCAL_TIME);
             assertThat(uploadTime(target, 4)).isNull();
+            try (var connection = target.openConnection(); var sql = connection.createStatement();
+                 var row = sql.executeQuery("SELECT COUNT(*) FROM novels WHERE create_time=1577836800000 AND update_time=1583020800000")) {
+                assertThat(row.next()).isTrue(); assertThat(row.getInt(1)).isEqualTo(1);
+            }
             assertThat(uploadTime(target, 5)).isNull();
             assertThat(ArtworksBackFill.countCandidates(options(target, false, false, 0))).isEqualTo(2);
             verify(client, never()).queryNovel(anyLong());
@@ -102,7 +106,7 @@ class ArtworksBackFillNovelsTest {
                 verify(client, times(2)).queryNovel(3);
             } else {
                 String snapshot = new WorkMetaCurator(mapper).curateNovel(3,
-                        mapper.readTree("{\"id\":3,\"uploadTimestamp\":1580698800}"), "forward").document().toString();
+                        mapper.readTree("{\"id\":3,\"uploadTimestamp\":1580698800,\"createDate\":\"2020-01-01T00:00:00Z\",\"updateDate\":\"2020-03-01T00:00:00Z\"}"), "forward").document().toString();
                 if (recovery.equals("sidecar")) Files.writeString(directory.resolve("3.meta.json"), snapshot);
                 else try (var connection = target.openConnection(); var sql = connection.prepareStatement("UPDATE novels SET metadata_json=?")) {
                     sql.setString(1, snapshot); sql.executeUpdate();
@@ -145,7 +149,7 @@ class ArtworksBackFillNovelsTest {
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenAnswer(ignored -> {
             try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-                sql.execute(deleted ? "UPDATE novels SET deleted=1 WHERE novel_id=3" : "UPDATE novels SET upload_time=1234 WHERE novel_id=3");
+                sql.execute(deleted ? "UPDATE novels SET deleted=1 WHERE novel_id=3" : "UPDATE novels SET source_upload_time=1234 WHERE novel_id=3");
             }
             return networkResult();
         });
@@ -259,7 +263,7 @@ class ArtworksBackFillNovelsTest {
             assertThat(ArtworksBackFill.countCandidates(options)).isZero();
             assertThat(ArtworksBackFill.run(options).processed()).isZero();
             String snapshot = new WorkMetaCurator(mapper).curateNovel(3,
-                    mapper.readTree("{\"id\":3,\"uploadTimestamp\":1580698800}"), "forward").document().toString();
+                    mapper.readTree("{\"id\":3,\"uploadTimestamp\":1580698800,\"createDate\":\"2020-01-01T00:00:00Z\",\"updateDate\":\"2020-03-01T00:00:00Z\"}"), "forward").document().toString();
             Files.writeString(directory.resolve("3.meta.json"), snapshot);
             assertThat(ArtworksBackFill.countCandidates(options)).isEqualTo(1);
             ArtworksBackFill.run(options);
@@ -276,11 +280,47 @@ class ArtworksBackFillNovelsTest {
         try (var database = ArtworksBackFillDatabase.open(target)) {
             var candidate = database.currentCandidate(WorkType.NOVEL, 3);
             try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-                sql.execute("UPDATE novels SET upload_time=1234 WHERE novel_id=3");
+                sql.execute("UPDATE novels SET source_upload_time=1234 WHERE novel_id=3");
             }
             database.applyUpdates(candidate, networkResult(), false, false, false, false, false, false, true);
         }
         assertThat(uploadTime(target, 3)).isEqualTo(1234L);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("来源未提供上传日期时保留未知，网络检查后不重复占用自动回填候选")
+    void unknownSourceUploadIsNotFabricated(boolean dryRun) throws Exception {
+        var target = initialize();
+        var raw = mapper.readTree("{\"id\":3,\"createDate\":\"2020-01-01T00:00:00Z\"}");
+        var snapshot = new WorkMetaCurator(mapper).curateNovel(3, raw, "forward").document().toString();
+        Files.writeString(directory.resolve("3.meta.json"), snapshot);
+        var client = mock(ArtworksBackFillPixivClient.class);
+        when(client.queryNovel(3)).thenReturn(ArtworksBackFillPixivClient.parseResponse(200,
+                "{\"body\":{\"id\":3,\"userId\":42,\"createDate\":\"2020-01-01T00:00:00Z\"}}", mapper, WorkType.NOVEL));
+        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+                call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
+            files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
+            var summary = ArtworksBackFill.run(options(target, false, dryRun, 1));
+            assertThat(summary.processed()).isEqualTo(1);
+            assertThat(summary.filledUploadTime()).isZero();
+            assertThat(summary.filledDetails()).isEqualTo(1);
+            verify(client).queryNovel(3);
+            assertThat(uploadTime(target, 3)).isNull();
+            assertThat(Files.readString(directory.resolve("3.meta.json"))).isEqualTo(snapshot);
+            if (!dryRun) {
+                assertThat(ArtworksBackFill.countCandidates(options(target, false, false, 1).forStartup())).isZero();
+                ArtworksBackFill.run(options(target, false, false, 1).forStartup());
+                verify(client, times(1)).queryNovel(3);
+            }
+        }
+        try (var connection = target.openConnection(); var sql = connection.createStatement();
+             var row = sql.executeQuery("SELECT create_time,time,upload_time FROM novels WHERE novel_id=3")) {
+            assertThat(row.next()).isTrue();
+            assertThat(row.getObject(1)).isEqualTo(dryRun ? null : 1577836800000L);
+            assertThat(row.getLong(2)).isEqualTo(1L);
+            assertThat(row.getObject(3)).isNull();
+        }
     }
 
     private DatabaseTarget initialize() throws Exception {
@@ -313,7 +353,7 @@ class ArtworksBackFillNovelsTest {
 
     private Long uploadTime(DatabaseTarget target, long id) throws Exception {
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT upload_time FROM novels WHERE novel_id=" + id)) {
+             var row = sql.executeQuery("SELECT source_upload_time FROM novels WHERE novel_id=" + id)) {
             assertThat(row.next()).isTrue();
             long time = row.getLong(1);
             return row.wasNull() ? null : time;

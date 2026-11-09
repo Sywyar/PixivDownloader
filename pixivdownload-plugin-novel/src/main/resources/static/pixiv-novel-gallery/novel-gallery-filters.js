@@ -99,12 +99,8 @@ function toggleExpand(chipsId, btnId) {
 
 function resetAllFilters() {
     state.r18 = 'any'; state.ai = 'any';
-    state.uploadStartDate = ''; state.uploadEndDate = '';
-    state.downloadStartDate = ''; state.downloadEndDate = '';
-    for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
-        const input = document.getElementById(name);
-        if (input) { input.value = ''; input.setCustomValidity(''); }
-    }
+    state.dateFilters = [{field: 'date', start: '', end: ''}];
+    renderDateFilters();
     document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
     document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
     state.selectedCollections.clear();
@@ -119,8 +115,7 @@ function resetAllFilters() {
 
 function updateFilterBadge() {
     let n = 0;
-    if (state.uploadStartDate || state.uploadEndDate) n++;
-    if (state.downloadStartDate || state.downloadEndDate) n++;
+    n += state.dateFilters.filter(row => row.start || row.end).length;
     if (state.r18 !== 'any') n++;
     if (state.ai !== 'any') n++;
     if (state.selectedCollections.size) n += state.selectedCollections.size;

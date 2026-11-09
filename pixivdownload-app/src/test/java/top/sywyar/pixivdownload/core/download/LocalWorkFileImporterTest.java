@@ -79,8 +79,9 @@ class LocalWorkFileImporterTest {
         var importer = importer(history);
         assertThat(importer.importLocalFiles(request)).isTrue();
         var row = new org.springframework.jdbc.core.JdbcTemplate(dataSource).queryForMap(
-                "SELECT title,author_id,r18,is_ai,description,metadata_json FROM artworks WHERE artwork_id=42");
+                "SELECT title,author_id,r18,is_ai,description,metadata_json,time FROM artworks WHERE artwork_id=42");
         assertThat(row.get("title")).isEqualTo("");
+        assertThat(((Number) row.get("time")).longValue()).isPositive();
         for (String field : List.of("author_id", "r18", "is_ai", "description", "metadata_json"))
             assertThat(row.get(field)).as(field).isNull();
         assertThat(externalFiles.file(WorkType.ARTWORK, 42, 0)).isEqualTo(original);

@@ -61,7 +61,7 @@ public final class WorkMetadataImport {
                 List<Map<String, Object>> rows;
                 try (var session = target.storageSession(connection, SCHEMA)) {
                     var fields = new LinkedHashMap<String, Expression>();
-                    for (String field : List.of(key, "folder", "upload_time")) fields.put(field, column(table, field));
+                    for (String field : List.of(key, "folder", "source_upload_time", "create_time", "update_time", "reupload_time", "time_projection_version")) fields.put(field, column(table, field));
                     fields.put("has_metadata", call(NOT, call(IS_NULL, column(table, "metadata_json"))));
                     if (type == WorkType.ARTWORK) {
                         fields.put("is_original", column(table, "is_original"));
@@ -84,8 +84,7 @@ public final class WorkMetadataImport {
                     top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta meta;
                     try {
                         if (existing) {
-                            if (!projectColumns || (row.get("upload_time") != null
-                                    && (type == WorkType.NOVEL || row.get("is_original") != null))) {
+                            if (!projectColumns) {
                                 skipped++;
                                 continue;
                             }
@@ -111,10 +110,23 @@ public final class WorkMetadataImport {
                     }
                     var changes = new LinkedHashMap<String, Expression>();
                     if (!existing) changes.put("metadata_json", value(meta.document().toString()));
-                    if (projectColumns && row.get("upload_time") == null && meta.uploadTime() != null)
-                        changes.put("upload_time", call(COALESCE, column(table, "upload_time"), value(meta.uploadTime())));
+                    if (projectColumns && row.get("source_upload_time") == null && meta.uploadTime() != null)
+                        changes.put("source_upload_time", call(COALESCE, column(table, "source_upload_time"), value(meta.uploadTime())));
                     if (projectColumns && type == WorkType.ARTWORK && row.get("is_original") == null && meta.isOriginal() != null)
                         changes.put("is_original", call(COALESCE, column(table, "is_original"), value(meta.isOriginal() ? 1 : 0)));
+                    if (projectColumns) {
+                        for (var field : List.of(
+                                new AbstractMap.SimpleEntry<>("create_time", meta.createTime()),
+                                new AbstractMap.SimpleEntry<>("update_time", meta.updateTime()),
+                                new AbstractMap.SimpleEntry<>("reupload_time", meta.reuploadTime()))) {
+                            String name = field.getKey();
+                            if (row.get(name) == null && field.getValue() != null)
+                                changes.put(name, call(COALESCE, column(table, name), value(field.getValue())));
+                        }
+                        if (Long.valueOf(0).equals(row.get("time_projection_version")))
+                            changes.put("time_projection_version", new Expression.Conditional(call(LESS, column(table, "time_projection_version"), value(1)),
+                                    value(1), column(table, "time_projection_version")));
+                    }
                     if (changes.isEmpty()) { skipped++; continue; }
                     if (dryRun) { imported++; continue; }
                     var transaction = target.beginToolTransaction(connection);

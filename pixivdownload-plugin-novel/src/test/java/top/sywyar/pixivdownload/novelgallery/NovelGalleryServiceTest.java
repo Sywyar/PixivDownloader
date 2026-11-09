@@ -159,7 +159,8 @@ class NovelGalleryServiceTest {
                     Set.of(0, 1), false, List.of(21L), true, List.of());
             NovelGalleryService.NovelGalleryQuery query = new NovelGalleryService.NovelGalleryQuery(
                     0, 24, "date", "desc", null, "all", "any", "any", null,
-                    null, null, null, null, null, null, null, null, restriction);
+                    null, null, null, null, null, null, null, null, restriction,
+                    100L, 200L, 300L, 400L, "uploadTime", 500L, 600L, 700L, 800L, 900L, 1000L);
             when(novelOwnedWorkSearch.search(any(), org.mockito.ArgumentMatchers.nullable(String.class))).thenReturn(
                     new PagedResult<>(List.of(), 0, 0, 24, 0));
 
@@ -167,6 +168,12 @@ class NovelGalleryServiceTest {
 
             ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
             verify(novelOwnedWorkSearch).search(captor.capture(), org.mockito.ArgumentMatchers.isNull());
+            assertThat(captor.getValue().createdFrom()).isEqualTo(500L);
+            assertThat(captor.getValue().createdBefore()).isEqualTo(600L);
+            assertThat(captor.getValue().updatedFrom()).isEqualTo(700L);
+            assertThat(captor.getValue().updatedBefore()).isEqualTo(800L);
+            assertThat(captor.getValue().reuploadedFrom()).isEqualTo(900L);
+            assertThat(captor.getValue().reuploadedBefore()).isEqualTo(1000L);
             assertThat(captor.getValue().restriction()).isSameAs(restriction);
         }
 

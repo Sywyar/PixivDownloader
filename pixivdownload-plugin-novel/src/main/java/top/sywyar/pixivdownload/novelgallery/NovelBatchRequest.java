@@ -17,8 +17,7 @@ public record NovelBatchRequest(
         return "filter".equalsIgnoreCase(mode) && filter != null;
     }
 
-    public record Filter(
-            Integer page,
+    public record Filter(Integer page,
             Integer size,
             String sort,
             String order,
@@ -40,8 +39,34 @@ public record NovelBatchRequest(
             Long uploadedFrom,
             Long uploadedBefore,
             Long downloadedFrom,
-            Long downloadedBefore
-    ) {
+            Long downloadedBefore, String sourceTimeField,
+            Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
+        public Filter(Integer page,
+            Integer size,
+            String sort,
+            String order,
+            String search,
+            String searchType,
+            String r18,
+            String ai,
+            List<Long> collectionIds,
+            List<Long> tagIds,
+            List<Long> notTagIds,
+            List<Long> orTagIds,
+            List<Long> authorIds,
+            List<Long> notAuthorIds,
+            List<Long> orAuthorIds,
+            Long authorId,
+            List<Long> seriesIds,
+            List<Long> notSeriesIds,
+            Long seriesId,
+            Long uploadedFrom,
+            Long uploadedBefore,
+            Long downloadedFrom,
+            Long downloadedBefore) {
+            this(page, size, sort, order, search, searchType, r18, ai, collectionIds, tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds, authorId, seriesIds, notSeriesIds, seriesId, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, null, null, null, null, null, null, null);
+        }
+
         public Filter(Integer page,
             Integer size,
             String sort,

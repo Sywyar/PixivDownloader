@@ -570,3 +570,20 @@
             border-color: var(--danger);
             color: var(--danger);
         }
+
+/* 日期维度共享同一行布局，窄屏时按字段自然换行。 */
+.date-filter-list { display: grid; gap: .5rem; min-width: 0; }
+.filter-dates-row { align-items: flex-start; }
+.filter-dates-row > .filter-row-label { padding-block: .5rem; }
+.date-filter-kind { min-width: 10rem; max-width: 100%; }
+.date-filter-actions { display: flex; gap: .375rem; }
+.date-filter-action { min-width: var(--layout-control-height); padding-inline: .5rem; font-size: 1rem; }
+.date-sort option { background: var(--surface); color: var(--text); }
+.date-sort:focus-visible, .date-filter-kind:focus-visible, .date-filter-action:focus-visible {
+    outline: 2px solid var(--brand); outline-offset: 2px;
+}
+@media (max-width: 37.5em) {
+    .date-filter-kind { flex-basis: 100%; }
+    .filter-date-field { flex: 1 1 10rem; }
+    .date-filter-actions { margin-left: auto; }
+}

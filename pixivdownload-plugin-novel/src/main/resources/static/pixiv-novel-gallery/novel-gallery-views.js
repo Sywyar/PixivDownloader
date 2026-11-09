@@ -1,4 +1,13 @@
 'use strict';
+function galleryWorkDate(item) {
+    if (state.sort === 'date') return '';
+    const field = ['createTime', 'updateTime', 'reuploadTime'].includes(state.sort) ? state.sort : 'uploadTime';
+    const value = item[field];
+    if (!value) return pageI18n.t(field === 'uploadTime' ? 'work.upload-time-unknown' : 'work.time-unknown');
+    const key = field === 'uploadTime' ? 'work.upload-time' : 'work.' + field;
+    return pageI18n.t(key, '', {time: new Date(value).toLocaleDateString()});
+}
+
 
 let galleryMembershipRevision = 0;
 // ---------- View switching ----------
@@ -151,7 +160,8 @@ function renderGrid(items) {
         if (item.isAi) badges.push('<span class="badge ai">AI</span>');
         if (item.isOriginal) badges.push(`<span class="badge original">${esc(pageI18n.t('novel-gallery:meta.original', '原创'))}</span>`);
         const meta = [];
-        meta.push(esc(item.uploadTime ? pageI18n.t('work.upload-time', 'Uploaded {time}', { time: new Date(item.uploadTime).toLocaleDateString() }) : pageI18n.t('work.upload-time-unknown', 'Upload time unknown')));
+        const workDate = galleryWorkDate(item);
+        if (workDate) meta.push(esc(workDate));
         if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.word-count', '{count} 字', { count: item.wordCount })));
         else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.text-length', '{count} 字符', { count: item.textLength })));
         const readingText = formatReadingTime(item.readingTimeSeconds);

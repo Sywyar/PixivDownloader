@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.query;
 
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
 import java.util.*;
@@ -9,6 +10,28 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 
 /** 插画与小说查询共用的访客排除优先、正向 OR 规则。 */
 public final class WorkQueryPredicates {
+    /** 来源日期字段只映射既定列，不接受调用方提供的存储标识。 */
+    public static String sourceTimeColumn(String field) {
+        return switch (field) {
+            case "createTime" -> "create_time";
+            case "updateTime" -> "update_time";
+            case "reuploadTime" -> "reupload_time";
+            default -> "source_upload_time";
+        };
+    }
+
+    /** 各日期范围相交，NULL 日期自然不匹配有界筛选。 */
+    public static Expression additionalTimeRanges(String alias, WorkQuery q) {
+        return and(timeRange(alias, "create_time", q.createdFrom(), q.createdBefore()),
+                timeRange(alias, "update_time", q.updatedFrom(), q.updatedBefore()),
+                timeRange(alias, "reupload_time", q.reuploadedFrom(), q.reuploadedBefore()));
+    }
+
+    private static Expression timeRange(String alias, String name, Long from, Long before) {
+        return and(from == null ? null : call(GREATER_EQUAL, column(alias, name), value(from)),
+                before == null ? null : call(LESS, column(alias, name), value(before)));
+    }
+
     private WorkQueryPredicates() {}
     public static Expression eq(Expression column, Object v) { return call(EQUAL, column, value(v)); }
     public static Expression nil(Expression column) { return call(IS_NULL, column); }

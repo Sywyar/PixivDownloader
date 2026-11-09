@@ -165,7 +165,7 @@ class WorkMetaBridgeConsistencyTest {
     class RoundTrip {
 
         @Test
-        @DisplayName("插画：捕获后 upload_time/is_original 列投影与 快照 normalized 逐字段一致")
+        @DisplayName("插画：捕获后 source_upload_time/is_original 列投影与 快照 normalized 逐字段一致")
         void artworkColumnAndSnapshotAgree() {
             long id = 7L;
             pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
@@ -196,7 +196,7 @@ class WorkMetaBridgeConsistencyTest {
         }
 
         @Test
-        @DisplayName("小说：捕获后 upload_time 列投影与 快照 normalized 一致；is_original 顶层与小说块同源")
+        @DisplayName("小说：捕获后 source_upload_time 列投影与 快照 normalized 一致；is_original 顶层与小说块同源")
         void novelColumnAndSnapshotAgree() {
             long id = 42L;
             insertNovel(id, novelDir(id), true);

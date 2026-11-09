@@ -136,12 +136,8 @@
     function resetGalleryFilters(collectionIds) {
         state.r18 = 'any';
         state.ai = 'any';
-        state.uploadStartDate = state.uploadEndDate = '';
-        state.downloadStartDate = state.downloadEndDate = '';
-        for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
-            const input = document.getElementById(name);
-            if (input) { input.value = ''; input.setCustomValidity(''); }
-        }
+        state.dateFilters = [{field: 'date', start: '', end: ''}];
+        renderDateFilters();
         state.formats.clear();
         state.collectionIds.clear();
         for (const id of collectionIds) state.collectionIds.add(id);
@@ -438,8 +434,7 @@
         let n = 0;
         if (state.r18 !== 'any') n++;
         if (state.ai !== 'any') n++;
-        if (state.uploadStartDate || state.uploadEndDate) n++;
-        if (state.downloadStartDate || state.downloadEndDate) n++;
+        n += state.dateFilters.filter(row => row.start || row.end).length;
         n += state.formats.size;
         n += state.collectionIds.size;
         n += getFilterCount('tag');

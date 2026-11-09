@@ -252,8 +252,8 @@
 
         const stats = [];
         stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.id', 'ID: {id}', {id: artwork.artworkId}))}</span>`);
-        stats.push(`<span class="artwork-stat">${escapeHtml(artwork.uploadTime ? wt('stats.upload-time', 'Uploaded: {time}', {time: formatTime(artwork.uploadTime)}) : wt('stats.upload-time-unknown', 'Upload time unknown'))}</span>`);
-        if (artwork.time) stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.download-time', 'Downloaded at {time}', {time: formatTime(artwork.time)}))}</span>`);
+        const publishedTime = artwork.createTime || artwork.uploadTime;
+        if (publishedTime) stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.published', 'Published: {time}', {time: formatTime(publishedTime)}))}</span>`);
         if (artwork.xRestrict === 2) stats.push('<span class="artwork-stat" style="color:#b91c1c">R-18G</span>');
         else if (artwork.xRestrict === 1) stats.push('<span class="artwork-stat" style="color:var(--danger)">R-18</span>');
         if (artwork.isAi) stats.push('<span class="artwork-stat" style="color:#8b5cf6">AI</span>');

@@ -58,6 +58,8 @@ class WorkDescriptionRepairTaskTest {
     void previewsAndRepairsPersistedDescriptions(WorkType type) throws Exception {
         seed(type, 1, RAW, ONCE);
         seed(type, 2, RAW, TWICE);
+        jdbc.update("UPDATE " + table(type) + " SET metadata_json=? WHERE " + key(type) + "=2",
+                snapshot(type, 2, RAW).replace("\"schemaVersion\":2", "\"schemaVersion\":1"));
         String snapshot = jdbc.queryForObject("SELECT metadata_json FROM " + table(type) + " WHERE " + key(type) + "=1", String.class);
         assertThat(task.preview()).isEqualTo(2);
         assertThat(description(type, 1)).isEqualTo(ONCE);
@@ -87,7 +89,7 @@ class WorkDescriptionRepairTaskTest {
         jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=6", "{\"schemaVersion\":1,\"workType\":\"NOVEL\",\"workId\":6,\"raw\":{\"description\":\"x\"}}");
         jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=7", snapshot(WorkType.ARTWORK, 8, RAW));
         jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=8", snapshot(WorkType.ARTWORK, 8, RAW) + " {}");
-        jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=9", snapshot(WorkType.ARTWORK, 9, RAW).replace("\"schemaVersion\":1", "\"schemaVersion\":4294967297"));
+        jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=9", snapshot(WorkType.ARTWORK, 9, RAW).replace("\"schemaVersion\":2", "\"schemaVersion\":4294967297"));
         jdbc.update("UPDATE artworks SET metadata_json=? WHERE artwork_id=10", snapshot(WorkType.ARTWORK, 10, RAW) + " ".repeat(262144));
         var before = jdbc.queryForList("SELECT * FROM artworks ORDER BY artwork_id");
         assertThat(task.preview()).isZero();

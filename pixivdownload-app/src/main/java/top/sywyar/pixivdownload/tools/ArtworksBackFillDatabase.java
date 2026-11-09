@@ -166,15 +166,18 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         var seriesTitle = new Expression.Exists(new Query(seriesTable, Map.of("present", value(1)),
                 call(AND, call(EQUAL, column(seriesTable, "series_id"), column("a", "series_id")),
                         call(NOT, call(IS_NULL, column(seriesTable, "title")))), List.of(), List.of(), 1, 0));
-        for (String name : List.of("artwork_id", "author_id", "r18", "is_ai", "description", "series_id", "series_order", "upload_time", "title"))
+        for (String name : List.of("artwork_id", "author_id", "r18", "is_ai", "description", "series_id", "series_order", "source_upload_time", "time_projection_version", "title"))
             fields.put(name, column("a", name.equals("artwork_id") ? key : name));
         fields.put("has_metadata", call(NOT, call(IS_NULL, column("a", "metadata_json"))));
         fields.put("has_tags", tags);
         fields.put("has_author_name", authorName);
         fields.put("has_series_title", seriesTitle);
         var missing = new ArrayList<Expression>();
-        for (String name : List.of("author_id", "r18", "is_ai", "description", "series_id", "upload_time"))
+        for (String name : List.of("author_id", "r18", "is_ai", "description", "series_id"))
             missing.add(call(IS_NULL, column("a", name)));
+        missing.add(call(EQUAL, column("a", "time_projection_version"), value(0)));
+        missing.add(call(AND, call(IS_NULL, column("a", "source_upload_time")),
+                call(LESS, column("a", "time_projection_version"), value(2))));
         missing.add(call(NOT, tags));
         missing.add(missingTitle("a"));
         missing.add(call(IS_NULL, column("a", "metadata_json")));
@@ -195,9 +198,10 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         return new Candidate(id, authorId == null || (authorId > 0 && nameMissing), row.get("r18") == null,
                 row.get("is_ai") == null, row.get("description") == null,
                 Long.valueOf(0).equals(row.get("has_tags")), seriesId == null || orderMissing || titleMissing,
-                row.get("upload_time") == null, authorId, seriesId, nameMissing, orderMissing, titleMissing).withType(type)
+                row.get("source_upload_time") == null && ((Long) row.get("time_projection_version")) < 2, authorId, seriesId, nameMissing, orderMissing, titleMissing).withType(type)
                 .withDetails(row.get("title") == null || row.get("title").toString().isBlank(),
-                        !Long.valueOf(1).equals(row.get("has_metadata")));
+                        !Long.valueOf(1).equals(row.get("has_metadata")))
+                .withTimeProjection(Long.valueOf(0).equals(row.get("time_projection_version")));
     }
 
     UpdateResult applyUpdates(
@@ -253,7 +257,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             boolean r18Written = updateR18 && fillColumn(session, table, "r18", result.xRestrict, alive);
             boolean aiWritten = updateAi && fillColumn(session, table, "is_ai", result.isAi ? 1 : 0, alive);
             boolean descriptionWritten = updateDescription && fillColumn(session, table, "description", result.description, alive);
-            boolean uploadTimeWritten = updateUploadTime && fillColumn(session, table, "upload_time", result.uploadTime, alive);
+            boolean uploadTimeWritten = updateUploadTime && fillColumn(session, table, "source_upload_time", result.uploadTime, alive);
             boolean authorWritten = false;
             if (updateAuthor) {
                 authorWritten = session.update(table, Map.of("author_id", value(result.authorId)),
@@ -313,6 +317,13 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             written = fillColumn(session, table, "metadata_json", meta.document().toString(), alive) || written;
             if (meta.isOriginal() != null)
                 written = fillColumn(session, table, "is_original", meta.isOriginal() ? 1 : 0, alive) || written;
+        }
+        if (meta != null) {
+            if (meta.createTime() != null) written = fillColumn(session, table, "create_time", meta.createTime(), alive) || written;
+            if (meta.updateTime() != null) written = fillColumn(session, table, "update_time", meta.updateTime(), alive) || written;
+            if (meta.reuploadTime() != null) written = fillColumn(session, table, "reupload_time", meta.reuploadTime(), alive) || written;
+            written = session.update(table, Map.of("time_projection_version", value(result.completeResponse ? 2 : 1)),
+                    call(AND, alive, call(LESS, column(table, "time_projection_version"), value(result.completeResponse ? 2 : 1)))) > 0 || written;
         }
         return written;
     }
@@ -423,16 +434,17 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             boolean seriesTitleMissing,
             WorkType workType,
             boolean titleMissing,
-            boolean metadataMissing
+            boolean metadataMissing,
+            boolean timeProjectionMissing
     ) {
         Candidate(long id, boolean author, boolean r18, boolean ai, boolean description, boolean tags, boolean series, boolean uploadTime,
                   Long authorId, Long seriesId, boolean authorNameMissing, boolean seriesOrderMissing, boolean seriesTitleMissing) {
-            this(id, author, r18, ai, description, tags, series, uploadTime, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, WorkType.ARTWORK, false, false);
+            this(id, author, r18, ai, description, tags, series, uploadTime, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, WorkType.ARTWORK, false, false, false);
         }
 
         Candidate withType(WorkType type) {
             return new Candidate(artworkId, authorMissing, r18Missing, aiMissing, descriptionMissing, tagsMissing, seriesMissing,
-                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, type, titleMissing, metadataMissing);
+                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, type, titleMissing, metadataMissing, timeProjectionMissing);
         }
         Candidate(long id, boolean author, boolean r18, boolean ai, boolean description, boolean tags, boolean series, boolean uploadTime) {
             this(id, author, r18, ai, description, tags, series, uploadTime, null, null, author, series, series);
@@ -442,9 +454,14 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         }
         Candidate withDetails(boolean title, boolean metadata) {
             return new Candidate(artworkId, authorMissing, r18Missing, aiMissing, descriptionMissing, tagsMissing, seriesMissing,
-                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, workType, title, metadata);
+                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, workType, title, metadata, timeProjectionMissing);
         }
-        boolean detailsMissing() { return titleMissing || metadataMissing; }
+        Candidate withTimeProjection(boolean missing) {
+            return new Candidate(artworkId, authorMissing, r18Missing, aiMissing, descriptionMissing, tagsMissing, seriesMissing,
+                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing,
+                    workType, titleMissing, metadataMissing, missing);
+        }
+        boolean detailsMissing() { return titleMissing || metadataMissing || timeProjectionMissing; }
         boolean hasMissing() {
             return authorMissing || r18Missing || aiMissing || descriptionMissing || tagsMissing || seriesMissing || uploadTimeMissing || detailsMissing();
         }
@@ -462,7 +479,8 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                     tagsMissing && result.tags != null && !result.tags.isEmpty(), series,
                     uploadTimeMissing && result.uploadTime != null && result.uploadTime > 0).withType(workType)
                     .withDetails(titleMissing && validTitle(artworkId, result.title),
-                            metadataMissing && result.metadata != null && result.metadata.hasDocument());
+                            metadataMissing && result.metadata != null && result.metadata.hasDocument())
+                    .withTimeProjection(result.metadata != null && (timeProjectionMissing || (uploadTimeMissing && result.completeResponse)));
         }
     }
 }

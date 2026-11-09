@@ -14,13 +14,32 @@ function load() {
         }},
         pageI18n: {t: (_key, fallback) => fallback}, esc: text => String(text)
     });
-    for (const file of ['novel-gallery-core.js', 'novel-gallery-state.js', 'novel-gallery-filters.js', 'novel-gallery-batch.js']) {
+    for (const file of ['novel-gallery-core.js', 'novel-gallery-state.js', 'novel-gallery-filters.js', 'novel-gallery-dates.js', 'novel-gallery-batch.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname,
             '../../main/resources/static/pixiv-novel-gallery', file), 'utf8'), context, {filename: file});
     }
     vm.runInContext("pageI18n = {t: (_key, fallback) => fallback};", context);
     return {context, nodes, state: vm.runInContext('state', context)};
 }
+
+test('下载时间排序不在小说卡片显示日期，其他日期和字数信息仍可显示', () => {
+    const h = load();
+    vm.runInContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/pixiv-novel-gallery/novel-gallery-views.js'), 'utf8'), h.context);
+    vm.runInContext('pageI18n = {t: key => key};', h.context);
+    h.context.loadMembershipsForNovels = () => {};
+    const item = {novelId: 1, title: 'Title', authorName: 'Author', uploadTime: 1000, wordCount: 12};
+    h.state.sort = 'date';
+    for (const time of [2000, null]) {
+        h.context.renderGrid([{...item, time}]);
+        const html = h.nodes.get('grid').innerHTML;
+        assert.doesNotMatch(html, /work.download-time|work.upload-time/);
+        assert.match(html, /meta.word-count/);
+    }
+    h.state.sort = 'uploadTime';
+    h.context.renderGrid([item]);
+    assert.match(h.nodes.get('grid').innerHTML, /work.upload-time/);
+});
 
 test('小说画廊保存选中项时规范化数字身份并保留模式和插入顺序', () => {
     const h = load();
@@ -84,24 +103,33 @@ test('小说画廊各筛选输入独立防抖，同一输入只执行最后一�
 });
 
 
-test('小说画廊交接、保存和批量快照同时保留下载与上传日期', () => {
+test('小说画廊交接、保存和批量快照同时保留多维日期', () => {
     const h = load();
-    h.context.applyCrossTransferToNovelGallery({
-        downloadStartDate: '2021-05-01', downloadEndDate: '2021-05-02',
-        uploadStartDate: '2020-02-03', uploadEndDate: '2020-02-03', sort: 'date', order: 'asc'
-    });
+    const dateFilters = [
+        {field: 'date', start: '2021-05-01', end: '2021-05-02'},
+        {field: 'uploadTime', start: '2020-02-03', end: '2020-02-03'},
+        {field: 'createTime', start: '2019-01-01', end: ''},
+        {field: 'updateTime', start: '', end: '2022-01-01'}
+    ];
+    h.context.applyCrossTransferToNovelGallery({dateFilters, sort: 'date', order: 'asc'});
     const saved = h.context.serializeNovelGalleryState();
-    assert.equal(saved.downloadEndDate, '2021-05-02');
+    assert.deepEqual(JSON.parse(JSON.stringify(saved.dateFilters)), dateFilters);
     h.context.restoreTimeRanges(saved);
     const snapshot = h.context.currentBatchFilterSnapshot();
     assert.equal(snapshot.downloadedFrom, new Date('2021-05-01T00:00:00').getTime());
     assert.equal(snapshot.downloadedBefore, new Date('2021-05-03T00:00:00').getTime());
     assert.equal(snapshot.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
-    assert.equal(snapshot.sort, 'date');
-    assert.equal(snapshot.order, 'asc');
-    h.context.restoreTimeRanges({downloadStartDate: '2021-05-02', downloadEndDate: '2021-05-01'});
-    assert.equal(h.state.downloadStartDate, '');
-    assert.equal(h.state.downloadEndDate, '');
+    assert.equal(snapshot.createdFrom, new Date('2019-01-01T00:00:00').getTime());
+    assert.equal(snapshot.updatedBefore, new Date('2022-01-02T00:00:00').getTime());
+    assert.equal(snapshot.sort, 'date'); assert.equal(snapshot.order, 'asc');
+    h.context.restoreTimeRanges({dateFilters: [{field: 'reuploadTime', end: '2021-05-02'}]});
+    assert.deepEqual(Object.keys(h.context.galleryTimeRanges()), ['reuploadedBefore']);
+});
+
+test('小说画廊恢复旧日期偏好，无效类别不参与查询', () => {
+    const h = load();
     h.context.restoreTimeRanges({downloadStartDate: '2021-05-02'});
-    assert.equal(h.context.galleryTimeRanges().downloadedBefore, null);
+    assert.deepEqual(Object.keys(h.context.galleryTimeRanges()), ['downloadedFrom']);
+    h.context.restoreTimeRanges({dateFilters: [{field: 'bad', start: '2020-01-01'}]});
+    assert.deepEqual(Object.keys(h.context.galleryTimeRanges()), []);
 });

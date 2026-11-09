@@ -204,8 +204,14 @@
             <div class="filter-panel" id="filterPanel">
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.sort.label">排序</span>
-                <button class="chip active" data-sort="date" data-i18n="filter.sort.date">时间</button>
-                <button class="chip" data-sort="uploadTime" data-i18n="filter.sort.upload-time">上传时间</button>
+                <select id="dateSort" class="chip date-sort active" data-i18n-aria-label="filter.date.sort">
+                    <option value="" disabled data-i18n="filter.date.sort">日期排序</option>
+                    <option value="date" selected data-i18n="filter.sort.date">下载时间</option>
+                    <option value="uploadTime" data-i18n="filter.sort.upload-time">上传时间</option>
+                    <option value="createTime" data-i18n="filter.time.created">来源创建时间</option>
+                    <option value="updateTime" data-i18n="filter.time.updated">来源更新时间</option>
+                    <option value="reuploadTime" data-i18n="filter.time.reuploaded">重新上传时间</option>
+                </select>
                 <button class="chip" data-sort="artworkId" data-i18n="filter.sort.artwork-id">作品 ID</button>
                 <button class="chip" data-sort="imgs" data-i18n="filter.sort.image-count">图片数</button>
                 <button class="chip" data-sort="status" data-i18n="filter.sort.status">状态</button>
@@ -214,33 +220,9 @@
                 <button class="chip" data-sort="series" data-i18n="filter.sort.series">漫画系列</button>
                 <button class="chip" id="orderToggle" data-order="desc" style="margin-left:auto" data-i18n="filter.order.desc">↓ 降序</button>
             </div>
-            <div class="filter-row">
-                <span id="downloadDateLabel" class="filter-row-label" data-i18n="filter.download-time.label">下载时间</span>
-                <div class="filter-date-range" role="group" aria-labelledby="downloadDateLabel">
-                    <label for="downloadStartDate" class="filter-date-field">
-                        <span data-i18n="filter.date.from">从</span>
-                        <input id="downloadStartDate" type="date" min="1970-01-02">
-                    </label>
-                    <label for="downloadEndDate" class="filter-date-field">
-                        <span data-i18n="filter.date.to">至</span>
-                        <input id="downloadEndDate" type="date" min="1970-01-02" aria-describedby="downloadDateHint">
-                    </label>
-                    <span id="downloadDateHint" class="filter-date-hint" data-i18n="filter.date.hint">含结束当天</span>
-                </div>
-            </div>
-            <div class="filter-row">
-                <span id="uploadDateLabel" class="filter-row-label" data-i18n="filter.upload-time.label">上传时间</span>
-                <div class="filter-date-range" role="group" aria-labelledby="uploadDateLabel">
-                    <label for="uploadStartDate" class="filter-date-field">
-                        <span data-i18n="filter.date.from">从</span>
-                        <input id="uploadStartDate" type="date" min="1970-01-02">
-                    </label>
-                    <label for="uploadEndDate" class="filter-date-field">
-                        <span data-i18n="filter.date.to">至</span>
-                        <input id="uploadEndDate" type="date" min="1970-01-02" aria-describedby="uploadDateHint">
-                    </label>
-                    <span id="uploadDateHint" class="filter-date-hint" data-i18n="filter.date.hint">含结束当天</span>
-                </div>
+            <div class="filter-row filter-dates-row">
+                <span class="filter-row-label" data-i18n="filter.date.label">日期</span>
+                <div id="dateFilters" class="date-filter-list"></div>
             </div>
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>
@@ -535,6 +517,7 @@
 <script src="/pixiv-gallery/gallery-core.js"></script>
 <script src="/pixiv-gallery/gallery-state.js"></script>
 <script src="/pixiv-gallery/gallery-filters.js"></script>
+<script src="/pixiv-gallery/gallery-dates.js"></script>
 <script src="/pixiv-gallery/gallery-collections.js"></script>
 <script src="/pixiv-gallery/gallery-batch.js"></script>
 <script src="/pixiv-gallery/gallery-views.js"></script>

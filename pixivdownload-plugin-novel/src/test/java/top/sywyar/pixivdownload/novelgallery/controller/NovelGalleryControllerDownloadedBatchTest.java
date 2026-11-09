@@ -51,6 +51,33 @@ class NovelGalleryControllerDownloadedBatchTest {
     }
 
     @Test
+    @DisplayName("小说列表 HTTP 同时传递来源上传与创建日期")
+    void forwardsMultipleDateRanges() throws Exception {
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+                .setCustomArgumentResolvers(new org.springframework.web.method.support.HandlerMethodArgumentResolver() {
+                    public boolean supportsParameter(org.springframework.core.MethodParameter parameter) {
+                        return parameter.getParameterType() == WorkVisibilityScope.class;
+                    }
+                    public Object resolveArgument(org.springframework.core.MethodParameter parameter,
+                            org.springframework.web.method.support.ModelAndViewContainer container,
+                            org.springframework.web.context.request.NativeWebRequest request,
+                            org.springframework.web.bind.support.WebDataBinderFactory binder) {
+                        return WorkVisibilityScope.unrestricted();
+                    }
+                }).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/gallery/novels")
+                .param("uploadedFrom", "100").param("createdBefore", "200")
+                .param("updatedFrom", "300").param("reuploadedBefore", "400"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        var captor = org.mockito.ArgumentCaptor.forClass(NovelGalleryService.NovelGalleryQuery.class);
+        verify(novelGalleryService).query(captor.capture());
+        assertThat(captor.getValue().uploadedFrom()).isEqualTo(100L);
+        assertThat(captor.getValue().createdBefore()).isEqualTo(200L);
+        assertThat(captor.getValue().updatedFrom()).isEqualTo(300L);
+        assertThat(captor.getValue().reuploadedBefore()).isEqualTo(400L);
+    }
+
+    @Test
     @DisplayName("已登记但文件不完整的小说不进入已下载 ID 集合")
     void incompleteNovelIsNotDownloaded() {
         when(novelDatabase.getDownloadedStatuses(List.of(1L))).thenReturn(List.of(new NovelDownloadedStatusRow(1L, false)));

@@ -43,7 +43,10 @@ public class ArtworksBackFill {
             new DatabaseColumn("artworks", "description"),
             new DatabaseColumn("artworks", "series_id"),
             new DatabaseColumn("artworks", "series_order"),
-            new DatabaseColumn("artworks", "upload_time"),
+            new DatabaseColumn("artworks", "source_upload_time"),
+            new DatabaseColumn("artworks", "create_time"),
+            new DatabaseColumn("artworks", "update_time"),
+            new DatabaseColumn("artworks", "reupload_time"),
             new DatabaseColumn("artworks", "title"),
             new DatabaseColumn("artworks", "metadata_json"),
             new DatabaseColumn("novels", "title"),
@@ -54,7 +57,10 @@ public class ArtworksBackFill {
             new DatabaseColumn("novels", "description"),
             new DatabaseColumn("novels", "series_id"),
             new DatabaseColumn("novels", "series_order"),
-            new DatabaseColumn("novels", "upload_time")
+            new DatabaseColumn("novels", "source_upload_time"),
+            new DatabaseColumn("novels", "create_time"),
+            new DatabaseColumn("novels", "update_time"),
+            new DatabaseColumn("novels", "reupload_time")
     );
 
     public static void main(String[] args) throws Exception {
@@ -312,9 +318,10 @@ public class ArtworksBackFill {
                 candidate.authorMissing() && (authorId == null || nameMissing), candidate.r18Missing() && !r18,
                 candidate.aiMissing() && !ai, candidate.descriptionMissing() && !description,
                 candidate.tagsMissing() && !tags, candidate.seriesMissing() && (seriesId == null || orderMissing || titleMissing),
-                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing)
+                candidate.uploadTimeMissing() && !uploadTime && !(result.completeResponse && result.metadata != null), authorId, seriesId, nameMissing, orderMissing, titleMissing)
                 .withType(candidate.workType()).withDetails(candidate.titleMissing() && !available.titleMissing(),
-                        candidate.metadataMissing() && !available.metadataMissing());
+                        candidate.metadataMissing() && !available.metadataMissing())
+                .withTimeProjection(candidate.timeProjectionMissing() && !available.timeProjectionMissing());
     }
 
     private static final class Counts {
@@ -385,7 +392,7 @@ public class ArtworksBackFill {
         if (candidate.descriptionMissing()) parts.add("desc");
         if (candidate.tagsMissing()) parts.add("tags");
         if (candidate.seriesMissing()) parts.add("series");
-        if (candidate.uploadTimeMissing()) parts.add("upload_time");
+        if (candidate.uploadTimeMissing()) parts.add("source_upload_time");
         if (candidate.titleMissing()) parts.add("title");
         if (candidate.metadataMissing()) parts.add("metadata_json");
         return String.join("+", parts);

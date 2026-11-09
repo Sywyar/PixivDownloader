@@ -93,7 +93,7 @@ public class RelationalNovelMapper implements NovelMapper {
     private static Map<String, Expression> novelFields() {
         return fields(N, "novel_id", "title", "folder", "count", "extensions", "time", "r18", "is_ai", "author_id",
                 "description", "file_name", "file_author_name_id", "series_id", "series_order", "word_count", "text_length",
-                "reading_time_seconds", "page_count", "is_original", "x_language", "raw_content", "cover_ext", "deleted", "upload_time");
+                "reading_time_seconds", "page_count", "is_original", "x_language", "raw_content", "cover_ext", "deleted", "source_upload_time", "create_time", "update_time", "reupload_time");
     }
     private static NovelRecord novel(Map<String, Object> r) {
         return new NovelRecord(number(r, "novel_id"), text(r, "title"), text(r, "folder"), integer(r, "count"),
@@ -101,7 +101,8 @@ public class RelationalNovelMapper implements NovelMapper {
                 text(r, "description"), number(r, "file_name"), number(r, "file_author_name_id"), number(r, "series_id"),
                 number(r, "series_order"), integer(r, "word_count"), integer(r, "text_length"), integer(r, "reading_time_seconds"),
                 integer(r, "page_count"), bool(r, "is_original"), text(r, "x_language"), text(r, "raw_content"),
-                text(r, "cover_ext"), Boolean.TRUE.equals(bool(r, "deleted")), number(r, "upload_time"));
+                text(r, "cover_ext"), Boolean.TRUE.equals(bool(r, "deleted")), number(r, "source_upload_time"), number(r, "create_time"),
+                number(r, "update_time"), number(r, "reupload_time"));
     }
     private static Map<String, Expression> referenceFields() {
         return fields(V, "cast_id", "character_id", "ref_audio_ext", "ref_audio_text", "ref_audio_source", "ref_audio_time");
@@ -588,7 +589,7 @@ public class RelationalNovelMapper implements NovelMapper {
                 "series_id", seriesId, "series_order", seriesOrder, "word_count", wordCount, "text_length", textLength,
                 "reading_time_seconds", readingTimeSeconds, "page_count", pageCount, "is_original", isOriginal,
                 "x_language", xLanguage, "raw_content", rawContent, "cover_ext", coverExt,
-                "deleted", 0, "upload_time", null, "file_base_name", null, "metadata_json", null,
+                "deleted", 0, "source_upload_time", null, "file_base_name", null, "metadata_json", null,
                 "file_name_max_length", top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH);
         database.transaction(s -> {
             s.delete(N, call(AND, eq(N, "time", time), call(NOT_EQUAL, column(N, "novel_id"), value(novelId))));
@@ -603,7 +604,7 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public void updateUploadTime(long novelId, Long uploadTime) {
-        update(N, eq(N, "novel_id", novelId), "upload_time", uploadTime);
+        update(N, eq(N, "novel_id", novelId), "source_upload_time", uploadTime);
     }
 
     @Override

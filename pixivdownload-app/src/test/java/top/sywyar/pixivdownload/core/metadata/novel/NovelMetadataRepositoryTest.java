@@ -76,7 +76,7 @@ class NovelMetadataRepositoryTest {
                     x_language TEXT,
                     cover_ext TEXT,
                     deleted INTEGER,
-                    upload_time INTEGER
+                    source_upload_time INTEGER,create_time INTEGER,update_time INTEGER,reupload_time INTEGER
                 )
                 """);
         jdbc.execute("""
@@ -100,6 +100,23 @@ class NovelMetadataRepositoryTest {
     }
 
     @Test
+    @DisplayName("小说来源日期独立筛选，历史下载时间仍可使用")
+    void separatesSourceDates() {
+        insertNovel(1L, "{1}/one", 100L, 1L, false);
+        insertNovel(2L, "{1}/two", 200L, 2L, false);
+        jdbc.update("UPDATE novels SET create_time=1000,update_time=2000,reupload_time=3000 WHERE novel_id=1");
+        var query = top.sywyar.pixivdownload.core.work.query.WorkQuery.builder(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL).build();
+        for (var field : java.util.Map.of("createTime",1000L,"updateTime",2000L,"reuploadTime",3000L).entrySet()) {
+            assertThat(repository.findSearchCandidates(query.withSourceTimeField(field.getKey())
+                    .withUploadTimeRange(field.getValue(), field.getValue()+1)))
+                    .extracting(NovelMetadataRow::novelId).containsExactly(1L);
+        }
+        assertThat(repository.findSearchCandidates(query.withDownloadTimeRange(1L, 201L)))
+                .extracting(NovelMetadataRow::novelId).containsExactly(2L, 1L);
+        assertThat(repository.getNovel(1).time()).isEqualTo(100L);
+    }
+
+    @Test
     @DisplayName("宿主行不暴露正文和小说展示详情，只保留跨作品核心所需窄列")
     void shouldKeepPluginOwnedDetailsOutOfHostProjection() throws ReflectiveOperationException {
         insertNovel(42L, "{1}/chapter-42", 420L, 2L, false);
@@ -114,7 +131,7 @@ class NovelMetadataRepositoryTest {
                         "novelId", "title", "folder", "count", "extensions", "time",
                         "xRestrict", "isAi", "authorId", "description", "fileName",
                         "fileAuthorNameId", "seriesId", "seriesOrder", "isOriginal",
-                        "coverExt", "deleted", "uploadTime")
+                        "coverExt", "deleted", "uploadTime", "createTime", "updateTime", "reuploadTime")
                 .doesNotContain("wordCount", "textLength", "readingTimeSeconds", "pageCount",
                         "xLanguage", "rawContent");
     }
@@ -155,7 +172,7 @@ class NovelMetadataRepositoryTest {
     @DisplayName("小说上传日期包含起点且排除终点、未知时间与软删除记录")
     void shouldFilterUploadTimeRange() {
         for (long id = 1; id <= 5; id++) insertNovel(id, "{1}/" + id, id, id, id == 5);
-        jdbc.update("UPDATE novels SET upload_time = CASE novel_id WHEN 1 THEN 100 WHEN 2 THEN 199 WHEN 3 THEN 200 WHEN 5 THEN 150 END");
+        jdbc.update("UPDATE novels SET source_upload_time = CASE novel_id WHEN 1 THEN 100 WHEN 2 THEN 199 WHEN 3 THEN 200 WHEN 5 THEN 150 END");
         var restriction = new top.sywyar.pixivdownload.core.work.model.WorkRestriction(
                 Set.of(0, 1, 2), true, List.of(), true, List.of());
         var query = top.sywyar.pixivdownload.core.work.query.WorkQuery.builder(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL)
@@ -197,7 +214,7 @@ class NovelMetadataRepositoryTest {
     @DisplayName("小说下载时间筛选保留软删除与上传时间组合语义")
     void shouldCombineDownloadAndUploadRanges() {
         for (long id = 1; id <= 5; id++) insertNovel(id, "{1}/" + id, id * 100, id, id == 5);
-        jdbc.update("UPDATE novels SET upload_time = CASE WHEN novel_id < 4 THEN 1000 ELSE 2000 END");
+        jdbc.update("UPDATE novels SET source_upload_time = CASE WHEN novel_id < 4 THEN 1000 ELSE 2000 END");
         var query = top.sywyar.pixivdownload.core.work.query.WorkQuery.builder(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL)
                 .downloadTimeRange(200L, 500L).build();
         assertThat(repository.findSearchCandidates(query)).extracting(NovelMetadataRow::novelId).containsExactly(4L, 3L, 2L);
@@ -215,7 +232,7 @@ class NovelMetadataRepositoryTest {
                             novel_id, title, folder, count, extensions, time, "R18", is_ai,
                             author_id, description, file_name, file_author_name_id, series_id,
                             series_order, word_count, text_length, reading_time_seconds, page_count,
-                            is_original, x_language, cover_ext, deleted, upload_time
+                            is_original, x_language, cover_ext, deleted, source_upload_time
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 novelId, "novel-" + novelId, folder, 1, "txt", time, 0, false,

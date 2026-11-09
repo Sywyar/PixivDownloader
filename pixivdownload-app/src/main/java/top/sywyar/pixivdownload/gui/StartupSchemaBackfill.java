@@ -58,6 +58,8 @@ final class StartupSchemaBackfill {
                 new ArtworksBackFill.DatabaseColumn("novels", "upload_time"),
                 new ArtworksBackFill.DatabaseColumn("artworks", "metadata_json"),
                 new ArtworksBackFill.DatabaseColumn("novels", "metadata_json"),
+                new ArtworksBackFill.DatabaseColumn("artworks", "time_projection_version"),
+                new ArtworksBackFill.DatabaseColumn("novels", "time_projection_version"),
                 new ArtworksBackFill.DatabaseColumn("statistics", "daily_date"),
                 new ArtworksBackFill.DatabaseColumn("statistics", "daily_completed"),
                 new ArtworksBackFill.DatabaseColumn("statistics", "daily_failed")

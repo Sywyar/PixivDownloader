@@ -31,7 +31,11 @@
         }
 
         .work-card {
-            display: block;
+            display: grid;
+            grid-template-rows: subgrid;
+            grid-row: span 5;
+            row-gap: 0;
+            min-width: 0;
             cursor: pointer;
             animation: cardIn 0.3s ease both;
         }
@@ -39,6 +43,10 @@
         .work-card:hover .work-thumb {
             transform: translateY(-2px);
             box-shadow: 0 8px 24px var(--shadow-soft-color);
+        }
+
+        .gallery-grid:not(:has(.work-upload-time)) .work-card {
+            grid-row: span 4;
         }
 
         .work-thumb {
@@ -200,7 +208,16 @@
         }
 
         .work-meta {
+            display: grid;
+            grid-template-rows: subgrid;
+            grid-row: span 4;
+            row-gap: 0;
+            min-width: 0;
             padding-top: 8px;
+        }
+
+        .gallery-grid:not(:has(.work-upload-time)) .work-meta {
+            grid-row: span 3;
         }
 
         .work-title {

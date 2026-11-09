@@ -65,12 +65,14 @@ class GalleryBatchServiceTest {
     }
 
     @Test
-    @DisplayName("批量筛选从 JSON 完整传递两种日期范围")
+    @DisplayName("批量筛选从 JSON 完整传递多种日期范围")
     void forwardsDateRangesFromJson() throws Exception {
         var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
                 {"mode":"filter","filter":{"sort":"date","order":"asc",
                   "downloadedFrom":100,"downloadedBefore":200,
-                  "uploadedFrom":300,"uploadedBefore":400}}
+                  "uploadedFrom":300,"uploadedBefore":400,
+                  "createdFrom":500,"createdBefore":600,"updatedFrom":700,"updatedBefore":800,
+                  "reuploadedFrom":900,"reuploadedBefore":1000}}
                 """, ArtworkBatchRequest.class);
         when(galleryService.findArtworkIds(any())).thenReturn(List.of(7L));
         assertThat(service.resolveArtworkIds(request)).containsExactly(7L);
@@ -80,6 +82,12 @@ class GalleryBatchServiceTest {
         assertThat(captured.getValue().downloadedBefore()).isEqualTo(200L);
         assertThat(captured.getValue().uploadedFrom()).isEqualTo(300L);
         assertThat(captured.getValue().uploadedBefore()).isEqualTo(400L);
+        assertThat(captured.getValue().createdFrom()).isEqualTo(500L);
+        assertThat(captured.getValue().createdBefore()).isEqualTo(600L);
+        assertThat(captured.getValue().updatedFrom()).isEqualTo(700L);
+        assertThat(captured.getValue().updatedBefore()).isEqualTo(800L);
+        assertThat(captured.getValue().reuploadedFrom()).isEqualTo(900L);
+        assertThat(captured.getValue().reuploadedBefore()).isEqualTo(1000L);
     }
 
     @Test

@@ -227,7 +227,7 @@ public class NovelGalleryService {
                 details.coverExt(),
                 details.embeddedImageIds(),
                 details.translatedLanguages(),
-                meta.uploadTime()
+                meta.uploadTime(), meta.createTime(), meta.updateTime(), meta.reuploadTime()
         );
     }
 
@@ -269,6 +269,8 @@ public class NovelGalleryService {
                 .restriction(q.restriction())
                 .uploadTimeRange(q.uploadedFrom(), q.uploadedBefore())
                 .downloadTimeRange(q.downloadedFrom(), q.downloadedBefore())
+                .sourceTimeField(q.sourceTimeField())
+                .sourceTimeRanges(q.createdFrom(), q.createdBefore(), q.updatedFrom(), q.updatedBefore(), q.reuploadedFrom(), q.reuploadedBefore())
                 .build();
     }
 
@@ -352,7 +354,19 @@ public class NovelGalleryService {
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                     Set<Long> seriesIds, Set<Long> notSeriesIds,
                                     WorkRestriction restriction, Long uploadedFrom, Long uploadedBefore,
+                                    Long downloadedFrom, Long downloadedBefore, String sourceTimeField,
+            Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
+        public NovelGalleryQuery(int page, int size, String sort, String order,
+                                    String search, String searchType, String r18, String ai,
+                                    Set<Long> collectionIds,
+                                    Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
+                                    Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
+                                    Set<Long> seriesIds, Set<Long> notSeriesIds,
+                                    WorkRestriction restriction, Long uploadedFrom, Long uploadedBefore,
                                     Long downloadedFrom, Long downloadedBefore) {
+            this(page, size, sort, order, search, searchType, r18, ai, collectionIds, tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds, seriesIds, notSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, null, null, null, null, null, null, null);
+        }
+
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String searchType, String r18, String ai,
                                  Set<Long> collectionIds, Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
@@ -389,8 +403,7 @@ public class NovelGalleryService {
     public record PagedNovels(List<NovelView> content, int totalElements, int page, int size,
                               int totalPages) {}
 
-    public record NovelView(
-            long novelId,
+    public record NovelView(long novelId,
             String title,
             String folder,
             String extensions,
@@ -412,7 +425,32 @@ public class NovelGalleryService {
             String coverExt,
             List<String> embeddedImageIds,
             List<String> translatedLanguages,
-            Long uploadTime
-    ) {}
+            Long uploadTime, Long createTime, Long updateTime, Long reuploadTime) {
+        public NovelView(long novelId,
+            String title,
+            String folder,
+            String extensions,
+            long time,
+            Integer xRestrict,
+            Boolean isAi,
+            Long authorId,
+            String authorName,
+            String description,
+            Long seriesId,
+            Long seriesOrder,
+            Integer wordCount,
+            Integer textLength,
+            Integer readingTimeSeconds,
+            Integer pageCount,
+            Boolean isOriginal,
+            String xLanguage,
+            List<WorkTag> tags,
+            String coverExt,
+            List<String> embeddedImageIds,
+            List<String> translatedLanguages,
+            Long uploadTime) {
+            this(novelId, title, folder, extensions, time, xRestrict, isAi, authorId, authorName, description, seriesId, seriesOrder, wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, tags, coverExt, embeddedImageIds, translatedLanguages, uploadTime, null, null, null);
+        }
+}
 
 }

@@ -1,4 +1,13 @@
 'use strict';
+    function galleryWorkDate(item) {
+        if (state.sort === 'date') return '';
+        const field = ['createTime', 'updateTime', 'reuploadTime'].includes(state.sort) ? state.sort : 'uploadTime';
+        const value = item[field];
+        if (!value) return t(field === 'uploadTime' ? 'work.upload-time-unknown' : 'work.time-unknown');
+        const key = field === 'uploadTime' ? 'work.upload-time' : 'work.' + field;
+        return t(key, '', {time: new Date(value).toLocaleDateString()});
+    }
+
 
     let galleryMembershipRevision = 0;
     let galleryStatusModel = null;
@@ -102,8 +111,7 @@
         return !!(state.search
             || state.r18 !== 'any'
             || state.ai !== 'any'
-            || state.uploadStartDate || state.uploadEndDate
-            || state.downloadStartDate || state.downloadEndDate
+            || state.dateFilters.some(row => row.start || row.end)
             || state.formats.size
             || state.collectionIds.size
             || state.tagFilters.must.size || state.tagFilters.not.size || state.tagFilters.or.size
@@ -132,6 +140,7 @@
             const isR18G = xRestrict === 2;
             const isAi = item.isAi === true;
             const pages = item.count || 1;
+            const workDate = galleryWorkDate(item);
             return `
                 <div class="work-card" data-id="${item.artworkId}">
                     <div class="work-thumb thumb-loading">
@@ -152,7 +161,7 @@
                     <div class="work-meta">
                         <div class="work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
                         <div class="work-author">${escapeHtml(item.authorName || (item.authorId ? t('author.default', 'Author {id}', {id: item.authorId}) : t('author.unknown', 'Unknown author')))}</div>
-                        <div class="work-upload-time">${escapeHtml(item.uploadTime ? t('work.upload-time', 'Uploaded {time}', {time: new Date(item.uploadTime).toLocaleDateString()}) : t('work.upload-time-unknown', 'Upload time unknown'))}</div>
+                        ${workDate ? `<div class="work-upload-time">${escapeHtml(workDate)}</div>` : ''}
                         <div class="work-collections" data-collections-for="${item.artworkId}"></div>
                     </div>
                 </div>

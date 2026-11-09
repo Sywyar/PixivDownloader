@@ -229,6 +229,7 @@ window.PixivGallery = window.PixivGallery || {};
                 applyStaticPageTranslations();
                 if (window.PixivOnboarding) PixivOnboarding.refreshFab(nextClient);
                 if (window.PixivNav) PixivNav.refresh();
+                renderDateFilters();
                 renderCollections();
                 renderTagChips();
                 renderSeriesFilterChips();
