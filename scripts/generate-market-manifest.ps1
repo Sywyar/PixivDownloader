@@ -56,6 +56,7 @@ $nowUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 # Shared official-plugin list (id / module / artifact format).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 . (Join-Path $PSScriptRoot "market-content-publication.ps1")
+. (Join-Path $PSScriptRoot "plugin-download-statistics.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
@@ -140,9 +141,9 @@ if ($legacySdkVersions.Count -eq 0 -or @($legacySdkVersions | Where-Object { $_ 
 $plugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
 $defaultInstalledPluginIds = @(Get-OfficialDefaultInstalledPlugins | ForEach-Object { $_.Id })
 
-# Preserve signed history and cumulative download counts.
-$prevByPlugin = @{}
+# Preserve signed version history; recompute download counts from release metadata.
 $prevEntries = @{}
+$releaseIndex = Get-MarketReleaseIndex $Repo
 
 function Read-PublishedCatalogFile([string]$path, [switch]$AllowMissing) {
     $response = & gh api "repos/$Repo/contents/$path" --jq '.content' 2>&1
@@ -169,16 +170,10 @@ try {
         $existingManifest = [Text.Encoding]::UTF8.GetString($existingBytes) | ConvertFrom-Json
         foreach ($entry in $existingManifest.entries) {
             $prevEntries[$entry.pluginId] = $entry
-            $m = $entry.market
-            $prevByPlugin[$entry.pluginId] = @{
-                version = if ($m.latestVersion) { "$($entry.pluginId)-v$($m.latestVersion)" } else { "" }
-                downloadCount = if ($m.PSObject.Properties.Name -contains "downloadCount") { [long]$m.downloadCount } else { 0 }
-                previousDownloadCount = if ($m.PSObject.Properties.Name -contains "previousDownloadCount") { [long]$m.previousDownloadCount } else { 0 }
-            }
         }
-        Write-Host "  Loaded $($prevByPlugin.Count) plugin(s) from existing manifest."
+        Write-Host "  Loaded $($prevEntries.Count) plugin(s) from existing manifest."
     } else {
-        Write-Host "  No existing manifest found (first run), all previousDownloadCount start at 0."
+        Write-Host "  No existing manifest found; starting version history."
     }
     foreach ($plugin in $plugins) {
         $descriptorPath = Join-Path $ProjectRoot "$($plugin.Module)/src/main/resources/plugin.properties"
@@ -208,35 +203,15 @@ try {
         $tag = if ($isNightly) { "$id-nightly" } else { "$id-v$version" }
         $assetName = Get-OfficialPluginArtifactName $plugin $version
 
-        # Release metadata (must already exist): asset download_count + stable release publishedAt.
-        # A rolling Nightly Release keeps its original publishedAt, so use this manifest generation time instead.
-        $relRaw = & gh release view $tag --repo $Repo --json assets,publishedAt,body
-        if ($LASTEXITCODE -ne 0 -or -not $relRaw) {
-            throw "Release $tag not found in $Repo. Publish it before generating the manifest."
-        }
-        $rel = $relRaw | ConvertFrom-Json
-        $asset = $rel.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
-        if (-not $asset) { throw "Asset $assetName not found on release $tag." }
-        $downloadCount = [int]$asset.downloadCount
-        $releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }
+        $statistics = Get-PluginDownloadStatistics $releaseIndex $id $plugin.Module $tag $assetName
+        $rel = $releaseIndex[$tag]
+        $downloadCount = $statistics.DownloadCount
+        # Rolling releases keep their publication date; use generation time for Nightly.
+        $releasedTime = if ($isNightly) { $nowUtc } else { $rel.published_at }
         if (-not $releasedTime) { $releasedTime = $nowUtc }
 
-        # Cumulative download count: when the plugin version changes, fold the previous version's
-        # download count into previousDownloadCount; unchanged versions keep the previous value.
-        # New plugins start at 0.
-        $prev = $prevByPlugin[$id]
-        if ($prev) {
-            if ($prev.version -and $prev.version -ne $tag) {
-                # Version changed: accumulate the previous version's downloadCount + previousDownloadCount.
-                $previousDownloadCount = $prev.downloadCount + $prev.previousDownloadCount
-            } else {
-                # Version unchanged: keep previousDownloadCount.
-                $previousDownloadCount = $prev.previousDownloadCount
-            }
-        } else {
-            $previousDownloadCount = 0
-        }
-        $totalDownloadCount = $downloadCount + $previousDownloadCount
+        $previousDownloadCount = $statistics.PreviousDownloadCount
+        $totalDownloadCount = $statistics.TotalDownloadCount
 
         # sha256 / size from the ACTUAL published bytes (download the artifact, compute locally).
         & gh release download $tag --repo $Repo --pattern $assetName --dir $tmp --clobber |

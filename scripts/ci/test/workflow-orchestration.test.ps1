@@ -40,6 +40,8 @@ $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
 $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
+    & (Join-Path $PSScriptRoot 'plugin-download-statistics.test.ps1')
+    & (Join-Path $PSScriptRoot 'refresh-market-manifests.test.ps1')
     & (Join-Path $PSScriptRoot 'distribution-archives.test.ps1')
     & {
         $secretName = 'PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64'
@@ -450,6 +452,7 @@ Write-Output 'Certificate probe diagnostic output'
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         . (Join-Path $repo 'scripts/market-content-publication.ps1')
+        . (Join-Path $repo 'scripts/plugin-download-statistics.ps1')
         $publishedSource = Join-Path $fixture 'published [source]'
         $toolDirectory = Join-Path $fixture 'pixivdownload-sdk-tools/target'
         [IO.Directory]::CreateDirectory($toolDirectory) | Out-Null
@@ -613,6 +616,7 @@ Write-Output 'Certificate probe diagnostic output'
     & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
         . (Join-Path $repo 'scripts/market-content-publication.ps1')
+        . (Join-Path $repo 'scripts/plugin-download-statistics.ps1')
         $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)
@@ -662,13 +666,15 @@ Write-Output 'Certificate probe diagnostic output'
         function gh {
             $global:LASTEXITCODE = 0
             if ($args[0] -eq 'api') {
+                if ($args[1] -like '*/releases?per_page=100&page=1') {
+                    $tag = if ($fixtureVersion -match '-nightly\.') { "$($marketPlugin.Id)-nightly" } else { "$($marketPlugin.Id)-v$fixtureVersion" }
+                    return (ConvertTo-Json -InputObject @(@{tag_name=$tag; draft=$false; body='';
+                        assets=@(@{id=1; name=$fixtureAssetName; download_count=0}); published_at='2026-01-01T00:00:00Z'}) -Depth 5 -Compress)
+                }
                 $file = $args[1] -replace '^.*/contents/', ''
                 if ($publishedFiles.ContainsKey($file)) { return [Convert]::ToBase64String($publishedFiles[$file]) }
                 $global:LASTEXITCODE = 1
                 return 'HTTP 404'
-            }
-            if ($args[0] -eq 'release' -and $args[1] -eq 'view') {
-                return (@{assets=@(@{name=$fixtureAssetName; downloadCount=0}); publishedAt='2026-01-01T00:00:00Z'} | ConvertTo-Json -Depth 5 -Compress)
             }
             if ($args[0] -eq 'release' -and $args[1] -eq 'download') {
                 $directory = $args[[Array]::IndexOf($args, '--dir') + 1]

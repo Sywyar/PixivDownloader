@@ -93,7 +93,6 @@ class PluginReleaseScriptsTest {
                 "elseif ($_ -match '^\\s*plugin\\.requires\\s*=') { \"plugin.requires=$RequiredSdk\" }",
                 "\"--update\" \"--file\" $StagedArtifact \"plugin.properties\"",
                 "Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames",
-                "gh release edit $tag --repo $Repo --title $title",
                 "gh release create $tag $uploadPaths --repo $Repo --title $title",
                 "--prerelease");
         assertThat(publisher).doesNotContain("Nightly release $tag already exists");
@@ -101,8 +100,7 @@ class PluginReleaseScriptsTest {
                 "$manifestName = if ($isNightly) { \"nightly-manifest.json\" } else { \"manifest.json\" }",
                 "$version = if ($isNightly) {",
                 "Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
-                "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }",
-                "$releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }");
+                "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }");
     }
 
     @Test

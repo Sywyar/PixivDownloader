@@ -60,6 +60,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 恢复官方插件市场下载统计的每日刷新，并修复旧版本下载漏计及每夜版替换、发布重试导致的累计偏差。
+
 - 修复新版下载页“我的 Pixiv”展开作品列表后仍无法创建计划任务的问题，并避免来源提示挤压工具栏。
 - 修复启用应用代理时，Fake-IP DNS 导致官方更新检查与安装包下载被误拦截的问题。
 

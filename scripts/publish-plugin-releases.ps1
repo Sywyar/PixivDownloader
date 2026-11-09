@@ -67,6 +67,7 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 # Shared official-plugin list + artifact-shape / checksum helpers.
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 . (Join-Path $PSScriptRoot "market-content-publication.ps1")
+. (Join-Path $PSScriptRoot "plugin-download-statistics.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
 if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
@@ -126,7 +127,8 @@ function Get-ReleaseAssetState([string]$Tag) {
         if ($view.PSObject.Properties.Name -contains 'body' -and $view.body -match 'market-source-commit=([a-f0-9]{40})') {
             $contentSourceCommit = $Matches[1]
         }
-        return [pscustomobject]@{ Exists = $true; AssetNames = $assetNames; ContentHash = $contentHash; SourceCommit = $contentSourceCommit }
+        return [pscustomobject]@{ Exists = $true; AssetNames = $assetNames; Assets = @($view.assets);
+            Body = [string]$view.body; ContentHash = $contentHash; SourceCommit = $contentSourceCommit }
     }
 
     if ($viewText -notmatch 'release not found|HTTP 404') {
@@ -350,16 +352,17 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
         $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths
         if ($release.Exists) {
             $assetNames = @($release.AssetNames)
+            Save-ReleaseDownloadCheckpoint -Repo $Repo -Tag $tag -Release $release -Plugin $plugin -Directory $stageDir `
+                -NewBody "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash market-source-commit=$sourceCommit" `
+                -NightlyTitle $title
             if ($assetNames.Count -gt 0) {
                 Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames -ExistingAssetNames $assetNames
             }
-            gh release edit $tag --repo $Repo --title $title `
-                --notes "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash market-source-commit=$sourceCommit" --prerelease
-            if ($LASTEXITCODE -ne 0) { throw "gh release edit failed for $tag." }
             Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
         } else {
+            $notesFile = Write-ReleaseDownloadNotes $stageDir "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash market-source-commit=$sourceCommit"
             gh release create $tag $uploadPaths --repo $Repo --title $title `
-                --notes "Plugin $($plugin.Id) Nightly $version. market-content-sha256=$contentHash market-source-commit=$sourceCommit" --prerelease
+                --notes-file $notesFile --prerelease
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
         }
         $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag @('market-content.json') $stageDir $contentHash
@@ -404,9 +407,11 @@ foreach ($plugin in $plugins) {
         }
 
         if ($release.Exists) {
+            Save-ReleaseDownloadCheckpoint -Repo $Repo -Tag $tag -Release $release -Plugin $plugin -Directory $stageDir
             Remove-ExistingReleaseAssets -Tag $tag -AssetNames $expectedAssets -ExistingAssetNames $assetNames
         } else {
-            gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash market-source-commit=$contentSourceCommit"
+            $notesFile = Write-ReleaseDownloadNotes $stageDir "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash market-source-commit=$contentSourceCommit"
+            gh release create $tag --repo $Repo --title $tag --notes-file $notesFile
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
         }
 
@@ -456,7 +461,8 @@ foreach ($plugin in $plugins) {
     Write-Host "==> Publishing $tag ($assetName, sha256 $($companions.Sha))"
     $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $version $stageDir $contentSourceCommit)
     $contentHash = Get-OfficialMarketContentHash $contentPaths
-    gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash market-source-commit=$contentSourceCommit"
+    $notesFile = Write-ReleaseDownloadNotes $stageDir "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash market-source-commit=$contentSourceCommit"
+    gh release create $tag --repo $Repo --title $tag --notes-file $notesFile
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
     Upload-ReleaseAssetFiles -Tag $tag -Paths (@($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths)
     $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag @('market-content.json') $stageDir $contentHash

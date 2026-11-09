@@ -593,7 +593,7 @@ test('发布链：所有凭据与写权限只在 release Environment 的门禁�
     }
     const directPublish = publish.jobs.publish.steps
         .find((step) => step.uses === './.github/actions/publish-official-plugins');
-    assert.equal(directPublish.if, 'inputs.publish_in_caller != true');
+    assert.equal(directPublish.if, "inputs.publish_in_caller != true && github.event_name != 'schedule'");
     assert.equal(publish.jobs.publish.steps.find((step) => step.name === 'Complete delegated publication gate')?.if,
         'inputs.publish_in_caller == true');
 
@@ -822,6 +822,27 @@ test('发行构建与插件发布并行，分发产物依赖完整且全部 E2E 
     assert.equal(evidence.if, 'always()');
     assert.equal(evidence.with.name, 'release-e2e-evidence-${{ inputs.distribution }}-${{ inputs.scenario_group }}');
     assert.equal(evidence.with['if-no-files-found'], 'error');
+});
+
+test('每日清单刷新经过完整门禁并与插件发布共用互斥队列', () => {
+    const workflow = load('.github/workflows/publish-plugins.yml');
+    assert.deepEqual(workflow.on.schedule, [{cron: '33 18 * * *'}]);
+    const job = workflow.jobs.publish;
+    assert.equal(job.needs, 'quality-gate');
+    assert.equal(job.environment, 'release');
+    assert.equal(job.concurrency.group, 'official-plugin-publication');
+    const steps = job.steps.filter(step => step.if === "github.event_name == 'schedule'");
+    const checkout = steps.find(step => step.with?.path === 'plugins-repo');
+    assert.equal(checkout.with.ref, 'master');
+    assert.equal(checkout.with.repository, 'Sywyar/PixivDownloader-plugins');
+    const refresh = steps.find(step => step.run?.includes('./scripts/refresh-market-manifests.ps1'));
+    assert.ok(refresh);
+    assert.match(refresh.run, /finally/);
+    assert.equal(steps.find(step => step.uses === './.github/actions/restore-release-candidates').with.candidate_id,
+        '${{ needs.quality-gate.outputs.release_candidate_id }}');
+    const commit = steps.find(step => step['working-directory'] === 'plugins-repo');
+    assert.match(commit.run, /git add -- manifest.json manifest.json.sig nightly-manifest.json nightly-manifest.json.sig/);
+    assert.doesNotMatch(steps.map(step => step.run ?? step.uses ?? '').join('\n'), /publish-official-plugins|git tag|gh release|--force/);
 });
 
 test('共享发布写入串行排队，固定目录来源并在写入前拒绝迟到 Nightly', () => {

@@ -5,6 +5,8 @@ name: Publish plugins
 # 跨仓库写入用细粒度 PAT（secrets.CROSS_REPO_RELEASE_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
 # 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
 on:
+  schedule:
+    - cron: '33 18 * * *'
   workflow_call:
     outputs:
       trusted_base_sha:
@@ -95,13 +97,78 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Publish official plugins
-        if: inputs.publish_in_caller != true
+        if: inputs.publish_in_caller != true && github.event_name != 'schedule'
         uses: ./.github/actions/publish-official-plugins
         with:
           release_candidate_id: ${{ needs.quality-gate.outputs.release_candidate_id }}
           plugin_signing_private_key_pem_base64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           cross_repo_release_token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
           publish_args: ${{ inputs.publish_args || '' }}
+
+      - name: Set up JDK 25 for catalog refresh
+        if: github.event_name == 'schedule'
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          verify-signature: true
+          distribution: temurin
+          java-version: '25'
+
+      - name: Restore verified signature tool
+        if: github.event_name == 'schedule'
+        uses: ./.github/actions/restore-release-candidates
+        with:
+          candidate_id: ${{ needs.quality-gate.outputs.release_candidate_id }}
+
+      - name: Checkout current plugin catalogs inside publication lock
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: Sywyar/PixivDownloader-plugins
+          ref: master
+          token: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+          path: plugins-repo
+
+      - name: Refresh signed plugin catalog statistics
+        if: github.event_name == 'schedule'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_RELEASE_TOKEN }}
+          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
+        run: |
+          $privateKeyFile = Join-Path $env:RUNNER_TEMP 'catalog-refresh-key.pem'
+          try {
+            if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+              throw 'Missing plugin signing private key.'
+            }
+            [IO.File]::WriteAllBytes($privateKeyFile,
+              [Convert]::FromBase64String($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64))
+            ./scripts/refresh-market-manifests.ps1 -RepositoryDirectory plugins-repo -PrivateKeyFile $privateKeyFile
+          } finally {
+            Remove-Item -LiteralPath $privateKeyFile -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Commit refreshed plugin catalogs
+        if: github.event_name == 'schedule'
+        shell: pwsh
+        working-directory: plugins-repo
+        run: |
+          git config user.name 'github-actions[bot]'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to configure commit author.' }
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to configure commit email.' }
+          git add -- manifest.json manifest.json.sig nightly-manifest.json nightly-manifest.json.sig
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to stage refreshed catalogs.' }
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Plugin catalogs unchanged; nothing to commit.'
+          } elseif ($LASTEXITCODE -eq 1) {
+            git commit -m 'chore: refresh plugin catalog download statistics'
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to commit refreshed catalogs.' }
+            git push origin HEAD:master
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to push refreshed catalogs.' }
+          } else {
+            throw 'Failed to inspect staged catalogs.'
+          }
 
       - name: Complete delegated publication gate
         if: inputs.publish_in_caller == true
