@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- 插件凭据改用每个安装实例的独立随机密钥，旧凭据自动升级；Windows 默认绑定当前用户，Linux、macOS 和 Docker 需提供独立保护密钥文件，跨环境恢复使用加密配置归档。
 - 新版下载页的小说、插画和动图统一显示总进度与当前步骤进度，小说包含 TXT、HTML、EPUB 生成步骤；成功后子进度显示“完成”并保持 100%，切换步骤时保持进度区域稳定。
 - 两版下载页合并展示油猴脚本的检测状态与可安装版本，标明可更新或较旧版本，相同版本不再重复显示。
 - Compose 左侧工具入口显示运行任务数量，并沿边框显示滚动线段；任务结束后自动隐藏。
@@ -60,6 +61,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 跨站写请求的拒绝日志不再记录原始 URL、Origin 和 Referer，避免泄露其中的凭据或写入伪造日志行。
 - 修复登录、画廊、下载状态和桌面更新等错误提示暴露内部异常详情的问题，详细诊断保留在服务端日志中。
 
 - 恢复官方插件市场下载统计的每日刷新，并修复旧版本下载漏计及每夜版替换、发布重试导致的累计偏差。

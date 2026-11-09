@@ -66,9 +66,12 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return;
         }
 
-        log.warn("Rejected cross-origin write request: method={}, path={}, origin={}, referer={}",
-                request.getMethod(), request.getRequestURI(),
-                request.getHeader(HttpHeaders.ORIGIN), request.getHeader(HttpHeaders.REFERER));
+        String method = request.getMethod();
+        String loggedMethod = Set.of("GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE", "PATCH").contains(method)
+                ? method : "OTHER";
+        log.warn("Rejected cross-origin write request: method={}, originPresent={}, refererPresent={}",
+                loggedMethod, StringUtils.hasText(request.getHeader(HttpHeaders.ORIGIN)),
+                StringUtils.hasText(request.getHeader(HttpHeaders.REFERER)));
         sendJsonError(request, response);
     }
 

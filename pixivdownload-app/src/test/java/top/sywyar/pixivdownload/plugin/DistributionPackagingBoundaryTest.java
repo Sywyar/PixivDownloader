@@ -51,6 +51,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -502,7 +503,7 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("boot jar 固化合法的插件凭证密钥配置，正式产物必须使用独立生产密钥")
+    @DisplayName("boot jar 包含合法的旧凭据迁移密钥，正式产物须兼容原生产密钥")
     void bootJarContainsExpectedPluginCredentialKeyProfile() {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null,
@@ -514,8 +515,8 @@ class DistributionPackagingBoundaryTest {
         String openSourceFallback = properties.getProperty("open-source-fallback-key-base64");
 
         assertThat(profile).isIn("open-source", "production");
-        assertCanonicalBase64Key(currentKey, "当前插件凭证主密钥");
-        assertCanonicalBase64Key(openSourceFallback, "开源回退插件凭证主密钥");
+        assertCanonicalBase64Key(currentKey, "旧版生产凭据迁移密钥");
+        assertCanonicalBase64Key(openSourceFallback, "旧版开源凭据迁移密钥");
         if (REQUIRE_PRODUCTION_CREDENTIAL_KEY) {
             assertThat(profile).as("正式发布必须使用 production profile").isEqualTo("production");
         }
@@ -683,6 +684,52 @@ class DistributionPackagingBoundaryTest {
         } finally {
             if (previous == null) System.clearProperty(property);
             else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
+    @DisplayName("最终宿主产物用安装密钥保存凭据，重新加载后可由外部密钥和 Windows DPAPI 解锁")
+    void bootJarProtectsCredentialsWithInstallationKey() throws Exception {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
+        try (JarFile archive = new JarFile(bootJar.toFile())) {
+            assertThat(archive.getManifest().getMainAttributes().getValue("Enable-Native-Access"))
+                    .isEqualTo("ALL-UNNAMED");
+            assertThat(archive.getEntry("BOOT-INF/classes/credential-protection-test-key.txt")).isNull();
+        }
+        String configProperty = "pixivdownload.config-dir";
+        String secretProperty = "pixivdownload.credential-key-file";
+        String previousConfig = System.getProperty(configProperty);
+        String previousSecret = System.getProperty(secretProperty);
+        Path secret = tempDir.resolve("external-secret");
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        Files.writeString(secret, java.util.Base64.getEncoder().encodeToString(bytes), StandardCharsets.US_ASCII);
+        java.util.Arrays.fill(bytes, (byte) 0);
+        try (URLClassLoader extracted = bootArtifactClassLoader(bootJar, tempDir.resolve("artifact"))) {
+            var modes = new ArrayList<>(List.of("external"));
+            if (System.getProperty("os.name", "").startsWith("Windows")) modes.add("dpapi");
+            for (String mode : modes) {
+                Path config = tempDir.resolve(mode);
+                System.setProperty(configProperty, config.toString());
+                System.setProperty(secretProperty, mode.equals("external") ? secret.toString() : "");
+                for (int restart = 0; restart < 2; restart++) {
+                    try (URLClassLoader loader = new URLClassLoader(extracted.getURLs(), ClassLoader.getPlatformClassLoader())) {
+                        Class<?> type = loader.loadClass("top.sywyar.pixivdownload.config.credential.PluginCredentialStore");
+                        assertThat(type.getClassLoader()).isSameAs(loader);
+                        Object store = type.getConstructor().newInstance();
+                        Map<String, String> values = Map.of("fixture.token", "artifact-synthetic-secret");
+                        if (restart == 0) type.getMethod("update", String.class, Map.class).invoke(store, "fixture", values);
+                        assertThat(type.getMethod("readAll", String.class).invoke(store, "fixture")).isEqualTo(values);
+                    }
+                }
+                assertThat(config.resolve("credentials.key")).isRegularFile();
+                assertThat(Files.readString(config.resolve("credentials/fixture.properties")))
+                        .contains("format=pixivdownload-plugin-credentials-v2").doesNotContain("artifact-synthetic-secret");
+            }
+        } finally {
+            if (previousConfig == null) System.clearProperty(configProperty); else System.setProperty(configProperty, previousConfig);
+            if (previousSecret == null) System.clearProperty(secretProperty); else System.setProperty(secretProperty, previousSecret);
         }
     }
 

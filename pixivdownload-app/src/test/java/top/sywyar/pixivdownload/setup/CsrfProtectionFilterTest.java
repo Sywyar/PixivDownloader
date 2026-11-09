@@ -41,6 +41,36 @@ class CsrfProtectionFilterTest {
 
     private static final String ERROR_TEXT = "localized-error-fixture";
 
+    @Test
+    @DisplayName("拒绝日志不泄露来源 URL、路径内的凭据或换行注入内容")
+    void rejectionLogContainsOnlyControlledRequestMetadata() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(CsrfProtectionFilter.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var request = request("POST", "/api/private/PATH_SECRET");
+            request.addHeader(HttpHeaders.ORIGIN, "https://ORIGIN_SECRET@example.invalid/?token=QUERY_SECRET");
+            request.addHeader(HttpHeaders.REFERER, "https://example.invalid/PRIVATE_SECRET?token=REF_SECRET#FRAGMENT_SECRET\r\nFORGED_LOG");
+            var response = new MockHttpServletResponse();
+
+            filter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getLevel()).isEqualTo(ch.qos.logback.classic.Level.WARN);
+            assertThat(appender.list.getFirst().getFormattedMessage())
+                    .contains("POST", "Rejected", "originPresent=true", "refererPresent=true")
+                    .doesNotContain("SECRET", "FORGED_LOG", "\r", "\n");
+            assertThat(java.util.Arrays.toString(appender.list.getFirst().getArgumentArray()))
+                    .doesNotContain("SECRET", "FORGED_LOG");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
     @Mock
     private AppLocaleResolver localeResolver;
     @Mock

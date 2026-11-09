@@ -15,7 +15,7 @@ inputs:
     description: Version used in staged JAR and distribution filenames
     required: true
   plugin_credential_master_key_base64:
-    description: Base64-encoded production plugin credential master key
+    description: Legacy production credential key used only to migrate v1 envelopes
     required: true
 
 runs:
@@ -36,7 +36,7 @@ runs:
       with:
         candidate_id: ${{ inputs.release_candidate_id }}
 
-    - name: Prepare production plugin credential key filter
+    - name: Prepare legacy credential migration key filter
       shell: pwsh
       env:
         PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64: ${{ inputs.plugin_credential_master_key_base64 }}

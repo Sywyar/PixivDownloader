@@ -247,6 +247,17 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <version>3.8.1</version>
                 <executions>
@@ -428,6 +439,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <argLine>@{argLine} -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED</argLine>
+                    <environmentVariables>
+                        <PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE>${project.basedir}/src/test/resources/credential-protection-test-key.txt</PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE>
+                    </environmentVariables>
                     <systemPropertyVariables>
                         <database-sqlite.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-database-sqlite/target/classes</database-sqlite.plugin.classes>
                         <database-postgresql.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-database-postgresql/target/classes</database-postgresql.plugin.classes>
