@@ -10,6 +10,25 @@
 
 首次启动时生成默认 `config/config.yaml`，升级时只追加缺失宿主键、不覆盖已有值。手动编辑必须使用 UTF-8 扁平 `key: value` 行，不要把配置项注释掉代替空值，也不要把已外置插件的键（如 `mail.*`、`push.*`、`notification.*`、`download.novel-*`）写回 `config.yaml`。
 
+## 凭据密钥与备份
+
+每个安装实例生成独立随机主密钥，以受保护的形式保存在 `config/credentials.key`。Windows 默认使用当前用户的 DPAPI；服务应始终以同一账号运行。更换 Windows 用户或电脑时，先导出包含凭据且设有密码的 `.pdbackup`，再在目标环境导入，仅复制配置目录不足以恢复凭据。
+
+Linux、macOS 和 Docker 必须在首次保存或升级凭据前提供独立的保护密钥文件。文件内容是 32 个随机字节的标准 Base64 编码，只允许运行账号读取，放在配置目录及其备份之外。安装 OpenSSL 后，可在 Bash 中首次创建文件并为启动进程设置环境变量；已有文件不会被覆盖：
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/pixivdownload-secrets"
+( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+```
+
+在同一终端启动应用；后台服务需在服务环境中设置该变量。Docker 将此文件只读挂载到 `/run/secrets/pixivdownload-credentials`，并把变量设为该容器内路径。也可在 Java 启动参数中使用 `-Dpixivdownload.credential-key-file=/绝对路径`。保护密钥应单独安全备份，不要每次启动重新生成；密钥丢失或不匹配时，应用保留原凭据并拒绝解密。
+
+旧版凭据会在普通读写时自动升级，停用插件的凭据也参与迁移。旧密钥只用于旧格式升级；全部文件迁移完成后拒绝旧格式重放。损坏文件保留以便修复重试，其他插件仍可使用。迁移不会改变已有离线备份的保护方式；跨环境恢复使用加密 `.pdbackup`，导入后由目标安装密钥重新加密。
+
+仓库的 Compose 模板会自动挂载保护密钥，宿主环境变量仍填写宿主文件路径，未设置时拒绝启动。Linux 宿主需让容器账号 UID/GID `10001:10001` 独占读取该文件，例如在生成后执行 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` 和 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`；文件型 Compose secret 沿用宿主权限。
+
 ## 配置与环境迁移
 
 Swing 与 Compose 设置页均提供「配置与环境迁移」，仅读取已保存的配置（导出前请先保存更改，导入前先处理未保存草稿）：
@@ -181,6 +200,6 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ## 插件配置、凭据与扩展设置
 
 - **插件业务配置（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面设置页聚合展示并统一保存；禁止覆盖宿主键或写入明文凭据。
-- **插件凭据（`config/credentials/{pluginId}.properties`）**：存储密码、Cookie、API Key、Secret 与 Webhook 密钥，由宿主加密并按 owner 注入插件上下文。跨环境恢复加密凭据需同时保留凭据主密钥。
+- **插件凭据（`config/credentials/{pluginId}.properties`）**：存储密码、Cookie、API Key、Secret 与 Webhook 密钥，由宿主加密并按 owner 注入插件上下文。跨环境恢复使用包含凭据且设有密码的 `.pdbackup`；同环境文件备份还需保留 `config/credentials.key` 及其解锁条件。
 - **翻译设置（`translation` 插件）**：普通项位于 `config/plugins/translation.properties`（`translation.engine` 默认 `ai`，可选 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 默认 `false`，仅控制有道与 LibreTranslate；`translation.max-concurrent` 默认 `10`），保存后重启后端生效。详见[小说与朗读](/zh-cn/novel#翻译引擎（管理员）)。
 - **登录验证策略**：`setup.login-verification-policies` 默认为空；可配置最多 16 个逗号分隔的 `LoginVerification.policyId()` 策略键，重启后端生效。配置前请确认对应验证插件已启用，详见[操作验证码](/zh-cn/captcha)与[第三方插件 SDK](/zh-cn/plugin-development#不依赖-gui-的凭据与通用操作验证)。

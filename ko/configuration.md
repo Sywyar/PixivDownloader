@@ -10,6 +10,25 @@
 
 최초 시작 시 기본 `config/config.yaml`을 생성합니다. 업그레이드할 때는 누락된 호스트 키만 추가하고 기존 값을 덮어쓰지 않습니다. 수동 편집에는 UTF-8의 평면 `key: value` 행을 사용해야 합니다. 빈 값 대신 설정을 주석 처리하거나 이미 외부 플러그인으로 분리된 `mail.*`, `push.*`, `notification.*`, `download.novel-*` 등의 키를 `config.yaml`에 다시 넣지 마세요.
 
+## 자격 증명 키와 백업
+
+설치마다 독립적인 무작위 마스터 키를 생성하고 보호된 형태로 `config/credentials.key`에 저장합니다. Windows는 기본적으로 현재 사용자의 DPAPI를 사용하므로 서비스는 항상 같은 계정으로 실행하세요. Windows 사용자나 컴퓨터를 바꾸기 전에 자격 증명을 포함한 비밀번호 보호 `.pdbackup`을 내보내고 대상 환경에서 가져오세요. 설정 디렉터리를 복사하는 것만으로는 복원할 수 없습니다.
+
+Linux, macOS, Docker에서는 자격 증명을 처음 저장하거나 업그레이드하기 전에 별도의 보호 키 파일이 필요합니다. 무작위 32바이트를 표준 Base64로 인코딩한 내용을 저장하고, 실행 계정만 읽을 수 있도록 설정하며, 설정 디렉터리와 그 백업 밖에 보관하세요. OpenSSL이 설치되어 있으면 최초 한 번 Bash에서 다음 명령으로 파일을 만들고 시작 환경 변수를 설정할 수 있습니다. 기존 파일은 덮어쓰지 않습니다.
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/pixivdownload-secrets"
+( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+```
+
+같은 터미널에서 앱을 시작하세요. 백그라운드 서비스는 서비스 환경에 변수를 설정해야 합니다. Docker에서는 파일을 `/run/secrets/pixivdownload-credentials`에 읽기 전용으로 마운트하고 변수를 해당 컨테이너 내부 경로로 설정하세요. Java 시작 인수 `-Dpixivdownload.credential-key-file=/절대/경로`도 지원합니다. 보호 키는 별도로 안전하게 백업하고 시작할 때마다 다시 생성하지 마세요. 키가 없거나 일치하지 않으면 원래 자격 증명을 보존하고 복호화를 거부합니다.
+
+일반 읽기와 쓰기에서 이전 형식을 자동 업그레이드하며 비활성 플러그인의 자격 증명도 이전합니다. 이전 키는 이 업그레이드에만 사용하고, 모든 파일의 이전이 끝나면 이전 형식 파일의 재삽입을 거부합니다. 손상된 파일은 복구와 재시도를 위해 보존하며 다른 플러그인은 계속 사용할 수 있습니다. 기존 오프라인 백업의 보호 방식은 바뀌지 않습니다. 환경 간 이전에는 암호화된 `.pdbackup`을 사용하며, 가져올 때 대상 설치 키로 다시 암호화합니다.
+
+저장소의 Compose 템플릿은 보호 키를 자동 마운트합니다. 호스트 환경 변수에는 호스트 파일 경로를 지정하며, 변수가 없으면 시작을 거부합니다. Linux 호스트에서는 컨테이너 계정 UID/GID `10001:10001`만 파일을 읽을 수 있도록 설정하세요. 파일 생성 후 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`와 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`를 실행할 수 있습니다. 파일 기반 Compose secret은 호스트 파일 권한을 유지합니다.
+
 ## 설정 및 환경 이전
 
 Swing과 Compose 설정 페이지 모두 '설정 및 환경 이전'을 제공하며 저장된 설정만 읽습니다. 내보내기 전에 변경 사항을 저장하고 가져오기 전에는 저장하지 않은 초안을 처리하세요.
@@ -181,6 +200,6 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ## 플러그인 설정, 자격 증명 및 확장 설정
 
 - **플러그인 업무 설정(`config/plugins/{pluginId}.properties`)**: UTF-8 Java properties 형식이며 데스크톱 설정 페이지에 모아 표시하고 함께 저장합니다. 호스트 키를 덮어쓰거나 평문 자격 증명을 기록하면 안 됩니다.
-- **플러그인 자격 증명(`config/credentials/{pluginId}.properties`)**: 비밀번호, Cookie, API Key, Secret과 Webhook 비밀 키를 저장합니다. 호스트가 암호화하고 owner별로 플러그인 컨텍스트에 주입합니다. 다른 환경에서 암호화된 자격 증명을 복원하려면 자격 증명 마스터 키도 보존해야 합니다.
+- **플러그인 자격 증명(`config/credentials/{pluginId}.properties`)**: 비밀번호, Cookie, API Key, Secret과 Webhook 비밀 키를 저장합니다. 호스트가 암호화하고 owner별로 플러그인 컨텍스트에 주입합니다. 환경 간 이전에는 자격 증명을 포함한 비밀번호 보호 `.pdbackup`을 사용하세요. 같은 환경에 복원하는 파일 백업도 `config/credentials.key`와 그 잠금 해제 조건을 보존해야 합니다.
 - **번역 설정(`translation` 플러그인)**: 일반 항목은 `config/plugins/translation.properties`에 있습니다. `translation.engine` 기본값은 `ai`이며 `youdao`, `libretranslate`를 선택할 수 있습니다. `translation.libretranslate-url`에는 `/translate`를 포함하지 않습니다. `translation.use-proxy` 기본값은 `false`이며 Youdao와 LibreTranslate만 제어합니다. `translation.max-concurrent` 기본값은 `10`입니다. 저장 후 백엔드를 재시작해야 적용됩니다. [소설 및 낭독](/ko/novel#번역-엔진관리자)을 참고하세요.
 - **로그인 검증 정책**: `setup.login-verification-policies` 기본값은 비어 있습니다. 쉼표로 구분한 `LoginVerification.policyId()` 정책 키를 최대 16개 설정할 수 있으며 백엔드 재시작 후 적용됩니다. 설정 전에 해당 검증 플러그인이 활성화되어 있는지 확인하세요. [작업 CAPTCHA](/ko/captcha)와 [서드파티 플러그인 SDK](/ko/plugin-development#gui에-의존하지-않는-자격-증명-및-일반-작업-검증)을 참고하세요.

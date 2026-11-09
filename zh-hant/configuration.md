@@ -10,6 +10,25 @@
 
 首次啟動時會產生預設 `config/config.yaml`，升級時只新增缺少的宿主鍵，不覆寫既有值。手動編輯必須使用 UTF-8 扁平 `key: value` 行，不要將設定項目註解掉以取代空值，也不要將已移至外部外掛的鍵（如 `mail.*`、`push.*`、`notification.*`、`download.novel-*`）寫回 `config.yaml`。
 
+## 憑證金鑰與備份
+
+每個安裝實例都會產生獨立的隨機主金鑰，保護後儲存於 `config/credentials.key`。Windows 預設使用目前使用者的 DPAPI；服務應固定以同一帳號執行。更換 Windows 使用者或電腦前，請先匯出包含憑證且設有密碼的 `.pdbackup`，再於目標環境匯入，僅複製設定目錄不足以還原憑證。
+
+Linux、macOS 與 Docker 必須在首次儲存或升級憑證前提供獨立的保護金鑰檔案。內容為 32 個隨機位元組的標準 Base64 編碼，只允許執行帳號讀取，並放在設定目錄及其備份之外。安裝 OpenSSL 後，可在 Bash 中首次建立檔案並設定啟動環境變數；既有檔案不會被覆寫：
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/pixivdownload-secrets"
+( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+```
+
+請在同一終端機啟動應用程式；背景服務須在服務環境中設定此變數。Docker 將檔案以唯讀方式掛載至 `/run/secrets/pixivdownload-credentials`，並將變數設為該容器內路徑。也可使用 Java 啟動參數 `-Dpixivdownload.credential-key-file=/絕對路徑`。保護金鑰應另行安全備份，勿在每次啟動時重新產生；金鑰遺失或不符時，應用程式會保留原憑證並拒絕解密。
+
+一般讀寫會自動升級舊版憑證，停用外掛的憑證也會遷移。舊金鑰僅用於舊格式升級；全部檔案遷移完成後拒絕重放舊格式。損壞檔案會保留供修復與重試，其他外掛仍可使用。遷移不會改變既有離線備份的保護方式；跨環境還原使用加密 `.pdbackup`，匯入後以目標安裝金鑰重新加密。
+
+儲存庫的 Compose 範本會自動掛載保護金鑰，宿主環境變數仍填宿主檔案路徑，未設定時會拒絕啟動。Linux 宿主須讓容器帳號 UID/GID `10001:10001` 獨占讀取檔案，例如產生後執行 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` 與 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`；檔案型 Compose secret 沿用宿主權限。
+
 ## 設定與環境遷移
 
 Swing 與 Compose 設定頁均提供「設定與環境遷移」，僅讀取已儲存的設定（匯出前請先儲存變更，匯入前先處理未儲存草稿）：
@@ -181,6 +200,6 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ## 外掛設定、憑證與擴充設定
 
 - **外掛業務設定（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面設定頁彙整顯示並統一儲存；禁止覆寫宿主鍵或寫入明文憑證。
-- **外掛憑證（`config/credentials/{pluginId}.properties`）**：儲存密碼、Cookie、API Key、Secret 與 Webhook 密鑰，由宿主加密並依 owner 注入外掛上下文。跨環境還原加密憑證需同時保留憑證主金鑰。
+- **外掛憑證（`config/credentials/{pluginId}.properties`）**：儲存密碼、Cookie、API Key、Secret 與 Webhook 密鑰，由宿主加密並依 owner 注入外掛上下文。跨環境還原使用包含憑證且設有密碼的 `.pdbackup`；同環境的檔案備份還需保留 `config/credentials.key` 及其解鎖條件。
 - **翻譯設定（`translation` 外掛）**：一般項目位於 `config/plugins/translation.properties`（`translation.engine` 預設 `ai`，可選 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 預設 `false`，僅控制有道與 LibreTranslate；`translation.max-concurrent` 預設 `10`），儲存後重新啟動後端生效。詳見[小說與朗讀](/zh-hant/novel#翻譯引擎（管理員）)。
 - **登入驗證策略**：`setup.login-verification-policies` 預設為空；可設定最多 16 個逗號分隔的 `LoginVerification.policyId()` 策略鍵，重新啟動後端生效。設定前請確認對應驗證外掛已啟用，詳見[操作驗證碼](/zh-hant/captcha)與[第三方外掛 SDK](/zh-hant/plugin-development#不依賴-gui-的憑證與通用操作驗證)。

@@ -10,6 +10,25 @@
 
 初回起動時にデフォルトの `config/config.yaml` が生成されます。更新時は不足するホストのキーだけを追加し、既存値は上書きしません。手動編集では UTF-8 のフラットな `key: value` 行を使ってください。空値の代わりに設定をコメントアウトしたり、外部プラグインに移されたキー（`mail.*`、`push.*`、`notification.*`、`download.novel-*` など）を `config.yaml` に戻したりしないでください。
 
+## 認証情報の鍵とバックアップ
+
+インストールごとに独立したランダムなマスターキーを生成し、保護した状態で `config/credentials.key` に保存します。Windows では既定で現在のユーザーの DPAPI を使うため、サービスは常に同じアカウントで実行してください。Windows ユーザーや PC を変更する前に、認証情報を含むパスワード付き `.pdbackup` をエクスポートし、移行先でインポートしてください。設定ディレクトリのコピーだけでは復元できません。
+
+Linux、macOS、Docker では、認証情報を初めて保存または更新する前に、別の保護用鍵ファイルが必要です。32 バイトの乱数を標準 Base64 でエンコードした内容を保存し、実行アカウントだけが読み取れるようにして、設定ディレクトリとそのバックアップの外に置いてください。OpenSSL があれば、初回に Bash で次を実行してファイルと起動用の環境変数を用意できます。既存ファイルは上書きしません。
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/pixivdownload-secrets"
+( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+```
+
+同じターミナルからアプリを起動してください。バックグラウンドサービスではサービスの環境に変数を設定します。Docker ではファイルを `/run/secrets/pixivdownload-credentials` に読み取り専用でマウントし、変数をそのコンテナ内パスに設定します。Java 起動引数 `-Dpixivdownload.credential-key-file=/絶対パス` も使えます。保護用の鍵は別途安全にバックアップし、起動のたびに生成し直さないでください。鍵がない、または一致しない場合、元の認証情報を保持して復号を拒否します。
+
+通常の読み書き時に旧形式を自動更新し、無効なプラグインの認証情報も移行します。旧鍵はこの更新にのみ使い、全ファイルの移行後は旧形式の再投入を拒否します。破損ファイルは修復と再試行のために保持し、他のプラグインは引き続き使えます。既存のオフラインバックアップの保護方式は変わりません。環境間の移行には暗号化した `.pdbackup` を使い、インポート時に移行先の鍵で再暗号化します。
+
+リポジトリの Compose テンプレートは保護用鍵を自動でマウントします。ホストの環境変数にはホスト側のファイルパスを設定し、未設定の場合は起動を拒否します。Linux ホストではコンテナのアカウント UID/GID `10001:10001` だけが読み取れるようにしてください。生成後に `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` と `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` を実行する方法があります。ファイルを使う Compose secret はホスト側の権限を引き継ぎます。
+
 ## 設定と環境の移行
 
 Swing と Compose の設定ページには、どちらも「設定と環境の移行」があります。読み込むのは保存済みの設定だけです。エクスポート前に変更を保存し、インポート前に未保存の下書きを処理してください。
@@ -181,6 +200,6 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ## プラグインの設定、認証情報、拡張設定
 
 - **プラグインの業務設定（`config/plugins/{pluginId}.properties`）**：UTF-8 の Java properties 形式を使い、デスクトップ設定ページに集約表示してまとめて保存します。ホストのキーの上書きや、平文の認証情報の記入は禁止です。
-- **プラグインの認証情報（`config/credentials/{pluginId}.properties`）**：パスワード、Cookie、API Key、Secret、Webhook の秘密キーを保存します。ホストが暗号化し、owner ごとにプラグインコンテキストへ注入します。別環境で暗号化済み認証情報を復元するには、認証情報のマスターキーも保持する必要があります。
+- **プラグインの認証情報（`config/credentials/{pluginId}.properties`）**：パスワード、Cookie、API Key、Secret、Webhook の秘密キーを保存します。ホストが暗号化し、owner ごとにプラグインコンテキストへ注入します。環境間の移行には認証情報を含むパスワード付き `.pdbackup` を使ってください。同じ環境に戻すファイルバックアップでも、`config/credentials.key` とその復号条件を保持する必要があります。
 - **翻訳設定（`translation` プラグイン）**：通常の項目は `config/plugins/translation.properties` にあります。`translation.engine` はデフォルト `ai`、選択肢は `youdao`、`libretranslate`。`translation.libretranslate-url` は `/translate` を含めません。`translation.use-proxy` はデフォルト `false` で、有道と LibreTranslate だけを制御します。`translation.max-concurrent` はデフォルト `10` です。保存後にバックエンドを再起動すると反映されます。[小説と読み上げ](/ja/novel#翻訳エンジン（管理者）)を参照してください。
 - **ログイン検証ポリシー**：`setup.login-verification-policies` はデフォルトで空です。`LoginVerification.policyId()` のポリシーキーをカンマ区切りで最大 16 件指定でき、バックエンド再起動後に反映されます。設定前に対応する検証プラグインが有効であることを確認してください。[操作 CAPTCHA](/ja/captcha)と[サードパーティープラグイン SDK](/ja/plugin-development#gui-に依存しない認証情報と汎用操作検証)を参照してください。

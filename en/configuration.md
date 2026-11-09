@@ -10,6 +10,25 @@ For routine changes, use the desktop GUI's "Configuration / Settings" page, save
 
 The default `config/config.yaml` is generated on first startup. Upgrades append missing host keys without overwriting existing values. Manual edits must use UTF-8 flat `key: value` lines. Do not comment out settings instead of leaving values empty, or put keys belonging to externalized plugins (such as `mail.*`, `push.*`, `notification.*`, `download.novel-*`) back into `config.yaml`.
 
+## Credential keys and backups
+
+Each installation generates an independent random master key, stored in protected form at `config/credentials.key`. Windows uses the current user's DPAPI by default; run a service under the same account each time. Before changing Windows users or computers, export a password-protected `.pdbackup` that includes credentials, then import it on the target. Copying the configuration directory alone is insufficient.
+
+Linux, macOS and Docker require a separate protection key file before credentials are first saved or upgraded. It must contain the standard Base64 encoding of 32 random bytes, be readable only by the application account, and stay outside the configuration directory and its backups. With OpenSSL installed, run this once in Bash to create the file and set the launch environment. An existing file will not be overwritten:
+
+```bash
+umask 077
+mkdir -p "$HOME/.config/pixivdownload-secrets"
+( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+```
+
+Start the application from the same terminal; background services need the variable in their service environment. For Docker, mount the file read-only at `/run/secrets/pixivdownload-credentials` and set the variable to that container path. Java also accepts `-Dpixivdownload.credential-key-file=/absolute/path`. Keep a separate secure backup of the protection key; do not regenerate it at each startup. If the key is lost or does not match, the application preserves the credentials and refuses to decrypt them.
+
+Normal credential reads and writes automatically upgrade legacy files, including credentials for disabled plugins. Legacy keys are used only for this upgrade; once every file has migrated, replayed legacy files are rejected. Damaged files remain for repair and retry while other plugins can continue. Migration does not change the protection of existing offline backups. Use an encrypted `.pdbackup` for transfers between environments; import re-encrypts credentials with the target installation key.
+
+The repository's Compose template mounts the protection key automatically. Keep the host variable set to the host file path; Compose refuses to start if it is unset. On a Linux host, give only the container account, UID/GID `10001:10001`, read access. After generating the file, for example, run `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` and `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`. File-based Compose secrets retain host permissions.
+
 ## Configuration and environment migration
 
 Both Swing and Compose settings provide "Configuration and environment transfer", which reads only saved configuration (save changes before export and resolve unsaved drafts before import):
@@ -181,6 +200,6 @@ With `server.trusted-proxy-cidrs` empty, the server runs in direct-access mode a
 ## Plugin settings, credentials and extensions
 
 - **Plugin business settings (`config/plugins/{pluginId}.properties`)**: UTF-8 Java properties, presented together and saved through desktop settings. They must not override host keys or contain plaintext credentials.
-- **Plugin credentials (`config/credentials/{pluginId}.properties`)**: store passwords, cookies, API Keys, Secrets and Webhook keys, encrypted by the host and injected into plugin contexts by owner. Restoring encrypted credentials across environments also requires retaining the credential master key.
+- **Plugin credentials (`config/credentials/{pluginId}.properties`)**: store passwords, cookies, API Keys, Secrets and Webhook keys, encrypted by the host and injected into plugin contexts by owner. For transfers between environments, use a password-protected `.pdbackup` that includes credentials. A file backup for the same environment also needs `config/credentials.key` and its unlocking requirements.
 - **Translation settings (`translation` plugin)**: ordinary settings are in `config/plugins/translation.properties` (`translation.engine` defaults to `ai`, with `youdao` and `libretranslate` also available; `translation.libretranslate-url` excludes `/translate`; `translation.use-proxy` defaults to `false` and controls only Youdao and LibreTranslate; `translation.max-concurrent` defaults to `10`). Save and restart the backend to apply. See [Novels and narration](/en/novel#translation-engines-administrator).
 - **Login verification policies**: `setup.login-verification-policies` defaults to empty. Configure at most 16 comma-separated `LoginVerification.policyId()` policy keys, then restart the backend. Confirm that the corresponding verification plugins are enabled before configuring this setting; see [Operation CAPTCHA](/en/captcha) and [Third-party plugin SDK](/en/plugin-development#credentials-and-general-operation-verification-without-a-gui-dependency).
