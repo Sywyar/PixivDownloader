@@ -26,6 +26,8 @@ const {
      */
     function applyNovelStage(item, status) {
         const stage = status.stage;
+        item.novelStage = stage;
+        if (status.format) item.novelFormat = String(status.format).toLowerCase();
         const eTotal = Number(status.embeddedTotal || 0);
         const eDone = Number(status.embeddedDone || 0);
         const cTotal = Number(status.coverTotalBytes || 0);
@@ -104,6 +106,10 @@ const {
 
     async function processNovelItem(item, invocation) {
         assertNovelProcess(invocation);
+        item.novelStage = 'text';
+        item.novelFormat = null;
+        item.novelText = item.novelCover = item.novelEmbedded = null;
+        item.downloadedCount = 0;
         item.statusMessageKey = null;
         item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
         setCurrent(item);
@@ -149,6 +155,7 @@ const {
             const meta = await metaRes.json();
             assertNovelProcess(invocation);
             item.novelText = null;
+            item.novelStage = 'preparing';
             renderQueue();
 
             const filterSkipReason = evaluateDownloadFilterSkip(meta, 'novel');
@@ -170,6 +177,7 @@ const {
             renderQueue();
 
             const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
+            item.novelFormat = fmt;
             const autoTranslate = !!(isAdmin && state.settings.novelAutoTranslate);
             if (meta.seriesId) item.seriesId = Number(meta.seriesId);
             const {collectionId} = await refreshBatchCollections(invocation);
@@ -226,11 +234,19 @@ const {
                 const status = await sRes.json();
                 assertNovelProcess(invocation);
                 if (status.completed) {
-                    if (status.failed) {
+                    if (status.cancelled) {
+                        item.status = 'paused';
+                        item.statusMessageKey = 'queue.stage.cancelled';
+                        item.lastMessage = '';
+                    } else if (status.failed) {
+                        applyNovelStage(item, status);
                         item.status = 'failed';
                         item.lastMessage = bt('queue.message.failed', '失败 — {message}',
                             {message: status.message || ''});
                     } else {
+                        // 快速生成可能发生在两次轮询之间；成功回执确认文件已生成并保存。
+                        if (!['saving', 'bookmarking', 'collecting'].includes(item.novelStage)) item.novelStage = 'saving';
+                        item.novelText = item.novelCover = item.novelEmbedded = null;
                         item.status = 'completed';
                         item.downloadedCount = 1;
                         item.bookmarkResult = status.bookmarkResult || null;

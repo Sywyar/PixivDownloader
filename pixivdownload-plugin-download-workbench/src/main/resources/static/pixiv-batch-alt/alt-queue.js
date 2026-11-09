@@ -316,8 +316,7 @@ function buildCurrentCardContent(item) {
     meta.appendChild(renderQueueTags(item));
     row.appendChild(meta);
     card.appendChild(row);
-    // 流式图片进度条（与列表行 miniProgress 同口径，由 downloadedCount / totalImages 派生，始终实时可见）。
-    if (item.kind === 'illust' || item.totalImages > 0) {
+    if (!progressSlotsFor(item).length && item.totalImages > 0) {
         card.appendChild(miniProgress(model.progressLabel, null,
             item.totalImages > 0 ? percent : null, 'is-image', false));
     }
@@ -329,11 +328,13 @@ function buildCurrentCardContent(item) {
 // 仅在当前渲染中派生文案，Vue 与命令式路径共用显示口径。
 function currentCardModel(item) {
     if (!item) return null;
-    const percent = item.totalImages > 0 ? pct(item) : 0;
+    const percent = progressSlotsFor(item).length
+        ? progressExtrasModel(item)[0].progress || 0 : item.totalImages > 0 ? pct(item) : 0;
     const progressLabel = item.totalImages > 0 ? bt('status.image-progress', '{downloaded} / {total} 张',
         {downloaded: item.downloadedCount || 0, total: item.totalImages}) : bt('queue.progress.inactive', null);
     return {title: queueItemDisplayTitle(item), percent, progressLabel,
-        detail: item.totalImages > 0 ? progressLabel + ' · ' + percent + '%' : queueItemMessage(item)};
+        detail: item.kind !== 'novel' && item.totalImages > 0
+            ? progressLabel + ' · ' + percent + '%' : queueItemMessage(item)};
 }
 
 // 计划详情使用的当前卡完整 HTML：内容节点 +
@@ -429,7 +430,7 @@ function progressExtras(q) {
     return parts;
 }
 
-// 首次识别媒体后预留全部阶段；只保留位置，不保留旧字节、百分比或格式。
+// 媒体识别前后保持两处进度位置，传输与处理共用子进度条。
 const altProgressSlots = new WeakMap();
 function progressSlotsFor(q) {
     if (q.progressSlots) return q.progressSlots;
@@ -438,127 +439,198 @@ function progressSlotsFor(q) {
         seen = {kind: q.kind, slots: []};
         altProgressSlots.set(q, seen);
     }
-    const remember = (key, labelKey, cls) => {
-        if (!seen.slots.some(slot => slot.key === key)) seen.slots.push({key, labelKey, cls});
-    };
-    const up = q.ugoiraProgress;
-    if (q.kind === 'novel') {
-        remember('queue.novel-text.label', 'queue.novel-text.label', 'is-image');
-        remember('queue.novel-cover.label', 'queue.novel-cover.label', 'is-image');
-        remember('embedded', 'queue.novel-images.label', 'is-image');
-    } else if (q.illustType === 2 || up && (up.phase || up.zipProgress != null || up.zipDownloadedBytes != null)) {
-        remember('zip', 'queue.ugoira.zip', 'is-zip');
-        remember('ugoira-processing', 'queue.media.label', 'is-ffmpeg');
-    } else if (q.imageProgress || q.illustType === 0 || q.illustType === 1) {
-        remember('image-download', 'queue.image-download.label', 'is-image');
-        // 图片流水线最多同时处理两张；总量未知时也预留两处，避免稍后插入。
-        const count = q.imageProgress?.totalImages || q.totalImages;
-        for (let i = 0; i < (count === 1 ? 1 : 2); i++) {
-            remember('image-processing-' + i, 'queue.media.label', 'is-ffmpeg');
-        }
+    if (!seen.slots.length && (['novel', 'illust'].includes(q.kind)
+            || q.imageProgress || q.ugoiraProgress || [0, 1, 2].includes(q.illustType))) {
+        seen.slots = [{key: 'overall', labelKey: 'queue.progress.overall'},
+            {key: 'current', labelKey: 'queue.progress.current'}];
     }
     return seen.slots;
 }
 
 function queueProgressSnapshot(q) {
     // Vue 的行快照携带纯值显示位置，不把派生状态写入持久队列。
-    return Object.assign({}, q, {progressSlots: progressSlotsFor(q).slice()});
+    return Object.assign({}, q, {overallProgress: progressExtrasModel(q)[0]?.progress,
+        progressStarting: altProgressSlots.get(q)?.starting === true,
+        progressSlots: progressSlotsFor(q).slice()});
 }
 
 function retainQueueProgressSlots(item, previous) {
     if (previous && previous.kind === item.kind) {
-        altProgressSlots.set(item, {kind: item.kind, slots: progressSlotsFor(previous).slice()});
+        progressSlotsFor(previous);
+        altProgressSlots.set(item, {...altProgressSlots.get(previous), slots: progressSlotsFor(previous).slice()});
     }
+}
+
+function progressFraction(done, total) {
+    return done != null && Number.isFinite(Number(done)) && Number.isFinite(Number(total)) && total > 0
+        ? Math.max(0, Math.min(1, Number(done) / Number(total))) : null;
+}
+
+function novelProgressModel(q) {
+    const stage = q.novelStage || (q.novelText ? 'text' : q.novelEmbedded ? 'downloading-images'
+        : q.novelCover ? 'downloading-cover' : 'text');
+    // 阶段等权，阶段内使用实际字节或项数；不按耗时估算。
+    const steps = ['text', 'downloading-images', 'downloading-cover', 'writing', 'saving'];
+    let index = steps.indexOf(stage);
+    if (stage === 'preparing' || stage === 'pending') index = 1;
+    if (stage === 'bookmarking' || stage === 'collecting') index = 4;
+    index = Math.max(0, index);
+    let label = bt('queue.stage.' + stage, stage), value = '', fraction = null;
+    const bytes = stage === 'text' ? q.novelText : stage === 'downloading-cover' ? q.novelCover : null;
+    if (stage === 'text') label = bt('queue.novel-text.label', '小说正文');
+    if (stage === 'downloading-cover') label = bt('queue.novel-cover.label', '封面');
+    if (bytes) {
+        value = formatBytes(bytes.done || 0) + (bytes.total > 0 ? ' / ' + formatBytes(bytes.total) : '');
+        fraction = progressFraction(bytes.done, bytes.total);
+    }
+    if (stage === 'downloading-images') {
+        label = bt('queue.novel-images.label', '内嵌图片');
+        if (q.novelEmbedded?.total > 0) {
+            value = bt('queue.novel-images.count', '{done}/{total} 张', q.novelEmbedded);
+            fraction = progressFraction(q.novelEmbedded.done || 0, q.novelEmbedded.total);
+        }
+    }
+    if (stage === 'writing') {
+        label = q.novelFormat ? bt('queue.novel-writing.label', '生成 {format}', {format: q.novelFormat.toUpperCase()})
+            : bt('queue.stage.writing', null);
+    }
+    return {overall: (index + (fraction || 0)) / steps.length, label, value,
+        progress: fraction == null ? null : fraction * 100, cls: 'is-image'};
+}
+
+function ugoiraProgressModel(up) {
+    const phase = up.phase;
+    const count = Math.max(1, Number(up.outputCount) || 1);
+    const index = Math.max(0, Math.min(count - 1, (Number(up.outputIndex) || 1) - 1));
+    let fraction = null, done = 0, label = mediaProgressLabel(up), value = '';
+    if (phase === 'zip') {
+        label = bt('queue.ugoira.zip', '动图压缩包');
+        fraction = progressFraction(up.zipProgress, 100);
+        value = formatBytes(up.zipDownloadedBytes || 0)
+            + (up.zipTotalBytes > 0 ? ' / ' + formatBytes(up.zipTotalBytes) : '');
+    } else if (phase === 'extract') {
+        done = 1;
+        label = bt('queue.ugoira.extracting', '正在解压帧');
+        fraction = progressFraction(up.extractedFrames || 0, up.totalFrames);
+        if (up.totalFrames > 0) value = (up.extractedFrames || 0) + ' / ' + up.totalFrames;
+    } else if (phase === 'ffmpeg-waiting' || phase === 'ffmpeg' || phase === 'finalizing') {
+        done = 2 + index * 2 + (phase === 'finalizing' ? 1 : 0);
+        if (phase === 'ffmpeg') {
+            fraction = progressFraction(up.ffmpegProgress, 100);
+            if (up.ffmpegDurationMs > 0) value = formatDurationMs(up.ffmpegOutTimeMs || 0)
+                + ' / ' + formatDurationMs(up.ffmpegDurationMs);
+        }
+    }
+    return {overall: (done + (fraction || 0)) / (3 + count * 2), label, value,
+        progress: fraction == null ? null : fraction * 100,
+        cls: phase === 'zip' ? 'is-zip' : 'is-ffmpeg', failed: up.status === 'failed'};
+}
+
+function imageProgressModel(q) {
+    const snapshot = q.imageProgress;
+    const images = snapshot ? [snapshot, ...(Array.isArray(snapshot.processing) ? snapshot.processing : [])]
+        .filter(ip => ip && ip.phase !== 'processing') : [];
+    // 同一张图片在传输结束与进入处理的交界只计一次。
+    const units = new Map();
+    for (const ip of images) {
+        let fraction = progressFraction(ip.progress, 100);
+        if (ip.phase) {
+            const count = Math.max(0, Number(ip.outputCount) || 0);
+            const index = Math.max(0, Math.min(count, Number(ip.outputIndex) || 0));
+            const done = ip.phase === 'finalizing' ? 2 + count * 2
+                : ip.phase === 'thumbnail' ? 1 + count * 2
+                : index ? 1 + (index - 1) * 2 + (ip.phase === 'verifying' ? 1 : 0) : 0;
+            fraction = 1 + done / (3 + count * 2);
+        }
+        const key = ip.imageNumber || 0;
+        units.set(key, Math.max(units.get(key) || 0, fraction || 0));
+    }
+    const total = q.totalImages || snapshot?.totalImages || 0;
+    const completed = Math.max(0, q.downloadedCount || 0);
+    const inFlight = Array.from(units.values()).reduce((sum, value) => sum + value, 0);
+    // 每张图片分为传输与输出处理，另计整项保存。
+    const overall = total > 0 ? (completed * 2 + inFlight) / (total * 2 + 1) : null;
+    // 传输优先；只有处理仍在进行时，显示最早一张，避免并行回调来回切换。
+    const current = images.find(ip => !ip.phase) || images[0];
+    if (!current) return {overall, label: bt(total > 0 && completed >= total
+        ? 'queue.media.finalizing' : 'queue.stage.preparing', null), progress: null};
+    const imageText = current.imageNumber && (current.totalImages || total)
+        ? bt('queue.image-download.index', '第 {current}/{total} 张',
+            {current: current.imageNumber, total: current.totalImages || total}) : '';
+    const byteText = current.phase ? '' : formatBytes(current.downloadedBytes || 0)
+        + (current.totalBytes > 0 ? ' / ' + formatBytes(current.totalBytes) : '');
+    return {overall, label: current.phase ? mediaProgressLabel(current) : bt('queue.image-download.label', '图片下载'),
+        value: [imageText, byteText].filter(Boolean).join(' · '),
+        progress: current.phase ? null : progressFraction(current.progress, 100) == null ? null : current.progress,
+        cls: current.phase ? 'is-ffmpeg' : 'is-image', failed: current.status === 'failed'};
+}
+
+function retainOverallProgress(q, value) {
+    if (q.overallProgress !== undefined) return q.overallProgress;
+    const seen = altProgressSlots.get(q);
+    if (!seen) return value;
+    const attempt = [q.taskId, q.startTime].join('|');
+    const source = q.kind === 'novel' ? q.novelText || q.novelEmbedded || q.novelCover || q.novelStage
+        : q.ugoiraProgress || q.imageProgress || q.downloadedCount;
+    // worker 领取条目的首帧可能早于类型 owner 清除上一轮快照。
+    const starting = q.status === 'downloading' && (['idle', 'pending'].includes(seen.status)
+        || (seen.attempt !== undefined && q.startTime && seen.startedAt !== q.startTime));
+    if (seen.attempt !== attempt || ['idle', 'pending'].includes(q.status)
+            || (q.status === 'downloading' && seen.status && seen.status !== 'downloading')) seen.overall = null;
+    seen.attempt = attempt;
+    seen.startedAt = q.startTime;
+    seen.status = q.status;
+    if (starting) {
+        seen.starting = true;
+        seen.startSource = source;
+    } else if (q.status !== 'downloading' || source !== seen.startSource) {
+        seen.starting = false;
+        delete seen.startSource;
+    }
+    if (seen.starting) value = 0;
+    // 传输移交后台处理的短暂空快照不代表已完成的工作被撤销。
+    seen.overall = value == null ? seen.overall ?? null : Math.max(seen.overall || 0, value);
+    return q.status === 'completed' || seen.overall == null ? seen.overall : Math.min(99, seen.overall);
 }
 
 function progressExtrasModel(q) {
     const slots = progressSlotsFor(q);
     const parts = [];
-    const progress = (key, label, value, percent, cls, active = true) => {
-        parts.push({key, kind: 'progress', label, value, progress: percent, cls, active});
-    };
+    const running = q.status === 'downloading';
+    const completed = q.status === 'completed';
+    if (slots.length) {
+        let step = null;
+        if (running || q.status === 'failed') {
+            step = q.kind === 'novel' ? novelProgressModel(q)
+                : q.ugoiraProgress ? ugoiraProgressModel(q.ugoiraProgress) : imageProgressModel(q);
+        }
+        if (completed) {
+            step = {overall: 1, progress: 100, label: bt('batch:queue.message.completed', '完成'), value: ''};
+        }
+        const overall = completed ? 100 : step?.overall == null ? (running ? null : 0)
+            : Math.min(99, Math.max(0, Math.floor(step.overall * 100)));
+        parts.push({key: 'overall', kind: 'progress', label: bt('queue.progress.overall', '总进度'),
+            value: '', progress: retainOverallProgress(q, overall), cls: 'is-' + q.status, active: running && !step?.failed});
+        if (q.progressStarting ?? altProgressSlots.get(q)?.starting) step = null;
+        parts.push({key: 'current', kind: 'progress',
+            label: step?.failed ? bt('queue.media.failed', null) : step?.label || bt('queue.progress.current', '当前步骤'),
+            value: step ? step.value || '' : bt('queue.progress.inactive', '暂无当前进度'),
+            progress: step?.progress ?? null, cls: step?.failed || q.status === 'failed' ? 'is-failed' : step?.cls,
+            active: running && !step?.failed});
+    }
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
     const live = runtime && typeof runtime.queueLiveStatus === 'function' ? runtime.queueLiveStatus(q) : null;
     if (live && live.label && live.message && ['info', 'success', 'warning', 'error'].includes(live.tone)) {
         parts.push({key: 'live', tone: live.tone, badge: live.label, text: live.message});
     }
-    if (q.kind === 'novel' && q.status === 'downloading') {
-        for (const [value, key, fallback] of [[q.novelText, 'queue.novel-text.label', '小说正文'],
-            [q.novelCover, 'queue.novel-cover.label', '封面']]) {
-            if (!value || !(value.done > 0 || value.total > 0)) continue;
-            const bytes = formatBytes(value.done || 0) + (value.total > 0 ? ' / ' + formatBytes(value.total) : '');
-            progress(key, bt(key, fallback), bytes,
-                value.total > 0 ? Math.round(value.done / value.total * 100) : null, 'is-image');
-        }
-        const embedded = q.novelEmbedded;
-        if (embedded && embedded.total > 0) {
-            progress('embedded', bt('queue.novel-images.label', '内嵌图片'),
-                bt('queue.novel-images.count', '{done}/{total} 张', embedded),
-                Math.round((embedded.done || 0) / embedded.total * 100), 'is-image');
-        }
-    }
-    const snapshot = q.imageProgress;
-    const images = snapshot ? [snapshot, ...(Array.isArray(snapshot.processing) ? snapshot.processing : [])] : [];
-    let processingIndex = 0;
-    for (const ip of images.filter(image => image.phase !== 'processing')) {
-        if (ip && q.status === 'downloading') {
-            const imageText = ip.imageNumber && ip.totalImages
-                ? bt('queue.image-download.index', '第 {current}/{total} 张', {current: ip.imageNumber, total: ip.totalImages})
-                : '';
-            const bytesText = ip.totalBytes > 0
-                ? `${formatBytes(ip.downloadedBytes || 0)} / ${formatBytes(ip.totalBytes)}`
-                : formatBytes(ip.downloadedBytes || 0);
-            if (ip.phase) {
-                const label = ip.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(ip);
-                progress('image-processing-' + processingIndex++, label, imageText, null,
-                    ip.status === 'failed' ? 'is-failed' : 'is-ffmpeg', ip.status !== 'failed');
-            } else progress('image-download',
-                bt('queue.image-download.label', '图片下载'),
-                [imageText, bytesText].filter(Boolean).join(' · '),
-                ip.progress,
-                ip.status === 'failed' ? 'is-failed' : 'is-image', ip.status !== 'failed');
-        }
-    }
-    const up = q.ugoiraProgress;
-    if (up && q.status === 'downloading') {
-        const phase = String(up.phase || '');
-        if (phase === 'zip' || phase === 'extract' || phase === 'ffmpeg' || up.zipProgress !== undefined) {
-            const zipBytes = up.zipTotalBytes > 0
-                ? `${formatBytes(up.zipDownloadedBytes || 0)} / ${formatBytes(up.zipTotalBytes)}`
-                : formatBytes(up.zipDownloadedBytes || 0);
-            progress('zip', bt('queue.ugoira.zip', '动图压缩包'), zipBytes, up.zipProgress,
-                'is-zip', phase === 'zip' && up.status !== 'failed');
-        }
-        if (phase === 'extract') {
-            progress('ugoira-processing', bt('queue.ugoira.extracting', '正在解压帧'), up.totalFrames > 0
-                    ? bt('queue.ugoira.extracting-count', '正在解压帧 {current}/{total}', {current: up.extractedFrames || 0, total: up.totalFrames})
-                    : '', null, 'is-ffmpeg', up.status !== 'failed');
-        }
-        if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
-            progress('ugoira-processing', mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed');
-        }
-        if (phase === 'ffmpeg' && up.status !== 'failed') {
-            const timeText = up.ffmpegDurationMs > 0
-                ? `${formatDurationMs(up.ffmpegOutTimeMs || 0)} / ${formatDurationMs(up.ffmpegDurationMs)}`
-                : '';
-            progress('ugoira-processing', mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg');
-        }
-        if (up.status === 'failed') {
-            parts.push({key: 'ugoira-error', tone: 'error', text: bt('queue.ugoira.failed', '动图处理失败')});
-        }
+    if (q.ugoiraProgress?.status === 'failed' && q.status !== 'completed') {
+        parts.push({key: 'ugoira-error', tone: 'error', text: bt('queue.ugoira.failed', '动图处理失败')});
     }
     if (q.kind === 'novel' && q.translatePhase) {
         const msg = novelTranslateMessage(q);
-        if (msg) {
-            parts.push({key: 'translate', badge: bt('queue.translate.label', 'AI 翻译'), ai: true, text: msg});
-        }
+        if (msg) parts.push({key: 'translate', badge: bt('queue.translate.label', 'AI 翻译'), ai: true, text: msg});
     }
-    const notes = parts.filter(part => part.kind !== 'progress');
-    const bars = slots.map(slot => parts.find(part => part.key === slot.key) || {
-        ...slot, kind: 'progress', label: bt(slot.labelKey, null),
-        value: bt('queue.progress.inactive', '暂无当前进度'), progress: null, active: false
-    });
-    return [...bars, ...notes];
+    return parts;
 }
 
 function novelTranslateMessage(q) {
@@ -695,7 +767,7 @@ function queueItemRow(q, options = {}) {
     metaLine.appendChild(statusLine);
     row.appendChild(metaLine);
 
-    if (q.kind === 'illust' || q.totalImages > 0) {
+    if (!progressSlotsFor(q).length && q.totalImages > 0) {
         row.appendChild(miniProgress(
             q.totalImages > 0 ? bt('status.image-progress', '{downloaded} / {total} 张',
                 {downloaded: q.downloadedCount || 0, total: q.totalImages}) : bt('queue.progress.inactive', null),

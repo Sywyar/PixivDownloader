@@ -146,6 +146,8 @@ async function processSingle(item) {
 // 插画 / 漫画 / 动图下载流程。
 async function processIllustItem(item, invocation) {
     assertProcessInvocation(invocation);
+    item.imageProgress = item.ugoiraProgress = null;
+    item.downloadedCount = 0;
     item.statusMessageKey = null;
     item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
     renderQueue(item, true);

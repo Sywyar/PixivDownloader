@@ -153,7 +153,7 @@ function aqvRowModel(q) {
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),
-        progress: q.kind === 'illust' || q.totalImages > 0 ? {
+        progress: !progressSlotsFor(q).length && q.totalImages > 0 ? {
             label: q.totalImages > 0 ? aqvT('status.image-progress', '{downloaded} / {total} 张',
                 {downloaded: q.downloadedCount || 0, total: q.totalImages}) : aqvT('queue.progress.inactive', null),
             text: q.totalImages > 0 ? percent + '%' : '',
@@ -230,7 +230,7 @@ function aqvRenderCurrent(front, remaining) {
             h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
                 h('div', {class: 'ab-current-detail'}, model.detail), aqvTags(front)])
         ]));
-        if (front.kind === 'illust' || front.totalImages > 0) children.push(aqvMiniProgress(
+        if (!progressSlotsFor(front).length && front.totalImages > 0) children.push(aqvMiniProgress(
             model.progressLabel, null, front.totalImages > 0 ? model.percent : null, 'is-image', 'images', false));
         children.push(aqvExtras(front));
         if (remaining) children.push(h('p', {key: 'remaining', class: 'ab-current-remaining'}, remaining));
