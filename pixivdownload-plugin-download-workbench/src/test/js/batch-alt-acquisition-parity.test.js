@@ -134,8 +134,10 @@ test('保存计划入口按来源能力显示，快捷入口缺少具体来源�
     assert.equal(h.c.saveScheduleButton(),null);
     h.c.run("state.mode='quick-fetch'");
     const disabled = h.c.saveScheduleButton();
-    assert.equal(disabled.querySelector('button').disabled,true);
-    assert.equal(disabled.querySelector('p').textContent, 'schedule.save.quick-hint');
+    const header = h.c.modeHeader({icon: 'clock'}, [disabled]);
+    assert.equal(disabled.disabled,true);
+    assert.equal(header.querySelector('p.ab-mode-hint').textContent, 'schedule.save.quick-hint');
+    assert.equal(header.querySelector('.ab-mode-actions').contains(header.querySelector('.ab-mode-hint')), false);
     h.c.altScheduleSources = () => ({previewForMode:()=>({sourceType:'demo'})});
     assert.equal(h.c.saveScheduleButton().disabled,false);
 });

@@ -42,8 +42,9 @@
 .ab-mode-title, .ab-dock-title { display: flex; align-items: center; gap: 10px; font-size: 2rem; font-weight: 650; letter-spacing: -.025em; line-height: 1.2; }
 .ab-mode-title .ab-icon { display: none; }
 .ab-mode-desc { color: var(--muted); font-size: .875rem; margin-top: 8px; }
-.ab-mode-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ab-mode-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ab-mode-heading { display: flex; flex-direction: column; gap: 10px; }
+.ab-mode-heading > .ab-mode-hint { align-self: flex-end; max-inline-size: 100%; margin: 0; }
 .ab-active-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .ab-active-filters:empty { display: none; }
 .ab-stage-title { display: flex; align-items: baseline; gap: 10px; }

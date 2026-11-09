@@ -141,6 +141,7 @@ async function loadQuickUid() {
     }
     const node = document.getElementById('abQuickUid');
     if (node) node.textContent = quickState.uid || '-';
+    syncSaveScheduleButton();
 }
 
 function refreshQuickCredentialGate() {
@@ -183,8 +184,7 @@ async function loadQuickWorks(action, page) {
         && source === quickState.source && kind === quickState.kind;
     quickState.loading = true;
     quickState.error = '';
-    stage.innerHTML = '';
-    stage.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
+    renderQuickStage();
     try {
         let items, total, hasNext = false, totalPages = 1;
         if (action.descriptor) {
@@ -289,6 +289,7 @@ function quickFilterSummaryText() {
 function renderQuickStage() {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    syncSaveScheduleButton();
     stage.innerHTML = '';
     const action = quickActionDef(quickState.action);
     if (!quickState.action) {

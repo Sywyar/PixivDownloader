@@ -4,6 +4,76 @@ const assert = require('node:assert/strict');
 const {setup} = require('./batch-alt-schedule-session-support');
 const defaults = require('../../../../scripts/schedule/pixiv-defaults.json');
 
+test('快捷来源变化原位更新计划按钮，账号返回、作品列表和内层关闭均不需切页', async () => {
+    const h = setup();
+    h.load('../pixiv-batch/batch-pagination.js', 'alt-mode-capture.js');
+    const opened = [];
+    let accountResult;
+    const acquisition = {
+        type: 'illust', dataSource: {id: 'pixiv'},
+        account: {buildRequest: () => ({}), readId: data => data.id},
+        actions: {
+            bookmarks: {viewType: 'works', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.uid && {sourceType: 'my-bookmarks', source: {userId: ctx.uid}, kind: 'illust'}},
+            following: {viewType: 'following-list', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.inner && {sourceType: 'user-new', source: {userId: ctx.inner.userId}, kind: 'illust'}},
+            collections: {viewType: 'collection-list', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.inner && {sourceType: 'collection', source: {collectionId: ctx.inner.id}, kind: 'illust'}}
+        },
+        buildUserPageRequest: () => ({})
+    };
+    acquisition.actions.collections.buildCollectionWorksPageRequest = () => ({});
+    Object.assign(h.context.PixivBatch.queueTypes, {
+        acquisition: () => acquisition, acquisitionList: () => [acquisition],
+        dataSourcesForMode: () => [{id: 'pixiv', label: 'Pixiv'}],
+        manifestDescriptor: () => null,
+        acquisitionLease: () => ({assertCurrent() {}}), filtersFor: () => null
+    });
+    Object.assign(h.context, {
+        altAcquisitionJson: async (_type, _mode, _spec, operation) => operation === 'account'
+            ? new Promise(resolve => { accountResult = resolve; }) : {items: [], users: [], collections: [], hasMore: false},
+        openScheduleEditor: () => opened.push(h.context.altCaptureScheduleSource(0)),
+        loadingGrid: () => h.context.document.createElement('progress'),
+        syncAllResultsQueueState() {},
+        enqueueBar: () => h.context.document.createElement('nav')
+    });
+    h.run("state.mode='quick-fetch';quickState.source='pixiv';quickState.kind='illust';quickState.uid=null;");
+    h.context.renderQuickMode(h.panel);
+    const button = h.field('abSaveScheduleBtn'), hint = h.field('abSaveScheduleHint');
+    assert.equal(button.disabled, true);
+    assert.equal(hint.hidden, false);
+    const assertReady = ready => {
+        assert.equal(h.field('abSaveScheduleBtn'), button);
+        assert.equal(h.field('abSaveScheduleHint'), hint);
+        assert.equal(button.disabled, !ready);
+        assert.equal(hint.hidden, ready);
+        assert.equal(button.getAttribute('aria-describedby'), ready ? null : hint.id);
+    };
+    h.context.runQuickAction(h.context.quickActionDef('bookmarks'));
+    await new Promise(resolve => setImmediate(resolve));
+    assertReady(false);
+    accountResult({id: '42'});
+    await new Promise(resolve => setImmediate(resolve));
+    assertReady(true);
+    button.click();
+    assert.equal(opened.at(-1).sourceType, 'my-bookmarks');
+    assert.equal(opened.at(-1).params.source.userId, '42');
+    for (const [action, enter, item, expected] of [
+        ['following', 'drillQuickUser', {userId: '57', userName: 'Artist'}, 'user-new'],
+        ['collections', 'drillQuickCollection', {id: '63', title: 'Collection'}, 'collection']
+    ]) {
+        h.context.runQuickAction(h.context.quickActionDef(action));
+        await new Promise(resolve => setImmediate(resolve));
+        assertReady(false);
+        await h.context[enter](item);
+        assertReady(true);
+        button.click();
+        assert.equal(opened.at(-1).sourceType, expected);
+        h.panel.querySelector('.ab-drill-head').querySelector('button').click();
+        assertReady(false);
+    }
+});
+
 test('固定页搜索创建和编辑均保留每轮抓取上限', async () => {
     for (const maxPages of [1, 3]) {
         const h = setup({paramsJson: JSON.stringify({kind: 'illust',

@@ -49,6 +49,7 @@ function setup() {
         refreshAltSlots() { assert.ok(modal.querySelector('[data-qt-slot="cookie-tools"]')); },
         appendExtensionCookieEditors() {}, abConfirm: async () => true,
         abToast: (...args) => toasts.push(args), renderStage: () => renders.push(context.hasPixivCookie()),
+        syncSaveScheduleButton() {},
     });
     const run = code => vm.runInContext(code, context);
     const click = async node => {
