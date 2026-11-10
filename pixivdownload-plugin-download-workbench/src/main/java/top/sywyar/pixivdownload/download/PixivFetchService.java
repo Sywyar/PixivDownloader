@@ -604,8 +604,7 @@ public class PixivFetchService {
      * 读取站内信线程（{@code latest_message_threads2}），供计划任务过度访问检测 + cookie 存活探测复用。
      * 沿用 byte[].class + UTF-8 解析（不请求 {@code String.class}）。返回 {@code body} 节点。
      *
-     * <p>上游 3xx/4xx（含登录重定向与 401/403）、非 JSON 回包、或 {@code error=true} 都视为
-     * 「cookie 已死」并上抛 {@link PixivFetchException}——调用方（{@code OveruseWarningService}）据此判定 COOKIE_DEAD。
+     * <p>仅上游 401 判定为凭据失效；其它状态、非 JSON 或业务错误保留为访问失败，避免风险挑战触发换号。
      */
     public JsonNode fetchMessageThreads(String cookie) throws IOException {
         String json;
@@ -613,25 +612,24 @@ public class PixivFetchService {
             json = proxyGet(MESSAGE_THREADS_URL, cookie);
         } catch (PixivAjaxException e) {
             if (e.failure() == PixivAjaxFailure.HTTP_STATUS
-                    && e.statusCode() >= 300
-                    && e.statusCode() < 500) {
+                    && e.statusCode() == 401) {
                 throw new PixivFetchException("message threads http " + e.statusCode());
             }
             throw e;
         }
         if (json == null || json.isBlank()) {
-            throw new PixivFetchException("empty message threads response");
+            throw new IOException("Empty Pixiv message response");
         }
         JsonNode root;
         try {
             root = objectMapper.readTree(json);
         } catch (JacksonException e) {
-            // 非 JSON（登录重定向 HTML 等）= cookie 已死
-            throw new PixivFetchException("non-json message threads response");
+            throw new IOException("Invalid Pixiv message response");
         }
         if (root.path("error").asBoolean(false)) {
-            throw new PixivFetchException(root.path("message").asString(""));
+            throw new IOException("Pixiv message access unavailable");
         }
+        if (!root.hasNonNull("body")) throw new IOException("Missing Pixiv message body");
         return root.path("body");
     }
 

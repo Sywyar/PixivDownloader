@@ -22,6 +22,27 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 @DisplayName("下载队列任务精确排空")
 class QueueTaskTrackerTest {
 
+    @Test @DisplayName("候选只传入绑定的任务，取消信号不会被清除线程中断绕过")
+    void credentialsFollowOnlyBoundTaskAndCancellation() {
+        var credentials = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(java.util.List.of("first", "second"));
+        var tracker = new QueueTaskTracker("fixture");
+        var task = tracker.prepareQueued(null);
+        credentials.run(() -> task.bind(() -> {
+            var current = top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current();
+            assertThat(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.candidates(current.primary()))
+                    .containsExactly("first", "second");
+            task.cancel();
+            Thread.interrupted();
+            assertThatThrownBy(current::checkCancelled).isInstanceOf(java.util.concurrent.CancellationException.class);
+        }));
+        task.run();
+        assertThat(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current()).isNull();
+        assertThat(tracker.snapshot().running()).isZero();
+        var next = tracker.prepareQueued(null);
+        next.bind(() -> assertThat(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current()).isNull());
+        next.run();
+    }
+
     @Test
     @DisplayName("终结回调参与排空且只执行一次，晚登记仍能观察结束")
     void terminationIsPartOfDrain() throws Exception {

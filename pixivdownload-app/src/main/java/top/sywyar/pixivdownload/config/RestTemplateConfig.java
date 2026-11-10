@@ -102,13 +102,18 @@ public class RestTemplateConfig {
                 .setDefaultRequestConfig(requestConfig);
         if (!followRedirects) {
             httpClientBuilder.disableRedirectHandling();
+            httpClientBuilder.disableAutomaticRetries();
         }
         if (!manageCookies) {
             httpClientBuilder.disableCookieManagement();
         }
         HttpClient httpClient = httpClientBuilder.build();
 
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient) {
+            @Override protected void postProcessHttpRequest(org.apache.hc.core5.http.ClassicHttpRequest request) {
+                top.sywyar.pixivdownload.core.pixiv.PixivCredentialRetry.bindRequest(request);
+            }
+        };
         RestTemplate restTemplate = new ManagedRestTemplate(factory);
         restTemplate.getInterceptors().add((request, body, execution) -> {
             PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), request.getURI(), request.getMethod());

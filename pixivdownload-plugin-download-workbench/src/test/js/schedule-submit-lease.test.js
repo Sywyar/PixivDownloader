@@ -267,14 +267,14 @@ for (const ok of [true, false]) {
         h.replaceTasks([7, 8].map(id => ({
             id, sourceType: 'source-a', sourceActivationToken: 'token-a'
         })));
-        h.showOverride(7);
+        h.showOverride(7, 'proxy');
         h.element('sch-ov-proxy-enabled').checked = true;
         h.element('sch-ov-proxy').value = '127.0.0.1:7890';
         const pending = h.saveOverride();
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(h.fetchCount, 1);
         h.closeOverride();
-        h.showOverride(8);
+        h.showOverride(8, 'proxy');
         h.element('sch-ov-proxy').value = 'new-draft:8080';
         response.resolve({ok, json: async () => ({error: 'Old failure'})});
         await pending;

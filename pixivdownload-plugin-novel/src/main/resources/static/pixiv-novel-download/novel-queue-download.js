@@ -150,7 +150,7 @@ const {
             if (!metaRes.ok) {
                 const errData = await metaRes.json().catch(() => ({}));
                 assertNovelProcess(invocation);
-                throw new Error(errData.error || ('meta HTTP ' + metaRes.status));
+                throw Object.assign(new Error(errData.error || ('meta HTTP ' + metaRes.status)), {code: errData.code});
             }
             const meta = await metaRes.json();
             assertNovelProcess(invocation);
@@ -232,6 +232,8 @@ const {
                 assertNovelProcess(invocation);
                 if (!sRes.ok) continue;
                 const status = await sRes.json();
+                if (status.errorCode === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+                    throw Object.assign(new Error(status.message), {code: status.errorCode});
                 assertNovelProcess(invocation);
                 if (status.completed) {
                     if (status.cancelled) {
@@ -284,6 +286,7 @@ const {
                 renderQueue();
                 return;
             }
+            if (e.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') throw e;
             item.status = 'failed';
             item.lastMessage = bt('queue.message.failed', '失败 — {message}', {message: e.message || String(e)});
             finishNovelItem(item);

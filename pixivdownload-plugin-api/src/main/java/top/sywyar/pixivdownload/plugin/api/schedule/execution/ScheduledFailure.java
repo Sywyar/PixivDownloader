@@ -29,6 +29,8 @@ public record ScheduledFailure(
          * 表示 {@code CREDENTIAL_INVALID} 状态。
          */
         CREDENTIAL_INVALID,
+        /** 有序凭据均不可用，保留 pending 且不消耗作品重试次数。 */
+        CREDENTIALS_EXHAUSTED,
         /**
          * 表示 {@code RATE_LIMITED} 状态。
          */

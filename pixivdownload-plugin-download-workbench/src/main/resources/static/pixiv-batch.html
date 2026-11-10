@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
     <link rel="stylesheet" href="/pixiv-batch/media-settings.css">
     <link rel="stylesheet" href="/pixiv-batch/filename-template-presets.css">
+    <link rel="stylesheet" href="/pixiv-batch/download-profiles.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-components.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-queue-recovery.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch-navigation.css">
@@ -123,6 +124,7 @@
                         <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
                         <div class="cookie-hint" id="cookie-hint"><span data-i18n="cookie.hint.prefix">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。具体获取方法请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.hint.suffix">。</span></div>
                     </section>
+                    <div id="credential-library" hidden></div>
                     <template data-qt-slot="cookie-tools"></template>
                 </div>
             </div>
@@ -556,6 +558,7 @@
             <!-- Settings -->
             <div class="card" id="download-settings-card">
                 <div class="card-title" data-i18n="card.settings">下载设置</div>
+                <div id="download-profiles" hidden></div>
                 <div class="settings-grid">
                     <div class="setting-item">
                         <label data-i18n="label.settings.interval">作品间隔:</label>
@@ -831,13 +834,16 @@
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>
 <script src="/pixiv-batch/cookie-storage.js"></script>
+<script src="/pixiv-batch/credential-library.js"></script>
 <script src="/pixiv-batch/cookie-sync.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/pixiv-schedule-defaults.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
 <script src="/pixiv-batch/filename-template-presets.js"></script>
+<script src="/pixiv-batch/download-profiles.js"></script>
 <script src="/pixiv-batch/filename-template.js"></script>
 <script src="/pixiv-batch/page-layout.js"></script>
+<script src="/pixiv-batch/settings-context.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
 <script src="/pixiv-batch/search-filters.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
@@ -880,6 +886,7 @@
 <script src="/pixiv-batch/modes/schedule-view.js"></script>
 <script src="/pixiv-batch/modes/schedule-queue.js"></script>
 <script src="/pixiv-batch/modes/schedule.js"></script>
+<script src="/pixiv-batch/batch-profiles.js"></script>
 <script src="/pixiv-batch/batch-init.js"></script>
 </body>
 </html>

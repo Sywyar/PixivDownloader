@@ -527,6 +527,15 @@ public class ScheduleExecutor {
                     suspendCode = e.code();
                 }
                 case CANCELLED -> outcome = ScheduleLastOutcome.CANCELLED;
+                case CREDENTIALS_EXHAUSTED -> {
+                    if (retryAfterMillis > 0) {
+                        outcome = ScheduleLastOutcome.ERROR;
+                        notifyRunFailed = task.lastOutcome() != ScheduleLastOutcome.ERROR;
+                    } else {
+                        requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
+                        suspendCode = e.code();
+                    }
+                }
                 case CREDENTIAL_INVALID -> {
                     requestedSuspend = ScheduleSuspendReason.CREDENTIAL;
                     suspendCode = e.code();

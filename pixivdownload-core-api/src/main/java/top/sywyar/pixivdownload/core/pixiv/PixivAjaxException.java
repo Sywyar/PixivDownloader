@@ -15,6 +15,7 @@ public final class PixivAjaxException extends RuntimeException {
      * 状态码。
      */
     private final int statusCode;
+    private final long retryAfterMillis;
 
     /**
      * 创建 {@code PixivAjaxException} 实例。
@@ -23,7 +24,13 @@ public final class PixivAjaxException extends RuntimeException {
      * @param statusCode 状态码
      */
     public PixivAjaxException(PixivAjaxFailure failure, int statusCode) {
+        this(failure, statusCode, 0);
+    }
+
+    /** @param failure 失败类别 @param statusCode 上游状态 @param retryAfterMillis 上游冷却等待毫秒数 */
+    public PixivAjaxException(PixivAjaxFailure failure, int statusCode, long retryAfterMillis) {
         super(message(failure, statusCode));
+        this.retryAfterMillis = Math.max(0, retryAfterMillis);
         this.failure = failure;
         if (failure == PixivAjaxFailure.HTTP_STATUS) {
             if (statusCode < 100 || statusCode > 599) {
@@ -52,6 +59,9 @@ public final class PixivAjaxException extends RuntimeException {
     public int statusCode() {
         return statusCode;
     }
+
+    /** {@return 上游要求的冷却时间；零表示未提供有效值} */
+    public long retryAfterMillis() { return retryAfterMillis; }
 
     private static String message(PixivAjaxFailure failure, int statusCode) {
         Objects.requireNonNull(failure, "failure");

@@ -18,6 +18,22 @@ const translations = {
     'schedule.meta.next-suspended': 'Waiting for manual recovery'
 };
 
+test('固定凭证不提供替换或清除写入，代理弹窗保留保存入口', async () => {
+    const h = harness({supportsCredential: true, supportsProxy: true, credentialReadOnly: true,
+        credentialPresentation: {credentialHint: 'Fixed account', boundLabel: 'Bound'}});
+    h.setEditing(7, [{id: 7, sourceType: 'source-a', sourceActivationToken: 'token-a',
+        stateVersion: 4, credentialPolicy: taskCredentialPolicy({bound: true})}]);
+    h.showOverride(7, 'cookie');
+    assert.equal(h.element('sch-ov-cookie-enabled').hidden, true);
+    assert.equal(h.element('sch-ov-save').hidden, true);
+    h.element('sch-ov-cookie').value = 'replacement';
+    h.element('sch-ov-cookie-enabled').checked = false;
+    await h.saveOverride();
+    assert.equal(h.credentialCalls.length, 0);
+    h.showOverride(7, 'proxy');
+    assert.equal(h.element('sch-ov-save').hidden, false);
+});
+
 function buttonDisabled(html, label) {
     const button = html.match(new RegExp(`<button\\b([^>]*)>${label}</button>`));
     assert.ok(button, `missing ${label} action`);
@@ -99,7 +115,7 @@ for (const entry of ['editor', 'override']) {
                     credentialPolicy: taskCredentialPolicy({bound: clear === 'credential'})
                 }]);
                 if (entry === 'override') {
-                    h.showOverride(7);
+                    h.showOverride(7, clear === 'proxy' ? 'proxy' : 'cookie');
                     h.element(`sch-ov-${clear === 'proxy' ? 'proxy' : 'cookie'}-enabled`).checked = false;
                 }
                 const pending = entry === 'editor' ? h.submit() : h.saveOverride();

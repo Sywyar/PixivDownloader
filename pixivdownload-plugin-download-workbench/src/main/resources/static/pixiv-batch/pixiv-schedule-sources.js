@@ -234,7 +234,8 @@
             params: {
                 ...existing,
                 kind: selected.kind,
-                source: {...existing.source, ...selected.source},
+                source: {...existing.source, ...selected.source,
+                    ...(context.mode === QUICK_FETCH_MODE && sourceType !== SOURCE.FOLLOW_LATEST ? {myPixiv: true} : {})},
                 filters,
                 download: {...existing.download, ...snapshotDownload()},
                 fetchLimit
@@ -406,9 +407,10 @@
             : sourceType === SOURCE.MY_BOOKMARKS
                 ? withDefaults(params.source, {rest: defaults.source.rest}) : params.source || {};
         const filters = withDefaults(params.filters, defaults.filters);
-        const targetMode = modeFor(sourceType);
+        const targetMode = source.myPixiv === true ? QUICK_FETCH_MODE : modeFor(sourceType);
         const restored = {
             mode: targetMode, params: {...params, source}, kind,
+            accountKey: String(task.credentialPolicy?.accountKey || ''),
             filters: normalizeSearchFilters({
                 content: params.filters?.content ?? source.mode ?? defaults.filters.content,
                 ai: filters.aiFilter, type: filters.typeFilter,
@@ -428,12 +430,12 @@
             return restored;
         }
         switchMode(targetMode);
-        let quickSource = null;
-        if (sourceType === SOURCE.USER_NEW) {
+        const quickSource = restored.quickSource;
+        if (targetMode === 'user' && sourceType === SOURCE.USER_NEW) {
             applyKind('user', kind);
             const input = document.getElementById('user-id-input');
             if (input) input.value = source.userId || '';
-        } else if (sourceType === SOURCE.USER_REQUEST) {
+        } else if (targetMode === 'user' && sourceType === SOURCE.USER_REQUEST) {
             applyKind('user', 'request');
             const input = document.getElementById('user-id-input');
             if (input) input.value = source.userId || '';
@@ -460,14 +462,6 @@
             seriesState.kind = kind;
             seriesState.seriesId = seriesId ? Number(seriesId) : null;
             if (seriesId) loadSeriesPreview();
-        } else {
-            quickSource = {
-                sourceType,
-                type: sourceType,
-                source,
-                kind,
-                label: quickSourceLabel(sourceType, source, kind)
-            };
         }
         applyDownload(params.download || {});
         setSearchFiltersUI(restored.filters);
@@ -649,8 +643,9 @@
         }
         return {
             kind,
-            description: quickSourceLabel(sourceType, source, kind)
-                || (rows.length ? rows[0].join(bt('common:punctuation.colon', ': ')) : ''),
+            description: (source.myPixiv || [SOURCE.MY_BOOKMARKS, SOURCE.FOLLOW_LATEST].includes(sourceType)
+                ? bt('batch:credentials.my-pixiv') + ' · ' : '') + (quickSourceLabel(sourceType, source, kind)
+                || (rows.length ? rows[0].join(bt('common:punctuation.colon', ': ')) : '')),
             sections: [
                 {title: bt('batch:schedule.snapshot.section.source', '来源快照'), rows},
                 {title: bt('batch:schedule.snapshot.section.filters', '筛选快照'), rows: [
@@ -683,10 +678,29 @@
         };
     }
 
-    function credentialContribution() {
+    function personalCredential(context = {}, lease = {}) {
+        return !context.editingTask && !!context.mode && context.mode === QUICK_FETCH_MODE || parseParams(context.editingTask)?.source?.myPixiv === true
+            || [SOURCE.MY_BOOKMARKS, SOURCE.FOLLOW_LATEST].includes(lease.sourceType);
+    }
+
+    function credentialReadOnly(context = {}, lease = {}) {
+        return context?.editingTask?.credentialBound === true && personalCredential(context, lease);
+    }
+
+    function fixedCredentialMessage() {
+        return bt('batch:schedule.credential.fixed', '此计划的 Cookie 已固定，不能更换或清除。使用其他 Cookie 请新建计划。');
+    }
+
+    function credentialContribution(context = {}, lease = {}) {
+        const singleCredential = personalCredential(context, lease);
+        const readOnly = credentialReadOnly(context, lease);
         return Object.freeze({
             supportsCredential: true,
             supportsProxy: true,
+            singleCredential,
+            credentialReadOnly: readOnly,
+            defaultCredentialSelection: singleCredential && !context.editingTask
+                ? window.PixivCredentials?.accountSelection() : null,
             presentation: Object.freeze({
                 boundLabel: bt('batch:schedule.cookie.bound', '已绑定 Cookie'),
                 unboundLabel: bt('batch:schedule.cookie.restricted', '受限模式（无 Cookie）'),
@@ -699,7 +713,7 @@
                 boundPlaceholder: bt('batch:schedule.field.cookie.placeholder-bound', '已绑定 Cookie（不回显）；留空保持不变，填写则替换'),
                 placeholder: bt('batch:schedule.field.cookie.placeholder', '粘贴含 PHPSESSID 的 Cookie，或使用已保存的 Cookie'),
                 proxyHint: bt('batch:schedule.field.proxy.hint', '该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；清除后使用全局代理设置。'),
-                credentialHint: bt('batch:schedule.field.cookie.hint', '该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。'),
+                credentialHint: readOnly ? fixedCredentialMessage() : bt('batch:schedule.field.cookie.hint', '该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。'),
                 emptyCredentialMessage: bt('batch:schedule.error.override-cookie-empty', '请填写单独的 Cookie（或点「使用当前保存的cookie」），或取消勾选'),
                 namespace: 'batch',
                 clearProxyConfirmKey: 'schedule.pixiv.confirm.clear-proxy',
@@ -738,7 +752,8 @@
         }
     }
 
-    function bindCredential(taskId, cookie, _context, lease) {
+    function bindCredential(taskId, cookie, context, lease) {
+        if (credentialReadOnly(context, lease)) return {ok: false, status: 'failed', error: fixedCredentialMessage()};
         const validation = validateCredential(cookie, null, lease);
         if (validation) return {ok: false, status: 'failed', error: validation};
         return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
@@ -752,16 +767,43 @@
         }, lease, 'bound');
     }
 
-    function bindSavedCredential(taskId, _context, lease) {
+    async function selectSavedCredential(context, lease) {
         lease.assertCurrent();
+        if (credentialReadOnly(context, lease)) throw new Error(fixedCredentialMessage());
+        const result = await window.PixivCredentials.choose({
+            single: personalCredential(context, lease),
+            signal: context.signal ? AbortSignal.any([context.signal, lease.signal]) : lease.signal,
+            openDialog: context.openCredentialDialog
+        });
+        lease.assertCurrent();
+        return result;
+    }
+
+    function bindSavedCredential(taskId, context, lease) {
+        lease.assertCurrent();
+        if (credentialReadOnly(context, lease)) return {ok: false, status: 'failed', error: fixedCredentialMessage()};
+        if (context.savedCredentialSelection && !Array.isArray(context.savedCredentialSelection.ids)) {
+            return {ok: false, status: 'missing'};
+        }
+        const ids = context.savedCredentialSelection?.ids
+            || (personalCredential(context, lease) ? window.PixivCredentials?.accountSelection()?.ids : undefined);
+        if (personalCredential(context, lease) && ids?.length !== 1) return {ok: false, status: 'missing'};
+        const selected = window.PixivCredentials?.headers(ids);
+        if (context.savedCredentialSelection && !selected) return {ok: false, status: 'missing'};
+        if (selected) return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
+            method: 'POST', credentials: 'same-origin',
+            headers: {...selected, 'Content-Type': 'application/json'},
+            body: JSON.stringify({activationToken: lease.activationToken})
+        }, lease, 'bound');
         const cookie = getCookie().trim();
         if (!cookie || validateCredential(cookie, null, lease)) {
             return {ok: false, status: 'missing'};
         }
-        return bindCredential(taskId, cookie, null, lease);
+        return bindCredential(taskId, cookie, context, lease);
     }
 
-    function revokeCredential(taskId, _context, lease) {
+    function revokeCredential(taskId, context, lease) {
+        if (credentialReadOnly(context, lease)) return {ok: false, status: 'failed', error: fixedCredentialMessage()};
         return credentialHttp(`${BASE}/api/schedule/tasks/${taskId}/credential`, {
             method: 'DELETE',
             credentials: 'same-origin'
@@ -935,6 +977,7 @@
                 validateCredential,
                 bindCredential,
                 bindSavedCredential,
+                selectSavedCredential,
                 revokeCredential,
                 credentialTaskPresentation,
                 credentialPolicyGroups,

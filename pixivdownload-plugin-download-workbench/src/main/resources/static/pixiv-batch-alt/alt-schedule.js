@@ -597,8 +597,11 @@ function scheduleTaskCard(task) {
     menu.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
         () => openScheduleSnapshot(task)));
     if (credentialUi.showOverride) {
-        menu.appendChild(scheduleActionBtn('key', 'schedule.actions.override', '代理 / 凭证', false, '',
-            () => openScheduleOverride(task)));
+            const capabilities = scheduleCredentialCapabilities(task.sourceType, {task});
+            if (capabilities.supportsProxy) menu.appendChild(scheduleActionBtn('sliders', 'batch:schedule.proxy-title', '代理', false, '',
+                () => openScheduleOverride(task, 'proxy')));
+            if (capabilities.supportsCredential) menu.appendChild(scheduleActionBtn('key', 'batch:schedule.credential-title', 'Cookie', false, '',
+                () => openScheduleOverride(task, 'credential')));
     }
     menu.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
         () => openSchedulePending(task)));

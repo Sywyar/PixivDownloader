@@ -22,10 +22,12 @@ import java.util.Objects;
 public class PixivImageDownloadService implements PixivImageDownloader {
 
     private final RestTemplate downloadRestTemplate;
+    private final PixivCredentialRetry credentials;
 
-    public PixivImageDownloadService(
-            @Qualifier("pixivImageRestTemplate") RestTemplate downloadRestTemplate) {
+    public PixivImageDownloadService(@Qualifier("pixivImageRestTemplate") RestTemplate downloadRestTemplate,
+                                     PixivCredentialRetry credentials) {
         this.downloadRestTemplate = downloadRestTemplate;
+        this.credentials = credentials;
     }
 
     @Override
@@ -41,6 +43,11 @@ public class PixivImageDownloadService implements PixivImageDownloader {
         if (!isAllowedImageSource(source) || !isAllowedReferer(referer)) {
             return false;
         }
+        return credentials.execute(source, cookie, candidate -> downloadOnce(source, referer, target, candidate, observer));
+    }
+
+    private boolean downloadOnce(URI source, URI referer, Path target, String cookie,
+                                 PixivImageTransferObserver observer) throws IOException {
         long maximumBytes = Math.min(PixivImageTransferObserver.MAX_IMAGE_BYTES, observer.maximumBytes());
         if (maximumBytes <= 0) {
             throw new IOException("Pixiv image transfer byte limit exhausted");
@@ -60,6 +67,8 @@ public class PixivImageDownloadService implements PixivImageDownloader {
                     response -> {
                         observer.checkCancelled();
                         if (!response.getStatusCode().is2xxSuccessful()) {
+                            if (response.getStatusCode().value() == 401 || response.getStatusCode().value() == 429)
+                                rejectCredentialStatus(response.getStatusCode().value(), response.getHeaders().getFirst("Retry-After"));
                             return Boolean.FALSE;
                         }
                         long contentLength = response.getHeaders().getContentLength();
@@ -74,10 +83,19 @@ public class PixivImageDownloadService implements PixivImageDownloader {
                     });
             return Boolean.TRUE.equals(downloaded);
         } catch (HttpStatusCodeException e) {
+            rejectCredentialStatus(e.getStatusCode().value(), e.getResponseHeaders() == null ? null
+                    : e.getResponseHeaders().getFirst("Retry-After"));
             return false;
         } catch (RestClientException e) {
             throw new IOException("Pixiv image transfer failed");
         }
+    }
+
+    private static void rejectCredentialStatus(int status, String retryAfter) {
+        if (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current() != null
+                && (status == 401 || status == 429))
+            throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, status,
+                    PixivCredentialRetry.retryAfter(retryAfter, java.time.Clock.systemUTC()));
     }
 
     private static boolean isAllowedImageSource(URI source) {

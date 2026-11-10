@@ -51,42 +51,75 @@ public final class PixivOveruseExecutionGuard implements ScheduledExecutionGuard
         if (!context.credential().isPresent()) {
             return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
         }
-        char[] secret = context.credential().copySecret();
-        String cookie;
-        try {
-            cookie = new String(secret);
-        } finally {
-            Arrays.fill(secret, '\0');
-        }
         Long acknowledged = acknowledgedWarningTime(context);
-        OveruseWarningService.Result result;
+        var candidates = context.credential().copyCandidates();
+        boolean primaryDead = false;
+        boolean usable = false;
+        boolean sameAccountUsable = false;
+        long retryAfter = Long.MAX_VALUE;
+        String primaryAccount = context.credential().accountKey();
         try {
-            result = PixivScheduledRouteScope.call(context.route(), () ->
-                    overuseWarningService.check(cookie, acknowledged, System.currentTimeMillis()));
-        } catch (Exception failure) {
-            throw new ScheduledExecutionException(
-                    ScheduledFailure.Category.RETRYABLE_NETWORK,
-                    "pixiv.guard.check-failed");
+            for (int i = 0; i < candidates.size(); i++) {
+                context.cancellation().throwIfCancellationRequested();
+                var candidate = candidates.get(i);
+                char[] secret = candidate.copySecret();
+                String cookie;
+                try { cookie = new String(secret); }
+                finally { Arrays.fill(secret, '\0'); }
+                boolean sameAccount = i == 0 || primaryAccount != null && primaryAccount.equals(candidate.accountKey());
+                OveruseWarningService.Result result;
+                try {
+                    if (candidates.size() == 1) {
+                        result = PixivScheduledRouteScope.call(context.route(), () ->
+                                overuseWarningService.check(cookie, acknowledged, System.currentTimeMillis()));
+                    } else {
+                        var scope = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(java.util.List.of(cookie))
+                                .withCancellation(context.cancellation()::isCancellationRequested);
+                        result = scope.call(() -> PixivScheduledRouteScope.call(context.route(), () ->
+                                overuseWarningService.checkVerified(cookie, sameAccount ? acknowledged : null,
+                                        System.currentTimeMillis())));
+                    }
+                } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+                    retryAfter = Math.min(retryAfter, unavailable.retryAfterMillis());
+                    continue;
+                } catch (java.util.concurrent.CancellationException cancelled) {
+                    throw ScheduledExecutionException.cancelled();
+                } catch (Exception failure) {
+                    throw new ScheduledExecutionException(ScheduledFailure.Category.RETRYABLE_NETWORK,
+                            "pixiv.guard.check-failed");
+                }
+                context.cancellation().throwIfCancellationRequested();
+                if (result.isWarned()) {
+                    ScheduledGuardDecision decision = new ScheduledGuardDecision(sameAccount
+                            ? ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT
+                            : ScheduledGuardDecision.Action.SUSPEND_POLICY_TASK, "PIXIV_OVERUSE", 0L);
+                    return new ScheduledGuardResult(decision, new ScheduledGuardEvidence(Map.of(
+                            "modifiedAt", Long.toString(result.modifiedAt()), "excerpt", result.excerpt())));
+                }
+                if (i == 0) primaryDead = result.isCookieDead();
+                if (!result.isCookieDead()) {
+                    usable = true;
+                    sameAccountUsable |= sameAccount;
+                }
+            }
+            boolean personal = ACCOUNT_SCOPED_SOURCES.contains(context.task().sourceType());
+            if (candidates.size() > 1 && !(personal ? sameAccountUsable : usable)) {
+                if (retryAfter != Long.MAX_VALUE)
+                    return ScheduledGuardResult.decision(new ScheduledGuardDecision(
+                            ScheduledGuardDecision.Action.RETRY_LATER, "ACQUISITION_CREDENTIALS_UNAVAILABLE", retryAfter));
+                return ScheduledGuardResult.decision(new ScheduledGuardDecision(
+                        ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL, "COOKIE_DEAD", 0L));
+            }
+            if (candidates.size() == 1 && primaryDead && context.point() == ScheduledGuardPoint.RUN_START) {
+                boolean required = parseSnapshot(context).cookieDependent() || personal;
+                return ScheduledGuardResult.decision(new ScheduledGuardDecision(required
+                        ? ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL
+                        : ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE, "COOKIE_DEAD", 0L));
+            }
+            return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
+        } finally {
+            candidates.forEach(top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialCandidate::close);
         }
-        if (result.isWarned()) {
-            ScheduledGuardDecision decision = new ScheduledGuardDecision(
-                    ScheduledGuardDecision.Action.SUSPEND_POLICY_ACCOUNT,
-                    "PIXIV_OVERUSE", 0L);
-            return new ScheduledGuardResult(decision, new ScheduledGuardEvidence(Map.of(
-                    "modifiedAt", Long.toString(result.modifiedAt()),
-                    "excerpt", result.excerpt())));
-        }
-        if (result.isCookieDead() && context.point() == ScheduledGuardPoint.RUN_START) {
-            ScheduleTaskSnapshot snapshot = parseSnapshot(context);
-            boolean credentialRequired = snapshot.cookieDependent()
-                    || ACCOUNT_SCOPED_SOURCES.contains(context.task().sourceType());
-            ScheduledGuardDecision.Action action = credentialRequired
-                    ? ScheduledGuardDecision.Action.SUSPEND_CREDENTIAL
-                    : ScheduledGuardDecision.Action.REVOKE_CREDENTIAL_AND_CONTINUE;
-            return ScheduledGuardResult.decision(new ScheduledGuardDecision(
-                    action, "COOKIE_DEAD", 0L));
-        }
-        return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
     }
 
     private Long acknowledgedWarningTime(ScheduledGuardContext context)

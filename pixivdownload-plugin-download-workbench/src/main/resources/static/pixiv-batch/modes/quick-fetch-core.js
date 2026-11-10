@@ -491,6 +491,27 @@
             || (currentQuickAction() && currentQuickAction().ownerType)
             || quickDataSourceOwnerType(quickState.dataSourceId) || null;
         const acq = quickAccountAcquisition(requestedOwner);
+        let credentials = document.getElementById('quick-account-credentials');
+        if (!credentials && acq?.account?.mountCredential) {
+            credentials = document.createElement('div');
+            credentials.id = 'quick-account-credentials';
+            uidEl.parentElement.before(credentials);
+        }
+        if (credentials && (credentials.dataset.owner !== acq?.type
+            || acq?.account?.mountCredential && !credentials.childElementCount)) {
+            credentials._dispose?.();
+            credentials.replaceChildren();
+            credentials.dataset.owner = acq?.type || '';
+            credentials._dispose = acq?.account?.mountCredential?.(credentials, {onChange: () => {
+                const action = quickState.action;
+                quickState.accountIdsByOwner.clear();
+                invalidateQuickAccount(quickState.accountOwner);
+                quickResetView();
+                quickRenderEmpty(bt('quick.preview.empty', '点击上方按钮加载内容'));
+                updateQuickAccountBar();
+                if (action && state.mode === QUICK_FETCH_MODE) quickLoad(action);
+            }});
+        }
         if (!acq) {
             uidEl.textContent = '-';
             quickState.uid = null;

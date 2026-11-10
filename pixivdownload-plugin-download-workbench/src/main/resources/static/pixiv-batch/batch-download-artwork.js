@@ -120,7 +120,7 @@
             cookie: getCookie(),
             other
         };
-        const {res, data} = await submitWithPathAction(`${BASE}/api/download/pixiv`, payload, invocation);
+        const {res, data} = await submitWithPathAction(`${BASE}/api/download/pixiv`, payload, invocation, window.PixivCredentials?.headers() || undefined);
         assertProcessInvocation(invocation);
         if (res.status === 429 && data.quotaExceeded) {
             if (!quotaExceededHandled) {

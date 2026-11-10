@@ -10,7 +10,7 @@ const SOURCE = [
     'batch-queue-types-runtime.js',
     'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
-const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
+const SETTINGS_SOURCE = ['settings-context.js', 'batch-settings.js'].map(name => fs.readFileSync(path.join(STATIC, name), 'utf8')).join('\n');
 const DOWNLOAD_SOURCE = [
     'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js',
     'download-workers.js', 'batch-download-workers.js', 'batch-download.js'

@@ -339,4 +339,18 @@ class DownloadTaskResultStoreTest {
         }
         assertThat(store.find(UUID.randomUUID(), admin)).isEmpty();
     }
+    @Test @DisplayName("凭据耗尽的暂停原因在进程重启与快照过期后仍可识别")
+    void credentialExhaustionReasonSurvivesRestart() {
+        var registry = registry();
+        var attempt = attempt();
+        registry.register(attempt, "owner", "example", "title");
+        registry.update(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED,
+                DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE));
+        clock.expire();
+        assertThat(registry.snapshot(admin).tasks()).isEmpty();
+        var restored = registry().find(attempt.attemptId(), admin).orElseThrow();
+        assertThat(restored.phase()).isEqualTo(DownloadEvent.Phase.FAILED);
+        assertThat(restored.failureReason()).isEqualTo(DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE);
+    }
+
 }

@@ -57,6 +57,9 @@
 .ab-account { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8125rem; }
 .ab-quick-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .ab-quick-actions select { width: min(25rem, 100%); }
+.credential-account { max-width: 31rem; gap: .875rem; margin-block: 0; }
+.credential-account label, .ab-quick-actions > label { flex: 0 0 5rem; font-size: .75rem; color: var(--muted); }
+.credential-account select { max-width: 25rem; }
 .ab-credential-gate { min-height: 350px; padding: 60px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
 .ab-credential-gate h2 { font-size: 1.5rem; font-weight: 600; }
 .ab-credential-gate p { color: var(--muted); max-width: 30rem; }

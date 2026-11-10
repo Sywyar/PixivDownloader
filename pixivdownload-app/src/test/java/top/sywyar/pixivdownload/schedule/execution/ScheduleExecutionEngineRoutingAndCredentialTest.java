@@ -211,6 +211,13 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
             }
 
             @Override
+            public boolean isBindingFixed(String sourceType, String definitionJson) {
+                assertThat(sourceType).isEqualTo(task().sourceType());
+                assertThat(definitionJson).isEqualTo(task().definitionJson());
+                return true;
+            }
+
+            @Override
             public ScheduledCredentialBindResult probeForBinding(
                     ScheduledCredentialContext context) {
                 bindProbes.incrementAndGet();
@@ -240,6 +247,8 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
                 task(), fixture.activationToken())) {
             assertThat(binding.policyOwnerPluginId()).isEqualTo("fixture");
             assertThat(binding.policyId()).isEqualTo(POLICY);
+            assertThat(binding.isBindingFixed()).isTrue();
+            assertThat(bindProbes).hasValue(0);
             ScheduledCredentialBindResult result = binding.probe("candidate-secret");
             assertThat(result.probeResult().accountKey()).isEqualTo("account-1");
             assertThatThrownBy(() -> binding.probe("candidate-secret"))
@@ -470,7 +479,7 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
 
         assertThat(credentialProbes).hasValue(0);
         assertThat(networkCallbacks).hasValue(0);
-        verify(store, never()).findCredentialSecret(
+        verify(store, never()).findCredentialCandidates(
                 anyLong(), anyString(), anyString());
     }
 
@@ -748,6 +757,9 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
                             sourceB, work, bindingPolicy(replacementProbes), guard));
 
             assertThat(drainA.isDrained()).isFalse();
+            assertThatThrownBy(binding::isBindingFixed)
+                    .isInstanceOfSatisfying(ScheduledExecutionException.class, failure ->
+                            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED));
             assertThatThrownBy(() -> binding.probe("candidate-secret"))
                     .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
                         assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CANCELLED);

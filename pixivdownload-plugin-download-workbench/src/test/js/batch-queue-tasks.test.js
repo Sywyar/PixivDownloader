@@ -378,3 +378,18 @@ test('重复取消合并为一个请求，离页中止请求并释放计时器',
     release(); await Promise.all([a, b]);
     assert.equal(h.timers.size, 0);
 });
+
+
+test('重新打开页面后凭据耗尽保持暂停及原队列，不误判为普通失败或自动重提', async () => {
+    const h = fixture();
+    const item = manual(first);
+    h.state.queue.push(item);
+    h.results.set(first, {...task(first, 'FAILED'), failureReason: 'CREDENTIALS_UNAVAILABLE'});
+    await h.api.refresh();
+    assert.equal(item.status, 'paused');
+    assert.equal(item.statusMessageKey, 'batch:credentials.unavailable');
+    assert.equal(item.recoveryState, undefined);
+    assert.equal(h.state.queue.length, 1);
+    assert.equal(h.calls.some(call => call.options.method === 'POST'), false);
+    assert.equal(JSON.parse(h.storage.get('queue'))[0].status, 'paused');
+});

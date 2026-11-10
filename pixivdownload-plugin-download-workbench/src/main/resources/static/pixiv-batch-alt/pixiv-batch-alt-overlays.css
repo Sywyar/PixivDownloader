@@ -15,10 +15,23 @@
 .ab-drawer-root::backdrop, .ab-modal-root::backdrop { background: var(--scrim); }
 .ab-drawer, .ab-modal { display: flex; flex-direction: column; width: min(580px, calc(100vw - 26px)); max-height: calc(100dvh - 36px); }
 .ab-modal--wide { width: min(760px, calc(100vw - 26px)); }
+.ab-modal--cookie { width: min(40rem, calc(100vw - 26px)); }
 .ab-drawer-head, .ab-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .ab-drawer-title, .ab-modal-title { display: flex; align-items: center; gap: 10px; font-size: 1.0625rem; font-weight: 600; }
 .ab-drawer-body, .ab-modal-body { overflow-y: auto; min-height: 0; padding: 20px; }
-.ab-drawer-foot { padding: 12px 20px; border-top: 1px solid var(--line); }
+.ab-drawer-foot, .ab-modal-foot { flex: none; padding: 12px 20px; border-top: 1px solid var(--line); }
+.ab-modal-foot .ab-cookie-actions { margin-top: 0; }
+.ab-override { display: grid; gap: 1.25rem; }
+.ab-override > .ab-field-note { margin: 0; }
+.ab-override > [role="status"]:empty { display: none; }
+.ab-override-section { display: grid; gap: .75rem; }
+.ab-override-section[hidden] { display: none; }
+.ab-override-heading { margin: 0; font-size: .9375rem; font-weight: 600; }
+.ab-override-section .ab-field-note { margin: 0; }
+.ab-override-section > button { justify-self: start; }
+.ab-override-input { display: flex; align-items: center; gap: .5rem; }
+.ab-override-input input { flex: 1; min-width: 0; }
+.ab-override-input button { flex: none; }
 .ab-drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 
 html:has(.ab-drawer-root[open]) { overflow: hidden; }

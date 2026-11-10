@@ -28,6 +28,16 @@ class NovelDownloadExecutionLaneTest {
         }
     }
 
+    @Test @DisplayName("跨执行通道保留候选顺序，后续无凭据调用不继承上一任务")
+    void credentialScopeDoesNotLeakBetweenTasks() throws Exception {
+        NovelDownloadExecutionLane lane = lane(1);
+        var credentials = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(java.util.List.of("first", "second"));
+        var result = credentials.call(() -> lane.executeAndWait(() ->
+                top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.candidates("first")));
+        assertThat(result).containsExactly("first", "second");
+        assertThat(lane.executeAndWait(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials::current)).isNull();
+    }
+
     @Test
     @DisplayName("异步与同步调用应争用同一个硬并发槽位")
     void shouldShareCapacityBetweenAsyncAndBlockingCalls() throws Exception {

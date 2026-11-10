@@ -39,6 +39,26 @@ function quickActionDefs() {
     });
 }
 
+function renderQuickCredentials(panel, acquisition) {
+    if (scheduleState.editing) return;
+    const identity = acquisition?.account?.credentialIdentity?.();
+    const changed = quickState.credentialIdentity !== identity;
+    if (changed) {
+        resetQuickAccount();
+        quickState.credentialIdentity = identity;
+    }
+    if (acquisition?.account?.mountCredential) {
+        const credentials = el('div');
+        panel.appendChild(credentials);
+        acquisition.account.mountCredential(credentials, {inputClass: altComponentClasses('select', 'ab-input'),
+            onChange: () => {
+                if (state.mode === QUICK_FETCH_MODE) renderStage();
+                else resetQuickAccount();
+            }});
+    }
+    return changed;
+}
+
 function renderQuickMode(panel) {
     const def = AB_MODES[0];
     panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
@@ -64,15 +84,22 @@ function renderQuickMode(panel) {
     }
     if (typeOptions.length > 1) {
         panel.appendChild(smallSeg(typeOptions, quickState.kind, kind => {
+            const previous = quickActionDef(quickState.action);
             quickState.kind = kind;
-            quickState.drill = null;
+            quickState.drill = scheduleState.editing && quickState.drill
+                ? {...quickState.drill, kind} : null;
             quickState.loadSeq++;
-            quickState.action = null;
+            quickState.action = scheduleState.editing ? quickActionDefs().find(action =>
+                previous?.descriptor.sourceType
+                    ? action.descriptor.sourceType === previous.descriptor.sourceType
+                        && action.descriptor.scheduleRest === previous.descriptor.scheduleRest
+                    : action.id === previous?.id)?.id || null : null;
             renderStage();
         }));
     }
 
     const acquisition = quickAcquisition();
+    const accountChanged = renderQuickCredentials(panel, acquisition);
     const credentialOk = !(acquisition && acquisition.account
         && typeof acquisition.account.credentialMissing === 'function'
         && acquisition.account.credentialMissing());
@@ -91,7 +118,8 @@ function renderQuickMode(panel) {
     const account = el('div', 'ab-account');
     account.appendChild(abIconEl('user'));
     account.appendChild(el('span', 'ab-muted', () => bt('quick.uid', '当前账号 UID')));
-    const uid = el('span', '', quickState.uid || '—');
+    const uid = el('span', '', (scheduleState.editing
+        ? scheduleState.editing.task.credentialPolicy?.accountKey : quickState.uid) || '—');
     uid.id = 'abQuickUid';
     account.appendChild(uid);
     panel.appendChild(account);
@@ -119,7 +147,13 @@ function renderQuickMode(panel) {
     panel.appendChild(stage);
     renderQuickStage();
 
-    if (credentialOk && !quickState.uid && !scheduleState.editing) loadQuickUid();
+    if (credentialOk && !scheduleState.editing) {
+        if (accountChanged && quickState.action) {
+            const action = quickActionDef(quickState.action);
+            runQuickAction(action);
+            if (!action?.descriptor?.allIdsFastPath) loadQuickUid();
+        } else if (!quickState.uid) loadQuickUid();
+    }
 }
 
 async function loadQuickUid() {
@@ -144,6 +178,20 @@ async function loadQuickUid() {
     syncSaveScheduleButton();
 }
 
+function resetQuickAccount() {
+    quickState.uid = null;
+    quickState.accountRevision = (quickState.accountRevision || 0) + 1;
+    quickState.loadSeq++;
+    quickState.loading = false;
+    quickState.drill = null;
+    quickState.allIds = [];
+    quickState.rawItems = [];
+    quickState.items = [];
+    quickState.pageCursors = new Map();
+    quickState.total = 0;
+    quickState.error = '';
+}
+
 function refreshQuickCredentialGate() {
     if (state.mode === QUICK_FETCH_MODE) renderStage();
 }
@@ -165,6 +213,10 @@ function runQuickAction(action, page) {
     quickState.drill = null;
     const stage = document.getElementById('abQuickStage');
     if (stage) stage.innerHTML = '';
+    if (scheduleState.editing) {
+        renderQuickStage();
+        return;
+    }
     if (action.view === 'works') loadQuickWorks(action, page || 1);
     else if (action.view === 'following') loadQuickFollowing(action, 0);
     else loadQuickCollections(action);
@@ -291,6 +343,7 @@ function renderQuickStage() {
     if (!stage) return;
     syncSaveScheduleButton();
     stage.innerHTML = '';
+    if (scheduleState.editing) return;
     const action = quickActionDef(quickState.action);
     if (!quickState.action) {
         const hint = el('div', 'ab-empty ab-empty--tall');

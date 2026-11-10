@@ -6,6 +6,7 @@
 let extraFilters = defaultSearchFilters();
 
 function saveSearchFilterPrefs(filters) {
+        window.PixivDownloadProfiles?.refresh();
     if (scheduleState.editing) return;
     storeSet('pixiv_search_filters', JSON.stringify({
         content: filters.content,

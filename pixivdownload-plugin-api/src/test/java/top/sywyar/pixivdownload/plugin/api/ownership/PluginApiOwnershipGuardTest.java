@@ -207,6 +207,8 @@ class PluginApiOwnershipGuardTest {
                     "DownloadSubmission", "DownloadSubmissionHandler", "DownloadTaskException")),
             Map.entry("下载任务身份与快照协议", types(API_PREFIX + "download.task",
                     "DownloadTaskSnapshot", "DownloadTasks")),
+            Map.entry("采集调用上下文", types(API_PREFIX + "download.context",
+                    "AcquisitionCredentials", "AcquisitionCredentialsUnavailableException")),
             Map.entry("下载宿主控制协议", types(API_PREFIX + "download.control",
                     "DownloadControlPlane", "DownloadExtensionIdentity", "DownloadExtensionSnapshot",
                     "DownloadQueueCancelCommand", "DownloadQueueCancelResult", "DownloadTypePublication",
@@ -243,6 +245,7 @@ class PluginApiOwnershipGuardTest {
                             "ScheduleCapabilitySnapshot", "ScheduleExecutionLease",
                             "SchedulePlanningLease"),
                     types(API_PREFIX + "schedule.credential",
+                            "ScheduledCredentialCandidate",
                             "ScheduledCredentialAccountActionPlan",
                             "ScheduledCredentialAccountActionRequest",
                             "ScheduledCredentialAccountIncident", "ScheduledCredentialBindResult",
@@ -297,6 +300,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件入口与生命周期", 4),
             Map.entry("GUI contribution 与桌面宿主契约", 60),
             Map.entry("Web 与请求身份协议", 22),
+            Map.entry("采集调用上下文", 2),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
             Map.entry("下载宿主控制协议", 7),
@@ -311,7 +315,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件 owner-scoped 存储协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
-            Map.entry("计划任务协议", 62),
+            Map.entry("计划任务协议", 63),
             Map.entry("队列生命周期协议", 5)
     );
 
@@ -406,6 +410,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.media.DesktopMediaTool$OperationException",
             API_PREFIX + "download.lifecycle.DownloadAdmissionPolicy$Decision",
             API_PREFIX + "download.lifecycle.DownloadEvent$Phase",
+            API_PREFIX + "download.lifecycle.DownloadEvent$FailureReason",
             API_PREFIX + "download.submission.DownloadTaskException$Code",
             API_PREFIX + "download.task.DownloadTasks$Receipt",
             API_PREFIX + "download.task.DownloadTasks$Snapshot",

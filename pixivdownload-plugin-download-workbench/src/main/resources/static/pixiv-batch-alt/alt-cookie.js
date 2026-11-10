@@ -2,7 +2,7 @@
 /** 新版工作台的 Cookie 校验、登录态与导入交互。 */
 /** 当前已保存 Cookie 是否含 PHPSESSID（登录态）。先归一化为 header 串以兼容 JSON / Netscape 格式。 */
 function cookieHasPhpsessid() {
-    return /(?:^|;\s*)PHPSESSID=/.test(getCookie());
+    return window.PixivCredentials?.has() || /(?:^|;\s*)PHPSESSID=/.test(getCookie());
 }
 
 function validateAndParseCookie(raw, fmt) {
@@ -56,12 +56,14 @@ function validateAndParseCookie(raw, fmt) {
 }
 
 function pixivHeader() {
-    const c = getCookie();
+    const selected = window.PixivCredentials?.headers();
+        if (selected) return selected;
+        const c = getCookie();
     return c ? {'X-Acquisition-Credential': c} : {};
 }
 
 function hasPixivCookie() {
-    return !!getCookie().trim();
+    return window.PixivCredentials?.has() || !!getCookie().trim();
 }
 
 /* ------------------------------------------------------------------
@@ -69,10 +71,11 @@ function hasPixivCookie() {
 ------------------------------------------------------------------ */
 const COOKIE_SYNC_SIGNAL = '__pixiv_cookie_sync__';
 
-function applyImportedCookie(snapshot, editor) {
+async function applyImportedCookie(snapshot, editor) {
     serverState['pixiv_cookie'] = snapshot.cookie;
     serverState['pixiv_cookie_fmt'] = snapshot.fmt;
     if (snapshot.syncAt) serverState['pixiv_cookie_sync_at'] = snapshot.syncAt;
+        if (isAdmin && window.PixivCredentials) await window.PixivCredentials.savePrimary(snapshot.cookie, snapshot.fmt);
     refreshCookieViews();
     const hasPhp = cookieHasPhpsessid();
     if (hasPhp) {
@@ -84,7 +87,7 @@ function applyImportedCookie(snapshot, editor) {
 }
 
 function runScriptCookieImport() {
-    const editor = document.getElementById('abCookieInput')?.closest('.ab-cookie');
+    const editor = document.querySelector('.ab-cookie');
     if (appMode !== 'solo') {
         abToast('error', bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'));
         return;
@@ -108,7 +111,7 @@ function runScriptCookieImport() {
     startCookieSync(win, baselineSyncAt, cur => {
         serverState['pixiv_cookie_sync_at'] = cur.syncAt;
         if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
-            applyImportedCookie(cur, editor);
+            void applyImportedCookie(cur, editor).catch(() => updateCookieImportStatus(bt('batch:credentials.failed'), 'error'));
         } else {
             updateCookieImportStatus(bt('status.cookie-imported-no-phpsessid',
                 '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'error');

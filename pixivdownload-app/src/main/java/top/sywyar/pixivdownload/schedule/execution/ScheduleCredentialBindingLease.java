@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.schedule.execution;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 
@@ -48,16 +49,39 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
         return policyId;
     }
 
+    public synchronized boolean isBindingFixed() throws ScheduledExecutionException {
+        throwIfCancellationRequested();
+        boolean fixed;
+        try {
+            fixed = execution.credentialPolicy().orElseThrow()
+                    .isBindingFixed(definition.sourceType(), definition.definitionJson());
+        } catch (RuntimeException failure) {
+            throw new ScheduledExecutionException(ScheduledFailure.Category.INTERNAL, "schedule.credential.policy-failed");
+        }
+        throwIfCancellationRequested();
+        return fixed;
+    }
+
     /** 每个 lease 只允许一次插件探活，失败后重试必须重新取得完整复合租约与 route。 */
     public synchronized ScheduledCredentialBindResult probe(String candidateSecret)
             throws ScheduledExecutionException {
+        return probeCandidates(java.util.List.of(candidateSecret)).getFirst();
+    }
+
+    /** 每个租约只探活一组有序候选；取消和 publication 检查覆盖每项。 */
+    public synchronized java.util.List<ScheduledCredentialBindResult> probeCandidates(java.util.List<String> candidates)
+            throws ScheduledExecutionException {
         ensureActive();
-        if (probed) {
-            throw new IllegalStateException("schedule credential binding lease was already probed");
-        }
+        if (probed || candidates == null || candidates.isEmpty() || candidates.size() > 8)
+            throw new IllegalStateException("Invalid credential probe operation");
         probed = true;
-        return credentialSupport.probeForBinding(
-                taskId, definition, route, execution, candidateSecret);
+        var results = new java.util.ArrayList<ScheduledCredentialBindResult>();
+        for (String candidate : candidates) {
+            throwIfCancellationRequested();
+            results.add(credentialSupport.probeForBinding(taskId, definition, route, execution, candidate));
+        }
+        throwIfCancellationRequested();
+        return java.util.List.copyOf(results);
     }
 
     public synchronized void throwIfCancellationRequested() throws ScheduledExecutionException {

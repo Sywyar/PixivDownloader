@@ -118,7 +118,8 @@ public class DownloadTaskController {
                 request.getImageUrls(),
                 request.getReferer(),
                 request.getOther(),
-                request.getCookie(),
+                top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current() == null
+                        ? request.getCookie() : top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current().primary(),
                 userUuid
         );
 

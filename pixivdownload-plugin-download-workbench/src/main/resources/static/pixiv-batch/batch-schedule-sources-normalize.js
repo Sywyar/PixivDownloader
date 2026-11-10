@@ -141,6 +141,14 @@
         return Object.freeze({
             supportsCredential: raw.supportsCredential === true,
             supportsProxy: raw.supportsProxy === true,
+            singleCredential: raw.singleCredential === true,
+            credentialReadOnly: raw.credentialReadOnly === true,
+            defaultCredentialSelection: raw.singleCredential === true
+                && Array.isArray(raw.defaultCredentialSelection?.ids)
+                && raw.defaultCredentialSelection.ids.length === 1
+                && /^[a-zA-Z0-9-]{1,64}$/.test(raw.defaultCredentialSelection.ids[0])
+                ? Object.freeze({ids: Object.freeze([...raw.defaultCredentialSelection.ids]),
+                    label: boundedDisplayText(raw.defaultCredentialSelection.label, 80)}) : null,
             presentation: Object.freeze(presentation)
         });
     }

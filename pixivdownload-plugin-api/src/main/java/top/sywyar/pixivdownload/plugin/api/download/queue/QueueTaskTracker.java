@@ -298,7 +298,7 @@ public final class QueueTaskTracker {
             if (delegate != null) {
                 throw new IllegalStateException("queue task delegate already bound");
             }
-            delegate = taskDelegate;
+            delegate = top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.capture(taskDelegate, this::isCancellationRequested);
         }
 
         /**
@@ -319,7 +319,7 @@ public final class QueueTaskTracker {
                     clearPluginReferences();
                     release = true;
                 } else {
-                    delegate = taskDelegate;
+                    delegate = top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.capture(taskDelegate, this::isCancellationRequested);
                     phase = QUEUED;
                 }
             }

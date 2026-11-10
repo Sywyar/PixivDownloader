@@ -3,7 +3,8 @@
 // 来源负责把共享快照回灌到新版取得页面；参数控件与手动下载共用。
 window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.pixivScheduleCapture = context => {
-    if (context.mode === QUICK_FETCH_MODE && context.quickSource?.sourceType === 'my-bookmarks') {
+    if (context.mode === QUICK_FETCH_MODE
+        && ['my-bookmarks', 'user-new'].includes(context.quickSource?.sourceType)) {
         return {...context, quickSource: {...context.quickSource, kind: quickState.kind}};
     }
     if (context.mode !== 'series') return context;
@@ -43,13 +44,17 @@ window.PixivBatch.pixivScheduleRestore = (restored, sourceType) => {
         });
     } else {
         const acquisition = altAcquisition('quick', 'pixiv', kind === 'mixed' ? 'illust' : kind);
+        const following = sourceType === 'user-new' && restored.accountKey
+            && String(source.userId) !== restored.accountKey;
         const action = Object.entries(acquisition?.actions || {}).find(([, descriptor]) =>
-            sourceType === 'collection' ? descriptor.viewType === 'collection-list'
+            following ? descriptor.viewType === 'following-list'
+                : sourceType === 'collection' ? descriptor.viewType === 'collection-list'
                 : descriptor.sourceType === sourceType && (!source.rest || descriptor.scheduleRest === source.rest))?.[0] || null;
         const drill = sourceType === 'collection'
-            ? {type: 'collection', id: String(source.collectionId), name: String(source.collectionId)} : null;
-        Object.assign(quickState, {source: 'pixiv', kind, action, drill,
-            rawItems: [], items: [], error: ''});
+            ? {type: 'collection', id: String(source.collectionId), name: String(source.collectionId)}
+            : following ? {type: 'user', id: String(source.userId), name: String(source.userId), kind} : null;
+        Object.assign(quickState, {source: 'pixiv', kind, action, drill, uid: restored.accountKey || null,
+            allIds: [], rawItems: [], items: [], total: 0, error: ''});
     }
     switchMode(mode);
 };

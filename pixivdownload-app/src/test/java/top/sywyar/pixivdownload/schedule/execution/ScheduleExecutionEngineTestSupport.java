@@ -336,7 +336,8 @@ abstract class ScheduleExecutionEngineTestSupport {
     protected static ScheduledTaskStore storeWithCredential() {
         ScheduledTaskStore store = mock(ScheduledTaskStore.class);
         when(store.listPendingWork(anyLong())).thenReturn(List.of());
-        when(store.findCredentialSecret(anyLong(), anyString(), anyString())).thenReturn("fixture-secret");
+        when(store.findCredentialCandidates(anyLong(), anyString(), anyString())).thenReturn(List.of(
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("account-1", "fixture-secret")));
         return store;
     }
 

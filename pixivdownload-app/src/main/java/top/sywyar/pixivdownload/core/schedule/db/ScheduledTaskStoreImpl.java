@@ -252,6 +252,27 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @Override
     @Transactional
+    public OptionalLong bindCredentials(long taskId, long expectedStateVersion, String owner, String policy,
+            String policyStateJson, List<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue> candidates,
+            String reference, long updatedTime) {
+        if (candidates == null || candidates.isEmpty() || candidates.size() > 8)
+            throw new IllegalArgumentException("Invalid credential candidates");
+        var values = List.copyOf(candidates);
+        var primary = values.getFirst();
+        OptionalLong version = bindCredential(taskId, expectedStateVersion, owner, policy, primary.accountKey(),
+                policyStateJson, primary.secret(), reference, updatedTime);
+        if (version.isPresent()) mapper.replaceCredentialCandidates(taskId, values);
+        return version;
+    }
+
+    @Override
+    public List<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue> findCredentialCandidates(long taskId, String owner, String policy) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        return mapper.findCredentialCandidates(taskId, owner, policy);
+    }
+
+    @Override
+    @Transactional
     public OptionalLong removeCredential(long taskId,
                                          long expectedStateVersion,
                                          String expectedPolicyOwnerPluginId,

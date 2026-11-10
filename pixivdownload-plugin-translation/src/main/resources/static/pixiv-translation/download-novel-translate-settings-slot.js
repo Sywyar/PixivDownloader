@@ -5,6 +5,9 @@
     if (!queueTypes || typeof queueTypes.registerUiModule !== 'function') return;
 
     queueTypes.registerUiModule(function (context) {
+        global.PixivDownloadProfiles?.registerSettings(context, {
+            novelAutoTranslate: false, novelTranslateLang: '', novelTranslateSeg: 0
+        }, settings => Number.isSafeInteger(settings.novelTranslateSeg) && settings.novelTranslateSeg >= 0);
         var unbindSettings = function () {};
 
         function targetGrid() {

@@ -315,7 +315,7 @@ public class NovelDownloadController {
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),
-                    novelId, null, null, null, false, false, null, 0, 0, 0L, 0L, null, null));
+                    novelId, null, null, null, false, false, null, 0, 0, 0L, 0L, null, null, null));
         }
         NovelDownloadStatus.State state = status.getState();
         return ResponseEntity.ok(new NovelDownloadStatusResponse(
@@ -334,7 +334,8 @@ public class NovelDownloadController {
                 status.getCoverTotalBytes(),
                 status.getCoverDownloadedBytes(),
                 status.getBookmarkResult(),
-                status.getCollectionResult()
+                status.getCollectionResult(),
+                status.getErrorCode()
         ));
     }
 
@@ -574,7 +575,8 @@ public class NovelDownloadController {
             long coverTotalBytes,
             long coverDownloadedBytes,
             WorkActionResult bookmarkResult,
-            WorkActionResult collectionResult
+            WorkActionResult collectionResult,
+            String errorCode
     ) {}
 
     public record NovelDownloadedStateResponse(boolean downloaded, boolean deleted) {}

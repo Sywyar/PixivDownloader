@@ -11,6 +11,7 @@ function setup() {
     const document = {addEventListener() {}};
     const root = new MiniElement('body', document);
     document.getElementById = id => root.querySelector('#' + id);
+    document.querySelector = selector => root.querySelector(selector);
     document.createElement = tag => {
         const node = new MiniElement(tag, document);
         node.append = (...children) => children.forEach(child => node.appendChild(child));

@@ -80,7 +80,7 @@ class ScheduleExecutionEngineCancellationTest extends ScheduleExecutionEngineTes
                         failure -> assertThat(failure.category())
                                 .isEqualTo(ScheduledFailure.Category.CANCELLED));
         verify(store, never()).listPendingWork(anyLong());
-        verify(store, never()).findCredentialSecret(anyLong(), anyString(), anyString());
+        verify(store, never()).findCredentialCandidates(anyLong(), anyString(), anyString());
     }
 
     @Test

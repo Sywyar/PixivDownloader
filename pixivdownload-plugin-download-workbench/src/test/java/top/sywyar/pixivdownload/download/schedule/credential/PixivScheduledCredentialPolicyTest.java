@@ -39,6 +39,18 @@ class PixivScheduledCredentialPolicyTest {
     private static final String COOKIE = "PHPSESSID=12345_session; other=value";
 
     @Test
+    @DisplayName("个人来源固定首次绑定的 Cookie，普通来源仍允许修改")
+    void personalSourceBindingIsFixedWithoutNetworkAccess() {
+        var warningService = mock(OveruseWarningService.class);
+        var policy = policy(warningService);
+        assertThat(policy.isBindingFixed("my-bookmarks", "{}")).isTrue();
+        assertThat(policy.isBindingFixed("follow-latest", "{}")).isTrue();
+        assertThat(policy.isBindingFixed("user-new", "{\"source\":{\"userId\":\"42\",\"myPixiv\":true}}")).isTrue();
+        assertThat(policy.isBindingFixed("user-new", "{\"source\":{\"userId\":\"42\"}}")).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(warningService);
+    }
+
+    @Test
     @DisplayName("绑定探活 clean 时经 resolved route 返回有效账号且只联网一次")
     void cleanBindProbeUsesResolvedRouteOnce() throws Exception {
         OveruseWarningService warningService = mock(OveruseWarningService.class);

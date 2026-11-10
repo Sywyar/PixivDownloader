@@ -57,6 +57,7 @@ public class DownloadStatusController {
                 .currentImageIndex(status.getCurrentImageIndex())
                 .completed(status.isCompleted())
                 .failed(status.isFailed())
+                .errorCode(status.getErrorCode())
                 .cancelled(status.isCancelled())
                 .progressPercentage(status.getProgressPercentage())
                 .downloadPath(status.getDownloadPath())

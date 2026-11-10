@@ -146,9 +146,13 @@ async function persistCookieEditor(container, type, raw, format, status) {
     const controls = [...editor.querySelectorAll('button, input, textarea')].map(node => [node, node.disabled]);
     controls.forEach(([node]) => { node.disabled = true; });
     try {
-        const entries = {[cookieStorageKey(type)]: raw};
-        if (format != null) entries.pixiv_cookie_fmt = format;
-        await persistStoreEntries(entries);
+        if (isAdmin && cookieStorageKey(type) === 'pixiv_cookie')
+            await window.PixivCredentials.savePrimary(raw, format);
+        else {
+            const entries = {[cookieStorageKey(type)]: raw};
+            if (format != null) entries.pixiv_cookie_fmt = format;
+            await persistStoreEntries(entries);
+        }
     } catch {
         // Storage and transport errors must never echo the submitted credential.
         status(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {
@@ -204,136 +208,154 @@ function cookieFormatSeg(current) {
 
 function openCookieModal() {
     const body = el('div', 'ab-cookie');
+    let disposeCredentials;
+    if (isAdmin) {
+        const library = el('div');
+        const importButton = el('button', 'ab-btn ab-btn--ghost', bt('cookie.import'));
+        importButton.type = 'button';
+        importButton.addEventListener('click', () => importCookieViaScript());
+        body.appendChild(library);
+        disposeCredentials = window.PixivCredentials.mount(library, {
+            buttonClass: primary => altComponentClasses('button', 'ab-btn ab-btn--sm ' + (primary ? 'ab-btn--primary' : 'ab-btn--ghost')),
+            inputClass: 'ab-input',
+            openEditor: (root, body, footer, beforeClose) => {
+                root.classList.add('ab-modal-root');
+                return openAltDialog({root, body, footer, beforeClose}, false);
+            },
+            importButton
+        });
+    } else {
 
-    const head = el('div', 'ab-cookie-head');
-    const saved = hasPixivCookie();
-    const ok = cookieHasPhpsessid();
-    const statusPill = el('span', 'ab-pill ' + (ok ? 'ab-pill--ok' : 'ab-pill--warn'),
-        ok ? bt('cookie.status.saved', 'Cookie 已保存')
-            : saved ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
-                : bt('cookie.status.missing', '未保存 Cookie'));
-    statusPill.id = 'abCookieStatus';
-    head.appendChild(statusPill);
-    const fmtSeg = cookieFormatSeg(getCookieFmt());
-    head.appendChild(fmtSeg);
-    body.appendChild(head);
+        const head = el('div', 'ab-cookie-head');
+        const saved = hasPixivCookie();
+        const ok = cookieHasPhpsessid();
+        const statusPill = el('span', 'ab-pill ' + (ok ? 'ab-pill--ok' : 'ab-pill--warn'),
+            ok ? bt('cookie.status.saved', 'Cookie 已保存')
+                : saved ? bt('cookie.status.no-phpsessid', 'Cookie 缺少 PHPSESSID')
+                    : bt('cookie.status.missing', '未保存 Cookie'));
+        statusPill.id = 'abCookieStatus';
+        head.appendChild(statusPill);
+        const fmtSeg = cookieFormatSeg(getCookieFmt());
+        head.appendChild(fmtSeg);
+        body.appendChild(head);
 
-    const inputWrap = el('div', 'ab-cookie-input-wrap');
-    const input = el('textarea', 'ab-input ab-cookie-input');
-    input.id = 'abCookieInput';
-    input.setAttribute('aria-label', bt('cookie.title', 'Pixiv Cookie'));
-    input.setAttribute('aria-describedby', 'abCookieParseArea');
-    input.rows = 5;
-    input.spellcheck = false;
-    input.placeholder = bt('cookie.placeholder', '粘贴 Cookie（支持 Header String / JSON / Netscape 三种格式）');
-    input.value = getStoredCookie('pixiv');
-    inputWrap.appendChild(input);
+        const inputWrap = el('div', 'ab-cookie-input-wrap');
+        const input = el('textarea', 'ab-input ab-cookie-input');
+        input.id = 'abCookieInput';
+        input.setAttribute('aria-label', bt('cookie.title', 'Pixiv Cookie'));
+        input.setAttribute('aria-describedby', 'abCookieParseArea');
+        input.rows = 5;
+        input.spellcheck = false;
+        input.placeholder = bt('cookie.placeholder', '粘贴 Cookie（支持 Header String / JSON / Netscape 三种格式）');
+        input.value = getStoredCookie('pixiv');
+        inputWrap.appendChild(input);
 
-    const toolRow = el('div', 'ab-cookie-tools');
-    const pasteBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    pasteBtn.type = 'button';
-    pasteBtn.appendChild(abIconEl('paste'));
-    pasteBtn.appendChild(el('span', '', bt('cookie.paste', '粘贴')));
-    pasteBtn.addEventListener('click', async () => {
-        try {
-            input.value = await navigator.clipboard.readText();
-            input.focus();
-        } catch {
-            abToast('warning', bt('cookie.paste-failed', '无法读取剪贴板，请手动粘贴'));
+        const toolRow = el('div', 'ab-cookie-tools');
+        const pasteBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
+        pasteBtn.type = 'button';
+        pasteBtn.appendChild(abIconEl('paste'));
+        pasteBtn.appendChild(el('span', '', bt('cookie.paste', '粘贴')));
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                input.value = await navigator.clipboard.readText();
+                input.focus();
+            } catch {
+                abToast('warning', bt('cookie.paste-failed', '无法读取剪贴板，请手动粘贴'));
+            }
+        });
+        const toggleBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
+        toggleBtn.type = 'button';
+        toggleBtn.appendChild(abIconEl('eye'));
+        toggleBtn.appendChild(el('span', '', bt('cookie.toggle.show', '显示')));
+        toggleBtn.addEventListener('click', () => {
+            const masked = input.classList.toggle('is-masked');
+            toggleBtn.querySelector('span:last-child').textContent =
+                masked ? bt('cookie.toggle.show', '显示') : bt('cookie.toggle.hide', '隐藏');
+        });
+        toolRow.appendChild(pasteBtn);
+        toolRow.appendChild(toggleBtn);
+        inputWrap.appendChild(toolRow);
+        body.appendChild(inputWrap);
+        input.classList.add('is-masked');
+
+        const parseArea = el('div', 'ab-cookie-parse');
+        parseArea.id = 'abCookieParseArea';
+        parseArea.setAttribute('role', 'status');
+        parseArea.hidden = true;
+        body.appendChild(parseArea);
+
+        const formatsNote = el('details', 'ab-cookie-formats');
+        const summary = el('summary', '', bt('cookie.formats.title', '支持的格式说明'));
+        formatsNote.appendChild(summary);
+        const fmtList = el('ul', 'ab-note-list');
+        [
+            bt('cookie.formats.header', 'Header String：直接复制浏览器请求头中的 Cookie 值'),
+            bt('cookie.formats.json', 'JSON：{"key":"value", ...} 对象格式'),
+            bt('cookie.formats.netscape', 'Netscape：EditThisCookie 等工具导出的 7 列 tab 分隔格式')
+        ].forEach(text => fmtList.appendChild(el('li', '', text)));
+        formatsNote.appendChild(fmtList);
+        const guideLink = el('a', 'ab-cookie-guide', bt('cookie.guide-link', '获取 Cookie 指南'));
+        guideLink.href = (chromeState.appInfo && chromeState.appInfo.docsUrl) || '#';
+        guideLink.target = '_blank';
+        guideLink.rel = 'noopener';
+        if (!guideLink.getAttribute('href') || guideLink.getAttribute('href') === '#') {
+            guideLink.classList.add('is-disabled');
         }
-    });
-    const toggleBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    toggleBtn.type = 'button';
-    toggleBtn.appendChild(abIconEl('eye'));
-    toggleBtn.appendChild(el('span', '', bt('cookie.toggle.show', '显示')));
-    toggleBtn.addEventListener('click', () => {
-        const masked = input.classList.toggle('is-masked');
-        toggleBtn.querySelector('span:last-child').textContent =
-            masked ? bt('cookie.toggle.show', '显示') : bt('cookie.toggle.hide', '隐藏');
-    });
-    toolRow.appendChild(pasteBtn);
-    toolRow.appendChild(toggleBtn);
-    inputWrap.appendChild(toolRow);
-    body.appendChild(inputWrap);
-    input.classList.add('is-masked');
+        formatsNote.appendChild(guideLink);
+        body.appendChild(formatsNote);
 
-    const parseArea = el('div', 'ab-cookie-parse');
-    parseArea.id = 'abCookieParseArea';
-    parseArea.setAttribute('role', 'status');
-    parseArea.hidden = true;
-    body.appendChild(parseArea);
-
-    const formatsNote = el('details', 'ab-cookie-formats');
-    const summary = el('summary', '', bt('cookie.formats.title', '支持的格式说明'));
-    formatsNote.appendChild(summary);
-    const fmtList = el('ul', 'ab-note-list');
-    [
-        bt('cookie.formats.header', 'Header String：直接复制浏览器请求头中的 Cookie 值'),
-        bt('cookie.formats.json', 'JSON：{"key":"value", ...} 对象格式'),
-        bt('cookie.formats.netscape', 'Netscape：EditThisCookie 等工具导出的 7 列 tab 分隔格式')
-    ].forEach(text => fmtList.appendChild(el('li', '', text)));
-    formatsNote.appendChild(fmtList);
-    const guideLink = el('a', 'ab-cookie-guide', bt('cookie.guide-link', '获取 Cookie 指南'));
-    guideLink.href = (chromeState.appInfo && chromeState.appInfo.docsUrl) || '#';
-    guideLink.target = '_blank';
-    guideLink.rel = 'noopener';
-    if (!guideLink.getAttribute('href') || guideLink.getAttribute('href') === '#') {
-        guideLink.classList.add('is-disabled');
+        const actions = el('div', 'ab-cookie-actions');
+        const importBtn = el('button', 'ab-btn ab-btn--ghost');
+        importBtn.type = 'button';
+        importBtn.appendChild(abIconEl('zap'));
+        importBtn.appendChild(el('span', '', bt('cookie.import', '一键导入')));
+        importBtn.disabled = appMode !== 'solo';
+        if (appMode !== 'solo') {
+            importBtn.title = bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用');
+        }
+        importBtn.addEventListener('click', () => importCookieViaScript());
+        const clearBtn = el('button', 'ab-btn ab-btn--danger-ghost');
+        clearBtn.type = 'button';
+        clearBtn.appendChild(abIconEl('trash'));
+        clearBtn.appendChild(el('span', '', bt('cookie.clear', '清除')));
+        clearBtn.addEventListener('click', async () => {
+            if (!await abConfirm('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
+            if (!await persistCookieEditor(body, 'pixiv', null, null,
+                message => updateCookieImportStatus(message, 'error'))) return;
+            input.value = '';
+            updateCookieImportStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'info');
+        });
+        const saveBtn = el('button', 'ab-btn ab-btn--primary');
+        saveBtn.type = 'button';
+        saveBtn.appendChild(abIconEl('check'));
+        saveBtn.appendChild(el('span', '', bt('cookie.save', '保存')));
+        saveBtn.addEventListener('click', async () => {
+            const raw = input.value.trim();
+            const activeFmt = fmtSeg.querySelector('.ab-seg-item.is-active');
+            const format = activeFmt ? activeFmt.dataset.value : getCookieFmt();
+            const result = validateAndParseCookie(raw, format);
+            if (!result.ok) {
+                updateCookieImportStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
+                return;
+            }
+            if (!await persistCookieEditor(body, 'pixiv', raw, format,
+                message => updateCookieImportStatus(message, 'error'))) return;
+            if (result.warnings.length) {
+                finishCookieSave(body,
+                    bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
+                        count: result.count,
+                        warnings: result.warnings.join(punct('semicolon'))
+                    }), 'warning');
+            } else {
+                finishCookieSave(body,
+                    bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}));
+            }
+        });
+        actions.appendChild(importBtn);
+        actions.appendChild(clearBtn);
+        actions.appendChild(saveBtn);
+        body.appendChild(actions);
     }
-    formatsNote.appendChild(guideLink);
-    body.appendChild(formatsNote);
-
-    const actions = el('div', 'ab-cookie-actions');
-    const importBtn = el('button', 'ab-btn ab-btn--ghost');
-    importBtn.type = 'button';
-    importBtn.appendChild(abIconEl('zap'));
-    importBtn.appendChild(el('span', '', bt('cookie.import', '一键导入')));
-    importBtn.disabled = appMode !== 'solo';
-    if (appMode !== 'solo') {
-        importBtn.title = bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用');
-    }
-    importBtn.addEventListener('click', () => importCookieViaScript());
-    const clearBtn = el('button', 'ab-btn ab-btn--danger-ghost');
-    clearBtn.type = 'button';
-    clearBtn.appendChild(abIconEl('trash'));
-    clearBtn.appendChild(el('span', '', bt('cookie.clear', '清除')));
-    clearBtn.addEventListener('click', async () => {
-        if (!await abConfirm('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
-        if (!await persistCookieEditor(body, 'pixiv', null, null,
-            message => updateCookieImportStatus(message, 'error'))) return;
-        input.value = '';
-        updateCookieImportStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'info');
-    });
-    const saveBtn = el('button', 'ab-btn ab-btn--primary');
-    saveBtn.type = 'button';
-    saveBtn.appendChild(abIconEl('check'));
-    saveBtn.appendChild(el('span', '', bt('cookie.save', '保存')));
-    saveBtn.addEventListener('click', async () => {
-        const raw = input.value.trim();
-        const activeFmt = fmtSeg.querySelector('.ab-seg-item.is-active');
-        const format = activeFmt ? activeFmt.dataset.value : getCookieFmt();
-        const result = validateAndParseCookie(raw, format);
-        if (!result.ok) {
-            updateCookieImportStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
-            return;
-        }
-        if (!await persistCookieEditor(body, 'pixiv', raw, format,
-            message => updateCookieImportStatus(message, 'error'))) return;
-        if (result.warnings.length) {
-            finishCookieSave(body,
-                bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
-                    count: result.count,
-                    warnings: result.warnings.join(punct('semicolon'))
-                }), 'warning');
-        } else {
-            finishCookieSave(body,
-                bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}));
-        }
-    });
-    actions.appendChild(importBtn);
-    actions.appendChild(clearBtn);
-    actions.appendChild(saveBtn);
-    body.appendChild(actions);
     // 插件自定义 Cookie 卡槽位（与旧布局 cookie-tools 槽位同契约）：提供自定义卡的类型
     // 在此渲染其卡片（事件由插件经 pixivbatch:slotsrendered 自行绑定），其余类型走下方通用编辑器。
     const cookieToolsSlot = document.createElement('template');
@@ -346,9 +368,11 @@ function openCookieModal() {
         icon: 'key',
         title: bt('cookie.title', 'Pixiv Cookie'),
         body,
-        beforeClose: () => body.getAttribute('aria-busy') !== 'true',
-        widthClass: 'ab-modal--wide'
+        beforeClose: () => body.getAttribute('aria-busy') !== 'true'
+            && !body.querySelector('.download-credentials[aria-busy="true"]'),
+        widthClass: isAdmin ? 'ab-modal--cookie' : 'ab-modal--wide'
     });
+    if (disposeCredentials) document.getElementById('abModalRoot').addEventListener('close', disposeCredentials, {once: true});
     // 弹窗 body 重建后重挂 cookie-tools 槽位内容。
     refreshAltSlots();
 }

@@ -19,19 +19,27 @@ public class PixivAjaxProxyClient implements PixivAjaxClient {
     static final int MAX_SERIES_RESPONSE_BYTES = 1024 * 1024;
 
     private final RestTemplate restTemplate;
+    private final PixivCredentialRetry credentials;
 
-    public PixivAjaxProxyClient(
-            @Qualifier("pixivCredentialRestTemplate") RestTemplate restTemplate) {
+    public PixivAjaxProxyClient(@Qualifier("pixivCredentialRestTemplate") RestTemplate restTemplate,
+                               PixivCredentialRetry credentials) {
         this.restTemplate = restTemplate;
+        this.credentials = credentials;
     }
 
     @Override
     public String get(URI uri, String cookie) {
         requireAllowedTarget(uri);
+        return credentials.execute(uri, cookie, candidate -> getOnce(uri, candidate));
+    }
+
+    private String getOnce(URI uri, String cookie) {
         try {
             return exchange(uri, cookie);
         } catch (HttpStatusCodeException e) {
-            throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, e.getStatusCode().value());
+            throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, e.getStatusCode().value(),
+                    PixivCredentialRetry.retryAfter(e.getResponseHeaders() == null ? null
+                            : e.getResponseHeaders().getFirst("Retry-After"), java.time.Clock.systemUTC()));
         } catch (RestClientException e) {
             throw new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 0);
         }
@@ -43,7 +51,8 @@ public class PixivAjaxProxyClient implements PixivAjaxClient {
                 response -> {
                     if (!response.getStatusCode().is2xxSuccessful()) {
                         throw new PixivAjaxException(
-                                PixivAjaxFailure.HTTP_STATUS, response.getStatusCode().value());
+                                PixivAjaxFailure.HTTP_STATUS, response.getStatusCode().value(),
+                                PixivCredentialRetry.retryAfter(response.getHeaders().getFirst("Retry-After"), java.time.Clock.systemUTC()));
                     }
                     int limit = responseLimit(uri);
                     long declaredLength = response.getHeaders().getContentLength();

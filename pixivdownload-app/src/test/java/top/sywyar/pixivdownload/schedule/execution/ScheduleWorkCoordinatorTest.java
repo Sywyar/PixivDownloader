@@ -62,6 +62,23 @@ class ScheduleWorkCoordinatorTest {
 
     private static final String ILLUST = "illust";
 
+    @Test @DisplayName("凭据候选耗尽时耐久保留作品并停止发现，不消耗作品重试次数")
+    void credentialExhaustionStopsWithoutSpendingWorkRetry() throws Exception {
+        ScheduledTaskStore store = store();
+        ScheduleWorkCoordinator coordinator = coordinator(store,
+                Map.of("illust", executor("illust", (work, context) -> {
+                    throw ScheduledExecutionException.credentialsUnavailable(120_000);
+                })), new SyncTaskExecutor(), 5);
+        coordinator.submit(work("illust", "1"));
+        assertThatThrownBy(coordinator::drain).isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.CREDENTIALS_EXHAUSTED);
+            assertThat(failure.retryAfterMillis()).isEqualTo(120_000);
+        });
+        verify(store).upsertPendingWork(org.mockito.ArgumentMatchers.argThat(row ->
+                row.attempts() == 0 && row.reasonCode().equals("ACQUISITION_CREDENTIALS_UNAVAILABLE")));
+        verify(store, never()).deletePendingWork(org.mockito.ArgumentMatchers.anyLong(), any(), any());
+    }
+
     @Test
     @DisplayName("路径待处理不消耗重试次数，整轮停止且作品保持耐久记录")
     void userActionSuspendsWithoutSpendingRetryBudget() throws Exception {

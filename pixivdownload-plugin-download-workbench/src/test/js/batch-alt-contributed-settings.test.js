@@ -42,7 +42,7 @@ function harness() {
     document.querySelectorAll = selector => document.body.querySelectorAll(selector);
     const writes = [];
     const context = vm.createContext({
-        document, console, cookieHasPhpsessid: () => true,
+        document, console, AbortController, fetch: async () => ({ok: true, json: async () => ({revision: '0', profiles: []})}), cookieHasPhpsessid: () => true,
         altAcquisition: (_mode, _source, type) => ({type}),
         addEventListener: events.addEventListener.bind(events),
         removeEventListener: events.removeEventListener.bind(events),
@@ -55,7 +55,7 @@ function harness() {
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
-    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js'].forEach(name => load(alt + name));
+    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', '../pixiv-batch/download-profiles.js', 'alt-profiles.js'].forEach(name => load(alt + name));
     context.PixivBatch.queueTypes = context.altQueueTypes();
     context.storeSet = (_, value) => writes.push(JSON.parse(value));
     vm.runInContext('isAdmin = true', context);

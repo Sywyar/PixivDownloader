@@ -242,6 +242,16 @@ public class GlobalExceptionHandler {
         return upstreamFailure(e.getStatusCode().value(), locale, bodySnippet(e.getResponseBodyAsString()));
     }
 
+    @ExceptionHandler(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> handleAcquisitionCredentials(
+            top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException failure, Locale locale) {
+        log.warn("Acquisition request paused: credentials unavailable");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", Long.toString(Math.max(1, failure.retryAfterMillis() / 1000)))
+                .body(error("ACQUISITION_CREDENTIALS_UNAVAILABLE",
+                        messages.get(locale, "error.acquisition.credentials-unavailable")));
+    }
+
     @ExceptionHandler(PixivAjaxException.class)
     public ResponseEntity<ApiErrorResponse> handlePixivAjax(PixivAjaxException e, Locale locale) {
         if (e.failure() == PixivAjaxFailure.RESPONSE_TOO_LARGE) {

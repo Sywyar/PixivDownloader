@@ -127,16 +127,33 @@ class PixivFetchServiceDiscoveryTest {
     @DisplayName("站内信失败投影")
     class MessageThreadFailures {
 
-        @ParameterizedTest
-        @ValueSource(ints = {302, 403})
-        @DisplayName("站内信登录重定向与四百段响应映射为凭证不可用")
-        void mapsRedirectAndClientErrorToCredentialFailure(int status) {
+        @Test
+        @DisplayName("站内信只有明确未认证响应判定凭据失效")
+        void mapsUnauthenticatedToCredentialFailure() {
             when(pixivAjaxClient.get(any(URI.class), any()))
-                    .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, status));
+                    .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 401));
 
             assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE))
                     .isInstanceOf(PixivFetchService.PixivFetchException.class)
-                    .hasMessageContaining(Integer.toString(status));
+                    .hasMessageContaining("401");
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {302, 403, 404, 429})
+        @DisplayName("重定向、拒绝和限流保留原错误且不误判凭据失效")
+        void preservesOtherResponses(int status) {
+            var failure = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, status);
+            when(pixivAjaxClient.get(any(URI.class), any())).thenThrow(failure);
+            assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE)).isSameAs(failure);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"<html>challenge</html>", "{\"error\":true}", "{}"})
+        @DisplayName("挑战页面和不完整响应不能当作失效凭据")
+        void rejectsUnverifiedMessageBody(String body) {
+            mockResponse(body);
+            assertThatThrownBy(() -> service().fetchMessageThreads(COOKIE))
+                    .isInstanceOf(IOException.class).isNotInstanceOf(PixivFetchService.PixivFetchException.class);
         }
 
         @Test

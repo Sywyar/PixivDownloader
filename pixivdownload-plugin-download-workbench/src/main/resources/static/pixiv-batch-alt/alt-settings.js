@@ -16,6 +16,7 @@ function getImageDelayMs() {
 }
 
 function saveSettings() {
+    window.PixivDownloadProfiles?.refresh();
     if (scheduleState.editing) return;
     // 「收藏到」（收藏夹选择）不持久化：每次加载都默认为「不加入收藏夹」，仅在当前会话内生效。
     const {collectionId, ...persisted} = state.settings;
@@ -175,6 +176,11 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = scheduleState.editing?.settings || state.settings;
     const body = el('div', 'ab-settings');
+    if (isAdmin) {
+        const profiles = el('div');
+        body.appendChild(profiles);
+        mountAltDownloadProfiles(profiles);
+    }
     if (scheduleState.editing) body.dataset.scheduleSettings = '1';
     body.appendChild(el('p', 'ab-field-note', scheduleState.editing
         ? bt('batch:schedule.save.editing', '', {name: scheduleState.editing.task.name})
@@ -215,7 +221,7 @@ function buildSettingsDrawerBody() {
     concurrentInput.addEventListener('change', () => {
         s.concurrent = Math.max(1, parseInt(concurrentInput.value, 10) || 1);
         saveSettings();
-        if (state.isRunning) ensureWorkers();
+        if (!scheduleState.editing && state.isRunning) ensureWorkers();
     });
     body.appendChild(settingsRow(bt('settings.concurrent', '最大并发数'), concurrentInput));
 
@@ -454,6 +460,7 @@ if (typeof window.addEventListener === 'function') {
 }
 window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.settings = Object.assign(window.PixivBatch.settings || {}, {bindContributedSettings});
+window.PixivBatch.settings.target = () => scheduleState.editing?.settings || state.settings;
 
 window.PixivBatchAlt.settings = Object.assign(window.PixivBatchAlt.settings, {
     getIntervalMs, getImageDelayMs, saveSettings, loadSettings,

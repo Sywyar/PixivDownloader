@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const scheduleRoot = path.join(
     __dirname, '../../main/resources/static/pixiv-batch/modes');
 const source = [
+    '../settings-context.js',
     'schedule-core.js', 'schedule-editor.js', 'schedule-view.js',
     'schedule-queue.js', 'schedule.js'
 ].map(file => fs.readFileSync(path.join(scheduleRoot, file), 'utf8')).join('\n') + `
@@ -94,7 +95,8 @@ function harness(options) {
     const element = (id, values) => {
         const value = Object.defineProperties({
             id, value: '', checked: false, textContent: '', hidden: false,
-            style: {}, dataset: {}, classList: {add() {}, remove() {}, toggle() {}}
+            style: {}, dataset: {}, classList: {add() {}, remove() {}, toggle() {}},
+            addEventListener() {}, removeEventListener() {}, closest() { return null; }
         }, Object.getOwnPropertyDescriptors(values || {}));
         elements.set(id, value);
         return value;
@@ -109,6 +111,7 @@ function harness(options) {
     element('sch-cookie', {value: config.cookieValue || ''});
     element('schedule-override-modal', {
         hidden: true,
+        querySelector: selector => selector === '[data-pixiv-click="saveScheduleOverride()"]' ? elements.get('sch-ov-save') : null,
         querySelectorAll: () => ['sch-ov-proxy-enabled', 'sch-ov-proxy',
             'sch-ov-cookie-enabled', 'sch-ov-cookie', 'sch-ov-save', 'sch-ov-use-saved']
             .map(id => elements.get(id))
@@ -179,6 +182,7 @@ function harness(options) {
             return {
                 supportsProxy: config.supportsProxy === true,
                 supportsCredential: config.supportsCredential === true,
+                credentialReadOnly: config.credentialReadOnly === true,
                 presentation: config.credentialPresentation || null
             };
         },
@@ -190,6 +194,7 @@ function harness(options) {
             credentialCalls.push({method: 'bindCredential', sourceType, taskId, credential, context});
             return Promise.resolve(config.bindCredentialResult || {ok: true, status: 'bound'});
         },
+        selectSavedCredential: async () => config.savedSelection === null ? null : config.savedSelection || {},
         bindSavedCredential(sourceType, taskId, context) {
             credentialCalls.push({method: 'bindSavedCredential', sourceType, taskId, context});
             return Promise.resolve(config.bindSavedCredentialResult || {ok: true, status: 'bound'});

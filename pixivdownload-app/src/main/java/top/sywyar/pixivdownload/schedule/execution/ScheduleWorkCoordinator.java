@@ -408,7 +408,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 };
                 ScheduledWorkResult result;
                 try {
-                    result = executor.execute(work, context);
+                    result = credential.call(cancellation::isCancellationRequested, () -> executor.execute(work, context));
                 } catch (ScheduledExecutionException failure) {
                     return Completion.failure(
                             work, retry, sanitizeFailure(failure.toFailure()));
@@ -633,7 +633,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         long now = System.currentTimeMillis();
         ScheduledPendingWork previous = pending.get(work.key());
         boolean requiresAction = failure.category() == ScheduledFailure.Category.USER_ACTION_REQUIRED;
-        int attempts = requiresAction ? (previous == null ? 0 : previous.attempts()) : completion.retry() && previous != null
+        boolean credentialsExhausted = failure.category() == ScheduledFailure.Category.CREDENTIALS_EXHAUSTED;
+        int attempts = requiresAction || credentialsExhausted ? (previous == null ? 0 : previous.attempts()) : completion.retry() && previous != null
                 ? previous.attempts() + 1
                 : 0;
         Long firstSeen = previous == null ? now : previous.firstSeenTime();
@@ -644,8 +645,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         pending.put(work.key(), durable);
         typeStatistics.pending++;
         runQueue.mark(work.key(),
-                requiresAction ? ScheduleRunQueue.STATUS_PAUSED : ScheduleRunQueue.STATUS_FAILED, failure.code());
-        if (!requiresAction && completion.retry() && attempts == pendingMaxAttempts) {
+                requiresAction || credentialsExhausted ? ScheduleRunQueue.STATUS_PAUSED : ScheduleRunQueue.STATUS_FAILED, failure.code());
+        if (!requiresAction && !credentialsExhausted && completion.retry() && attempts == pendingMaxAttempts) {
             ScheduledWorkNotificationPresentation presentation =
                     safeNotificationPresentation(work);
             ScheduleExecutionResult.PendingExhausted event =
@@ -669,7 +670,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                             failureCount, failure.code());
                 }
             }
-            case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED, RATE_LIMITED, CHALLENGE -> setTerminalFailure(
+            case CREDENTIALS_EXHAUSTED, INVALID_DEFINITION, PAYLOAD_UNSUPPORTED, RATE_LIMITED, CHALLENGE -> setTerminalFailure(
                     new ScheduledExecutionException(
                             failure.category(), failure.code(), failure.retryAfterMillis()));
             case CANCELLED -> setTerminalFailure(ScheduledExecutionException.cancelled());

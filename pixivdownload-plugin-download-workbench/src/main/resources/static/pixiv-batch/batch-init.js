@@ -260,7 +260,19 @@
         switchMode(savedMode);
 
         // Settings
+        if (isAdmin) {
+            const library = document.getElementById('credential-library');
+            library.hidden = false;
+            document.getElementById('pixiv-cookie-card').hidden = true;
+            document.querySelector('#cookie-card > .cookie-fmt').hidden = true;
+            window.PixivCredentials.mount(library, {
+                importButton: document.getElementById('cookie-import'),
+                importStatus: document.getElementById('cookie-status')
+            });
+            await window.PixivCredentials.initialize().catch(() => {});
+        }
         loadSettings();
+        mountDownloadProfiles();
         window.PixivBatchPageLayout.bind(isAdmin, () => bt('batch:page.layout-save-failed'), flushServerState);
         window.PixivBatch.modes.user.initUserInputDraftPersistence();
         await refreshBatchCollections();

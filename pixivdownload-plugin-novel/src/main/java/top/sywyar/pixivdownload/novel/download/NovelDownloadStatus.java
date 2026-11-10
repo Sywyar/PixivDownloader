@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 
 @Data
 public class NovelDownloadStatus {
+    private volatile String errorCode;
     private Long novelId;
     private String title;
     private String ownerUuid;

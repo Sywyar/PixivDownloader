@@ -367,6 +367,12 @@ final class LegacyDdlBaseline {
                     + "first_seen_time INTEGER,"
                     + "last_attempt_time INTEGER,"
                     + "PRIMARY KEY(task_id, work_type, work_id))",
+            "CREATE TABLE IF NOT EXISTS scheduled_task_credential_candidates ("
+                    + "task_id INTEGER NOT NULL,"
+                    + "position INTEGER NOT NULL,"
+                    + "account_key TEXT,"
+                    + "secret TEXT NOT NULL,"
+                    + "PRIMARY KEY(task_id, position))",
             "CREATE TABLE IF NOT EXISTS scheduled_task_credentials ("
                     + "task_id INTEGER NOT NULL PRIMARY KEY,"
                     + "policy_owner_plugin_id TEXT NOT NULL,"

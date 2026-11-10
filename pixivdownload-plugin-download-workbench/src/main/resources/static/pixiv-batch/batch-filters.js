@@ -54,6 +54,8 @@
     }
 
     function saveSearchFilterPrefs(filters) {
+        window.PixivDownloadProfiles?.refresh();
+        if (typeof scheduleSettingsDraft !== 'undefined' && scheduleSettingsDraft) return;
         storeSet('pixiv_search_filters', JSON.stringify({
             content: filters.content,
             ai: filters.ai,
@@ -172,7 +174,9 @@
     // 与预览用的 matchSearchFilters 同口径（内容分级 / AI / 标签 / 类型 / 页数 / 字数 / 收藏数），
     // 取当前附加筛选 UI 为准；插画/小说按 kind 分别套用对应专属判定。
     function evaluateDownloadFilterSkip(meta, kind) {
-        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
+        const filters = normalizeSearchFilters(
+            typeof scheduleSettingsDraft !== 'undefined' && scheduleSettingsDraft
+                ? scheduleSettingsDraft.manualFilters : getSearchFiltersFromUI());
         const xr = Number(meta.xRestrict ?? meta.xrestrict ?? 0);
         if (!matchContentRating(xr, filters.content)) {
             return bt('queue.message.skipped-filter-content', '跳过 — 内容分级不符（要求 {label}）',

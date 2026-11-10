@@ -73,7 +73,7 @@
 
     /** 当前输入框 Cookie 是否含 PHPSESSID（登录态）。先归一化为 header 串以兼容 JSON / Netscape 格式。 */
     function cookieHasPhpsessid() {
-        return /(?:^|;\s*)PHPSESSID=/.test(getCookieInputHeaderString());
+        return window.PixivCredentials?.has() || /(?:^|;\s*)PHPSESSID=/.test(getCookieInputHeaderString());
     }
 
     /**
@@ -186,6 +186,8 @@
     }
 
     function pixivHeader() {
+        const selected = window.PixivCredentials?.headers();
+        if (selected) return selected;
         const c = getCookie();
         return c ? {'X-Acquisition-Credential': c} : {};
     }
@@ -212,7 +214,7 @@
     }
 
     function hasPixivCookie() {
-        return !!getCookie().trim();
+        return window.PixivCredentials?.has() || !!getCookie().trim();
     }
 
     let cookieSaveInProgress = false;
@@ -226,9 +228,12 @@
             .map(node => [node, node.disabled]);
         controls.forEach(([node]) => { node.disabled = true; });
         try {
-            const entries = {pixiv_cookie: raw};
-            if (raw != null) entries.pixiv_cookie_fmt = getCookieInputFmt();
-            await persistStoreEntries(entries);
+            if (isAdmin) await window.PixivCredentials.savePrimary(raw, getCookieInputFmt());
+            else {
+                const entries = {pixiv_cookie: raw};
+                if (raw != null) entries.pixiv_cookie_fmt = getCookieInputFmt();
+                await persistStoreEntries(entries);
+            }
             return true;
         } catch {
             // 传输和存储错误可能含凭据，只展示固定的本地化错误。
@@ -245,12 +250,13 @@
     ------------------------------------------------------------------ */
     const COOKIE_SYNC_SIGNAL = '__pixiv_cookie_sync__';
 
-    function applyImportedCookie(snapshot) {
+    async function applyImportedCookie(snapshot) {
         serverState['pixiv_cookie'] = snapshot.cookie;
         serverState['pixiv_cookie_fmt'] = snapshot.fmt;
         if (snapshot.syncAt) serverState['pixiv_cookie_sync_at'] = snapshot.syncAt;
-        setCookieInputValue(snapshot.cookie, snapshot.fmt);
-        const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(getCookie());
+        if (isAdmin && window.PixivCredentials) await window.PixivCredentials.savePrimary(snapshot.cookie, snapshot.fmt);
+        setCookieInputValue(isAdmin && window.PixivCredentials ? '' : snapshot.cookie, snapshot.fmt);
+        const hasPhp = cookieHasPhpsessid();
         if (hasPhp) {
             setCookieStatus({key: 'status.cookie-imported', fallback: '已从 Pixiv 自动导入并保存 Cookie'}, 'success');
         } else {
@@ -281,7 +287,7 @@
         startCookieSync(win, baselineSyncAt, cur => {
             serverState['pixiv_cookie_sync_at'] = cur.syncAt;
             if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
-                applyImportedCookie(cur);
+                void applyImportedCookie(cur).catch(() => setCookieStatus({key: 'batch:credentials.failed'}, 'error'));
             } else {
                 setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'error');
             }

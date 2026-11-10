@@ -471,6 +471,11 @@ public class NovelDownloadService implements NovelDownloader {
             succeeded = false;
             status.fail(messages.get("plugin.recovery.database-unavailable"));
             throw unavailable;
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            status.setErrorCode("ACQUISITION_CREDENTIALS_UNAVAILABLE");
+            status.fail(messages.get("error.acquisition.credentials-unavailable"));
+            log.warn("Novel download paused: id={}, reason=ACQUISITION_CREDENTIALS_UNAVAILABLE", novelId);
+            throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
             status.fail(e instanceof DownloadPathRejectedException
@@ -478,7 +483,9 @@ public class NovelDownloadService implements NovelDownloader {
                     : messages.get("error.unexpected"));
         } finally {
             if (!recorded) downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
-                    ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));
+                    ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED,
+                        !status.isCancelled() && "ACQUISITION_CREDENTIALS_UNAVAILABLE".equals(status.getErrorCode())
+                                ? DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE : null));
             if (stagedDirectory != null) {
                 try {
                     try (var files = Files.list(stagedDirectory)) {

@@ -366,6 +366,13 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
+    public top.sywyar.pixivdownload.download.controller.DownloadProfilesController downloadProfilesController(
+            RuntimePathProvider paths, @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new top.sywyar.pixivdownload.download.controller.DownloadProfilesController(
+                new top.sywyar.pixivdownload.download.state.DownloadProfiles(paths), messages);
+    }
+
+    @Bean
     public DownloadPageController downloadPageController(RuntimePathProvider runtimePathProvider,
                                                          @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new DownloadPageController(new DownloadPagePreference(runtimePathProvider), messages);

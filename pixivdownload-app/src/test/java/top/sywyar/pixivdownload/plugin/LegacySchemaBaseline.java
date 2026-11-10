@@ -623,6 +623,17 @@ final class LegacySchemaBaseline {
                 List.of()
         ));
 
+        tables.put("scheduled_task_credential_candidates", new TableSpec(
+                "scheduled_task_credential_candidates",
+                List.of(
+                        column("task_id", "INTEGER", true, null, 1),
+                        column("position", "INTEGER", true, null, 2),
+                        column("account_key", "TEXT", false, null, 0),
+                        column("secret", "TEXT", true, null, 0)
+                ),
+                List.of()
+        ));
+
         tables.put("scheduled_task_credentials", new TableSpec(
                 "scheduled_task_credentials",
                 List.of(

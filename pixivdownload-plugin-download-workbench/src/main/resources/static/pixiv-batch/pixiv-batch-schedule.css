@@ -430,7 +430,8 @@ body.schedule-modal-open {
     overflow: hidden;
 }
 
-.schedule-snapshot-modal[hidden] {
+.schedule-snapshot-modal[hidden],
+#schedule-override-modal [hidden] {
     display: none;
 }
 

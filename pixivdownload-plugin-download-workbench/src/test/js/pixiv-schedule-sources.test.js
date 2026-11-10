@@ -158,4 +158,39 @@ test('Pixiv 来源模块只经固定凭证贡献面注册并在插件内部读�
     assert.equal(revoked.status, 'revoked');
     assert.equal(requests[1].url, '/api/schedule/tasks/42/credential');
     assert.equal(requests[1].init.method, 'DELETE');
+    context.window.PixivCredentials = {headers: (ids = ['manual-page']) =>
+        ids.length ? {'X-Acquisition-Credentials': ids.join(',')} : null};
+    await contribution.bindSavedCredential(42, {savedCredentialSelection: {ids: ['second', 'first']}}, credentialLease);
+    assert.equal(requests[2].init.headers['X-Acquisition-Credentials'], 'second,first');
+    assert.equal(requests[2].init.headers['X-Acquisition-Credential'], undefined);
+    assert.equal(contribution.bindSavedCredential(42, {savedCredentialSelection: {}}, credentialLease).status, 'missing');
+    assert.equal(contribution.bindSavedCredential(42, {savedCredentialSelection: {ids: []}}, credentialLease).status, 'missing');
+    assert.equal(requests.length, 3);
+    const personal = {editingTask: {paramsJson: JSON.stringify({source: {myPixiv: true}})}};
+    assert.equal(contribution.credentialContribution(personal, credentialLease).singleCredential, true);
+    assert.equal(contribution.credentialContribution({}, credentialLease).singleCredential, false);
+    assert.equal(contribution.bindSavedCredential(42, {...personal,
+        savedCredentialSelection: {ids: ['first', 'second']}}, credentialLease).status, 'missing');
+    assert.equal(requests.length, 3, '个人计划不发送多 Cookie 绑定请求');
+    await contribution.bindSavedCredential(42, {...personal,
+        savedCredentialSelection: {ids: ['chosen']}}, credentialLease);
+    assert.equal(requests[3].init.headers['X-Acquisition-Credentials'], 'chosen');
+    let picker;
+    context.window.PixivCredentials.choose = async options => { picker = options; return {ids: ['chosen']}; };
+    await contribution.selectSavedCredential(personal, credentialLease);
+    assert.equal(picker.single, true);
+    const fixed = {editingTask: {...personal.editingTask, credentialBound: true}};
+    assert.equal(contribution.credentialContribution(fixed, credentialLease).credentialReadOnly, true);
+    assert.equal(contribution.credentialContribution(personal, credentialLease).credentialReadOnly, false);
+    assert.equal(contribution.credentialContribution({mode: 'quick-fetch', editingTask: {
+        credentialBound: true, paramsJson: '{"source":{"userId":"42"}}'}}, credentialLease).credentialReadOnly, false);
+    const beforeFixed = requests.length;
+    assert.equal(contribution.bindCredential(42, 'PHPSESSID=99_new', fixed, credentialLease).ok, false);
+    assert.equal(contribution.bindSavedCredential(42, fixed, credentialLease).ok, false);
+    assert.equal(contribution.revokeCredential(42, fixed, credentialLease).ok, false);
+    await assert.rejects(contribution.selectSavedCredential(fixed, credentialLease));
+    assert.equal(requests.length, beforeFixed, '固定账号不发送替换或清除请求');
+    const personalSource = contributions.get('my-bookmarks');
+    context.window.PixivCredentials.accountSelection = () => null;
+    assert.equal(personalSource.credentialContribution({}, {...credentialLease, sourceType: 'my-bookmarks'}).singleCredential, true);
 });

@@ -369,7 +369,7 @@ public final class ScheduleExecutionEngine {
                                 }
                             };
                             try {
-                                discovery = sourceExecutor.discover(context);
+                                discovery = credential.call(cancellation::isCancellationRequested, () -> sourceExecutor.discover(context));
                             } catch (ScheduledExecutionException failure) {
                                 throw safePluginException(
                                         failure, "schedule.execution.invalid-failure-code",

@@ -135,6 +135,16 @@
             await descriptor.process(item, signal);
         } catch (error) {
             if (signal.aborted) return;
+            if (error?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') {
+                item.status = 'paused';
+                item.statusMessageKey = 'batch:credentials.unavailable';
+                item.lastMessage = '';
+                item.lastMessageParts = null;
+                state.stopRequested = true;
+                saveQueue();
+                renderQueue();
+                return;
+            }
             if (error && error.code === 'STALE_QUEUE_TYPE') {
                 pauseUnavailableQueueType(item);
                 return;
@@ -341,6 +351,8 @@
                     }
                 }
             } else if (final && final.failed) {
+                if (final.errorCode === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+                    throw Object.assign(new Error(final.message), {code: final.errorCode});
                 item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
                 item.imageProgress = final.imageProgress || null;
                 item.status = 'failed';
@@ -362,6 +374,8 @@
                         item.imageProgress = null;
                         item.ugoiraProgress = null;
                     } else if (check && check.failed) {
+                            if (check.errorCode === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+                                throw Object.assign(new Error(check.message), {code: check.errorCode});
                         item.status = 'failed';
                         item.lastMessage = bt('queue.message.failed-backend', null, {message: check.message || bt('status.backend-failure', null)});
                     } else if (check && check.completed) {
@@ -395,6 +409,7 @@
                     }
                 } catch (error) {
                     assertProcessInvocation(invocation);
+                    if (error?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') throw error;
                     item.status = 'failed';
                     item.lastMessage = bt('queue.message.failed-status-error', '失败 — 状态查询异常');
                 }
@@ -402,7 +417,13 @@
         } catch (e) {
             assertProcessInvocation(invocation);
             item.statusMessageKey = null;
-            if (handlePathActionError(item, e)) {
+            if (e.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') {
+                item.status = 'paused';
+                item.statusMessageKey = 'batch:credentials.unavailable';
+                item.lastMessage = '';
+                item.lastMessageParts = null;
+                state.stopRequested = true;
+            } else if (handlePathActionError(item, e)) {
                 // 用户取消只跳过此作品，关闭弹窗则保留为待处理。
             } else if (e.message === 'quota_exceeded') {
                 item.status = 'failed';

@@ -131,6 +131,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                 return new ScheduledWorkResult(ScheduledWorkResult.Outcome.SKIPPED, "DOWNLOAD_PATH_CANCELLED", Map.of());
             }
             throw ScheduledExecutionException.cancelled();
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
         } catch (PixivAjaxException failure) {
             if (failure.failure() == PixivAjaxFailure.HTTP_STATUS) {
                 int status = failure.statusCode();

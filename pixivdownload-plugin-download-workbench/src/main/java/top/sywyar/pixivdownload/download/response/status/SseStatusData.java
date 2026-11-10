@@ -22,6 +22,7 @@ public class SseStatusData {
     private final Integer downloadedCount;
     private final Boolean completed;
     private final Boolean failed;
+    private final String errorCode;
     private final Boolean cancelled;
     private final String folderName;
     private final Integer progress;

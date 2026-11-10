@@ -285,7 +285,7 @@ class ScheduleExecutionEngineWorkPersistenceTest extends ScheduleExecutionEngine
 
         assertThat(discoveries).hasValue(0);
         verify(store, never()).listPendingWork(anyLong());
-        verify(store, never()).findCredentialSecret(anyLong(), anyString(), anyString());
+        verify(store, never()).findCredentialCandidates(anyLong(), anyString(), anyString());
     }
 
     @Test
