@@ -75,7 +75,7 @@ const NOVEL_SLOTS = {
         '<option value="txt" data-i18n="novel:batch.merge-format-txt">纯文本（TXT）</option>' +
         '<option value="html" data-i18n="novel:batch.merge-format-html">网页（HTML）</option>' +
         '</select></div>' +
-        '<div class="setting-item" id="s-novel-merge-format-hint"' +
+        '<div class="setting-item" id="s-novel-merge-format-hint" data-setting-hint-for="s-novel-merge-format"' +
         ' style="grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
         ' data-i18n="novel:batch.merge-format-hint">推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。</div>' +
         '</div></div>'

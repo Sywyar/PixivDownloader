@@ -1,6 +1,6 @@
 'use strict';
 
-function mountAltDownloadProfiles(root) {
+function mountAltDownloadProfiles(root, applied) {
     const draft = scheduleState.editing;
     const target = () => scheduleState.editing?.settings || state.settings;
     const contributions = () => altQueueTypes()?.contributionsOf('settings') || [];
@@ -24,7 +24,7 @@ function mountAltDownloadProfiles(root) {
             syncFilterButtonBadge();
             if (!draft) await flushServerState();
         },
-        applied: () => openDownloadOptionsDrawer('settings'),
+        applied,
         translate: key => bt('batch:' + key),
         prompt: (message, value) => abPrompt('batch:profiles.name', message, null, {value}),
         confirm: key => abConfirm('batch:profiles.' + key),
@@ -32,4 +32,6 @@ function mountAltDownloadProfiles(root) {
         primaryButtonClass: altComponentClasses('button', 'ab-btn ab-btn--primary ab-btn--sm'),
         inputClass: 'ab-input'
     });
+    attachSettingsHint(root.querySelector('.download-profiles-heading label'),
+        root.querySelector('.download-profiles-help'), root.querySelector('.download-profiles-management p'));
 }

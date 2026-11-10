@@ -140,7 +140,7 @@ function buildOnboardingConfig(savedName) {
             singleImportTab: '#abRailModes [data-mode="single-import"]',
             importTextarea: '#abImportInput',
             importButton: '#abBtnImport',
-            filtersCard: '#abFilterBtn',
+            filtersCard: '#abSettingsBtn',
             settingsCard: '#abSettingsBtn',
             startButton: '#abBtnStart',
             progressArea: '#abDock',

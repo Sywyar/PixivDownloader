@@ -98,9 +98,87 @@ function normalizeBatchCollectionId(value) {
    设置抽屉 UI
    ============================================================ */
 let settingsLabelSequence = 0;
+let activeSettingsHint = null;
+
+function attachSettingsHint(title, ...notes) {
+    if (!title || !notes.length || title.closest('.ab-setting-hint-label')) return;
+    const wrap = el('div', 'ab-setting-hint-label');
+    title.parentNode.insertBefore(wrap, title);
+    wrap.appendChild(title);
+    const trigger = el('button', 'ab-setting-hint-trigger');
+    trigger.type = 'button';
+    bindAltText(trigger, () => bt('settings.hint', null, {title: title.textContent.trim()}), 'aria-label');
+    const icon = el('span', 'ab-setting-hint-icon', '!');
+    icon.setAttribute('aria-hidden', 'true');
+    trigger.appendChild(icon);
+    const popup = el('div', 'ab-setting-hint');
+    popup.id = 'ab-setting-hint-' + (++settingsLabelSequence);
+    popup.setAttribute('popover', 'manual');
+    popup.setAttribute('role', 'tooltip');
+    popup.append(...notes);
+    trigger.setAttribute('aria-describedby', popup.id);
+    wrap.append(trigger, popup);
+    let leaveTimer;
+    let lifetime;
+    function hide() {
+        clearTimeout(leaveTimer);
+        if (!lifetime) return;
+        lifetime.abort();
+        lifetime = null;
+        if (popup.matches(':popover-open')) popup.hidePopover();
+        if (activeSettingsHint === hide) activeSettingsHint = null;
+    }
+    function show() {
+        clearTimeout(leaveTimer);
+        if (lifetime) return;
+        activeSettingsHint?.();
+        activeSettingsHint = hide;
+        lifetime = new AbortController();
+        popup.showPopover();
+        const anchor = trigger.getBoundingClientRect();
+        const width = document.documentElement.clientWidth;
+        const height = window.innerHeight;
+        popup.style.left = Math.max(8, Math.min(anchor.left, width - popup.offsetWidth - 8)) + 'px';
+        popup.style.top = Math.max(8, Math.min(anchor.bottom + popup.offsetHeight + 4 <= height - 8
+            ? anchor.bottom + 4 : anchor.top - popup.offsetHeight - 4, height - popup.offsetHeight - 8)) + 'px';
+        const options = {signal: lifetime.signal, capture: true};
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            hide();
+        }, options);
+        window.addEventListener('resize', hide, options);
+        window.addEventListener('scroll', event => {
+            const current = trigger.getBoundingClientRect();
+            if (!popup.contains(event.target) && (current.top !== anchor.top || current.left !== anchor.left)) hide();
+        }, options);
+        // 抽屉替换或贡献撤回时，释放顶层提示与监听器。
+        const observer = new MutationObserver(() => {
+            if (!trigger.isConnected || !trigger.checkVisibility()) hide();
+        });
+        observer.observe(document.body, {childList: true, subtree: true, attributes: true,
+            attributeFilter: ['hidden', 'style', 'open']});
+        lifetime.signal.addEventListener('abort', () => observer.disconnect(), {once: true});
+    }
+    function leave() {
+        clearTimeout(leaveTimer);
+        leaveTimer = setTimeout(() => {
+            const focused = document.activeElement === trigger && trigger.matches(':focus-visible');
+            if (!focused && !trigger.matches(':hover') && !popup.matches(':hover')) hide();
+        }, 100);
+    }
+    trigger.addEventListener('pointerenter', show);
+    trigger.addEventListener('focus', show);
+    popup.addEventListener('pointerenter', () => clearTimeout(leaveTimer));
+    trigger.addEventListener('pointerleave', leave);
+    trigger.addEventListener('blur', leave);
+    popup.addEventListener('pointerleave', leave);
+}
+
 function settingsRow(labelText, control, helpText) {
     const row = el('div', 'ab-setting-row');
-    const head = el('div', 'ab-setting-head');
+    const head = el('div', 'ab-setting-copy');
     const label = el('label', 'ab-setting-label', labelText);
     label.id = 'ab-setting-label-' + (++settingsLabelSequence);
     head.appendChild(label);
@@ -108,8 +186,9 @@ function settingsRow(labelText, control, helpText) {
     if (control) {
         const selector = 'input, select, textarea, button';
         const controls = control.matches(selector) ? [control] : Array.from(control.querySelectorAll(selector));
-        if (controls.length === 1) {
-            const input = controls[0];
+        const input = controls.find(node => node.tagName === 'INPUT' || node.tagName === 'TEXTAREA')
+            || controls.find(node => node.tagName === 'SELECT');
+        if (input) {
             if (!input.id) input.id = label.id + '-control';
             label.htmlFor = input.id;
         }
@@ -121,12 +200,15 @@ function settingsRow(labelText, control, helpText) {
             }
             if (helpText) input.setAttribute('aria-describedby', label.id + '-help');
         });
-        row.appendChild(control);
+        const field = el('div', 'ab-setting-control');
+        field.appendChild(control);
+        row.appendChild(field);
+        row.classList.toggle('ab-setting-row--toggle', control.classList.contains('ab-switch'));
     }
     if (helpText) {
         const note = el('p', 'ab-field-note', helpText);
         note.id = label.id + '-help';
-        row.appendChild(note);
+        attachSettingsHint(label, note);
     }
     return row;
 }
@@ -176,18 +258,18 @@ function numberWithUnit(value, unit, onValue, onUnit) {
 function buildSettingsDrawerBody() {
     const s = scheduleState.editing?.settings || state.settings;
     const body = el('div', 'ab-settings');
-    if (isAdmin) {
-        const profiles = el('div');
-        body.appendChild(profiles);
-        mountAltDownloadProfiles(profiles);
-    }
     if (scheduleState.editing) body.dataset.scheduleSettings = '1';
-    body.appendChild(el('p', 'ab-field-note', scheduleState.editing
-        ? bt('batch:schedule.save.editing', '', {name: scheduleState.editing.task.name})
-        : bt('settings.scope', '更改供后续下载使用。单人模式保存在服务端工作台状态，多人模式保存在此浏览器。')));
+    function group(key) {
+        const section = el('section', 'ab-settings-section');
+        const heading = el('h3', 'ab-settings-group', () => bt(key));
+        heading.id = 'ab-settings-group-' + (++settingsLabelSequence);
+        section.setAttribute('aria-labelledby', heading.id);
+        section.appendChild(heading);
+        body.appendChild(section);
+        return section;
+    }
 
-    // —— 节奏 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.pace', '下载节奏')));
+    const pace = group('settings.group.pace');
     if (isAdmin && !scheduleState.editing) {
         const control = switchControl(s.autoStartOnEnqueue, value => {
             s.autoStartOnEnqueue = value;
@@ -196,19 +278,19 @@ function buildSettingsDrawerBody() {
         const input = control.querySelector('input');
         input.id = 's-auto-start';
         const row = settingsRow(
-            bt('batch:label.settings.auto-start', null),
+            () => bt('batch:label.settings.auto-start', null),
             control,
-            bt('batch:label.settings.auto-start.help', null)
+            () => bt('batch:label.settings.auto-start.help', null)
         );
-        body.appendChild(row);
+        pace.appendChild(row);
     }
-    body.appendChild(settingsRow(
+    pace.appendChild(settingsRow(
         bt('settings.work-interval', '作品间隔'),
         numberWithUnit(s.interval, s.intervalUnit,
             v => { s.interval = v; saveSettings(); },
             (unit, v) => { s.intervalUnit = unit; s.interval = v; saveSettings(); })
     ));
-    body.appendChild(settingsRow(
+    pace.appendChild(settingsRow(
         bt('settings.image-interval', '图片间隔'),
         numberWithUnit(s.imageDelay, s.imageDelayUnit,
             v => { s.imageDelay = v; saveSettings(); },
@@ -223,39 +305,37 @@ function buildSettingsDrawerBody() {
         saveSettings();
         if (!scheduleState.editing && state.isRunning) ensureWorkers();
     });
-    body.appendChild(settingsRow(bt('settings.concurrent', '最大并发数'), concurrentInput));
+    pace.appendChild(settingsRow(bt('settings.concurrent', '最大并发数'), concurrentInput));
 
-    // —— 历史与重下 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.history', '历史与重下')));
+    const history = group('settings.group.history');
+    const historyOptions = el('div', 'ab-settings-dependent');
+    historyOptions.hidden = !s.skipHistory;
     const skipSwitch = switchControl(s.skipHistory, v => {
         s.skipHistory = v;
         saveSettings();
-        verifyRow.style.display = v ? '' : 'none';
-        deletedRow.style.display = v ? '' : 'none';
+        historyOptions.hidden = !v;
     });
-    body.appendChild(settingsRow(bt('settings.skip-downloaded', '跳过已下载作品'), skipSwitch));
+    history.appendChild(settingsRow(bt('settings.skip-downloaded', '跳过已下载作品'), skipSwitch));
     const verifyRow = settingsRow(
-        bt('settings.dir-check', '实际目录检测'),
+        () => bt('settings.dir-check', '实际目录检测'),
         switchControl(s.verifyHistoryFiles, v => { s.verifyHistoryFiles = v; saveSettings(); }),
-        bt('settings.dir-check.help', '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。'));
-    verifyRow.style.display = s.skipHistory ? '' : 'none';
-    body.appendChild(verifyRow);
+        () => bt('settings.dir-check.help', '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。'));
+    historyOptions.appendChild(verifyRow);
     const deletedRow = settingsRow(
-        bt('settings.allow-deleted', '允许已删除的作品重新下载'),
+        () => bt('settings.allow-deleted', '允许已删除的作品重新下载'),
         switchControl(s.redownloadDeleted, v => { s.redownloadDeleted = v; saveSettings(); }),
-        bt('settings.allow-deleted.help', '画廊删除的作品保留删除标记；不勾选视为已下载跳过，勾选后重新下载并清除标记。'));
-    deletedRow.style.display = s.skipHistory ? '' : 'none';
-    body.appendChild(deletedRow);
+        () => bt('settings.allow-deleted.help', '画廊删除的作品保留删除标记；不勾选视为已下载跳过，勾选后重新下载并清除标记。'));
+    historyOptions.appendChild(deletedRow);
+    history.appendChild(historyOptions);
 
-    // —— 收藏 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.bookmark', '收藏')));
+    const bookmarks = group('settings.group.bookmark');
     const cookieOk = cookieHasPhpsessid();
     const bookmarkSwitch = switchControl(s.bookmark, v => { s.bookmark = v; saveSettings(); }, !cookieOk);
     const bookmarkRow = settingsRow(
-        bt('settings.auto-bookmark', '下载后自动收藏'),
+        () => bt('settings.auto-bookmark', '下载后自动收藏'),
         bookmarkSwitch,
-        cookieOk ? '' : bt('cookie.requires-phpsessid', '无有效cookie(PHPSESSID)此功能不可用'));
-    body.appendChild(bookmarkRow);
+        cookieOk ? '' : () => bt('cookie.requires-phpsessid', '无有效cookie(PHPSESSID)此功能不可用'));
+    bookmarks.appendChild(bookmarkRow);
     const collectionSel = el('select', 'ab-input');
     const noneOpt = el('option', '', bt('settings.collection.none', '（不加入收藏夹）'));
     noneOpt.value = '';
@@ -269,13 +349,12 @@ function buildSettingsDrawerBody() {
     collectionSel.addEventListener('change', () => {
         s.collectionId = normalizeBatchCollectionId(collectionSel.value);
     });
-    body.appendChild(settingsRow(
-        bt('settings.collection', '收藏到（本地收藏夹）'),
+    bookmarks.appendChild(settingsRow(
+        () => bt('settings.collection', '收藏到（本地收藏夹）'),
         collectionSel,
-        batchCollections.length ? '' : bt('settings.collection.empty', '暂无本地收藏夹')));
+        batchCollections.length ? '' : () => bt('settings.collection.empty', '暂无本地收藏夹')));
 
-    // —— 文件名 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('settings.group.filename', '文件名格式')));
+    const naming = group('settings.group.filename');
     const tplInput = el('input', 'ab-input ab-input--mono');
     tplInput.type = 'text';
     tplInput.value = s.fileNameTemplate;
@@ -285,6 +364,18 @@ function buildSettingsDrawerBody() {
         tplInput.value = s.fileNameTemplate;
         saveSettings();
         previewName();
+    });
+    tplInput.addEventListener('input', previewName);
+    const variables = el('details', 'ab-template-variables');
+    const variableSummary = el('summary', '', () => bt('settings.filename.variables'));
+    variables.appendChild(variableSummary);
+    variables.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && variables.open) {
+            event.preventDefault();
+            event.stopPropagation();
+            variables.open = false;
+            variableSummary.focus();
+        }
     });
     const varChips = el('div', 'ab-var-chips');
     [
@@ -300,9 +391,9 @@ function buildSettingsDrawerBody() {
         ['{R18}', 'settings.var.r18', 'R18 / R18G / 空'],
         ['{R18+}', 'settings.var.r18-plus', 'SFW / R18 / R18G']
     ].forEach(([token, key, fallback]) => {
-        const chip = el('button', 'ab-var-chip', token);
+        const chip = el('button', 'ab-var-chip', () => bt(key, fallback));
         chip.type = 'button';
-        chip.title = bt(key, fallback);
+        chip.title = token;
         chip.addEventListener('click', () => {
             tplInput.value = tplInput.value + token;
             tplInput.dispatchEvent(new Event('change'));
@@ -335,25 +426,18 @@ function buildSettingsDrawerBody() {
         key => bt('batch:' + key),
         isAdmin
     );
-    body.appendChild(settingsRow(bt('settings.filename', '文件名模板'), templateControls,
-        bt('settings.filename.help', '生成不含扩展名的文件名主干；重复名称自动追加页码。点击变量插入。')));
-    body.appendChild(varChips);
-    body.appendChild(namePreview);
-    const typeSettings = el('div');
-    typeSettings.id = 'type-output-settings';
-    body.appendChild(typeSettings);
-    const runtime = altQueueTypes();
-    if (runtime) runtime.contributionsOf('settings').forEach(setting => {
-        if (typeof setting.mount !== 'function') return;
-        if (scheduleState.editing) withScheduleEditSettings(() => setting.mount(typeSettings));
-        else setting.mount(typeSettings);
-    });
+    const templateRow = settingsRow(() => bt('settings.filename'), templateControls, () => bt('settings.filename.help'));
+    templateRow.classList.add('ab-setting-row--wide');
+    namePreview.id = tplInput.id + '-preview';
+    tplInput.setAttribute('aria-describedby', tplInput.getAttribute('aria-describedby') + ' ' + namePreview.id);
+    naming.append(templateRow, namePreview);
+    variables.appendChild(varChips);
+    naming.appendChild(variables);
 
     if (isAdmin) {
         const pathAction = el('select', 'ab-input');
         pathAction.id = 's-path-overflow-action';
         pathAction.setAttribute('aria-label', bt('batch:path.overflow.label', null));
-        pathAction.setAttribute('aria-describedby', 'ab-path-overflow-hint');
         [['ASK', 'ask'], ['TRUNCATE', 'truncate'], ['DEFAULT_NAME', 'default'], ['CANCEL', 'cancel']]
             .forEach(([value, key]) => {
                 const option = el('option', '', bt('batch:path.overflow.' + key, null));
@@ -365,11 +449,20 @@ function buildSettingsDrawerBody() {
             s.pathOverflowAction = pathAction.value;
             saveSettings();
         });
-        const row = settingsRow(bt('batch:path.overflow.label', null), pathAction,
-            bt('batch:path.overflow.hint', null));
-        row.querySelector('.ab-field-note').id = 'ab-path-overflow-hint';
-        body.appendChild(row);
+        const row = settingsRow(() => bt('batch:path.overflow.label', null), pathAction,
+            () => bt('batch:path.overflow.hint', null));
+        naming.appendChild(row);
     }
+
+    const typeSettings = el('div');
+    typeSettings.id = 'type-output-settings';
+    body.appendChild(typeSettings);
+    const runtime = altQueueTypes();
+    if (runtime) runtime.contributionsOf('settings').forEach(setting => {
+        if (typeof setting.mount !== 'function') return;
+        if (scheduleState.editing) withScheduleEditSettings(() => setting.mount(typeSettings));
+        else setting.mount(typeSettings);
+    });
 
     // 作品类型与增强功能由其活动插件贡献真实设置片段。
     const settingsCardSlot = document.createElement('template');
@@ -380,37 +473,51 @@ function buildSettingsDrawerBody() {
 }
 
 function openSettingsDrawer() {
-    openDownloadOptionsDrawer('settings');
+    openDownloadOptionsDrawer('filters');
 }
 
 function openDownloadOptionsDrawer(section) {
     const body = el('div', 'ab-download-options');
-    const filters = buildFiltersDrawerBody();
-    const settings = buildSettingsDrawerBody();
-    const footer = buildFiltersDrawerFooter(filters);
+    const profiles = el('div');
+    if (isAdmin) body.appendChild(profiles);
+    const scope = el('p', 'ab-field-note', () => scheduleState.editing
+        ? bt('settings.draft-scope', null)
+        : bt('settings.scope', null));
+    const content = el('div', 'ab-download-options-content');
+    const footer = el('div', 'ab-drawer-actions');
+    const done = el('button', 'ab-btn ab-btn--primary', () => bt('settings.done', null));
+    done.type = 'button';
+    done.addEventListener('click', closeDrawer);
+    footer.appendChild(done);
     const sections = [
-        ['filters', bt('filters.title', '附加筛选')],
-        ['settings', bt('settings.title', '下载设置')]
+        ['filters', () => bt('settings.section.filters', null)],
+        ['settings', () => bt('settings.section.download', null)]
     ];
     function selectSection(value) {
-        filters.hidden = value !== 'filters';
-        settings.hidden = value !== 'settings';
-        footer.parentElement.hidden = value !== 'filters';
+        section = value;
+        content.querySelector('.ab-filters').hidden = value !== 'filters';
+        content.querySelector('.ab-settings').hidden = value !== 'settings';
     }
-    const selector = smallSeg(sections, section, value => {
-        selectSection(value);
-        drawer.body.scrollTop = 0;
-    });
-    body.append(selector, filters, settings);
+    function renderContent() {
+        content.replaceChildren(buildFiltersDrawerBody(), buildSettingsDrawerBody());
+        selectSection(section);
+        refreshAltSlots();
+    }
+    const selector = smallSeg(sections, section, selectSection);
+    selector.classList.add('ab-download-sections');
+    selector.setAttribute('role', 'group');
+    bindAltText(selector, () => bt('settings.title', null), 'aria-label');
+    body.append(selector, content);
     const drawer = openDrawer({
         id: 'download-options',
         icon: 'sliders',
-        title: sections.map(([, label]) => label).join(' · '),
+        title: () => bt('settings.title', null),
         body,
         footer
     });
-    selectSection(section);
-    refreshAltSlots();
+    attachSettingsHint(drawer.box.querySelector('.ab-drawer-title'), scope);
+    renderContent();
+    if (isAdmin) mountAltDownloadProfiles(profiles, renderContent);
 }
 
 // 字段语义与可见性由贡献方提供；宿主只负责共享草稿和持久化。
@@ -431,6 +538,9 @@ function bindContributedSettings(root, bindings, isActive, refresh) {
             input.addEventListener(event, changed);
             cleanups.push(() => input.removeEventListener(event, changed));
         });
+    });
+    root.querySelectorAll('[data-setting-hint-for]').forEach(note => {
+        attachSettingsHint(root.querySelector('label[for="' + note.dataset.settingHintFor + '"]'), note);
     });
     refresh();
     return () => cleanups.splice(0).forEach(cleanup => cleanup());
@@ -459,7 +569,9 @@ if (typeof window.addEventListener === 'function') {
     window.addEventListener('pixivbatch:slotsrendered', refreshContributedSettingsVisibility);
 }
 window.PixivBatch = window.PixivBatch || {};
-window.PixivBatch.settings = Object.assign(window.PixivBatch.settings || {}, {bindContributedSettings});
+window.PixivBatch.settings = Object.assign(window.PixivBatch.settings || {}, {
+    bindContributedSettings, attachHint: attachSettingsHint
+});
 window.PixivBatch.settings.target = () => scheduleState.editing?.settings || state.settings;
 
 window.PixivBatchAlt.settings = Object.assign(window.PixivBatchAlt.settings, {

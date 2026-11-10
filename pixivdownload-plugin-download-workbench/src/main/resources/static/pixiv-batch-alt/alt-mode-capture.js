@@ -61,7 +61,7 @@ function renderQuickCredentials(panel, acquisition) {
 
 function renderQuickMode(panel) {
     const def = AB_MODES[0];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
+    panel.appendChild(modeHeader(def, [settingsButton(), saveScheduleButton()].filter(Boolean)));
 
     const sources = altSourcesForMode('quick');
     if (!sources.some(source => source.id === quickState.source)) quickState.source = sources[0] && sources[0].id;

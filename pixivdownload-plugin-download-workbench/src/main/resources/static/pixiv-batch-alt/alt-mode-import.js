@@ -5,7 +5,7 @@
    ============================================================ */
 function renderImportMode(panel) {
     const def = AB_MODES[1];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton()]));
+    panel.appendChild(modeHeader(def, [settingsButton()]));
 
     const sources = el('div', 'ab-import-sources');
     sources.appendChild(el('span', 'ab-muted', () => bt('import.sources', '支持的数据来源：')));

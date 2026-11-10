@@ -41,8 +41,16 @@ function harness() {
     document.getElementById = id => document.body.querySelector('#' + id);
     document.querySelectorAll = selector => document.body.querySelectorAll(selector);
     const writes = [];
+    const saved = new Map();
+    let catalog = {revision: '0', profiles: []};
     const context = vm.createContext({
-        document, console, AbortController, fetch: async () => ({ok: true, json: async () => ({revision: '0', profiles: []})}), cookieHasPhpsessid: () => true,
+        document, console, AbortController, AbortSignal, crypto: require('node:crypto').webcrypto,
+        Event: class { constructor(type) { this.type = type; } },
+        fetch: async (_url, options) => {
+            if (options.method === 'PUT') catalog = JSON.parse(options.body);
+            return {ok: true, json: async () => catalog};
+        },
+        cookieHasPhpsessid: () => true,
         altAcquisition: (_mode, _source, type) => ({type}),
         addEventListener: events.addEventListener.bind(events),
         removeEventListener: events.removeEventListener.bind(events),
@@ -57,7 +65,12 @@ function harness() {
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
     ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', '../pixiv-batch/download-profiles.js', 'alt-profiles.js'].forEach(name => load(alt + name));
     context.PixivBatch.queueTypes = context.altQueueTypes();
-    context.storeSet = (_, value) => writes.push(JSON.parse(value));
+    context.storeSet = (key, value) => {
+        saved.set(key, value);
+        if (key !== 'pixiv_download_profile_id') writes.push(JSON.parse(value));
+    };
+    context.storeGet = key => saved.get(key);
+    context.flushServerState = async () => {};
     vm.runInContext('isAdmin = true', context);
     const dispatchSlots = () => events.dispatchEvent({type: 'pixivbatch:slotsrendered'});
     const activation = () => {
@@ -85,11 +98,11 @@ function harness() {
         load('pixivdownload-plugin-translation/src/main/resources/static/pixiv-translation/download-novel-translate-settings-slot.js');
         return owner;
     };
-    return {context, document, events, writes, load, dispatchSlots, mountNovel, mountAi,
+    return {context, document, events, writes, saved, catalog: () => catalog, load, dispatchSlots, mountNovel, mountAi,
         input: id => document.getElementById(id)};
 }
 
-test('获取与下载列表共用筛选及设置抽屉，切换分区保留草稿并共享下载偏好', async () => {
+test('统一设置保留分区输入，筛选即时生效且与下载参数一起保存和恢复方案', async () => {
     const h = harness();
     const {context, document} = h;
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
@@ -111,31 +124,64 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     context.bindDockToggle();
     click(document.getElementById('abQueueSettingsBtn'));
     assert.equal(drawer.open, true);
-    assert.equal(drawer.querySelector('.ab-settings').hidden, false);
-    assert.equal(drawer.querySelector('.ab-filters').hidden, true);
+    assert.equal(drawer.querySelector('.ab-settings').hidden, true);
+    assert.equal(drawer.querySelector('.ab-filters').hidden, false);
+    assert.equal(document.getElementById('abQueueFilterBtn'), null);
+    const profiles = drawer.querySelector('.download-profiles');
+    assert.ok(profiles && !profiles.closest('.ab-settings') && !profiles.closest('.ab-filters'));
+    const sections = drawer.querySelector('.ab-download-sections').querySelectorAll('button');
+    click(sections[1]);
     const interval = drawer.querySelector('.ab-settings').querySelectorAll('input').find(input => input.type === 'number');
     interval.value = '7';
     interval.dispatchEvent({type: 'change'});
     assert.equal(h.writes.at(-1).interval, 7);
-    const sections = drawer.querySelector('.ab-download-options').children[0].querySelectorAll('button');
     click(sections[0]);
     const tags = drawer.querySelector('[data-filter-field="tagsExact"]');
     tags.value = 'cat';
+    tags.dispatchEvent({type: 'change'});
+    assert.equal(h.writes.at(-1).tagsExact[0], 'cat');
+    assert.equal(drawer.open, true, '修改筛选不关闭设置');
     click(sections[1]);
     click(sections[0]);
     assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]'), tags);
     assert.equal(tags.value, 'cat');
     assert.equal(mounts, 1, '切换分区不重建贡献控件或其监听器');
-    click(drawer.querySelector('.ab-drawer-actions').children[1]);
+    context.abPrompt = async () => 'Daily';
+    context.abConfirm = async () => true;
+    await new Promise(resolve => setImmediate(resolve));
+    click(profiles.querySelector('[data-i18n="batch:profiles.new"]'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.catalog().profiles[0].filters.tagsExact[0], 'cat');
+    assert.equal(h.catalog().profiles[0].settings.interval, 7);
+    tags.value = 'dog';
+    tags.dispatchEvent({type: 'change'});
+    assert.equal(profiles.querySelector('.download-profiles-modified').hidden, false);
+    click(profiles.querySelector('[data-i18n="batch:profiles.save"]'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.catalog().profiles[0].filters.tagsExact[0], 'dog');
+    assert.equal(profiles.querySelector('.download-profiles-modified').hidden, true);
+    click(drawer.querySelector('.ab-filter-heading').querySelector('.ab-btn'));
+    assert.equal(tags.value, '');
+    assert.equal(context.activeFilterCount(), 0);
+    const select = profiles.querySelector('select');
+    select.value = h.catalog().profiles[0].id;
+    select.focus();
+    select.dispatchEvent({type: 'change'});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]').value, 'dog');
+    assert.equal(drawer.querySelector('.ab-filters').hidden, false, '应用方案保留当前分区');
+    assert.equal(drawer.querySelector('.download-profiles'), profiles, '应用方案不重建方案入口');
+    assert.equal(document.activeElement, select);
+    click(drawer.querySelector('.ab-drawer-actions').children[0]);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(drawer.open, false);
-    assert.equal(context.evaluateDownloadFilterSkip({tags: ['dog']}, 'illust') !== null, true);
-    const queueBadge = document.getElementById('abQueueFilterBtn').querySelector('[data-filter-badge]');
+    assert.equal(context.evaluateDownloadFilterSkip({tags: ['cat']}, 'illust') !== null, true);
+    const queueBadge = document.getElementById('abQueueSettingsBtn').querySelector('[data-filter-badge]');
     assert.equal(queueBadge.textContent, '1');
     assert.equal(queueBadge.hidden, false);
     vm.runInContext('dockState.open = false', context);
-    click(context.filterButton());
-    assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]').value, 'cat');
+    click(context.settingsButton());
+    assert.equal(drawer.querySelector('[data-filter-field="tagsExact"]').value, 'dog');
     assert.equal(drawer.querySelector('.ab-settings').querySelectorAll('input').find(input => input.type === 'number').value, '7');
     const card = document.createElement('div');
     card.id = 'novel-settings-card';
@@ -145,6 +191,90 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     vm.runInContext('dockState.open = true', context);
     context.refreshContributedSettingsVisibility();
     assert.equal(card.style.display, '', '下载列表可设置所有活动作品类型，不受上次获取方式限制');
+});
+
+test('计划草稿即时修改和重置筛选不改手动持久值或运行队列使用的筛选', () => {
+    const h = harness();
+    const {context, document} = h;
+    const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
+    for (const name of ['../pixiv-batch/search-filters.js', 'alt-filters.js']) h.load(alt + name);
+    context.applyFiltersToCurrentMode = async () => {};
+    context.PixivBatch.queueTypes.filtersFor = () => null;
+    vm.runInContext(`
+        extraFilters.tagsExact = ['manual'];
+        saveSearchFilterPrefs(extraFilters);
+        scheduleState.editing = {settings: {...state.settings}, original: {filters: extraFilters}};
+        extraFilters = defaultSearchFilters();
+    `, context);
+    const before = h.saved.get('pixiv_search_filters');
+    const body = context.buildFiltersDrawerBody();
+    document.body.appendChild(body);
+    const tags = body.querySelector('[data-filter-field="tagsExact"]');
+    tags.value = 'draft';
+    tags.dispatchEvent({type: 'change'});
+    assert.equal(vm.runInContext('extraFilters.tagsExact[0]', context), 'draft');
+    assert.equal(h.saved.get('pixiv_search_filters'), before);
+    assert.equal(context.evaluateDownloadFilterSkip({tags: ['manual']}, 'illust'), null);
+    assert.notEqual(context.evaluateDownloadFilterSkip({tags: ['draft']}, 'illust'), null);
+    body.querySelector('.ab-filter-heading').querySelector('.ab-btn').dispatchEvent({type: 'click'});
+    assert.equal(tags.value, '');
+    assert.equal(context.activeFilterCount(), 0);
+    assert.equal(h.saved.get('pixiv_search_filters'), before);
+    assert.notEqual(context.evaluateDownloadFilterSkip({tags: ['draft']}, 'illust'), null);
+});
+
+test('文件名预览跟随输入，变量按需展开，插入和键盘收起保留模板与焦点', () => {
+    const h = harness();
+    const body = h.context.buildSettingsDrawerBody();
+    h.document.body.appendChild(body);
+    const input = body.querySelector('.filename-template-controls').querySelector('input');
+    const preview = body.querySelector('.ab-name-preview');
+    const variables = body.querySelector('.ab-template-variables');
+    assert.equal(!!variables.open, false);
+    const label = body.querySelectorAll('label').find(node => node.htmlFor === input.id);
+    assert.ok(label, '模板标签关联可编辑输入框');
+    assert.ok(input.getAttribute('aria-describedby').split(' ').includes(preview.id));
+    const hint = label.parentElement.querySelector('[role="tooltip"]');
+    const helpButton = label.parentElement.querySelector('button');
+    assert.equal(hint.getAttribute('popover'), 'manual');
+    assert.equal(helpButton.getAttribute('aria-describedby'), hint.id);
+    assert.equal(label.contains(helpButton), false, '说明按钮不参与标签激活');
+    assert.ok(input.getAttribute('aria-describedby').split(' ').includes(hint.firstChild.id));
+    const pathAction = body.querySelector('#s-path-overflow-action');
+    assert.ok(h.document.getElementById(pathAction.getAttribute('aria-describedby')));
+    const before = h.writes.length;
+    input.value = 'draft_{artwork_id}';
+    input.dispatchEvent({type: 'input'});
+    assert.ok(preview.textContent.includes('draft_12345678'));
+    assert.equal(h.writes.length, before, '预览不提前持久化输入');
+    variables.open = true;
+    variables.querySelectorAll('button').find(node => node.title === '{author_id}').dispatchEvent({type: 'click'});
+    assert.equal(h.writes.at(-1).fileNameTemplate, 'draft_{artwork_id}{author_id}');
+    assert.equal(h.document.activeElement, input);
+    let stopped = false;
+    variables.dispatchEvent({type: 'keydown', key: 'Escape', preventDefault() {}, stopPropagation() { stopped = true; }});
+    assert.equal(variables.open, false);
+    assert.equal(stopped, true);
+    assert.equal(h.document.activeElement, variables.querySelector('summary'));
+});
+
+test('历史检查子项随开关展开且收起时保留已选参数', () => {
+    const h = harness();
+    const body = h.context.buildSettingsDrawerBody();
+    h.document.body.appendChild(body);
+    const section = body.querySelectorAll('.ab-settings-section')[1];
+    const dependent = section.querySelector('.ab-settings-dependent');
+    const toggle = section.querySelector('input');
+    toggle.checked = true;
+    toggle.dispatchEvent({type: 'change'});
+    assert.equal(dependent.hidden, false);
+    const verify = dependent.querySelector('input');
+    verify.checked = true;
+    verify.dispatchEvent({type: 'change'});
+    toggle.checked = false;
+    toggle.dispatchEvent({type: 'change'});
+    assert.equal(dependent.hidden, true);
+    assert.equal(h.writes.at(-1).verifyHistoryFiles, true);
 });
 
 test('自动开始下载开关默认关闭，保存后重开恢复，计划编辑和非管理员不显示', () => {
@@ -224,6 +354,8 @@ test('AI 贡献自行挂载并持久化，仅管理员可改，撤回不清空�
     assert.equal(h.input('s-novel-auto-translate'), null);
     const listeners = h.events.listenerCount('pixivbatch:slotsrendered');
     const owner = h.mountAi();
+    assert.ok(h.input('s-novel-merge-format-hint').closest('[role="tooltip"]'));
+    assert.ok(h.input('s-novel-translate-hint').closest('[role="tooltip"]'));
     assert.equal(h.events.listenerCount('pixivbatch:slotsrendered'), listeners + 1);
     const toggle = h.input('s-novel-auto-translate');
     toggle.checked = true;

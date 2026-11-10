@@ -6,7 +6,7 @@
 let extraFilters = defaultSearchFilters();
 
 function saveSearchFilterPrefs(filters) {
-        window.PixivDownloadProfiles?.refresh();
+    window.PixivDownloadProfiles?.refresh();
     if (scheduleState.editing) return;
     storeSet('pixiv_search_filters', JSON.stringify({
         content: filters.content,
@@ -166,8 +166,10 @@ function evaluateTypeExtraSkip(meta, filters, kind) {
 /* ============================================================
    筛选抽屉 UI
    ============================================================ */
-function filterSegment(name, options, current) {
+function filterSegment(name, options, current, label) {
     const wrap = el('div', 'ab-seg');
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', label);
     options.forEach(opt => {
         const btn = el('button', 'ab-seg-item' + (current === opt.value ? ' is-active' : ''));
         btn.type = 'button';
@@ -181,6 +183,7 @@ function filterSegment(name, options, current) {
             });
             btn.classList.add('is-active');
             btn.setAttribute('aria-pressed', 'true');
+            wrap.dispatchEvent(new Event('change', {bubbles: true}));
         });
         wrap.appendChild(btn);
     });
@@ -190,12 +193,13 @@ function filterSegment(name, options, current) {
 
 function filterNumberField(labelText, minKey, maxKey, minVal, maxVal) {
     const group = el('div', 'ab-field');
-    const label = el('label', 'ab-field-label', labelText);
+    const label = el('div', 'ab-field-label', labelText);
     const row = el('div', 'ab-range-row');
     const minInput = el('input', 'ab-input');
     minInput.type = 'number';
     minInput.min = '0';
     minInput.placeholder = bt('filters.range.min', '最少');
+    minInput.setAttribute('aria-label', labelText + ' · ' + minInput.placeholder);
     minInput.value = minVal ?? '';
     minInput.dataset.filterField = minKey;
     const dash = el('span', 'ab-range-dash', '—');
@@ -203,6 +207,7 @@ function filterNumberField(labelText, minKey, maxKey, minVal, maxVal) {
     maxInput.type = 'number';
     maxInput.min = '0';
     maxInput.placeholder = bt('filters.range.max', '最多');
+    maxInput.setAttribute('aria-label', labelText + ' · ' + maxInput.placeholder);
     maxInput.value = maxVal ?? '';
     maxInput.dataset.filterField = maxKey;
     row.appendChild(minInput);
@@ -215,8 +220,11 @@ function filterNumberField(labelText, minKey, maxKey, minVal, maxVal) {
 
 function filterTextField(labelText, key, value, placeholder) {
     const group = el('div', 'ab-field');
-    group.appendChild(el('label', 'ab-field-label', labelText));
+    const label = el('label', 'ab-field-label', labelText);
+    group.appendChild(label);
     const input = el('input', 'ab-input');
+    input.id = 'ab-filter-' + key;
+    label.htmlFor = input.id;
     input.type = 'text';
     input.value = (value || []).join(', ');
     input.placeholder = placeholder;
@@ -254,6 +262,32 @@ function readFiltersDrawer(body) {
 function buildFiltersDrawerBody() {
     const f = extraFilters;
     const body = el('div', 'ab-filters');
+    const heading = el('div', 'ab-filter-heading');
+    heading.appendChild(el('h3', '', () => bt('settings.section.filters', null)));
+    const reset = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('settings.reset-filters', null));
+    reset.type = 'button';
+    reset.addEventListener('click', () => {
+        const defaults = defaultSearchFilters();
+        body.querySelectorAll('[data-filter-field]').forEach(node => {
+            const value = defaults[node.dataset.filterField];
+            if (node.classList.contains('ab-seg')) {
+                node.querySelectorAll('.ab-seg-item').forEach(button => {
+                    const selected = button.dataset.value === value;
+                    button.classList.toggle('is-active', selected);
+                    button.setAttribute('aria-pressed', String(selected));
+                });
+            } else node.value = Array.isArray(value) ? value.join(', ') : value ?? '';
+        });
+        body.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+    heading.appendChild(reset);
+    body.appendChild(heading);
+    body.addEventListener('change', async () => {
+        extraFilters = readFiltersDrawer(body);
+        saveSearchFilterPrefs(extraFilters);
+        syncFilterButtonBadge();
+        await applyFiltersToCurrentMode();
+    });
 
     body.appendChild(el('div', 'ab-field-label', bt('filters.content.title', '内容分级')));
     body.appendChild(filterSegment('content', [
@@ -262,14 +296,14 @@ function buildFiltersDrawerBody() {
         {value: 'r18plus', label: bt('filters.content.r18plus', 'R18+')},
         {value: 'r18', label: 'R-18'},
         {value: 'r18g', label: 'R-18G'}
-    ], f.content));
+    ], f.content, bt('filters.content.title', null)));
 
     body.appendChild(el('div', 'ab-field-label', bt('filters.ai.title', 'AI 作品')));
     body.appendChild(filterSegment('ai', [
         {value: 'all', label: bt('filters.ai.all', '全部')},
         {value: 'exclude', label: bt('filters.ai.exclude', '排除 AI')},
         {value: 'only', label: bt('filters.ai.only', '仅 AI')}
-    ], f.ai));
+    ], f.ai, bt('filters.ai.title', null)));
 
     const illustFields = el('div', 'search-illust-only');
     illustFields.hidden = true;
@@ -279,7 +313,7 @@ function buildFiltersDrawerBody() {
         {value: 'illust', label: bt('filters.type.illust', '插画')},
         {value: 'manga', label: bt('filters.type.manga', '漫画')},
         {value: 'ugoira', label: bt('filters.type.ugoira', '动图')}
-    ], f.type));
+    ], f.type, bt('filters.type.title', null)));
 
     illustFields.appendChild(filterNumberField(bt('filters.pages', '页数'), 'pageMin', 'pageMax', f.pageMin, f.pageMax));
     body.appendChild(illustFields);
@@ -306,38 +340,13 @@ function buildFiltersDrawerBody() {
         bt('filters.tags.placeholder', '逗号分隔，全部命中')));
 
     const note = el('p', 'ab-field-note',
-        bt('filters.note', '预览时实时过滤当前页；实际下载时符合条件的作品才会下载，不符合的会被跳过并显示原因。'));
-    body.appendChild(note);
+        () => bt('filters.note', '预览时实时过滤当前页；实际下载时符合条件的作品才会下载，不符合的会被跳过并显示原因。'));
+    attachSettingsHint(heading.querySelector('h3'), note);
     return body;
 }
 
 function openFiltersDrawer() {
     openDownloadOptionsDrawer('filters');
-}
-
-function buildFiltersDrawerFooter(body) {
-    const footer = el('div', 'ab-drawer-actions');
-    const resetBtn = el('button', 'ab-btn ab-btn--ghost', bt('common.reset', '重置'));
-    resetBtn.type = 'button';
-    resetBtn.addEventListener('click', async () => {
-        extraFilters = defaultSearchFilters();
-        saveSearchFilterPrefs(extraFilters);
-        closeDrawer();
-        await applyFiltersToCurrentMode();
-        syncFilterButtonBadge();
-    });
-    const applyBtn = el('button', 'ab-btn ab-btn--primary', bt('common.apply', '应用筛选'));
-    applyBtn.type = 'button';
-    applyBtn.addEventListener('click', async () => {
-        extraFilters = readFiltersDrawer(body);
-        saveSearchFilterPrefs(extraFilters);
-        closeDrawer();
-        await applyFiltersToCurrentMode();
-        syncFilterButtonBadge();
-    });
-    footer.appendChild(resetBtn);
-    footer.appendChild(applyBtn);
-    return footer;
 }
 
 function activeFilterCount() {

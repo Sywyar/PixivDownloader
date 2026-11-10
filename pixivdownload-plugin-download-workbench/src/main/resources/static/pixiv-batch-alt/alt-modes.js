@@ -213,28 +213,12 @@ function modeHeader(modeDef, actions) {
         if (!hint.hidden) scheduleButton.setAttribute('aria-describedby', hint.id);
         heading.appendChild(hint);
     }
-    if ((actions || []).some(action => action.id === 'abFilterBtn')) {
+    if ((actions || []).some(action => action.id === 'abSettingsBtn')) {
         const filters = el('div', 'ab-active-filters');
         filters.dataset.activeFilters = '1';
         heading.appendChild(filters);
     }
     return heading;
-}
-
-function filterButton(id = 'abFilterBtn') {
-    const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    btn.id = id;
-    btn.type = 'button';
-    btn.appendChild(abIconEl('filter'));
-    const label = el('span', '', () => bt('filters.title', '附加筛选'));
-    label.setAttribute('data-i18n', 'batch-alt:filters.title');
-    btn.appendChild(label);
-    const badge = el('span', 'ab-badge');
-    badge.dataset.filterBadge = '1';
-    badge.hidden = true;
-    btn.appendChild(badge);
-    btn.addEventListener('click', openFiltersDrawer);
-    return btn;
 }
 
 function settingsButton(id = 'abSettingsBtn') {
@@ -245,6 +229,10 @@ function settingsButton(id = 'abSettingsBtn') {
     const label = el('span', '', () => bt('settings.title', '下载设置'));
     label.setAttribute('data-i18n', 'batch-alt:settings.title');
     btn.appendChild(label);
+    const badge = el('span', 'ab-badge');
+    badge.dataset.filterBadge = '1';
+    badge.hidden = true;
+    btn.appendChild(badge);
     btn.addEventListener('click', openSettingsDrawer);
     return btn;
 }

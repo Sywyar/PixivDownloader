@@ -221,22 +221,24 @@ test('新版工作台共享键回退既有 batch 词典，显式 namespace 和�
     assert.equal(c.bt('queue.tag.illust'), c.client.t('batch:queue.tag.illust'));
 });
 
-test('下载区的筛选和设置按钮原位更新语言并保留交互节点', () => {
+test('下载设置入口原位更新语言并保留交互节点和筛选徽标', () => {
     const c = harness();
     c.load('../pixiv-batch/batch-download-defaults.js'); c.load('../pixiv-batch/state-storage.js'); c.load('alt-state.js'); c.load('alt-modes.js');
     c.client = client('zh-CN'); c.run('pageI18n=client');
     c.abIconEl = () => new MiniElement('span');
     const root = new MiniElement('div');
-    const filters = c.filterButton('abQueueFilterBtn');
     const settings = c.settingsButton('abQueueSettingsBtn');
-    root.appendChild(filters); root.appendChild(settings);
+    root.appendChild(settings);
+    const badge = settings.querySelector('[data-filter-badge]');
+    badge.textContent = '2';
+    badge.hidden = false;
     client('en-US').apply(root);
-    assert.equal(filters.querySelector('[data-i18n]').textContent,
-        client('en-US').t('batch-alt:filters.title'));
     assert.equal(settings.querySelector('[data-i18n]').textContent,
         client('en-US').t('batch-alt:settings.title'));
-    assert.equal(root.children[0], filters);
-    assert.equal(root.children[1], settings);
+    assert.equal(root.children[0], settings);
+    assert.equal(settings.querySelector('[data-filter-badge]'), badge);
+    assert.equal(badge.textContent, '2');
+    assert.equal(badge.hidden, false);
 });
 
 test('扩展词典加载与切换语言并发时保留最新语言和扩展 namespace', async () => {

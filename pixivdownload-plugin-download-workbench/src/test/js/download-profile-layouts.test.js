@@ -45,7 +45,8 @@ function harness(layout) {
         read('pixiv-batch-alt/alt-profiles.js');
     }
     function mount() {
-        vm.runInContext(layout === 'classic' ? 'mountDownloadProfiles()' : 'mountAltDownloadProfiles({})', context);
+        vm.runInContext(layout === 'classic' ? 'mountDownloadProfiles()'
+            : 'mountAltDownloadProfiles({querySelector: () => null})', context);
         return adapter;
     }
     function draft(value) {

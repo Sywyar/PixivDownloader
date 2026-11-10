@@ -490,7 +490,7 @@ function bindDockToggle() {
     const toggle = document.getElementById('abDockToggle');
     if (toggle) toggle.addEventListener('click', openDock);
     document.getElementById('abDownloadOptions')?.replaceChildren(
-        filterButton('abQueueFilterBtn'), settingsButton('abQueueSettingsBtn'));
+        settingsButton('abQueueSettingsBtn'));
     syncFilterButtonBadge();
     document.getElementById('abPrepareTab')?.addEventListener('click', () => switchMode(lastAcquisitionMode));
     document.getElementById('abScheduleTab')?.addEventListener('click', () => switchMode('schedule'));

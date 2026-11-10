@@ -1,8 +1,10 @@
 .filename-template-controls {
-    position: relative;
+    display: grid;
+    gap: .625rem;
     flex: 1 1 20rem;
     min-width: 0;
     max-width: 100%;
+    container-type: inline-size;
 }
 .filename-template-controls > input,
 .filename-template-controls > input.ab-input,
@@ -12,32 +14,56 @@
     min-width: 0;
     max-width: 100%;
     margin: 0;
-    padding-inline-end: 2.75rem;
 }
-.filename-template-controls > select,
-.ab-setting-row .filename-template-controls > select {
-    position: absolute;
-    inset-block: 1px;
-    inset-inline-end: 1px;
-    width: 2.25rem;
+.filename-template-presets {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .5rem;
+    min-width: 0;
+}
+.filename-template-presets > select {
+    box-sizing: border-box;
+    width: 100%;
     min-width: 0;
     margin: 0;
-    padding: 0 .5rem;
-    border: 0;
-    background: transparent;
+    padding: .5rem .625rem;
     color: var(--text);
+    background: var(--control-bg);
+    border: 1px solid var(--line-strong, var(--line));
+    border-radius: .5rem;
     font: inherit;
-    appearance: auto;
+    font-size: .8125rem;
+    min-height: var(--layout-control-height, 2.5rem);
+}
+.filename-template-preset-actions { display: flex; gap: .5rem; min-width: 0; }
+.filename-template-presets option { color: var(--text); background: var(--control-bg); }
+.filename-template-preset-actions > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+    min-height: var(--layout-control-height, 2.5rem);
+    padding: .5rem .625rem;
+    border: 1px solid var(--line);
+    border-radius: .5rem;
+    color: var(--text);
+    background: var(--control-muted-bg);
+    font: inherit;
+    font-size: .8125rem;
+    line-height: 1.4;
+    white-space: normal;
     cursor: pointer;
 }
-.filename-template-controls > select:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: -2px;
+.filename-template-preset-actions > button:hover:not(:disabled) { border-color: var(--brand, var(--accent)); }
+.filename-template-presets :is(select, button):disabled { opacity: .5; cursor: default; }
+.filename-template-presets :is(select, button):focus-visible {
+    outline: 2px solid var(--brand, var(--accent));
+    outline-offset: 2px;
 }
-.filename-template-controls > select > option {
-    background: var(--control-bg);
-    color: var(--text);
-}
-.ab-setting-row .filename-template-controls {
-    margin-top: 8px;
+.filename-template-status { grid-column: 1 / -1; margin: 0; color: var(--exp-error, var(--status-red)); font-size: .8125rem; }
+.filename-template-status:empty { display: none; }
+@container (max-width: 28rem) {
+    .filename-template-presets { grid-template-columns: minmax(0, 1fr); }
+    .filename-template-preset-actions { flex-wrap: wrap; }
 }
