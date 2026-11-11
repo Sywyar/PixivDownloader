@@ -15,6 +15,7 @@ public final class PixivAjaxException extends RuntimeException {
      * 状态码。
      */
     private final int statusCode;
+    /** 上游要求的冷却等待毫秒数。 */
     private final long retryAfterMillis;
 
     /**
@@ -27,7 +28,12 @@ public final class PixivAjaxException extends RuntimeException {
         this(failure, statusCode, 0);
     }
 
-    /** @param failure 失败类别 @param statusCode 上游状态 @param retryAfterMillis 上游冷却等待毫秒数 */
+    /**
+     * 创建带上游冷却时间的受控失败。
+     * @param failure 失败类别
+     * @param statusCode 上游状态
+     * @param retryAfterMillis 上游冷却等待毫秒数
+     */
     public PixivAjaxException(PixivAjaxFailure failure, int statusCode, long retryAfterMillis) {
         super(message(failure, statusCode));
         this.retryAfterMillis = Math.max(0, retryAfterMillis);

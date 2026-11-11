@@ -6,7 +6,11 @@ import java.util.Arrays;
 public final class ScheduledCredentialCandidate implements AutoCloseable {
     private final String accountKey;
     private char[] secret;
-    /** @param accountKey 经策略验证的账号 @param secret 临时材料，构造时复制 */
+    /**
+     * 创建计划任务凭据的独立副本。
+     * @param accountKey 经策略验证的账号
+     * @param secret 临时材料，构造时复制
+     */
     public ScheduledCredentialCandidate(String accountKey, char[] secret) {
         this.accountKey = accountKey;
         this.secret = Arrays.copyOf(secret, secret.length);

@@ -290,9 +290,15 @@ public interface ScheduledTaskStore {
 
     /**
      * 原子绑定有序候选，与任务版本 CAS 共用事务。旧存储只接受单项，不能静默丢失备选。
-     * @param taskId 任务 @param expectedStateVersion 版本 @param owner 策略 owner @param policy 策略
-     * @param policyStateJson 策略状态 @param candidates 有序秘密副本 @param reference 不透明引用
-     * @param updatedTime 更新时间 @return 新版本或冲突
+     * @param taskId 任务
+     * @param expectedStateVersion 版本
+     * @param owner 策略 owner
+     * @param policy 策略
+     * @param policyStateJson 策略状态
+     * @param candidates 有序秘密副本
+     * @param reference 不透明引用
+     * @param updatedTime 更新时间
+     * @return 新版本或冲突
      */
     default OptionalLong bindCredentials(long taskId, long expectedStateVersion, String owner, String policy,
             String policyStateJson, List<ScheduledCredentialValue> candidates, String reference, long updatedTime) {
@@ -302,7 +308,13 @@ public interface ScheduledTaskStore {
                 primary.secret(), reference, updatedTime);
     }
 
-    /** @param taskId 任务 @param owner 策略 owner @param policy 策略 @return 有序秘密副本，缺席返回空 */
+    /**
+     * 读取计划任务绑定的有序凭据副本。
+     * @param taskId 任务
+     * @param owner 策略 owner
+     * @param policy 策略
+     * @return 有序秘密副本，缺席返回空
+     */
     default List<ScheduledCredentialValue> findCredentialCandidates(long taskId, String owner, String policy) {
         String secret = findCredentialSecret(taskId, owner, policy);
         return secret == null || secret.isBlank() ? List.of() : List.of(new ScheduledCredentialValue(null, secret));

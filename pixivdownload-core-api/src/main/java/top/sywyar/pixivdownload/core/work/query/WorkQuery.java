@@ -89,6 +89,34 @@ public record WorkQuery(
         Long updatedBefore,
         Long reuploadedFrom,
         Long reuploadedBefore) {
+    /**
+     * 创建使用指定来源时间字段且未设置额外日期范围的查询。
+     * @param workType 作品媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量
+     * @param sort 排序字段
+     * @param order 排序方向
+     * @param search 搜索文本
+     * @param searchType 搜索字段范围
+     * @param r18 年龄分级筛选
+     * @param ai AI 生成标记筛选
+     * @param formats 文件扩展名筛选
+     * @param collectionIds 收藏夹标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 排除的系列标识
+     * @param restriction 访客可见性限制
+     * @param uploadedFrom 所选来源时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param uploadedBefore 所选来源时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param downloadedFrom 下载时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param downloadedBefore 下载时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param sourceTimeField 来源时间字段
+     */
     public WorkQuery(
         WorkType workType,
         int page,
@@ -118,6 +146,33 @@ public record WorkQuery(
         this(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds, tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, null, null, null, null, null, null);
     }
 
+    /**
+     * 创建按上传时间和下载时间筛选的查询。
+     * @param workType 作品媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量
+     * @param sort 排序字段
+     * @param order 排序方向
+     * @param search 搜索文本
+     * @param searchType 搜索字段范围
+     * @param r18 年龄分级筛选
+     * @param ai AI 生成标记筛选
+     * @param formats 文件扩展名筛选
+     * @param collectionIds 收藏夹标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 排除的系列标识
+     * @param restriction 访客可见性限制
+     * @param uploadedFrom 上传时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param uploadedBefore 上传时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param downloadedFrom 下载时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param downloadedBefore 下载时间上界，epoch 毫秒，不含边界；null 表示不限
+     */
     public WorkQuery(WorkType workType,
         int page,
         int size,
@@ -297,14 +352,27 @@ public record WorkQuery(
         excludedSeriesIds = copyOrNull(excludedSeriesIds);
     }
 
-    /** 指定来源时间范围对应的字段，下载时间范围保持独立。 */
+    /**
+     * 指定来源时间范围对应的字段，下载时间范围保持独立。
+     * @param field 来源时间字段
+     * @return 更新字段后的查询
+     */
     public WorkQuery withSourceTimeField(String field) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
                 seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, field, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
     }
 
-    /** 同时设置创建、更新与重新上传时间范围；各维度取交集。 */
+    /**
+     * 同时设置创建、更新与重新上传时间范围；各维度取交集。
+     * @param createdFrom 创建时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param createdBefore 创建时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param updatedFrom 更新时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param updatedBefore 更新时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param reuploadedFrom 重新上传时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param reuploadedBefore 重新上传时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @return 更新日期范围后的查询
+     */
     public WorkQuery withSourceTimeRanges(Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
@@ -361,7 +429,11 @@ public record WorkQuery(
         private Long downloadedBefore;
         private String sourceTimeField = "uploadTime";
 
-        /** 设置来源日期筛选的语义，默认使用上传时间。 */
+        /**
+         * 设置来源日期筛选的语义，默认使用上传时间。
+         * @param field 来源时间字段
+         * @return 当前构建器
+         */
         public Builder sourceTimeField(String field) { this.sourceTimeField = field; return this; }
 
         private Builder(WorkType workType) {
@@ -526,7 +598,16 @@ public record WorkQuery(
             return this;
         }
 
-        /** 设置同时生效的其他来源日期范围。 */
+        /**
+         * 设置同时生效的其他来源日期范围。
+         * @param createdFrom 创建时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param createdBefore 创建时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @param updatedFrom 更新时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param updatedBefore 更新时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @param reuploadedFrom 重新上传时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param reuploadedBefore 重新上传时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @return 当前构建器
+         */
         public Builder sourceTimeRanges(Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
             this.createdFrom = createdFrom;
             this.createdBefore = createdBefore;

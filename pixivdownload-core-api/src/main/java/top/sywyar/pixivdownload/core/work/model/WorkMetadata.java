@@ -64,6 +64,30 @@ public record WorkMetadata(
         Long createTime,
         Long updateTime,
         Long reuploadTime) {
+    /**
+     * 创建未提供来源创建、更新和重新上传时间的元数据视图。
+     * @param workId 作品标识
+     * @param title 标题
+     * @param description 简介，可为 null
+     * @param xRestrict 年龄分级，可为 null
+     * @param isAi AI 生成标记，可为 null
+     * @param authorId 作者标识，可为 null
+     * @param authorName 作者名，可为 null
+     * @param seriesId 系列标识，可为 null
+     * @param seriesOrder 系列内序号，可为 null
+     * @param seriesTitle 系列标题，可为 null
+     * @param tags 作品标签
+     * @param downloadTime 下载记录时间，epoch 毫秒
+     * @param pageCount 本地文件计数
+     * @param extensions 文件扩展名记录
+     * @param folder 作品目录，可为 null
+     * @param moved 本地资产是否已移动
+     * @param moveFolder 移动目标目录，可为 null
+     * @param moveTime 移动时间，epoch 毫秒，可为 null
+     * @param fileNameTemplateRef 文件名模板引用，可为 null
+     * @param uploadTime 来源上传时间，epoch 毫秒，可为 null
+     * @param isOriginal 原创标记，可为 null
+     */
     public WorkMetadata(long workId,
         String title,
         String description,
