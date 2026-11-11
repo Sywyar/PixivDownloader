@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import top.sywyar.pixivdownload.common.InstanceCookies;
 import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
@@ -160,9 +161,9 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return false;
         }
         for (Cookie cookie : cookies) {
-            if (SESSION_COOKIE.equals(cookie.getName())
-                    || AuthFilter.INVITE_COOKIE.equals(cookie.getName())
-                    || VISITOR_COOKIE.equals(cookie.getName())) {
+            if (InstanceCookies.name(request, SESSION_COOKIE).equals(cookie.getName())
+                    || InstanceCookies.name(request, AuthFilter.INVITE_COOKIE).equals(cookie.getName())
+                    || InstanceCookies.name(request, VISITOR_COOKIE).equals(cookie.getName())) {
                 return true;
             }
         }

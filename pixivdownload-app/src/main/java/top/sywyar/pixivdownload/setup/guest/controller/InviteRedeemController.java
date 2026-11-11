@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.common.InstanceCookies;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
@@ -31,7 +32,7 @@ public class InviteRedeemController {
         String code = validate(body.code());
         String token = guestInviteService.redeem(code).orElseThrow(() -> new LocalizedException(
                 HttpStatus.UNAUTHORIZED, "guest.invite.code.invalid", null));
-        ResponseCookie cookie = ResponseCookie.from(AuthFilter.INVITE_COOKIE, token)
+        ResponseCookie cookie = ResponseCookie.from(InstanceCookies.name(request, AuthFilter.INVITE_COOKIE), token)
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
         String redirect = landingRegistry.resolve(Audience.INVITED_GUEST).orElse("/login.html?inviteError=1");
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString()).body(new RedeemResponse(true, redirect));

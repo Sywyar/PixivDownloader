@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.common.InstanceCookies;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
@@ -64,7 +65,7 @@ public class ArchiveController {
 
         ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.ok();
         if (existingUuid == null) {
-            responseBuilder.header(HttpHeaders.SET_COOKIE, buildUuidCookie(uuid).toString());
+            responseBuilder.header(HttpHeaders.SET_COOKIE, buildUuidCookie(request, uuid).toString());
         }
 
         return responseBuilder.body(new QuotaInitResponse(
@@ -242,8 +243,8 @@ public class ArchiveController {
 
     // ---- Cookie 工具 ---------------------------------------------------------------
 
-    private ResponseCookie buildUuidCookie(String uuid) {
-        return ResponseCookie.from("pixiv_user_id", uuid)
+    private ResponseCookie buildUuidCookie(HttpServletRequest request, String uuid) {
+        return ResponseCookie.from(InstanceCookies.name(request, "pixiv_user_id"), uuid)
                 .path("/")
                 .maxAge(Duration.ofDays(30))
                 .sameSite("Strict")

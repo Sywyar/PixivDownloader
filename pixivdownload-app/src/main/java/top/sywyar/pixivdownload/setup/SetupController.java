@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.common.InstanceCookies;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.ProxyConfig;
@@ -146,12 +147,12 @@ public class SetupController {
         if (!setupService.checkLogin(request.getUsername(), request.getPassword()))
             throw new LocalizedException(HttpStatus.UNAUTHORIZED, "setup.login.invalid-credentials", "Invalid username or password");
         revokeInviteSession(httpRequest);
-        return createLoginSession(request);
+        return createLoginSession(request, httpRequest);
     }
 
-    private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request) throws IOException {
+    private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request, HttpServletRequest httpRequest) throws IOException {
         String token = setupService.createSession(request.isRememberMe());
-        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from("pixiv_session", token)
+        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(InstanceCookies.name(httpRequest, "pixiv_session"), token)
                 .path("/")
                 .httpOnly(true)
                 .secure(sslEnabled)
@@ -163,7 +164,7 @@ public class SetupController {
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
+                .header(HttpHeaders.SET_COOKIE, clearedInviteCookie(httpRequest))
                 .body(new AuthResponse(true));
     }
 
@@ -172,13 +173,13 @@ public class SetupController {
         if (GuestInviteSession.isGuestRequest(request)) {
             revokeInviteSession(request);
             return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
+                    .header(HttpHeaders.SET_COOKIE, clearedInviteCookie(request))
                     .body(new AuthResponse(true));
         }
         String token = SessionUtils.extractToken(request);
         setupService.removeSession(token);
 
-        ResponseCookie cookie = ResponseCookie.from("pixiv_session", "")
+        ResponseCookie cookie = ResponseCookie.from(InstanceCookies.name(request, "pixiv_session"), "")
                 .path("/")
                 .httpOnly(true)
                 .secure(sslEnabled)
@@ -196,14 +197,14 @@ public class SetupController {
         return new AuthCheckResponse(setupService.isAdminLoggedIn(request));
     }
 
-    private String clearedInviteCookie() {
-        return ResponseCookie.from(AuthFilter.INVITE_COOKIE, "")
+    private String clearedInviteCookie(HttpServletRequest request) {
+        return ResponseCookie.from(InstanceCookies.name(request, AuthFilter.INVITE_COOKIE), "")
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build().toString();
     }
 
     private void revokeInviteSession(HttpServletRequest request) {
         if (request.getCookies() != null) for (var cookie : request.getCookies())
-            if (GuestInviteSession.COOKIE_NAME.equals(cookie.getName())) invites.revokeSession(cookie.getValue());
+            if (InstanceCookies.name(request, GuestInviteSession.COOKIE_NAME).equals(cookie.getName())) invites.revokeSession(cookie.getValue());
     }
 
     private static String safeMessage(Throwable e) {
