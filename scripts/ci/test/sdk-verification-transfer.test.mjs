@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -63,7 +63,7 @@ test('页面验收的冻结产物参数保留完整、分组、发布恢复及�
                         ? 'PixivDownload-fixture-boot.jar' : `${path.basename(path.dirname(directory))}-0.0.0-fixture.jar`],
             };
             assert.throws(() => vm.runInNewContext(source, {
-                path, fs: fixtureFs, fileURLToPath, parseArgs, createHash, assert,
+                path, fs: fixtureFs, fileURLToPath, parseArgs, createHash, randomBytes, assert,
                 process: {...process, argv: [process.execPath, entry, path.join(root, 'target/page-fixture'), ...mode, ...inputs]},
                 createRequire: () => ({resolve: () => 'typescript/bin/tsc'}),
                 spawnSync(command, args) {
@@ -120,7 +120,7 @@ test('页面恢复比较接受无序端点集合，仍拒绝成员、字段及�
         if (change) change(after.configuration.requirements[0]);
         let current = JSON.stringify({file: 'before.json', digest: 'valid'}), invocations = 0, recovery = false;
         const stop = new Error('External acceptance boundary reached');
-        const context = vm.createContext({path, fileURLToPath, parseArgs, createHash, assert,
+        const context = vm.createContext({path, fileURLToPath, parseArgs, createHash, randomBytes, assert,
             process: {...process, argv: [process.execPath, entry, path.join(root, 'target/page-recovery-fixture')]},
             console: {log() {}}, fs: {existsSync: () => false, mkdirSync() {}, copyFileSync() {}, appendFileSync() {},
                 readdirSync: () => { if (!recovery) throw stop; return ['before.json']; },

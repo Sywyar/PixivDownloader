@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {createHash} from 'node:crypto';
+import {createHash, randomBytes} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
@@ -20,6 +20,9 @@ const captcha = positionals[0] && !phase ? path.resolve(positionals[0]) : null;
 const frozenInputs = values['frozen-inputs'] ? path.resolve(values['frozen-inputs']) : undefined;
 assert.ok(destination.startsWith(path.join(repo, 'target') + path.sep) && !fs.existsSync(destination), 'Use a new target directory');
 fs.mkdirSync(destination, {recursive: true});
+const credentialKeyFile = path.join(destination, 'credential-protection.key');
+fs.writeFileSync(credentialKeyFile, randomBytes(32).toString('base64'), {mode: 0o600, flag: 'wx'});
+const environment = {...process.env, PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE: credentialKeyFile};
 const frozen = {};
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function copy(source, target) {
@@ -38,7 +41,7 @@ function artifact(module) {
     return path.join(directory, files[0]);
 }
 function run(command, args, cwd = repo) {
-    const result = spawnSync(command, args, {cwd, stdio: 'inherit', windowsHide: true});
+    const result = spawnSync(command, args, {cwd, env: environment, stdio: 'inherit', windowsHide: true});
     assert.equal(result.status, 0, command + ' failed: ' + (result.error?.message || result.status));
 }
 copy(artifact('pixivdownload-app'), path.join(destination, 'host.jar'));
@@ -77,7 +80,7 @@ function verifyRecoveryCli() {
         ...['config', 'data', 'state', 'instance', 'plugins'].map(kind => '-Dpixivdownload.' + kind + '-dir=' + path.join(root, kind)),
         '-jar', path.join(destination, 'host.jar'), '--no-gui', '--web-publications'];
     function invoke(extra = [], status = 0) {
-        const result = spawnSync('java', [...args, ...extra], {cwd: repo, encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024});
+        const result = spawnSync('java', [...args, ...extra], {cwd: repo, env: environment, encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024});
         fs.appendFileSync(path.join(destination, 'recovery-cli.log'), result.stdout + result.stderr);
         assert.equal(result.status, status, 'real recovery CLI exit');
         return result.stdout;
