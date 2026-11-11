@@ -40,9 +40,11 @@
 | `novel` 外掛 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 取得小說正文、系列（回應上限 1 MiB）、作者小說、收藏、搜尋結果及下載後自動收藏；預覽後緊接的下載，會透過綁定 owner 與憑證的 256 KiB 短期一次性票據，重用已驗證回應 | 小說預覽、合訂、搜尋、排程工作時觸發；停用 `novel` 外掛即停止 |
 | 應用程式宿主（共用圖片傳輸） | HTTPS `*.pximg.net`（縮圖另允許 `embed.pixiv.net`） | 下載原圖、封面、縮圖、Ugoira ZIP 與小說內嵌圖（最多 512 個對應），攜帶 Pixiv Referer；非 2xx 不緩衝錯誤正文 | 下載作品、產生封面/縮圖或小說檔案時觸發 |
 | 根目錄使用者腳本 | `https://www.pixiv.net/ajax/**`、`*.pximg.net`；設定的後端位址（程式預設 `http://localhost:6999`；從後端安裝的腳本採用安裝位址，已儲存的使用者設定優先） | 在 Pixiv 頁面透過瀏覽器登入狀態讀取作品或進行本地下載；向後端呼叫下載、佇列、收藏夾、小說狀態、`/api/i18n/meta`（3 秒逾時）與工具箱工作階段/Cookie 同步介面（不將 Pixiv Cookie 傳送至小說票據介面） | 在 Pixiv 頁面操作腳本時，由瀏覽器/腳本管理器直接連線；停用腳本即可停止 |
-| `pixiv-batch-downloader-import` 外掛與腳本 | 本機 `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import`、`/api/pixiv-batch-downloader-import/history`；瀏覽器同源 `/ajax/illust/{id}`、`/ajax/novel/{id}`；桌面歷史匯入經宿主請求 `https://www.pixiv.net/ajax/{illust,novel}/{id}`；腳本更新來源 | 自動匯入將本機檔案路徑與中繼資料傳送至 solo 迴路服務；瀏覽器歷史匯入在瀏覽器內用同源 Cookie 取回中繼資料，再交本機核驗；桌面歷史匯入使用使用者可選擇填寫的單次 Cookie 取得中繼資料。均不上傳原作品檔案 | 僅在安裝啟用此外掛及腳本，或主動執行歷史匯入時觸發；停用腳本/外掛或取消任務即停止 |
+| `pixiv-batch-downloader-import` 外掛與腳本 | 本機 `/api/pixiv-batch-downloader-import/token`, `/api/pixiv-batch-downloader-import`, `/api/pixiv-batch-downloader-import/history`; 腳本更新來源 | 即時自動匯入沿用 PixivBatchDownloader 下載事件中的中繼資料，將本機檔案路徑與中繼資料傳送至 solo 迴路服務。瀏覽器與桌面歷史匯入僅驗證本地紀錄與原始檔案，不請求 Pixiv 中繼資料、不使用 Pixiv Cookie，也不上傳原始檔案。歷史匯入完成後，可在 GUI 確認啟動宿主資料回填 | 自動匯入由下載觸發；歷史匯入由使用者啟動，結束後不會自行啟動回填。停用腳本/外掛或取消任務即停止對應匯入 |
 
 此外，透過 SDK `DownloadTasks.submit` 或管理員 `POST /api/download/tasks` 提交任務時，同樣會呼叫對應外掛取得中繼資料與媒體；工作台在可見時每 2 秒輪詢同源 `GET /api/download/tasks`（終止狀態保留 5 分鐘）。
+
+多 Cookie 只對明確失效或上游 HTTP 401、429 依選擇順序嘗試，每次請求每項最多一次。429 按帳號冷卻至少 30 秒，並遵守更長的 Retry-After；一次中繼資料請求的候選共用 60 秒期限，媒體請求共用 600 秒期限。公開作品讀取可換帳號，帳號私有來源只使用首選帳號的候選，收藏寫入不切換或重播。403、404、驗證挑戰、網路錯誤、5xx 和本機限流不觸發換號。取消、插件停用和風險保護優先；沿用原代理，不增加輪詢或第三方服務，帶憑證請求不跟隨重新導向。
 
 ## 第三方與選用功能外掛
 

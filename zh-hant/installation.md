@@ -5,15 +5,15 @@
 | 使用情境 | 發行包 | 額外準備 |
 | --- | --- | --- |
 | Windows x64 桌面 | `*-win-x64-setup.exe` | 內建 JRE；依需求安裝 FFmpeg |
-| Windows / Linux / macOS 執行 Java | `*-java.zip` | Java 17+；依需求安裝 FFmpeg |
-| 預置選用資料庫、匯入與驗證碼等官方外掛 | `*-full-offline.zip` | Java 17+；依需求安裝 FFmpeg |
+| Windows / Linux / macOS 執行 Java | `*-java.zip` | Java 25+；依需求安裝 FFmpeg |
+| 預置選用資料庫、匯入與驗證碼等官方外掛 | `*-full-offline.zip` | Java 25+；依需求安裝 FFmpeg |
 | Docker 常駐服務 | 使用儲存庫 `Dockerfile` 與完整 Java 發行目錄建置 | Docker Engine、Compose、可寫入掛載目錄 |
 
 Java 標準包與 Windows 安裝包預置預設官方外掛集合；離線完整包額外包含 `database-postgresql`、`pixiv-batch-downloader-import` 等依需求使用的官方外掛。兩種 Java 套件均不含 JRE、FFmpeg 或第三方 `douyin` 外掛；「離線完整」指預置官方選用外掛，存取 Pixiv、線上 AI 或線上 TTS 仍需網路。
 
 ## 方式一：Java 標準包 / 離線完整包
 
-1. 安裝 Java 17 或更高版本（Windows 可從 [Adoptium](https://adoptium.net/) 下載，macOS 可用 `brew install openjdk@17`，Debian/Ubuntu 可用 `sudo apt install openjdk-17-jdk`，Fedora 可用 `sudo dnf install java-17-openjdk`），並驗證版本：
+1. 安裝 Java 25，可從 [Adoptium](https://adoptium.net/) 選擇適合作業系統與架構的安裝套件，然後驗證版本：
 
    ```bash
    java -version
@@ -66,7 +66,7 @@ nohup java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui > app.log 2>&1 &
 
 ## 方式三：Docker 部署
 
-儲存庫 `Dockerfile` 使用已簽署的完整 Java 發行目錄建置映像檔（映像檔內含 Java 17、FFmpeg 和 curl）。
+儲存庫 `Dockerfile` 使用已簽署的完整 Java 發行目錄建置映像檔（映像檔內含 Java 25、FFmpeg 和 curl）。
 
 1. 將 `*-java.zip` 或 `*-full-offline.zip` 完整解壓縮至儲存庫 `build/dist/default-downloader/`，確認該目錄直接包含主程式 JAR、`plugins/`、`plugins-manifest.json` 和 `SHA256SUMS`，隨後建置映像檔：
 

@@ -5,15 +5,15 @@
 | 사용 환경 | 배포 패키지 | 추가 준비 |
 | --- | --- | --- |
 | Windows x64 데스크톱 | `*-win-x64-setup.exe` | JRE 내장. 필요하면 FFmpeg 설치 |
-| Windows / Linux / macOS에서 Java 실행 | `*-java.zip` | Java 17+. 필요하면 FFmpeg 설치 |
-| 선택적 데이터베이스, 가져오기, CAPTCHA 등 공식 플러그인 사전 설치 | `*-full-offline.zip` | Java 17+. 필요하면 FFmpeg 설치 |
+| Windows / Linux / macOS에서 Java 실행 | `*-java.zip` | Java 25+. 필요하면 FFmpeg 설치 |
+| 선택적 데이터베이스, 가져오기, CAPTCHA 등 공식 플러그인 사전 설치 | `*-full-offline.zip` | Java 25+. 필요하면 FFmpeg 설치 |
 | Docker 상시 서비스 | 저장소의 `Dockerfile`과 완전한 Java 배포 폴더로 빌드 | Docker Engine, Compose, 쓰기 가능한 마운트 폴더 |
 
 Java 표준 패키지와 Windows 설치 패키지에는 기본 공식 플러그인 모음이 포함됩니다. 오프라인 전체 패키지에는 `database-postgresql`, `pixiv-batch-downloader-import` 등 필요에 따라 사용하는 공식 플러그인도 포함됩니다. 두 Java 패키지 모두 JRE, FFmpeg와 서드파티 `douyin` 플러그인은 포함하지 않습니다. '오프라인 전체'는 선택적 공식 플러그인이 미리 포함되었다는 뜻이며 Pixiv, 온라인 AI나 온라인 TTS에 접근하려면 여전히 네트워크가 필요합니다.
 
 ## 방법 1: Java 표준 패키지 / 오프라인 전체 패키지
 
-1. Java 17 이상을 설치합니다. Windows는 [Adoptium](https://adoptium.net/), macOS는 `brew install openjdk@17`, Debian/Ubuntu는 `sudo apt install openjdk-17-jdk`, Fedora는 `sudo dnf install java-17-openjdk`를 이용할 수 있습니다. 버전을 확인하세요.
+1. Java 25를 설치합니다. [Adoptium](https://adoptium.net/)에서 운영 체제와 아키텍처에 맞는 패키지를 선택한 뒤 버전을 확인하세요.
 
    ```bash
    java -version
@@ -66,7 +66,7 @@ nohup java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui > app.log 2>&1 &
 
 ## 방법 3: Docker 배포
 
-저장소의 `Dockerfile`은 서명된 완전한 Java 배포 폴더로 이미지를 빌드합니다. 이미지에는 Java 17, FFmpeg와 curl이 포함됩니다.
+저장소의 `Dockerfile`은 서명된 완전한 Java 배포 폴더로 이미지를 빌드합니다. 이미지에는 Java 25, FFmpeg와 curl이 포함됩니다.
 
 1. `*-java.zip` 또는 `*-full-offline.zip`의 압축을 저장소의 `build/dist/default-downloader/`에 모두 풉니다. 해당 폴더 바로 아래에 주 프로그램 JAR, `plugins/`, `plugins-manifest.json`과 `SHA256SUMS`가 있는지 확인하고 이미지를 빌드합니다.
 

@@ -5,15 +5,15 @@ Choose a distribution for your environment from [Releases](https://github.com/Sy
 | Use case | Distribution | Additional requirements |
 | --- | --- | --- |
 | Windows x64 desktop | `*-win-x64-setup.exe` | Bundled JRE; install FFmpeg if needed |
-| Run Java on Windows / Linux / macOS | `*-java.zip` | Java 17+; install FFmpeg if needed |
-| Preinstall optional official plugins for databases, import, CAPTCHA and more | `*-full-offline.zip` | Java 17+; install FFmpeg if needed |
+| Run Java on Windows / Linux / macOS | `*-java.zip` | Java 25+; install FFmpeg if needed |
+| Preinstall optional official plugins for databases, import, CAPTCHA and more | `*-full-offline.zip` | Java 25+; install FFmpeg if needed |
 | Persistent Docker service | Build with the repository's `Dockerfile` and a complete Java distribution directory | Docker Engine, Compose and writable mounted directories |
 
 The standard Java package and Windows installer include the default official plugin set. The full-offline package also includes on-demand official plugins such as `database-postgresql` and `pixiv-batch-downloader-import`. Neither Java package includes a JRE, FFmpeg or the third-party `douyin` plugin. Full-offline means that optional official plugins are preinstalled; Pixiv, online AI and online TTS still require network access.
 
 ## Method 1: standard Java package / full-offline package
 
-1. Install Java 17 or later. On Windows, download it from [Adoptium](https://adoptium.net/); on macOS, use `brew install openjdk@17`; on Debian/Ubuntu, use `sudo apt install openjdk-17-jdk`; on Fedora, use `sudo dnf install java-17-openjdk`. Check the version:
+1. Install Java 25. Select a package for your operating system and architecture from [Adoptium](https://adoptium.net/), then check the version:
 
    ```bash
    java -version
@@ -66,7 +66,7 @@ If the installer detects a running `PixivDownload.exe`, it asks you to close it 
 
 ## Method 3: Docker deployment
 
-The repository's `Dockerfile` builds an image from a signed, complete Java distribution directory. The image includes Java 17, FFmpeg and curl.
+The repository's `Dockerfile` builds an image from a signed, complete Java distribution directory. The image includes Java 25, FFmpeg and curl.
 
 1. Extract the complete `*-java.zip` or `*-full-offline.zip` into the repository's `build/dist/default-downloader/`. Confirm that this directory directly contains the application JAR, `plugins/`, `plugins-manifest.json` and `SHA256SUMS`, then build the image:
 

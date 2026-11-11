@@ -1,6 +1,12 @@
 # 서드파티 플러그인 SDK
 
-서드파티 플러그인은 SDK 개발 패키지의 독립 프로젝트 템플릿에서 시작합니다. JDK 17, Node.js 및 패키지에 포함된 빌드 도구와 실행 매니페스트만 있으면 되며 주 저장소를 복제할 필요가 없습니다.
+서드파티 플러그인은 SDK 개발 패키지의 독립 프로젝트 템플릿에서 시작합니다. JDK 25, Node.js 및 패키지에 포함된 빌드 도구와 실행 매니페스트만 있으면 되며 주 저장소를 복제할 필요가 없습니다.
+
+SDK 2.x는 JDK 25, Spring Framework 7, Servlet 6.1, Jackson 3를 사용하며 Spring Boot 4 호스트에 대응합니다. SDK 1.x 플러그인은 설치 또는 시작 검사에서 거부됩니다. `plugin.requires`만 변경해서는 업그레이드할 수 없으며 새 인터페이스에 맞게 수정한 뒤 다시 컴파일해야 합니다.
+
+SDK 1.x에서 이전할 때 `PluginDataSource`를 `PluginDatabase`로, SQL 문자열을 `TableSpec.check`의 중립 표현식으로, `DesktopUiHost.resolveDatabasePath`를 데이터베이스 대상 계약으로 바꾸세요. 리소스 bundle에는 `LocaleBundlePolicy`를 명시해야 합니다. 취득 자격 증명은 `X-Acquisition-Credential`을 사용하고 예약 작업 자격 증명의 연결/해제는 공통 `POST` / `DELETE /api/schedule/tasks/{id}/credential`을 사용합니다. 해당 API의 활성화 토큰 및 권한 요구 사항도 충족해야 합니다. Jackson 데이터 바인딩 클래스는 `tools.jackson.*`로 이동하지만 어노테이션은 `com.fasterxml.jackson.annotation`을 유지합니다. Spring 헤더를 Map으로 다룰 때는 `HttpHeaders.asMultiValueMap()`을 사용하세요.
+
+`ScheduleTaskView`에서 `type`, `lastStatus`, `lastMessage`, `runStartedTime`, `pendingRetryArmed`가 제거되었습니다. 소스는 `sourceType`, 실행 상태는 `runState`, 결과는 `lastOutcome`, 일시 중단 상태는 `suspendReason` / `suspendCode`에서 읽으세요. 결과 메시지는 `outcomeCode` / `outcomeMessage`, 최근 실행 시각은 `lastRunTime`을 사용합니다.
 
 | 개발 작업 | 관련 절 |
 | --- | --- |
@@ -24,7 +30,7 @@ PixivDownloader와 공식 플러그인은 [AGPL-3.0](https://github.com/Sywyar/P
 
 - **실행 모드 및 신뢰 경계**: `declarative-process`는 별도 worker JVM에서 리소스와 프로토콜을 격리하고 `host-process-full-trust`는 호스트 JVM에서 실행됩니다. 둘 다 현재 OS 계정을 공유하므로 운영체제 수준의 보안 샌드박스가 아닙니다. Ed25519 서명은 게시자 신원과 바이트 무결성만 증명합니다. 설치 전에는 여전히 작성자와 소스를 신뢰해야 합니다([플러그인 관리](/ko/plugin-management) 참고).
 - **컴파일 의존성 방향**: 서드파티 플러그인은 단일 `pixivdownload-sdk`(`provided`) 의존성을 선언합니다. 이를 통해 `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, `pixivdownload-core-api` 및 호스트가 제공하는 PF4J, Spring, Servlet, Jackson 컴파일 의존성을 전달받습니다. 세 API 모듈과 BOM을 별도로 사용할 수도 있습니다. **`pixivdownload-app`, 호스트 내부 구현 클래스, 공식 플러그인 전용 클래스, 호스트 `DataSource` 또는 비공개 프런트엔드 전역 변수에 의존해서는 안 됩니다.**
-- **기능 제공 및 부재 시 처리**: 플러그인은 `PixivFeaturePlugin`으로 기능을 제공하고 `PixivPluginProvider.configurationClasses()`로 독립 Spring 자식 컨텍스트 설정 클래스를 선언합니다. 비활성화, 제거 또는 세대 교체 시 호스트는 publication별로 라우트, 정적 리소스, i18n, 탐색 항목, 다운로드 유형, 대기열과 예약 기능을 철회합니다. 호출자는 기능 부재를 처리해야 하며 null 포인터나 미완성 작업을 남겨서는 안 됩니다.
+- **기능 제공 및 부재 시 처리**: 플러그인은 `PixivFeaturePlugin`으로 기능을 제공하고 `plugin.properties` / `pixiv.configuration-classes`로 독립 Spring 자식 컨텍스트 설정 클래스를 선언합니다. 비활성화, 제거 또는 세대 교체 시 호스트는 publication별로 라우트, 정적 리소스, i18n, 탐색 항목, 다운로드 유형, 대기열과 예약 기능을 철회합니다. 호출자는 기능 부재를 처리해야 하며 null 포인터나 미완성 작업을 남겨서는 안 됩니다.
 - **데스크톱 UI 경계**: 호스트는 `GuiConfigContribution` 등의 툴킷 독립 순수 데이터 계약으로 설정, 안내와 상태를 모읍니다. `gui-compose`(기본값)와 `gui-swing`(대체 UI)이 각각 렌더링하며 기능 플러그인은 Swing / Compose 컴포넌트를 반환하지 않습니다.
 
 ### `PixivFeaturePlugin` 주요 기여 진입점
@@ -70,7 +76,7 @@ JAR 루트에는 `plugin.properties`가 있어야 합니다.
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.3
+plugin.requires=2.0
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -80,12 +86,13 @@ pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
 pixiv.execution-mode=host-process-full-trust
+pixiv.configuration-classes=com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration
 pixiv.lifecycle-policy=process-restart
 ```
 
 - `plugin.id`는 `PixivFeaturePlugin.id()`와 정확히 같아야 합니다. `plugin.requires`는 필요한 SDK 버전을 선언합니다. 안정 버전은 `requiredMajor == hostMajor && requiredMinor <= hostMinor`로 일치 여부를 판단합니다. 프리릴리스는 `alpha.N` / `beta.N` / `rc.N`을 사용하고 정확히 일치해야 합니다.
 - `pixiv.execution-mode`는 필수이며 `declarative-process` 또는 `host-process-full-trust`입니다. `pixiv.lifecycle-policy`는 `hot-reload`(기본값), `backend-restart`, `process-restart`를 선택할 수 있습니다. `pixiv.risk-signals`에는 위험 신호 token을 선언할 수 있습니다.
-- 외부 진입점은 `PixivPluginProvider`를 구현하고 유일한 `PixivFeaturePlugin`과 명시적 `@Bean` 설정 클래스를 반환합니다. 호스트 패키지 스캔에 의존하면 안 됩니다.
+- 외부 진입점은 `PixivPluginProvider`를 구현하고 유일한 `PixivFeaturePlugin`을 반환합니다. Spring 자식 컨텍스트의 명시적 `@Bean` 설정 클래스는 설명자의 `pixiv.configuration-classes`로 선언하며 호스트 패키지 스캔에 의존하면 안 됩니다.
 
 ```java
 public final class ExampleDownloadPf4jPlugin
@@ -93,10 +100,6 @@ public final class ExampleDownloadPf4jPlugin
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
-    }
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
@@ -159,12 +162,12 @@ new NavigationContribution(
 | 플러그인 상태 및 영구 데이터 | `state/{pluginId}/`, `data/{pluginId}/` | `RuntimePathProvider`를 주입하여 `stateDirectory()`, `dataDirectory()` 호출 |
 | 다운로드 작품 파일 | `{rootFolder}/{pluginId}/` 또는 플러그인 사용자 정의 폴더 | `DownloadSettings.getRootFolder()`에서 파생. `state/`나 `data/`에 기록하면 안 됨 |
 
-- **데이터베이스 접근**: 새 플러그인은 `PluginDatabase`를 주입하고 `privateSchema()`와 `privateStorageMigrations()`로 구조를 선언하며 `read(work)` / `transaction(work)`로 SQL 방언에 독립적인 작업을 수행합니다. SQLite와 PostgreSQL을 지원합니다. 주 DB 협업에는 `PluginMainDatabase`를 주입하여 현재 owner의 관리 테이블이나 신청한 `sharedMainStorage()`에 접근합니다. 이전 `PluginDataSource`는 SQLite만 지원합니다.
+- **데이터베이스 접근**: 새 플러그인은 `PluginDatabase`를 주입하고 `privateSchema()`와 `privateStorageMigrations()`로 구조를 선언하며 `read(work)` / `transaction(work)`로 SQL 방언에 독립적인 작업을 수행합니다. SQLite와 PostgreSQL을 지원합니다. 주 DB 협업에는 `PluginMainDatabase`를 주입하여 현재 owner의 관리 테이블이나 신청한 `sharedMainStorage()`에 접근합니다.
 - **아웃바운드 HTTP / WebSocket**: `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`를 주입하여 플러그인 Bean이 소유하고 소멸 시 `close()`하는 클라이언트를 만듭니다. `exchangeStream`이 반환한 응답 스트림은 모든 분기에서 닫아야 합니다. 직접 `HttpClient`, `ProxySelector`를 만들거나 호스트 HTTP 설정 클래스에 의존하면 안 됩니다.
 
 ## 독립 서비스 계약 및 조합
 
-SDK 1.4+는 플러그인 간 타입 서비스를 지원합니다. `typed-service-plugin` 템플릿을 참고하세요.
+SDK 2.x는 플러그인 간 타입 서비스를 지원합니다. `typed-service-plugin` 템플릿을 참고하세요.
 
 - 계약 전달 플러그인은 `pixiv.contract-api`와 `pixiv.contract-sha256`으로 원본 순수 JDK API JAR을 선언하며 `process-restart`를 사용합니다. 제공자는 `serviceExports()`에서 구현을 내보내고 소비자는 `serviceImports()`에서 의존성을 선언하며 `PluginServices`를 주입합니다.
 - `find(key)`, `require(key)`, `findAll(key)` 또는 수명 주기 바인딩 `bind(keys, activation)` / `bindAll(keys, activation)`을 호출하여 정확한 publication에 연결된 프록시를 얻습니다.
@@ -189,7 +192,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 어노테이션으로 고정 HTTP 대상 선언하기
 
-SDK 1.4+에서는 플러그인의 콜백 메서드에 `@HttpHook`을 사용할 수 있습니다. 아래 `StatusObserver`를 플러그인 자식 컨텍스트에 `@Bean`으로 등록하면 호스트가 선언을 발견합니다. 대상 컨트롤러는 수정할 필요가 없습니다. 이 예제는 성공한 로컬 상태 확인 요청을 셉니다. `/api/download/status`는 작품 다운로드 완료를 뜻하지 않습니다.
+SDK 2.x에서는 플러그인의 콜백 메서드에 `@HttpHook`을 사용할 수 있습니다. 아래 `StatusObserver`를 플러그인 자식 컨텍스트에 `@Bean`으로 등록하면 호스트가 선언을 발견합니다. 대상 컨트롤러는 수정할 필요가 없습니다. 이 예제는 성공한 로컬 상태 확인 요청을 셉니다. `/api/download/status`는 작품 다운로드 완료를 뜻하지 않습니다.
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;

@@ -1,6 +1,12 @@
 # Third-party plugin SDK
 
-Start a third-party plugin from an independent project template in the SDK development package. You need only JDK 17, Node.js, and the build tools and runtime manifest included in the package; cloning the main repository is unnecessary.
+Start a third-party plugin from an independent project template in the SDK development package. You need only JDK 25, Node.js, and the build tools and runtime manifest included in the package; cloning the main repository is unnecessary.
+
+SDK 2.x uses JDK 25, Spring Framework 7, Servlet 6.1 and Jackson 3 with a Spring Boot 4 host. SDK 1.x plugins are rejected during installation or startup checks. Changing only `plugin.requires` is insufficient: adapt to the new interfaces and recompile.
+
+When migrating from SDK 1.x, replace `PluginDataSource` with `PluginDatabase`, SQL strings with neutral `TableSpec.check` expressions, and `DesktopUiHost.resolveDatabasePath` with the database-target contract. Supply an explicit `LocaleBundlePolicy` for resource bundles. Use `X-Acquisition-Credential` for acquisition credentials and the general `POST` / `DELETE /api/schedule/tasks/{id}/credential` endpoints to bind/revoke scheduled-task credentials, retaining their activation-token and authorization requirements. Jackson databinding classes move to `tools.jackson.*`; annotations remain in `com.fasterxml.jackson.annotation`. Use `HttpHeaders.asMultiValueMap()` when Spring headers need a Map view.
+
+`ScheduleTaskView` removes `type`, `lastStatus`, `lastMessage`, `runStartedTime` and `pendingRetryArmed`. Read the source from `sourceType`, execution state from `runState`, the result from `lastOutcome`, and suspension from `suspendReason` / `suspendCode`. Use `outcomeCode` / `outcomeMessage` for result messages and `lastRunTime` for the latest execution time.
 
 | Development task | Sections |
 | --- | --- |
@@ -24,7 +30,7 @@ The [official community plugin repository](https://github.com/Sywyar/PixivDownlo
 
 - **Execution modes and trust boundaries**: `declarative-process` runs in a separate worker JVM (resource and protocol isolation), while `host-process-full-trust` runs in the host JVM. Both share the current OS account and are not OS-level security sandboxes. Ed25519 signatures prove only publisher identity and byte integrity; you must still trust the author and source before installation (see [Plugin management](/en/plugin-management)).
 - **Compile-time dependency direction**: third-party plugins declare a single `pixivdownload-sdk` dependency (`provided`), which transitively supplies `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, `pixivdownload-core-api`, and host-provided PF4J, Spring, Servlet and Jackson compile dependencies (the three API modules and BOM may also be used separately). **Do not depend on `pixivdownload-app`, internal host implementation classes, private official-plugin classes, the host `DataSource` or private frontend globals**.
-- **Capability publication and absence handling**: plugins contribute capabilities through `PixivFeaturePlugin` and declare independent Spring child-context configuration classes through `PixivPluginProvider.configurationClasses()`. When a plugin is disabled, unloaded or replaced by a new generation, the host withdraws routes, static resources, i18n, navigation, download types, queues and scheduling capabilities by publication. Callers must handle absent capabilities without null-pointer errors or partially completed tasks.
+- **Capability publication and absence handling**: plugins contribute capabilities through `PixivFeaturePlugin` and declare independent Spring child-context configuration classes through `plugin.properties` / `pixiv.configuration-classes`. When a plugin is disabled, unloaded or replaced by a new generation, the host withdraws routes, static resources, i18n, navigation, download types, queues and scheduling capabilities by publication. Callers must handle absent capabilities without null-pointer errors or partially completed tasks.
 - **Desktop UI boundaries**: the host aggregates configuration, onboarding and status through toolkit-independent pure-data contracts such as `GuiConfigContribution`. `gui-compose` (default) and `gui-swing` (fallback) render their own interfaces; feature plugins do not return Swing / Compose components.
 
 ### Main `PixivFeaturePlugin` contribution methods
@@ -70,7 +76,7 @@ The JAR root must contain `plugin.properties`:
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.3
+plugin.requires=2.0
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -80,12 +86,13 @@ pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
 pixiv.execution-mode=host-process-full-trust
+pixiv.configuration-classes=com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration
 pixiv.lifecycle-policy=process-restart
 ```
 
 - `plugin.id` must exactly match `PixivFeaturePlugin.id()`. `plugin.requires` declares the required SDK version (stable versions match by `requiredMajor == hostMajor && requiredMinor <= hostMinor`; prereleases use `alpha.N` / `beta.N` / `rc.N` and require an exact match).
 - `pixiv.execution-mode` is required (`declarative-process` or `host-process-full-trust`). `pixiv.lifecycle-policy` can be `hot-reload` (default), `backend-restart` or `process-restart`; `pixiv.risk-signals` may declare risk-signal tokens.
-- The external entry point implements `PixivPluginProvider`, returning one `PixivFeaturePlugin` and explicit `@Bean` configuration classes (do not rely on host package scanning):
+- The external entry point implements `PixivPluginProvider` and returns one `PixivFeaturePlugin`. Declare explicit Spring child-context `@Bean` configuration classes in the descriptor property `pixiv.configuration-classes`; do not rely on host package scanning:
 
 ```java
 public final class ExampleDownloadPf4jPlugin
@@ -93,10 +100,6 @@ public final class ExampleDownloadPf4jPlugin
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
-    }
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
@@ -159,12 +162,12 @@ new NavigationContribution(
 | Plugin state and persistent data | `state/{pluginId}/`, `data/{pluginId}/` | Inject `RuntimePathProvider` and call `stateDirectory()`, `dataDirectory()` |
 | Downloaded work files | `{rootFolder}/{pluginId}/` or a plugin-defined directory | Derive from `DownloadSettings.getRootFolder()`; do not write them to `state/` or `data/` |
 
-- **Database access**: new plugins inject `PluginDatabase`, declare structure through `privateSchema()` and `privateStorageMigrations()`, and use `read(work)` / `transaction(work)` for dialect-independent operations (compatible with SQLite and PostgreSQL). For main-database collaboration, inject `PluginMainDatabase` to access this owner's managed tables or requested `sharedMainStorage()`. The older `PluginDataSource` supports only SQLite.
+- **Database access**: new plugins inject `PluginDatabase`, declare structure through `privateSchema()` and `privateStorageMigrations()`, and use `read(work)` / `transaction(work)` for dialect-independent operations (compatible with SQLite and PostgreSQL). For main-database collaboration, inject `PluginMainDatabase` to access this owner's managed tables or requested `sharedMainStorage()`.
 - **Outbound HTTP / WebSocket**: inject `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` to create clients owned by plugin Beans and `close()` them on destruction (response streams returned by `exchangeStream` must be closed on every branch). Do not create your own `HttpClient` or `ProxySelector`, or depend on host HTTP configuration classes.
 
 ## Independent service contracts and composition
 
-SDK 1.4+ supports cross-plugin typed services (see the `typed-service-plugin` template):
+SDK 2.x supports cross-plugin typed services (see the `typed-service-plugin` template):
 
 - Contract-carrier plugins declare an original pure-JDK API JAR through `pixiv.contract-api` and `pixiv.contract-sha256` (using `process-restart`). Providers export implementations through `serviceExports()`, while consumers declare dependencies in `serviceImports()` and inject `PluginServices`.
 - Call `find(key)`, `require(key)`, `findAll(key)`, or lifecycle bindings `bind(keys, activation)` / `bindAll(keys, activation)` to obtain proxies bound to an exact publication.
@@ -189,7 +192,7 @@ Annotate large-integer record fields with `@ValueProperty(encoding = ValueEncodi
 
 ### Declare a fixed HTTP target with an annotation
 
-SDK 1.4+ supports `@HttpHook` on a plugin callback method. Register this `StatusObserver` with `@Bean` in the plugin child context so the host discovers it. The target controller needs no changes. This example counts successful local health-probe requests; `/api/download/status` does not mean a work download has completed.
+SDK 2.x supports `@HttpHook` on a plugin callback method. Register this `StatusObserver` with `@Bean` in the plugin child context so the host discovers it. The target controller needs no changes. This example counts successful local health-probe requests; `/api/download/status` does not mean a work download has completed.
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;

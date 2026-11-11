@@ -5,15 +5,15 @@
 | 利用環境 | 配布パッケージ | 別途必要なもの |
 | --- | --- | --- |
 | Windows x64 デスクトップ | `*-win-x64-setup.exe` | JRE は同梱。必要に応じて FFmpeg をインストール |
-| Windows / Linux / macOS で Java を使用 | `*-java.zip` | Java 17+。必要に応じて FFmpeg をインストール |
-| オプションのデータベース、インポート、CAPTCHA などの公式プラグインを事前に揃える | `*-full-offline.zip` | Java 17+。必要に応じて FFmpeg をインストール |
+| Windows / Linux / macOS で Java を使用 | `*-java.zip` | Java 25+。必要に応じて FFmpeg をインストール |
+| オプションのデータベース、インポート、CAPTCHA などの公式プラグインを事前に揃える | `*-full-offline.zip` | Java 25+。必要に応じて FFmpeg をインストール |
 | Docker の常駐サービス | リポジトリの `Dockerfile` と完全な Java 配布ディレクトリからビルド | Docker Engine、Compose、書き込み可能なマウントディレクトリ |
 
 Java 標準パッケージと Windows インストーラーには、既定の公式プラグイン群が含まれます。オフライン完全パッケージには、`database-postgresql`、`pixiv-batch-downloader-import` など、必要に応じて使う公式プラグインも含まれます。どちらの Java パッケージにも、JRE、FFmpeg、サードパーティの `douyin` プラグインは含まれません。「オフライン完全」はオプションの公式プラグインを事前に揃えているという意味で、Pixiv、オンライン AI、オンライン TTS の利用にはネットワークが必要です。
 
 ## 方法 1：Java 標準パッケージ / オフライン完全パッケージ
 
-1. Java 17 以降をインストールし、バージョンを確認します。Windows は [Adoptium](https://adoptium.net/)、macOS は `brew install openjdk@17`、Debian/Ubuntu は `sudo apt install openjdk-17-jdk`、Fedora は `sudo dnf install java-17-openjdk` を利用できます。
+1. Java 25 をインストールします。[Adoptium](https://adoptium.net/) で OS とアーキテクチャに合うパッケージを選び、バージョンを確認してください。
 
    ```bash
    java -version
@@ -66,7 +66,7 @@ nohup java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui > app.log 2>&1 &
 
 ## 方法 3：Docker でデプロイする
 
-リポジトリの `Dockerfile` は、署名済みの完全な Java 配布ディレクトリからイメージをビルドします。イメージには Java 17、FFmpeg、curl が含まれます。
+リポジトリの `Dockerfile` は、署名済みの完全な Java 配布ディレクトリからイメージをビルドします。イメージには Java 25、FFmpeg、curl が含まれます。
 
 1. `*-java.zip` または `*-full-offline.zip` をリポジトリの `build/dist/default-downloader/` にすべて展開します。その直下に本体 JAR、`plugins/`、`plugins-manifest.json`、`SHA256SUMS` があることを確認し、イメージをビルドします。
 

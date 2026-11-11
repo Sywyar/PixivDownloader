@@ -62,7 +62,9 @@ Fixed safety limits (cannot be raised through configuration): 100 MiB per work i
 
 The default is `database-sqlite` (`data/pixiv_download.db`). To switch to PostgreSQL 17 / 18 (UTF8), first install `database-postgresql` from the plugin market and fully restart. The main database and adapted plugins' private databases share the selected engine (SQLite private databases are at `data/{pluginId}/plugin.db`; PostgreSQL private databases use owner-isolated schemas and restricted roles).
 
-Switch under desktop "Settings → Runtime and network → Main database" or database settings in the plugin market:
+If both the GUI and database are unavailable, open the plugin market from the host recovery window to repair plugins, or use Installed to re-enable disabled plugins. Restart, then check the connection in desktop database settings. These settings remain accessible when the database is unavailable.
+
+Switch under desktop "Settings → Runtime & network → Main database":
 
 1. Select a loaded database plugin, enter connection details (an empty password field retains the saved password), then click "Test connection".
 2. Click "Check and continue" to preflight the source, target and handling of the main database and all private plugin databases (a non-empty target is allowed only if its provider supports safe backup and replacement).

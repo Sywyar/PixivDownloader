@@ -53,6 +53,14 @@ Additional filters supports content rating (All / All ages / R18+ / R-18 / R-18G
 | Auto-bookmark | Bookmark the work through the Pixiv API after downloading; requires a valid cookie |
 | Novel format | Save as TXT, HTML or EPUB |
 
+## Download profiles and multiple Cookies
+
+Administrators can save download settings and additional filters as a profile and switch profiles from the dropdown. Up to 64 profiles can be saved. Switching has the same immediate effect as editing settings: queued and newly added works use the new values; works already downloading continue their current processing. Profiles exclude Cookies, proxies, download destinations and queues.
+
+Current page settings, the profile library and scheduled tasks are stored separately. Editing page settings does not overwrite a profile; use the profile save action to do so. Editing or deleting a profile does not change saved tasks. Applying a profile while editing a task changes only its draft, which takes effect when saved, without affecting the running manual queue. Reloading restores current page settings without reapplying the selected profile.
+
+Cookie management is administrator-only and stores up to 8 entries. Select the Cookies to use, then move them up or down to set the preferred and fallback order. The server encrypts the library; the page reads only names and status. A legacy page Cookie is removed only after storage and read-back verification succeed. Binding saved credentials to a task copies the candidates. Later library edits or page selections do not alter that copy; bind again to update it. When no candidate is available, the queue pauses. Correct the credentials and resume manually.
+
 ## Troubleshooting and related guides
 
 - **A numeric novel ID is treated as an illustration**: use the full novel URL, or add `novel:` on a separate line above the numeric IDs.

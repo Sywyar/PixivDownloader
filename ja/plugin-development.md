@@ -1,6 +1,12 @@
 # サードパーティープラグイン SDK
 
-サードパーティープラグインは SDK 開発パッケージの独立したプロジェクトテンプレートから作成できます。必要なのは JDK 17、Node.js、同梱のビルドツールと実行マニフェストだけで、主リポジトリのクローンは不要です。
+サードパーティープラグインは SDK 開発パッケージの独立したプロジェクトテンプレートから作成できます。必要なのは JDK 25、Node.js、同梱のビルドツールと実行マニフェストだけで、主リポジトリのクローンは不要です。
+
+SDK 2.x は JDK 25、Spring Framework 7、Servlet 6.1、Jackson 3 を使用し、Spring Boot 4 ホストに対応します。SDK 1.x プラグインはインストール時または起動時の検査で拒否されます。`plugin.requires` の変更だけでは移行できません。新しいインターフェースに対応させ、再コンパイルしてください。
+
+SDK 1.x から移行する際は、`PluginDataSource` を `PluginDatabase` に、SQL 文字列を `TableSpec.check` の中立式に、`DesktopUiHost.resolveDatabasePath` をデータベース接続先の契約に置き換えてください。リソース bundle には `LocaleBundlePolicy` を明示します。取得認証情報には `X-Acquisition-Credential` を使い、スケジュールタスクの認証情報の登録・解除には汎用の `POST` / `DELETE /api/schedule/tasks/{id}/credential` を使います。これらの API の有効化トークンと認証要件は引き続き満たす必要があります。Jackson のデータバインドクラスは `tools.jackson.*` に移りますが、アノテーションは `com.fasterxml.jackson.annotation` のままです。Spring のヘッダーを Map として扱う場合は `HttpHeaders.asMultiValueMap()` を使ってください。
+
+`ScheduleTaskView` から `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed` は削除されました。ソースは `sourceType`、実行状態は `runState`、結果は `lastOutcome`、中断状態は `suspendReason` / `suspendCode` から取得します。結果のメッセージには `outcomeCode` / `outcomeMessage`、直近の実行時刻には `lastRunTime` を使ってください。
 
 | 開発内容 | 対応する章 |
 | --- | --- |
@@ -24,7 +30,7 @@ PixivDownloader と公式プラグインは [AGPL-3.0](https://github.com/Sywyar
 
 - **実行モードと信頼の境界**：`declarative-process` は独立した worker JVM でリソースとプロトコルを分離し、`host-process-full-trust` はホスト JVM で実行します。両方とも現在の OS アカウントを共有し、OS レベルのセキュリティサンドボックスではありません。Ed25519 署名は公開者の識別とバイト列の完全性だけを証明するため、インストール前に作者とソースを信頼できるか判断してください（[プラグイン管理](/ja/plugin-management)を参照）。
 - **コンパイル依存の方向**：サードパーティープラグインは単一の `pixivdownload-sdk`（`provided`）依存を宣言します。そこから `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api`、ホストが提供する PF4J、Spring、Servlet、Jackson のコンパイル依存が伝播します。3 つの API モジュールと BOM は個別にも使用できます。**`pixivdownload-app`、ホスト内部の実装クラス、公式プラグインの非公開クラス、ホストの `DataSource`、非公開フロントエンドグローバル変数への依存は禁止です。**
-- **機能の公開と不在時の対応**：プラグインは `PixivFeaturePlugin` で機能を提供し、`PixivPluginProvider.configurationClasses()` で独立した Spring 子コンテキストの設定クラスを宣言します。無効化、アンインストール、世代交代時には、ホストが publication 単位でルート、静的リソース、i18n、ナビゲーション、ダウンロード種類、キュー、スケジュール機能を撤回します。呼び出し側は機能の不在を処理し、NullPointerException や処理途中のタスクを残してはいけません。
+- **機能の公開と不在時の対応**：プラグインは `PixivFeaturePlugin` で機能を提供し、`plugin.properties` / `pixiv.configuration-classes` で独立した Spring 子コンテキストの設定クラスを宣言します。無効化、アンインストール、世代交代時には、ホストが publication 単位でルート、静的リソース、i18n、ナビゲーション、ダウンロード種類、キュー、スケジュール機能を撤回します。呼び出し側は機能の不在を処理し、NullPointerException や処理途中のタスクを残してはいけません。
 - **デスクトップ UI の境界**：ホストはツールキット非依存の純データ契約（`GuiConfigContribution` など）で設定、ガイド、状態を集約し、`gui-compose`（デフォルト）と `gui-swing`（代替）がそれぞれ画面を描画します。機能プラグインは Swing / Compose のコンポーネントを返しません。
 
 ### `PixivFeaturePlugin` の主な提供入口
@@ -70,7 +76,7 @@ JAR のルートには `plugin.properties` が必要です。
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.3
+plugin.requires=2.0
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -80,12 +86,13 @@ pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
 pixiv.execution-mode=host-process-full-trust
+pixiv.configuration-classes=com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration
 pixiv.lifecycle-policy=process-restart
 ```
 
 - `plugin.id` は `PixivFeaturePlugin.id()` と完全一致させます。`plugin.requires` は必要な SDK バージョンを示し、安定版は `requiredMajor == hostMajor && requiredMinor <= hostMinor`、プレリリースは `alpha.N` / `beta.N` / `rc.N` の形式で完全一致を要求します。
 - `pixiv.execution-mode` は必須で、`declarative-process` または `host-process-full-trust` を指定します。`pixiv.lifecycle-policy` は `hot-reload`（デフォルト）、`backend-restart`、`process-restart` から選択できます。`pixiv.risk-signals` にはリスクを示す token を宣言できます。
-- 外部プラグインの入口は `PixivPluginProvider` を実装し、唯一の `PixivFeaturePlugin` と明示的な `@Bean` 設定クラスを返します。ホストのパッケージ走査に依存してはいけません。
+- 外部プラグインの入口は `PixivPluginProvider` を実装し、唯一の `PixivFeaturePlugin` を返します。Spring 子コンテキストの明示的な `@Bean` 設定クラスは記述子の `pixiv.configuration-classes` で宣言します。ホストのパッケージ走査に依存してはいけません。
 
 ```java
 public final class ExampleDownloadPf4jPlugin
@@ -93,10 +100,6 @@ public final class ExampleDownloadPf4jPlugin
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
-    }
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
@@ -159,12 +162,12 @@ new NavigationContribution(
 | プラグインの状態と永続データ | `state/{pluginId}/`、`data/{pluginId}/` | `RuntimePathProvider` を注入し、`stateDirectory()`、`dataDirectory()` を呼ぶ |
 | ダウンロード作品のファイル | `{rootFolder}/{pluginId}/` またはプラグイン指定のディレクトリ | `DownloadSettings.getRootFolder()` から導出。`state/` や `data/` には書き込まない |
 
-- **データベースアクセス**：新しいプラグインは `PluginDatabase` を注入し、`privateSchema()` と `privateStorageMigrations()` で構造を宣言して、`read(work)` / `transaction(work)` で方言非依存の操作を行います。SQLite と PostgreSQL に対応します。主データベースと協調する場合は `PluginMainDatabase` を注入し、この owner の管理対象テーブルや申請済みの `sharedMainStorage()` にアクセスします。旧 `PluginDataSource` は SQLite のみ対応です。
+- **データベースアクセス**：新しいプラグインは `PluginDatabase` を注入し、`privateSchema()` と `privateStorageMigrations()` で構造を宣言して、`read(work)` / `transaction(work)` で方言非依存の操作を行います。SQLite と PostgreSQL に対応します。主データベースと協調する場合は `PluginMainDatabase` を注入し、この owner の管理対象テーブルや申請済みの `sharedMainStorage()` にアクセスします。
 - **外向き HTTP / WebSocket**：`OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` を注入し、プラグインの Bean が所有して破棄時に `close()` するクライアントを作成します。`exchangeStream` が返す応答ストリームはすべての分岐で閉じる必要があります。独自の `HttpClient`、`ProxySelector` の作成や、ホストの HTTP 設定クラスへの依存は禁止です。
 
 ## 独立したサービス契約と組み合わせ
 
-SDK 1.4+ はプラグイン間の型付きサービスをサポートします。`typed-service-plugin` テンプレートを参照してください。
+SDK 2.x はプラグイン間の型付きサービスをサポートします。`typed-service-plugin` テンプレートを参照してください。
 
 - 契約を保持するプラグインは `pixiv.contract-api` と `pixiv.contract-sha256` で元の純 JDK API JAR を宣言し、`process-restart` を使用します。提供側は `serviceExports()` で実装を公開し、利用側は `serviceImports()` で依存を宣言して `PluginServices` を注入します。
 - `find(key)`、`require(key)`、`findAll(key)`、またはライフサイクルに結び付く `bind(keys, activation)` / `bindAll(keys, activation)` で、正確な publication に紐付いたプロキシを取得します。
@@ -189,7 +192,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 注釈で固定 HTTP 対象を宣言する
 
-SDK 1.4+ ではプラグインのコールバックメソッドに `@HttpHook` を付けられます。以下の `StatusObserver` をプラグインの子コンテキストで `@Bean` 登録すると、ホストが宣言を検出します。対象コントローラーの変更は不要です。この例は成功したローカルヘルスチェックを数えます。`/api/download/status` は作品のダウンロード完了を示しません。
+SDK 2.x ではプラグインのコールバックメソッドに `@HttpHook` を付けられます。以下の `StatusObserver` をプラグインの子コンテキストで `@Bean` 登録すると、ホストが宣言を検出します。対象コントローラーの変更は不要です。この例は成功したローカルヘルスチェックを数えます。`/api/download/status` は作品のダウンロード完了を示しません。
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;

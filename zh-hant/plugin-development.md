@@ -1,6 +1,12 @@
 # 第三方外掛 SDK
 
-第三方外掛從 SDK 開發包的獨立專案範本起步，只需 JDK 17、Node.js 及套件內附的建置工具與執行清單，無需複製主儲存庫。
+第三方外掛從 SDK 開發包的獨立專案範本起步，只需 JDK 25、Node.js 及套件內附的建置工具與執行清單，無需複製主儲存庫。
+
+SDK 2.x 使用 JDK 25、Spring Framework 7、Servlet 6.1 與 Jackson 3，對應 Spring Boot 4 宿主。SDK 1.x 外掛會在安裝或啟動檢查時遭到拒絕；只修改 `plugin.requires` 無法完成升級，必須調整新介面並重新編譯。
+
+從 SDK 1.x 遷移時，將 `PluginDataSource` 改為 `PluginDatabase`，以 `TableSpec.check` 的中性運算式取代 SQL 字串；`DesktopUiHost.resolveDatabasePath` 改為資料庫目標契約。資源 bundle 必須明確傳入 `LocaleBundlePolicy`。取得憑證統一使用 `X-Acquisition-Credential`，排程工作憑證綁定/撤回使用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`；呼叫端仍須滿足該介面的啟用權杖與驗證要求。Jackson 資料繫結類別移至 `tools.jackson.*`，註解仍用 `com.fasterxml.jackson.annotation`；Spring `HttpHeaders` 需要 Map 檢視時呼叫 `asMultiValueMap()`。
+
+`ScheduleTaskView` 已移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime` 和 `pendingRetryArmed`。來源使用 `sourceType`；執行、結果和暫停狀態分別讀取 `runState`、`lastOutcome`、`suspendReason` / `suspendCode`；結果文字使用 `outcomeCode` / `outcomeMessage`，最近執行時間使用 `lastRunTime`。
 
 | 開發任務 | 對應章節 |
 | --- | --- |
@@ -24,7 +30,7 @@ PixivDownloader 及官方外掛採用 [AGPL-3.0](https://github.com/Sywyar/Pixiv
 
 - **執行模式與信任邊界**：`declarative-process` 在獨立 worker JVM 中執行（隔離資源與協定），`host-process-full-trust` 在宿主 JVM 中執行；兩者均共用目前 OS 帳號，不構成作業系統層級安全沙箱。Ed25519 簽章僅證明發布者身分與位元組完整性，安裝前仍需信任作者與原始碼（詳見[外掛管理](/zh-hant/plugin-management)）。
 - **編譯依賴方向**：第三方外掛宣告單一 `pixivdownload-sdk`（`provided`）相依項目，由其傳遞 `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 及宿主提供的 PF4J、Spring、Servlet、Jackson 編譯相依項目（三個 API 模組與 BOM 也可單獨使用）。**嚴禁依賴 `pixivdownload-app`、宿主內部實作類別、官方外掛私有類別、宿主 `DataSource` 或私有前端全域變數**。
-- **能力發布與缺少能力時的降級**：外掛透過 `PixivFeaturePlugin` 貢獻能力，透過 `PixivPluginProvider.configurationClasses()` 宣告獨立 Spring 子上下文設定類別。外掛停用、解除安裝或換代時，宿主依 publication 撤回路由、靜態資源、i18n、導覽、下載類型、佇列與排程能力；呼叫端必須處理能力缺少的情況，不能產生空指標或未完整完成的任務。
+- **能力發布與缺少能力時的降級**：外掛透過 `PixivFeaturePlugin` 貢獻能力，透過 `plugin.properties` / `pixiv.configuration-classes` 宣告獨立 Spring 子上下文設定類別。外掛停用、解除安裝或換代時，宿主依 publication 撤回路由、靜態資源、i18n、導覽、下載類型、佇列與排程能力；呼叫端必須處理能力缺少的情況，不能產生空指標或未完整完成的任務。
 - **桌面 UI 邊界**：宿主透過不依賴工具套件的純資料契約（`GuiConfigContribution` 等）彙整設定、引導與狀態，由 `gui-compose`（預設）和 `gui-swing`（備用）各自渲染介面；功能外掛不回傳 Swing / Compose 元件。
 
 ### `PixivFeaturePlugin` 主要貢獻入口
@@ -70,7 +76,7 @@ JAR 根目錄必須包含 `plugin.properties`：
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.3
+plugin.requires=2.0
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -80,12 +86,13 @@ pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
 pixiv.execution-mode=host-process-full-trust
+pixiv.configuration-classes=com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration
 pixiv.lifecycle-policy=process-restart
 ```
 
 - `plugin.id` 必須與 `PixivFeaturePlugin.id()` 完全一致；`plugin.requires` 宣告所需 SDK 版本（穩定版依 `requiredMajor == hostMajor && requiredMinor <= hostMinor` 比對，預先發行版採用 `alpha.N` / `beta.N` / `rc.N` 並要求精確符合）。
 - `pixiv.execution-mode` 必填（`declarative-process` 或 `host-process-full-trust`）；`pixiv.lifecycle-policy` 可選 `hot-reload`（預設）、`backend-restart` 或 `process-restart`；`pixiv.risk-signals` 可宣告風險訊號 token。
-- 外部入口實作 `PixivPluginProvider`，回傳唯一的 `PixivFeaturePlugin` 與明確 `@Bean` 設定類別（禁止依賴宿主套件掃描）：
+- 外部入口實作 `PixivPluginProvider`，只回傳唯一的 `PixivFeaturePlugin`；Spring 子上下文的明確 `@Bean` 設定類別由描述符 `pixiv.configuration-classes` 宣告，禁止依賴宿主套件掃描：
 
 ```java
 public final class ExampleDownloadPf4jPlugin
@@ -93,10 +100,6 @@ public final class ExampleDownloadPf4jPlugin
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
-    }
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
@@ -159,12 +162,12 @@ new NavigationContribution(
 | 外掛狀態與持久資料 | `state/{pluginId}/`、`data/{pluginId}/` | 注入 `RuntimePathProvider`，呼叫 `stateDirectory()`、`dataDirectory()` |
 | 下載作品檔案 | `{rootFolder}/{pluginId}/` 或外掛自訂目錄 | 由 `DownloadSettings.getRootFolder()` 衍生，不得寫入 `state/` 或 `data/` |
 
-- **資料庫存取**：新外掛注入 `PluginDatabase`，透過 `privateSchema()` 與 `privateStorageMigrations()` 宣告結構，使用 `read(work)` / `transaction(work)` 執行與方言無關的操作（相容 SQLite 與 PostgreSQL）；參與主資料庫協作時，注入 `PluginMainDatabase` 存取本 owner 受管資料表或已申請的 `sharedMainStorage()`。舊 `PluginDataSource` 僅支援 SQLite。
+- **資料庫存取**：新外掛注入 `PluginDatabase`，透過 `privateSchema()` 與 `privateStorageMigrations()` 宣告結構，使用 `read(work)` / `transaction(work)` 執行與方言無關的操作（相容 SQLite 與 PostgreSQL）；參與主資料庫協作時，注入 `PluginMainDatabase` 存取本 owner 受管資料表或已申請的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`，建立由外掛 Bean 擁有並在銷毀時 `close()` 的用戶端（`exchangeStream` 回傳的回應串流必須在所有分支關閉）；禁止自行建立 `HttpClient`、`ProxySelector` 或依賴宿主 HTTP 設定類別。
 
 ## 獨立服務契約與組合
 
-SDK 1.4+ 支援跨外掛型別化服務（參考 `typed-service-plugin` 範本）：
+SDK 2.x 支援跨外掛型別化服務（參考 `typed-service-plugin` 範本）：
 
 - 契約載體外掛透過 `pixiv.contract-api` 與 `pixiv.contract-sha256` 宣告原始純 JDK API JAR（採用 `process-restart`）；提供者在 `serviceExports()` 匯出實作，消費者在 `serviceImports()` 宣告相依性並注入 `PluginServices`。
 - 呼叫 `find(key)`、`require(key)`、`findAll(key)` 或生命週期綁定 `bind(keys, activation)` / `bindAll(keys, activation)`，取得綁定精確 publication 的代理。
@@ -189,7 +192,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 以註解宣告固定 HTTP 目標
 
-SDK 1.4+ 可在外掛回呼方法上使用 `@HttpHook`。將下例的 `StatusObserver` 透過外掛子上下文的 `@Bean` 註冊，宿主就會探索宣告；目標控制器不需修改。本例計算成功的本機健康探針請求；`/api/download/status` 不代表作品下載完成。
+SDK 2.x 可在外掛回呼方法上使用 `@HttpHook`。將下例的 `StatusObserver` 透過外掛子上下文的 `@Bean` 註冊，宿主就會探索宣告；目標控制器不需修改。本例計算成功的本機健康探針請求；`/api/download/status` 不代表作品下載完成。
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;

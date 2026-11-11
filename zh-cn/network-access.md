@@ -40,9 +40,11 @@
 | `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 获取小说正文、系列（响应上限 1 MiB）、作者小说、收藏、搜索结果及下载后自动收藏；预览后紧随的下载通过绑定 owner 与凭据的 256 KiB 短期一次性票据复用已验证响应 | 小说预览、合订、搜索、计划任务时触发；禁用 `novel` 插件即停止 |
 | 应用宿主（共享图片传输） | HTTPS `*.pximg.net`（缩略图另允许 `embed.pixiv.net`） | 下载原图、封面、缩略图、Ugoira ZIP 与小说内嵌图（最多 512 个映射），携带 Pixiv Referer；非 2xx 不缓冲错误正文 | 下载作品、生成封面/缩略图或小说文件时触发 |
 | 根目录油猴脚本 | `https://www.pixiv.net/ajax/**`、`*.pximg.net`；配置的后端地址（程序默认 `http://localhost:6999`；从后端安装的脚本优先使用安装地址，已有用户设置优先） | 在 Pixiv 页面通过浏览器登录态读取作品或本地下载；向后端调用下载、队列、收藏夹、小说状态、`/api/i18n/meta`（3 秒超时）与工具箱会话/Cookie 同步接口（不把 Pixiv Cookie 发给小说票据接口） | 在 Pixiv 页面操作脚本时由浏览器/脚本管理器直连；禁用脚本即可停止 |
-| `pixiv-batch-downloader-import` 插件与脚本 | 本机 `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import`、`/api/pixiv-batch-downloader-import/history`；浏览器同源 `/ajax/illust/{id}`、`/ajax/novel/{id}`；桌面历史导入经宿主请求 `https://www.pixiv.net/ajax/{illust,novel}/{id}`；脚本更新源 | 自动导入将本机文件路径与元数据发往 solo 回环服务；浏览器历史导入在浏览器内用同源 Cookie 取回元数据后交本机核验；桌面历史导入使用用户可选填写的单次 Cookie 获取元数据。均不上传原作品文件 | 仅在安装启用该插件及脚本、或主动执行历史导入时触发；停用脚本/插件或取消任务即停止 |
+| `pixiv-batch-downloader-import` 插件与脚本 | 本机 `/api/pixiv-batch-downloader-import/token`, `/api/pixiv-batch-downloader-import`, `/api/pixiv-batch-downloader-import/history`; 脚本更新源 | 实时自动导入复用 PixivBatchDownloader 下载事件中的元数据，将本机文件路径与元数据发往 solo 回环服务。浏览器与桌面历史导入仅核验本地记录和原文件，不请求 Pixiv 元数据、不使用 Pixiv Cookie，也不上传原文件。历史导入完成后，可在 GUI 确认启动宿主数据回填 | 自动导入由下载触发；历史导入由用户启动，结束后不会自行启动回填。停用脚本/插件或取消任务即停止对应导入 |
 
 此外，通过 SDK `DownloadTasks.submit` 或管理员 `POST /api/download/tasks` 提交任务时，同样调用对应插件获取元数据与媒体，工作台在可见时每 2 秒轮询同源 `GET /api/download/tasks`（终态保留 5 分钟）。
+
+多 Cookie 只对明确失效或上游 HTTP 401、429 按选择顺序尝试，每次请求每项最多一次。429 按账号冷却至少 30 秒，并遵守更长的 Retry-After；一次元数据请求的候选共用 60 秒期限，媒体请求共用 600 秒期限。公开作品读取可换账号，账号私有来源只使用首选账号的候选，收藏写入不切换或重放。403、404、验证挑战、网络错误、5xx 和本地限流不触发换号。取消、插件停用和风险保护优先；沿用原代理，不增加轮询或第三方服务，带凭证请求不跟随重定向。
 
 ## 第三方与可选功能插件
 

@@ -1,6 +1,12 @@
 # 第三方插件 SDK
 
-第三方插件从 SDK 开发包的独立工程模板起步，只需 JDK 17、Node.js 及包内自带的构建工具与运行清单，无需克隆主仓库。
+第三方插件从 SDK 开发包的独立工程模板起步，只需 JDK 25、Node.js 及包内自带的构建工具与运行清单，无需克隆主仓库。
+
+SDK 2.x 使用 JDK 25、Spring Framework 7、Servlet 6.1 和 Jackson 3，对应 Spring Boot 4 宿主。SDK 1.x 插件会在安装或启动检查时被拒绝；仅修改 `plugin.requires` 不能完成升级，必须适配新接口并重新编译。
+
+从 SDK 1.x 迁移时，将 `PluginDataSource` 改为 `PluginDatabase`，用 `TableSpec.check` 的中性表达式代替 SQL 字符串；`DesktopUiHost.resolveDatabasePath` 改为数据库目标契约。资源 bundle 必须显式传入 `LocaleBundlePolicy`。取得凭据统一使用 `X-Acquisition-Credential`，定时任务凭据绑定/撤回使用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`；调用方仍须满足该接口的激活令牌与鉴权要求。Jackson 数据绑定类迁到 `tools.jackson.*`，注解仍用 `com.fasterxml.jackson.annotation`；Spring `HttpHeaders` 需要 Map 视图时调用 `asMultiValueMap()`。
+
+`ScheduleTaskView` 已移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime` 和 `pendingRetryArmed`。来源使用 `sourceType`；执行、结果和暂停状态分别读取 `runState`、`lastOutcome`、`suspendReason` / `suspendCode`；结果文案使用 `outcomeCode` / `outcomeMessage`，最近执行时间使用 `lastRunTime`。
 
 | 开发任务 | 对应章节 |
 | --- | --- |
@@ -24,7 +30,7 @@ PixivDownloader 及官方插件采用 [AGPL-3.0](https://github.com/Sywyar/Pixiv
 
 - **执行模式与信任边界**：`declarative-process` 运行在独立 worker JVM（隔离资源与协议），`host-process-full-trust` 运行在宿主 JVM；两者均共享当前 OS 账户，不构成操作系统级安全沙箱。Ed25519 签名仅证明发布者身份与字节完整性，安装前仍需信任作者与源码（详见[插件管理](/zh-cn/plugin-management)）。
 - **编译依赖方向**：第三方插件声明单个 `pixivdownload-sdk`（`provided`）依赖，由其传递 `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 及宿主提供的 PF4J、Spring、Servlet、Jackson 编译依赖（三个 API 模块与 BOM 也可单独使用）。**严禁依赖 `pixivdownload-app`、宿主内部实现类、官方插件私有类、宿主 `DataSource` 或私有前端全局变量**。
-- **能力发布与缺席降级**：插件通过 `PixivFeaturePlugin` 贡献能力，通过 `PixivPluginProvider.configurationClasses()` 声明独立 Spring 子上下文配置类。插件停用、卸载或换代时，宿主按 publication 撤回路由、静态资源、i18n、导航、下载类型、队列与计划能力；调用方必须处理能力缺席，不能产生空指针或半完成任务。
+- **能力发布与缺席降级**：插件通过 `PixivFeaturePlugin` 贡献能力，通过 `plugin.properties` / `pixiv.configuration-classes` 声明独立 Spring 子上下文配置类。插件停用、卸载或换代时，宿主按 publication 撤回路由、静态资源、i18n、导航、下载类型、队列与计划能力；调用方必须处理能力缺席，不能产生空指针或半完成任务。
 - **桌面 UI 边界**：宿主通过工具包无关的纯数据契约（`GuiConfigContribution` 等）聚合配置、引导与状态，由 `gui-compose`（默认）和 `gui-swing`（后备）各自渲染界面；功能插件不返回 Swing / Compose 组件。
 
 ### `PixivFeaturePlugin` 主要贡献入口
@@ -70,7 +76,7 @@ JAR 根目录必须包含 `plugin.properties`：
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.3
+plugin.requires=2.0
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -80,12 +86,13 @@ pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
 pixiv.execution-mode=host-process-full-trust
+pixiv.configuration-classes=com.example.pixivdownload.downloadtype.ExampleDownloadConfiguration
 pixiv.lifecycle-policy=process-restart
 ```
 
 - `plugin.id` 必须与 `PixivFeaturePlugin.id()` 完全一致；`plugin.requires` 声明所需 SDK 版本（稳定版按 `requiredMajor == hostMajor && requiredMinor <= hostMinor` 匹配，预发布版采用 `alpha.N` / `beta.N` / `rc.N` 并要求精确匹配）。
 - `pixiv.execution-mode` 必填（`declarative-process` 或 `host-process-full-trust`）；`pixiv.lifecycle-policy` 可选 `hot-reload`（默认）、`backend-restart` 或 `process-restart`；`pixiv.risk-signals` 可声明风险信号 token。
-- 外置入口实现 `PixivPluginProvider`，返回唯一 `PixivFeaturePlugin` 与显式 `@Bean` 配置类（禁止依赖宿主包扫描）：
+- 外置入口实现 `PixivPluginProvider`，仅返回唯一 `PixivFeaturePlugin`；Spring 子上下文的显式 `@Bean` 配置类由描述符 `pixiv.configuration-classes` 声明，禁止依赖宿主包扫描：
 
 ```java
 public final class ExampleDownloadPf4jPlugin
@@ -93,10 +100,6 @@ public final class ExampleDownloadPf4jPlugin
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
-    }
-    @Override
-    public List<Class<?>> configurationClasses() {
-        return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
@@ -159,12 +162,12 @@ new NavigationContribution(
 | 插件状态与持久数据 | `state/{pluginId}/`、`data/{pluginId}/` | 注入 `RuntimePathProvider` 调用 `stateDirectory()`、`dataDirectory()` |
 | 下载作品文件 | `{rootFolder}/{pluginId}/` 或插件自定义目录 | 由 `DownloadSettings.getRootFolder()` 派生，不得写入 `state/` 或 `data/` |
 
-- **数据库访问**：新插件注入 `PluginDatabase`，通过 `privateSchema()` 与 `privateStorageMigrations()` 声明结构，使用 `read(work)` / `transaction(work)` 执行方言无关操作（兼容 SQLite 与 PostgreSQL）；参与主库协作时注入 `PluginMainDatabase` 访问本 owner 受管表或已申请的 `sharedMainStorage()`。旧 `PluginDataSource` 仅支持 SQLite。
+- **数据库访问**：新插件注入 `PluginDatabase`，通过 `privateSchema()` 与 `privateStorageMigrations()` 声明结构，使用 `read(work)` / `transaction(work)` 执行方言无关操作（兼容 SQLite 与 PostgreSQL）；参与主库协作时注入 `PluginMainDatabase` 访问本 owner 受管表或已申请的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` 创建由插件 Bean 拥有并在销毁时 `close()` 的客户端（`exchangeStream` 返回的响应流必须在所有分支关闭）；禁止自行创建 `HttpClient`、`ProxySelector` 或依赖宿主 HTTP 配置类。
 
 ## 独立服务契约与组合
 
-SDK 1.4+ 支持跨插件类型化服务（参考 `typed-service-plugin` 模板）：
+SDK 2.x 支持跨插件类型化服务（参考 `typed-service-plugin` 模板）：
 
 - 契约载体插件通过 `pixiv.contract-api` 与 `pixiv.contract-sha256` 声明原始纯 JDK API JAR（采用 `process-restart`）；提供者在 `serviceExports()` 导出实现，消费者在 `serviceImports()` 声明依赖并注入 `PluginServices`。
 - 调用 `find(key)`、`require(key)`、`findAll(key)` 或生命周期绑定 `bind(keys, activation)` / `bindAll(keys, activation)` 获取绑定精确 publication 的代理。
@@ -189,7 +192,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 用注解声明固定 HTTP 目标
 
-SDK 1.4+ 可在插件回调方法上使用 `@HttpHook`。把下例的 `StatusObserver` 通过插件子上下文的 `@Bean` 注册，宿主会发现声明；目标控制器不需要修改。这个例子统计成功的本机健康探针请求，`/api/download/status` 不表示一次作品下载完成。
+SDK 2.x 可在插件回调方法上使用 `@HttpHook`。把下例的 `StatusObserver` 通过插件子上下文的 `@Bean` 注册，宿主会发现声明；目标控制器不需要修改。这个例子统计成功的本机健康探针请求，`/api/download/status` 不表示一次作品下载完成。
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;

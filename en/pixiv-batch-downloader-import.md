@@ -30,7 +30,7 @@ Imported works on the desktop home page counts this plugin's successful imports,
 ## File formats, read-only references and limits
 
 - Actual files must be inside the configured root. Symbolic links, junctions, out-of-root paths, missing files and invalid file headers are rejected.
-- Images support JPEG, PNG, WebP and GIF. Animations support WebP, GIF, APNG, WebM, MP4 and ZIP; a ZIP thumbnail uses its first image entry, while the original remains ZIP. Novels support TXT and EPUB. Their body comes from metadata fetched in the same operation; novel covers, attachments and original publication times are not currently imported, and upload time displays the registration time.
+- Images support JPEG, PNG, WebP and GIF. Animations support WebP, GIF, APNG, WebM, MP4 and ZIP; a ZIP thumbnail uses its first image entry, while the original remains ZIP. Novels support TXT and EPUB. For live automatic import, their body comes from metadata fetched in the same operation; novel covers, attachments and original publication times are not currently imported, and upload time displays the registration time.
 - Existing records, including soft-deleted ones, are neither overwritten nor registered again. If the novel plugin is unavailable, pending records are retained and success is not returned. Media maintenance tools skip external read-only works. Moving source files requires repairing their paths; the app does not guess their new location.
 - Limits are 1 GiB per page file, 8 GiB / 1,000 pages per work, 12 MiB per HTTP request, JSON depth 20, and 3 million characters per novel body.
 
@@ -38,11 +38,13 @@ Imported works on the desktop home page counts this plugin's successful imports,
 
 There are two ways to register downloads made before installing the plugin. Both follow the file-format and read-only-reference rules above and skip existing works, including soft-deleted ones. After import, backfill tools can fill supported fields but cannot restore missing source files.
 
+History import processes only local records and files. Page counts reflect contiguous local page records; import cannot verify the current page count on Pixiv. After successful registration, the running desktop GUI requests focus and asks whether to start metadata backfill. Choosing Later or closing the prompt leaves backfill stopped; you can also start it from Tools → Data backfill. Backfill checks all works with missing information in the gallery, fills fields such as title, author and tags through the backend, and saves a curated metadata snapshot in `metadata_json` without overwriting existing values. Fetch failures do not undo imports. Original novel files remain accessible, but history import and metadata backfill do not restore the body required for online reading or translation.
+
 ### Method 1: read browser history directly through the userscript (no export file)
 
 1. Keep the local backend running, save External download directory in plugin settings, and refresh a signed-in Pixiv page.
 2. Open the original Pixiv site in the same browser profile used by PixivBatchDownloader, pause external downloads, then select Read browser download history → Read and check in the Tampermonkey menu. The script scans the current site's history database read-only in batches, up to 1 GiB per operation; do not modify or clear history during the scan.
-3. Check the pending, existing and missing / conflicting counts. Up to 100 details are shown; if the pending count is `0`, the check ends there. Click Start import. The browser requests Pixiv metadata for each item and passes it to the local service to verify files and register the work. The Pixiv cookie stays in the browser and is not sent to the local service.
+3. Check the pending, existing and missing / conflicting counts. Up to 100 details are shown; if the pending count is `0`, the check ends there. Click Start import. The script sends history records to the local service to verify files and register works. This operation neither requests Pixiv metadata nor reads or sends Pixiv cookies.
 
 Keep the page open during import. 100% means processing is finished, not that every item succeeded. Cancelling, leaving the page or switching servers stops further processing; registered works remain. Temporary data is stored in `data/pixiv-batch-downloader-import/browser-history/` and cleaned up after normal completion or about 15 minutes of inactivity.
 
@@ -51,4 +53,4 @@ Keep the page open during import. 100% means processing is finished, not that ev
 1. Open PixivBatchDownloader history import in the desktop GUI's Tools section. This does not depend on the userscript.
 2. Export history JSON from PixivBatchDownloader. If there are multiple parts, put them in one dedicated directory and select it. Each file is limited to 512 MiB, with up to 64 files and 1 GiB total.
 3. Select the source-file root. Combining it with the relative path `n` in each record must locate the actual file. This selection does not overwrite automatic-import configuration. Click Check and preview.
-4. Enter a Pixiv cookie for this operation if needed; it is not saved persistently. Click Start import and check successful, skipped and failed counts. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or closes normally.
+4. Click Start import and check successful, skipped and failed counts. No Pixiv cookie is needed. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or closes normally.
