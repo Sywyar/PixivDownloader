@@ -172,7 +172,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
     const javaSteps = Object.values(doc.jobs).flatMap(executionSteps);
     const sdkResolve = javaSteps.find((step) => step.env?.INPUT_TRUSTED_BASE_SHA !== undefined);
     const releaseBuild = javaSteps.find((step) => /\b(?:verify|install)\b.*-Pofficial-surveys/.test(step.run || ''));
-    const releaseBoundary = javaSteps.find((step) => /DistributionPackagingBoundaryTest/.test(step.run || ''));
+    const releaseBoundary = javaSteps.find((step) => /parallel-release-checks\.mjs/.test(step.run || ''));
     const sdkPackage = javaSteps.find((step) => /-DaltDeploymentRepository=/.test(step.run || ''));
     const sdkContract = javaSteps.find((step) => /sdk-contract\.mjs/.test(step.run || ''));
     assert.equal(sdkResolve.env.INPUT_TRUSTED_BASE_SHA, '${{ inputs.trusted_base_sha }}');
@@ -180,9 +180,7 @@ test('Quality Gate preserves required roles and the active event contract', () =
     assert.match(releaseBuild.run, /\bmvn(?:w)?\b/u);
     assert.match(releaseBuild.run, /-P\s*(?:[^\s,]+,)*official-surveys(?:,|\s|$)/u);
     assert.doesNotMatch(releaseBuild.run, /-Dexec\.skip(?:=true)?(?:\s|$)/u);
-    assert.match(releaseBoundary.run, /DistributionPackagingBoundaryTest/u);
-    assert.match(releaseBoundary.run, /distribution\.packaging\.require-artifacts=true/u);
-    assert.match(releaseBoundary.run, /Failures: 0, Errors: 0, Skipped: 0/u);
+    assert.ok(releaseBoundary);
     assert.ok(sdkPackage, 'SDK consumer artifacts must be built');
     const sdkArguments = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
         `mvn() { printf 'MAVEN_ARGUMENT:%s\\n' "$@"; }\n${sdkPackage.run}`], {
@@ -297,7 +295,7 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.equal(ancestors(jobs, b).has(a), false);
     }
     const required = ancestors(jobs, 'java-tests');
-    for (const id of [...tests, 'java-unit-tests', build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u),
+    for (const id of [...tests, 'java-unit-tests', build, owner(/parallel-release-checks\.mjs/u), owner(/sdk-contract\.mjs/u),
         'sdk-consumers', 'sdk-services', 'sdk-pages', 'page-bfcache', 'windows-runtime-tests']) {
         assert.ok(required.has(id), `java-tests must require ${id}`);
     }
@@ -396,7 +394,7 @@ test('仅 Maven 的 SDK 验收不初始化 Gradle，实际 Gradle 消费者仍�
     }
 });
 
-test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构建产物', () => {
+test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并在构建后执行独立验收', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
     assert.deepEqual(jobs['sdk-consumers'].strategy, {
         'fail-fast': false, matrix: { scope: ['templates', 'incremental', 'build-tools'] },
@@ -412,15 +410,13 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     }
     const artifacts = executionSteps(jobs['release-artifacts']);
     const build = artifacts.findIndex(step => /mvn.*(?:verify|install).*-Pofficial-surveys/u.test(step.run || ''));
-    const compose = artifacts.findIndex(step => /gradlew(?:\.bat)?.*mavenTest/u.test(step.run || ''));
-    const boundaries = artifacts.findIndex(step => /DistributionPackagingBoundaryTest/u.test(step.run || ''));
-    assert.ok(build >= 0 && compose > build && boundaries > build);
-    assert.equal(artifacts[compose]['working-directory'], 'pixivdownload-plugin-gui-compose');
-    assert.doesNotMatch(artifacts[compose].run, /-Pmaven(?:SkipTests|TestSkip)=true|(?:^|\s)-x(?:\s|$)/u);
+    const boundaries = artifacts.findIndex(step => /parallel-release-checks\.mjs/u.test(step.run || ''));
+    assert.ok(build >= 0 && boundaries > build);
     assert.equal(jobs['release-artifacts']['runs-on'], 'windows-latest');
     assert.ok(executionSteps(jobs['windows-runtime-tests']).some(step => step.shell === 'pwsh'
         && /scripts\/release-e2e\/runtime\.test\.ps1/u.test(step.run || '')));
     const boundaryCall = artifacts.find(step => step.uses === './.github/actions/verify-release-boundaries');
+    assert.equal(boundaryCall.with.verify_compose_tests, 'true');
     assert.deepEqual(boundaryCall.with.additional_tests.split(',').sort(),
         ['DeleteStagingManifestTest#rejectsWindowsJunctionParentDuringRecovery',
             'PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail',
@@ -515,7 +511,7 @@ test('应用资源构建与 SDK 宿主消费者显式取得内置 GitHub 读取�
 });
 
 test('发行边界命令只执行已编译测试，拒绝旧报告、零测试、失败与跳过', () => {
-    const step = load('.github/actions/verify-release-boundaries/action.yml').runs.steps[0];
+    const command = fs.readFileSync(path.join(ROOT, 'scripts/ci/verify-release-boundaries.sh'), 'utf8');
     for (const steps of [load('.github/workflows/quality-gate.yml').jobs['release-artifacts'].steps,
         load('.github/actions/build-release-java/action.yml').runs.steps]) {
         const boundary = steps.findIndex(item => item.uses === './.github/actions/verify-release-boundaries');
@@ -525,8 +521,15 @@ test('发行边界命令只执行已编译测试，拒绝旧报告、零测试�
     }
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'release-boundary-command-'));
     const reports = path.join(fixture, 'pixivdownload-app/target/surefire-reports');
-    const invoke = (mode) => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', `
+    const invoke = (mode, compose = false) => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', `
+        : > calls.txt
+        pwsh() {
+          printf '%s\\n' "$*" >> calls.txt
+          if [ "$MODE" = compose_failure ]; then return 11; fi
+          if [ "$MODE" = sdk_failure ] && [[ "$*" = *verify-plugin-sdk.ps1* ]]; then return 13; fi
+        }
         mvn() {
+          echo mvn >> calls.txt
           printf '%s\\n' "$@" > arguments.txt
           if [ "$MODE" = failure ]; then return 7; fi
           if [ "$MODE" = missing ]; then return 0; fi
@@ -539,10 +542,10 @@ test('发行边界命令只执行已编译测试，拒绝旧报告、零测试�
             echo "Tests run: $tests, Failures: $failures, Errors: $errors, Skipped: $skipped" > "pixivdownload-app/target/surefire-reports/example.$class.txt"
           done
         }
-        ${step.run}
+        ${command}
     `], {
         cwd: fixture, encoding: 'utf8', stdio: 'pipe',
-        env: { ...process.env, MODE: mode, REQUIRE_PRODUCTION_CREDENTIAL_KEY: 'true', ADDITIONAL_TESTS: 'ExtraBoundaryTest#one+two' },
+        env: { ...process.env, MODE: mode, VERIFY_COMPOSE_TESTS: String(compose), REQUIRE_PRODUCTION_CREDENTIAL_KEY: 'true', ADDITIONAL_TESTS: 'ExtraBoundaryTest#one+two' },
     });
     try {
         invoke('success');
@@ -556,6 +559,14 @@ test('发行边界命令只执行已编译测试，拒绝旧报告、零测试�
         assert.equal(fs.readdirSync(reports).length, 0, '旧的成功报告不能替代本次执行');
         for (const mode of ['zero', 'failed', 'errored', 'skipped']) assert.throws(() => invoke(mode));
         assert.throws(() => invoke('failure'), (error) => error.status === 7);
+        invoke('success', true);
+        const calls = () => fs.readFileSync(path.join(fixture, 'calls.txt'), 'utf8').trim().split('\n');
+        assert.deepEqual(calls(), ['-NoProfile -File scripts/ci/verify-compose-tests.ps1',
+            '-NoProfile -File scripts/ci/verify-plugin-sdk.ps1', 'mvn']);
+        assert.throws(() => invoke('compose_failure', true), error => error.status === 11);
+        assert.equal(calls().length, 1);
+        assert.throws(() => invoke('sdk_failure', true), error => error.status === 13);
+        assert.equal(calls().length, 2);
     } finally {
         fs.rmSync(fixture, { recursive: true, force: true });
     }
@@ -903,9 +914,10 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
     }
     assert.match(pluginVersions.run, /verify-plugin-versions\.ps1 -BaseRef "\$SDK_BASE_SHA"/u);
     assert.ok(sdkSteps.indexOf(pluginVersions) < sdkSteps.indexOf(published));
-    const pluginSdk = qualityGate.jobs['release-artifacts'].steps.find(step => /verify-plugin-sdk\.ps1/u.test(step.run ?? ''));
+    const pluginSdk = qualityGate.jobs['release-artifacts'].steps.find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.ok(pluginSdk);
     assert.equal(pluginSdk.if, undefined);
+    assert.equal(pluginSdk.with.verify_compose_tests, 'true');
     assert.equal(predecessor.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.GH_TOKEN, '${{ github.token }}');
