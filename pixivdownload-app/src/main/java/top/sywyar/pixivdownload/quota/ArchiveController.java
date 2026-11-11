@@ -10,7 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;

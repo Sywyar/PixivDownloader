@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.ProxyConfig;

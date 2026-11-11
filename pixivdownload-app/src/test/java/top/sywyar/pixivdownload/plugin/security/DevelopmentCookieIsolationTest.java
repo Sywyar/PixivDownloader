@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;

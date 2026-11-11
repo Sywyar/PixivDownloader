@@ -14,7 +14,7 @@ import org.springframework.web.servlet.resource.CssLinkResourceTransformer;
 import org.springframework.web.servlet.resource.ResourceTransformerChain;
 import org.springframework.web.servlet.resource.TransformedResource;
 import org.springframework.web.util.HtmlUtils;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.api.web.page.PageCatalog;

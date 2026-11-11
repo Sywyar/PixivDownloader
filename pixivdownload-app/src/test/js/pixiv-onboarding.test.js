@@ -648,7 +648,7 @@ async function main() {
             return nodes.get(id);
         };
         sandbox.state = {view: 'all'};
-        for (const name of ['updateOrderToggleLabel', 'syncCollectionFormTitle', 'renderCollections',
+        for (const name of ['updateOrderToggleLabel', 'syncCollectionFormTitle', 'renderDateFilters', 'renderCollections',
             'renderTagChips', 'renderSeriesFilterChips', 'renderAuthorChips', 'syncTagFilterBar',
             'syncAuthorFilterBar', 'syncSeriesFilterBar', 'reloadCurrentView']) sandbox[name] = () => {};
         let change, creations = 0;

@@ -15,7 +15,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.beans.factory.ObjectProvider;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;

@@ -7,7 +7,7 @@ import java.util.*;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.plugin.api.operation.OperationTargets;
 
 /** 证明暂存只保存有界纯值；准备不授予业务权限，真实请求仍核对发布并消费一次。 */

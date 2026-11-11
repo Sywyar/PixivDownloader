@@ -13,7 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;

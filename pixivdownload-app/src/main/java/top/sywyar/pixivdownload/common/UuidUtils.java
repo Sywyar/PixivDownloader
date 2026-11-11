@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.common;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.experimental.UtilityClass;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.util.UUID;
 import java.util.regex.Pattern;

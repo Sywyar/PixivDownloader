@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.context.TestComponent;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.ResponseEntity;
@@ -70,6 +71,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /** 独立 JVM 的浏览器夹具；使用生产 Cookie/鉴权链，邀请存储和挑战提供者为受控测试数据。 */
+@TestComponent
 public final class CookieIsolationBrowserServer {
     public static void main(String[] args) throws Exception {
         Utf8ConsoleStreams.install();

@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.setup.guest;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import top.sywyar.pixivdownload.common.InstanceCookies;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.util.Set;
 
