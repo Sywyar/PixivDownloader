@@ -482,6 +482,7 @@ function openScheduleEditor(task) {
         || altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext(limitInput.value))?.sourceType;
     const capabilities = scheduleCredentialCapabilities(sourceType, {...altScheduleSourceContext(limitInput.value), task: task || null});
     let selectedCredential = capabilities.defaultCredentialSelection;
+    let choosing = null;
     const proxyLabel = el('label', 'ab-field-label', bt('schedule.override.proxy', '单独代理'));
     proxyLabel.hidden = !capabilities.supportsProxy;
     body.appendChild(proxyLabel);
@@ -515,14 +516,26 @@ function openScheduleEditor(task) {
         selectedLabel.textContent = (task.credentialPolicy?.accountKey ? 'UID ' + task.credentialPolicy.accountKey + ' · ' : '')
             + capabilities.presentation.credentialHint;
     }
+    const cancelCredentialChoice = () => {
+        choosing?.abort();
+        choosing = null;
+        savedCookie.disabled = saving;
+    };
     savedCookie.addEventListener('click', async () => {
-        if (capabilities.credentialReadOnly) return;
+        if (capabilities.credentialReadOnly || saving || choosing) return;
+        const controller = new AbortController();
+        choosing = controller;
+        const mode = state.mode;
+        const previousCredential = credInput.readCredential();
+        const isCurrent = () => choosing === controller && !controller.signal.aborted
+            && !saving && body.isConnected && scheduleState.editing === session
+            && state.mode === mode && credInput.readCredential() === previousCredential;
         savedCookie.disabled = true;
         try {
             const selected = await altScheduleSources().selectSavedCredential(sourceType, {
-                ...altScheduleSourceContext(limitInput.value), task,
+                ...altScheduleSourceContext(limitInput.value), task, signal: controller.signal,
                 openCredentialDialog: spec => {
-                    if (!body.isConnected) throw new DOMException('Closed', 'AbortError');
+                    if (!isCurrent()) throw new DOMException('Closed', 'AbortError');
                     spec.root.classList.add('ab-modal-root');
                     for (const button of spec.footer.querySelectorAll('button')) {
                         button.className = altComponentClasses('button',
@@ -531,18 +544,26 @@ function openScheduleEditor(task) {
                     return openAltDialog(spec, false);
                 }
             });
-            if (selected && body.isConnected) {
+            if (selected && isCurrent()) {
                 selectedCredential = selected;
                 selectedLabel.textContent = selected.label;
                 credInput.setCredential('');
             }
-        } catch (e) { if (body.isConnected) status.textContent = e.message; }
-        finally { savedCookie.disabled = false; }
+        } catch (e) { if (isCurrent()) status.textContent = e.message; }
+        finally {
+            if (choosing === controller) {
+                choosing = null;
+                savedCookie.disabled = saving;
+            }
+        }
     });
-    credInput.addEventListener('input', () => {
+    const clearSavedCredential = () => {
+        cancelCredentialChoice();
         selectedCredential = null;
         selectedLabel.textContent = '';
-    });
+    };
+    credInput.addEventListener('input', clearSavedCredential);
+    credInput.addEventListener('paste', clearSavedCredential);
     body.append(savedCookie, selectedLabel);
 
     if (editing) {
@@ -586,6 +607,7 @@ function openScheduleEditor(task) {
         }
         const firstLimit = Math.max(0, parseInt(limitInput.value, 10) || 0);
         const isCron = triggerSeg.querySelectorAll('.ab-seg-item')[1].classList.contains('is-active');
+        cancelCredentialChoice();
         saving = true;
         if (session) session.saving = true;
         const controls = new Map([...body.querySelectorAll('input, button, select, textarea'),
@@ -686,7 +708,13 @@ function openScheduleEditor(task) {
         body.prepend(el('p', 'ab-field-note', bt('schedule.editor.settings-help')));
         const back = el('button', 'ab-btn ab-btn--ghost', bt('schedule.editor.back-to-source'));
         back.type = 'button';
-        const returnToSource = () => { refreshEditSummary(); section.appendChild(status); return !saving; };
+        const returnToSource = () => {
+            if (saving) return false;
+            cancelCredentialChoice();
+            refreshEditSummary();
+            section.appendChild(status);
+            return true;
+        };
         back.addEventListener('click', () => { if (returnToSource()) closeDrawer(); });
         const settingsFooter = el('div', 'ab-drawer-actions');
         settingsFooter.appendChild(back);
@@ -714,7 +742,11 @@ function openScheduleEditor(task) {
         icon: 'plus',
         title: bt('schedule.editor.title-new', '新建计划任务'),
         body,
-        beforeClose: () => !saving && (!dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？')),
+        beforeClose: () => {
+            if (saving) return false;
+            cancelCredentialChoice();
+            return !dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？');
+        },
         footer
     });
 }

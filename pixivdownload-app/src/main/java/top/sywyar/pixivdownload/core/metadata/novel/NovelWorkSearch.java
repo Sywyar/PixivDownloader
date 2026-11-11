@@ -81,7 +81,8 @@ public class NovelWorkSearch {
             filtered.add(r);
         }
         // 排序
-        Comparator<NovelMetadataRow> cmp = switch (q.sort() == null ? "date" : q.sort()) {
+        String sort = q.sort() == null ? "date" : q.sort();
+        Comparator<NovelMetadataRow> cmp = switch (sort) {
             case "novelId" -> Comparator.comparingLong(NovelMetadataRow::novelId);
             case "series" -> Comparator
                     .comparingLong((NovelMetadataRow r) -> r.seriesId() == null ? Long.MAX_VALUE : r.seriesId())
@@ -91,9 +92,9 @@ public class NovelWorkSearch {
         if (!"asc".equalsIgnoreCase(q.order())) {
             cmp = cmp.reversed();
         }
-        if (java.util.Set.of("uploadTime", "createTime", "updateTime", "reuploadTime").contains(q.sort())) {
+        if (Set.of("uploadTime", "createTime", "updateTime", "reuploadTime").contains(sort)) {
             Comparator<Long> timeOrder = "asc".equalsIgnoreCase(q.order()) ? Comparator.naturalOrder() : Comparator.reverseOrder();
-            cmp = Comparator.comparing((NovelMetadataRow row) -> switch (q.sort()) {
+            cmp = Comparator.comparing((NovelMetadataRow row) -> switch (sort) {
                         case "createTime" -> row.createTime();
                         case "updateTime" -> row.updateTime();
                         case "reuploadTime" -> row.reuploadTime();

@@ -553,6 +553,49 @@ class CoreWorkQueryServiceTest {
             assertThat(result.totalPages()).isEqualTo(1);
         }
 
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.NullSource
+        @org.junit.jupiter.params.provider.ValueSource(strings = {"date"})
+        @DisplayName("小说空排序与日期排序均支持空库，并按记录时间升降序查询")
+        void shouldDefaultNullNovelSortToRecordTime(String sort) {
+            var query = WorkQuery.builder(WorkType.NOVEL).sort(sort).build();
+            assertThat(service.searchAll(query)).isEmpty();
+            assertThat(service.search(query).content()).isEmpty();
+
+            insertNovel(11L, 300L, null, null);
+            insertNovel(12L, 100L, null, null);
+            insertNovel(13L, 200L, null, null);
+
+            assertThat(ids(service.searchAll(query))).containsExactly(11L, 13L, 12L);
+            assertThat(ids(service.search(query).content())).containsExactly(11L, 13L, 12L);
+            var ascending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("asc").build();
+            assertThat(ids(service.searchAll(ascending))).containsExactly(12L, 13L, 11L);
+            assertThat(ids(service.search(ascending).content())).containsExactly(12L, 13L, 11L);
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.CsvSource({
+                "uploadTime, source_upload_time",
+                "createTime, create_time",
+                "updateTime, update_time",
+                "reuploadTime, reupload_time"
+        })
+        @DisplayName("小说显式时间排序按所选字段升降序，缺失值置后且同值按 ID 升序")
+        void shouldKeepNovelSourceTimeSortSemantics(String sort, String column) {
+            for (long id : List.of(13L, 12L, 14L, 11L)) {
+                insertNovel(id, id * 100L, null, null);
+            }
+            jdbc.update("UPDATE novels SET " + column + " = 200 WHERE novel_id IN (11, 13)");
+            jdbc.update("UPDATE novels SET " + column + " = 100 WHERE novel_id = 12");
+
+            var ascending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("asc").build();
+            var descending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("desc").build();
+            assertThat(ids(service.searchAll(ascending))).containsExactly(12L, 11L, 13L, 14L);
+            assertThat(ids(service.searchAll(descending))).containsExactly(11L, 13L, 12L, 14L);
+            assertThat(ids(service.search(ascending).content())).containsExactly(12L, 11L, 13L, 14L);
+            assertThat(ids(service.search(descending).content())).containsExactly(11L, 13L, 12L, 14L);
+        }
+
         @Test
         @DisplayName("小说 search 分页数学在查询侧完成：第二页取次新小说")
         void shouldComputeNovelPagingMath() {

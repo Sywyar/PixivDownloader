@@ -52,6 +52,170 @@ async function editor(options = {}) {
         status: () => modal.body.querySelector('[role="status"]').textContent};
 }
 
+async function scheduleEditor(options = {}) {
+    const lists = [];
+    let e;
+    e = await editor({...options,
+        select: options.select || ((...args) => e.h.handlers.get('search').selectSavedCredential(...args))});
+    Object.assign(e.h.context, {AbortSignal, DOMException});
+    e.h.load('../pixiv-batch/credential-library.js');
+    const fetch = e.h.context.fetch;
+    e.h.context.fetch = (url, init) => {
+        if (url !== '/api/acquisition/credentials') return fetch(url, init);
+        const pending = Promise.withResolvers();
+        lists.push({...pending, signal: init.signal});
+        return pending.promise;
+    };
+    e.h.confirm(true);
+    e.h.run("state.mode='search'; searchState.word='fixture'; searchState.maxPages=1;");
+    e.h.context.openScheduleEditor(options.editing ? e.h.task : null);
+    if (options.editing) e.h.options();
+    const body = e.h.drawer.body;
+    Object.defineProperty(body, 'isConnected', {get: () => e.h.context.document.body.contains(body)});
+    e.h.field('abScheduleField0').value = 'Fixture schedule';
+    const credential = e.h.field('abScheduleField5');
+    const saved = body.querySelectorAll('button').find(node => node.textContent === 'schedule.override.use-saved');
+    return {...e, lists, credential, saved,
+        select: () => saved.listeners.get('click')[0](),
+        save: () => options.editing ? e.h.save()
+            : e.h.drawer.footer.querySelector('.ab-btn--primary').listeners.get('click')[0](),
+        respond: (index = 0, id = 'old-account') => lists[index].resolve({ok: true, json: async () => ({revision: 'fixture',
+            entries: [{id, name: id, enabled: true}]})})};
+}
+
+test('计划编辑的迟到单 Cookie 列表不覆盖后续输入或多行粘贴，保存绑定新草稿', async t => {
+    for (const editing of [false, true]) {
+        for (const paste of [false, true]) {
+            const e = await scheduleEditor({editing});
+            t.after(() => e.runtime.dispose());
+            const selecting = e.select();
+            const draft = paste ? 'fixture-new\nfixture-second' : 'fixture-new';
+            if (paste) {
+                e.credential.dispatchEvent({type: 'paste', clipboardData: {getData: () => draft}, preventDefault() {}});
+            } else {
+                e.credential.value = draft;
+                e.credential.dispatchEvent({type: 'input'});
+            }
+            e.respond();
+            await selecting;
+            assert.equal(e.credential.readCredential(), draft);
+            assert.equal(e.lists[0].signal.aborted, true);
+            await e.save();
+            assert.deepEqual(e.calls.map(call => call.name), ['validate', 'bind']);
+            assert.equal(e.calls[1].args[1], draft);
+        }
+    }
+});
+
+test('计划编辑保存开始后取消旧选择，迟到响应不改变提交且不提前解锁按钮', async t => {
+    for (const editing of [false, true]) {
+        const validation = Promise.withResolvers();
+        const e = await scheduleEditor({editing, validate: () => validation.promise});
+        t.after(() => e.runtime.dispose());
+        e.credential.setCredential('fixture-draft');
+        const selecting = e.select();
+        const saving = e.save();
+        e.respond();
+        await selecting;
+        assert.equal(e.credential.readCredential(), 'fixture-draft');
+        assert.equal(e.saved.disabled, true);
+        assert.equal(e.lists[0].signal.aborted, true);
+        validation.resolve('fixture validation');
+        await saving;
+        assert.equal(e.saved.disabled, false);
+        assert.equal(e.credential.readCredential(), 'fixture-draft');
+        assert.equal(e.h.requests.length, 0);
+    }
+});
+
+test('关闭计划设置或替换编辑上下文后，旧凭据选择不能回填', async t => {
+    for (const editing of [false, true]) {
+        const e = await scheduleEditor({editing});
+        t.after(() => e.runtime.dispose());
+        e.credential.setCredential('fixture-draft');
+        const selecting = e.select();
+        assert.equal(await e.h.drawer.beforeClose(), true);
+        assert.equal(e.lists[0].signal.aborted, true);
+        e.respond();
+        await selecting;
+        assert.equal(e.credential.readCredential(), 'fixture-draft');
+    }
+    const e = await scheduleEditor({editing: true});
+    t.after(() => e.runtime.dispose());
+    e.credential.setCredential('fixture-draft');
+    const selecting = e.select();
+    e.h.context.openScheduleEditor({...e.h.task, id: 43});
+    e.respond();
+    await selecting;
+    assert.equal(e.credential.readCredential(), 'fixture-draft');
+    assert.equal(e.calls.length, 0);
+});
+
+test('旧选择结束不解锁后续选择，正常单 Cookie 选择仍使用选定 ID 绑定', async t => {
+    const e = await scheduleEditor();
+    t.after(() => e.runtime.dispose());
+    const first = e.select();
+    e.credential.value = 'fixture-draft';
+    e.credential.dispatchEvent({type: 'input'});
+    const second = e.select();
+    assert.equal(e.lists.length, 2);
+    e.respond(0);
+    await first;
+    assert.equal(e.saved.disabled, true);
+    assert.equal(e.credential.readCredential(), 'fixture-draft');
+    e.respond(1);
+    await second;
+    assert.equal(e.credential.readCredential(), '');
+    assert.equal(e.saved.disabled, false);
+    await e.save();
+    assert.deepEqual(e.calls.map(call => call.name), ['saved']);
+    assert.deepEqual(Array.from(e.calls[0].args[1].savedCredentialSelection.ids), ['old-account']);
+});
+
+test('取消计划凭据选择保留输入，旧选择失败不覆盖保存失败状态', async t => {
+    const cancelled = await scheduleEditor({select: async () => null});
+    t.after(() => cancelled.runtime.dispose());
+    cancelled.credential.setCredential('fixture-draft');
+    await cancelled.select();
+    assert.equal(cancelled.credential.readCredential(), 'fixture-draft');
+    await cancelled.save();
+    assert.deepEqual(cancelled.calls.map(call => call.name), ['validate', 'bind']);
+
+    const e = await scheduleEditor({validate: () => 'fixture validation'});
+    t.after(() => e.runtime.dispose());
+    e.credential.setCredential('fixture-draft');
+    const selecting = e.select();
+    await e.save();
+    e.lists[0].reject(new Error('fixture list failure'));
+    await selecting;
+    assert.equal(e.h.drawer.footer.querySelector('[role="status"]').textContent, 'fixture validation');
+    assert.equal(e.credential.readCredential(), 'fixture-draft');
+});
+
+test('任务保存请求等待期间，迟到的新选择不能替换已提交的凭据选择', async t => {
+    const e = await scheduleEditor();
+    t.after(() => e.runtime.dispose());
+    const first = e.select();
+    e.respond();
+    await first;
+    const pending = Promise.withResolvers();
+    const fetch = e.h.context.fetch;
+    e.h.context.fetch = async (url, init) => {
+        if (url === '/api/schedule/tasks') await pending.promise;
+        return fetch(url, init);
+    };
+    const selecting = e.select();
+    const saving = e.save();
+    await new Promise(resolve => setImmediate(resolve));
+    e.respond(1, 'different-account');
+    await selecting;
+    assert.equal(e.saved.disabled, true);
+    pending.resolve();
+    await saving;
+    assert.deepEqual(e.calls.map(call => call.name), ['saved']);
+    assert.deepEqual(Array.from(e.calls[0].args[1].savedCredentialSelection.ids), ['old-account']);
+});
+
 test('固定凭证弹窗只显示绑定信息，代理仍可修改', async t => {
     const capabilities = {credentialReadOnly: true, singleCredential: true,
         presentation: {credentialHint: 'Fixed account'}};
