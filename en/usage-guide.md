@@ -25,13 +25,15 @@ Before running administration commands such as `--setup`, `--change-password` or
 
 ## Filename template variables
 
-The following 11 variables are available under "Download settings → Filename template" on the download page (invalid filename characters are filtered automatically; a new template applies only to subsequent new downloads):
+The following variables are available under "Download settings → Filename template" on the download page (invalid filename characters are filtered automatically; a new template applies only to subsequent new downloads):
 
 | Variable | Meaning |
 | --- | --- |
 | `{artwork_id}` | Work ID |
 | `{artwork_title}` | Work title |
 | `{author_id}` | Author ID |
+| `{collection_name}` | Collection name; empty if none is selected |
+| `{collection_id}` | Collection ID; empty if none is selected |
 | `{author_name}` | Author name |
 | `{timestamp}` | Unix timestamp at download time, in milliseconds |
 | `{page}` | Current page index, starting at `0` |
@@ -41,7 +43,9 @@ The following 11 variables are available under "Download settings → Filename t
 | `{R18}` | `R18`, `R18G` or an empty string |
 | `{R18+}` | `SFW`, `R18` or `R18G` |
 
-For example, `{author_name}/{artwork_id}_p{page}` creates author-named subfolders for images.
+For a selected local collection named `Favorites` with ID `7`, `{collection_name}_{collection_id}_{artwork_id}_p{page}` can produce `Favorites_7_42_p0.png`. With no collection selected, the same template produces `__42_p0.png`. Both illustrations and novels support these variables. The actual filenames are saved at download time, so renaming a collection does not rename existing files.
+
+Filename templates affect filenames only: `/` and `\` become `_` and do not create subdirectories. The global `download.root-folder` does not expand variables; a collection's custom download directory supports `{collection_name}`. These modes differ from [local artwork import path parsing](/en/local-import), which reports both collection variables as known but unavailable in the current mode.
 
 ## Automatic bookmarking and Ugoira processing
 

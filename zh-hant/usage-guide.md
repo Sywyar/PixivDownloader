@@ -25,13 +25,15 @@ java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 
 ## 檔名範本變數
 
-在下載頁「下載設定 → 檔名範本」中可使用以下 11 個變數（檔名中的非法字元會自動過濾，新範本僅對後續新下載生效）：
+在下載頁「下載設定 → 檔名範本」中可使用以下變數（檔名中的非法字元會自動過濾，新範本僅對後續新下載生效）：
 
 | 變數 | 含義 |
 | --- | --- |
 | `{artwork_id}` | 作品 ID |
 | `{artwork_title}` | 作品標題 |
 | `{author_id}` | 作者 ID |
+| `{collection_name}` | 收藏夾名稱；未選取時為空 |
+| `{collection_id}` | 收藏夾 ID；未選取時為空 |
 | `{author_name}` | 作者名稱 |
 | `{timestamp}` | 下載時的 Unix 時間戳記（毫秒） |
 | `{page}` | 目前頁面索引（從 `0` 開始） |
@@ -41,7 +43,9 @@ java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 | `{R18}` | `R18`、`R18G` 或空字串 |
 | `{R18+}` | `SFW`、`R18` 或 `R18G` |
 
-範例：`{author_name}/{artwork_id}_p{page}` 會依作者名稱建立子資料夾儲存圖片。
+例如，選取名稱為 `Favorites`、ID 為 `7` 的本地收藏夾後，`{collection_name}_{collection_id}_{artwork_id}_p{page}` 可產生 `Favorites_7_42_p0.png`；未選取收藏夾時，相同範本產生 `__42_p0.png`。插畫與小說皆可使用這兩個變數。下載時會儲存實際檔名，之後修改收藏夾名稱不會重新命名既有檔案。
+
+檔名範本只控制檔名；`/` 和 `\` 會替換為 `_`，不會建立子目錄。全域 `download.root-folder` 不展開範本變數；收藏夾的自訂下載目錄支援 `{collection_name}`。這些模式與[本地作品匯入的路徑解析](/zh-hant/local-import)不同；本地匯入遇到上述兩個收藏夾變數時，會提示變數已知但目前模式無法使用。
 
 ## 自動收藏與動圖（Ugoira）處理
 

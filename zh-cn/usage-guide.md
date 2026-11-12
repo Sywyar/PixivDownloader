@@ -25,13 +25,15 @@ java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 
 ## 文件名模板变量
 
-在下载页「下载设置 → 文件名模板」中可使用以下 11 个变量（文件名中的非法字符会自动过滤，新模板仅对后续新下载生效）：
+在下载页「下载设置 → 文件名模板」中可使用以下变量（文件名中的非法字符会自动过滤，新模板仅对后续新下载生效）：
 
 | 变量 | 含义 |
 | --- | --- |
 | `{artwork_id}` | 作品 ID |
 | `{artwork_title}` | 作品标题 |
 | `{author_id}` | 作者 ID |
+| `{collection_name}` | 收藏夹名称；未选择时为空 |
+| `{collection_id}` | 收藏夹 ID；未选择时为空 |
 | `{author_name}` | 作者名称 |
 | `{timestamp}` | 下载时的 Unix 时间戳（毫秒） |
 | `{page}` | 当前页索引（从 `0` 开始） |
@@ -41,7 +43,9 @@ java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 | `{R18}` | `R18`、`R18G` 或空字符串 |
 | `{R18+}` | `SFW`、`R18` 或 `R18G` |
 
-示例：`{author_name}/{artwork_id}_p{page}` 会按作者名称建立子文件夹保存图片。
+例如，选择名称为 `Favorites`、ID 为 `7` 的本地收藏夹后，`{collection_name}_{collection_id}_{artwork_id}_p{page}` 可生成 `Favorites_7_42_p0.png`；未选择收藏夹时，相同模板生成 `__42_p0.png`。插画与小说都可使用这两个变量。下载时保存实际文件名，之后修改收藏夹名称不会重命名已有文件。
+
+文件名模板只控制文件名；`/` 和 `\` 会替换为 `_`，不会创建子目录。全局 `download.root-folder` 不展开模板变量；收藏夹的自定义下载目录支持 `{collection_name}`。这些模式与[本地作品导入的路径解析](/zh-cn/local-import)不同；本地导入遇到上述两个收藏夹变量时，会提示变量已知但当前模式不可用。
 
 ## 自动收藏与动图（Ugoira）处理
 
