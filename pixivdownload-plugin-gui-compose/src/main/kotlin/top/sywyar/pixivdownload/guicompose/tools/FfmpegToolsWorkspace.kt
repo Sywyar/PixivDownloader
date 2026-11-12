@@ -69,7 +69,7 @@ internal fun FfmpegToolsWorkspace(
                 ) {
                     DesktopIcon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp), palette.link)
                     Spacer(Modifier.width(8.dp))
-                    CupertinoText(label("back"), fontSize = 13.sp, color = palette.link)
+                    CupertinoText(label("exit"), fontSize = 13.sp, color = palette.link)
                 }
                 CupertinoText(
                     label("media-title"),
@@ -77,6 +77,7 @@ internal fun FfmpegToolsWorkspace(
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                 )
+                CupertinoText(label("utilities-help"), fontSize = 12.sp, color = palette.secondaryText)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

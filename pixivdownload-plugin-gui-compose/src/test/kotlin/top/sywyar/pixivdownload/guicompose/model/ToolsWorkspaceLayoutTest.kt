@@ -493,7 +493,7 @@ class ToolsWorkspaceLayoutTest {
                     } finally {
                         proceed.release(2)
                     }
-                    onNodeWithTag("tools.sheet.close").performClick()
+                    onNodeWithTag("tools.back").performClick()
                 }
             }
         }
@@ -544,8 +544,11 @@ class ToolsWorkspaceLayoutTest {
                         }
                         assertEquals(index + 2, reads.count.get(), "Thumbnail must survive viewer close")
                     }
-                    onNodeWithTag("tools.sheet.close").performClick()
-                    onNodeWithTag("tools.sheet").assertDoesNotExist()
+                    onNodeWithTag("navigation.home").performClick()
+                    onNodeWithTag("tools.utility.workspace").assertDoesNotExist()
+                    onNodeWithTag("navigation.tools").performClick()
+                    onNodeWithTag("tools.overview").assertIsDisplayed()
+                    onNodeWithContentDescription("sample.png").assertDoesNotExist()
                 }
             }
         }
@@ -627,7 +630,7 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("classifier.category.0.select").performClick().assertIsSelected()
                 onNodeWithTag("classifier.classify").assertIsEnabled()
                 screenshot("actual-classifier")
-                onNodeWithTag("tools.sheet.close").performClick()
+                onNodeWithTag("tools.back").performClick()
                 onNodeWithTag("tools.entry.folder").performClick()
                 onNodeWithTag("tools.folder.db").assertIsDisplayed()
                 onNodeWithTag("tools.folder.check").performClick()
@@ -638,7 +641,7 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("tools.folder.update").assertIsDisplayed().performClick()
                 waitUntil(timeoutMillis = 5_000) { !model.busy() }
                 assertEquals(listOf("update:123:$temp"), calls)
-                onNodeWithTag("tools.sheet.close").performClick()
+                onNodeWithTag("tools.back").performClick()
                 onNodeWithTag("tools.sheet").assertDoesNotExist()
                 onNodeWithTag("tools.entry.media").performScrollTo().performClick()
                 onNodeWithTag("tools.ffmpeg.path").assertDoesNotExist()
@@ -742,7 +745,8 @@ class ToolsWorkspaceLayoutTest {
 
     private fun ComposeUiTest.screenshot(name: String) {
         val file = File("target/tools-ui/$name.png").apply { parentFile.mkdirs() }
-        val tag = if (onAllNodesWithTag("tools.media.workspace").fetchSemanticsNodes().isNotEmpty()) "tools.media.workspace" else "tools.sheet"
+        val tag = listOf("tools.media.workspace", "tools.utility.workspace", "tools.sheet")
+            .first { onAllNodesWithTag(it).fetchSemanticsNodes().isNotEmpty() }
         ImageIO.write(onNodeWithTag(tag).captureToImage().toAwtImage(), "png", file)
     }
 

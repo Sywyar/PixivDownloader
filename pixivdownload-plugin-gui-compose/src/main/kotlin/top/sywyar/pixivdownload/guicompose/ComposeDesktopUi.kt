@@ -4,6 +4,7 @@ package top.sywyar.pixivdownload.guicompose
 
 import top.sywyar.pixivdownload.guicompose.tools.AutomaticBackfillNotice
 import top.sywyar.pixivdownload.guicompose.tools.LocalOpenBackfill
+import top.sywyar.pixivdownload.guicompose.tools.LocalRegisterToolsExit
 import top.sywyar.pixivdownload.guicompose.tools.runningTaskCount
 import top.sywyar.pixivdownload.guicompose.tools.toolRunningBorder
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask
@@ -639,6 +640,8 @@ internal fun DesktopShell(
     val pageIds = document.pages().map { it.id() }
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
     var openBackfill by remember { mutableStateOf(false) }
+    var toolsExit by remember { mutableStateOf<(() -> Boolean)?>(null) }
+    val registerToolsExit = remember { { callback: (() -> Boolean)? -> toolsExit = callback } }
     val directoryConfirmation = document.dialogs().any { it.id() == "directory-suggestion" }
     LaunchedEffect(directoryConfirmation) {
         if (directoryConfirmation && "settings" in pageIds) selected = "settings"
@@ -676,7 +679,12 @@ internal fun DesktopShell(
                         selected = activePage,
                         resolveText = resolveText,
                         modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
-                        onSelect = { focusManager.clearFocus(); selected = it },
+                        onSelect = {
+                            if (it == activePage || activePage != "tools" || toolsExit?.invoke() != false) {
+                                focusManager.clearFocus()
+                                selected = it
+                            }
+                        },
                     )
                 }
                 val currentPage = document.pages().first { it.id() == activePage }
@@ -706,6 +714,7 @@ internal fun DesktopShell(
                                             }
                                         }
                                     CompositionLocalProvider(
+                                        LocalRegisterToolsExit provides registerToolsExit,
                                         LocalOpenBackfill provides
                                             if (active && openBackfill) ({ openBackfill = false }) else null,
                                     ) {
@@ -714,6 +723,7 @@ internal fun DesktopShell(
                                                 if (active && currentVisit.value === visit) {
                                                     dispatch(it)
                                                     if (it.nodeId() == "status.ffmpeg.settings" && "settings" in pageIds) {
+                                                        toolsExit?.invoke()
                                                         focusManager.clearFocus()
                                                         selected = "settings"
                                                     }

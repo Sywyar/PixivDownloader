@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import top.sywyar.pixivdownload.guicompose.ComposeDesktopUiNodeRenderer
+import top.sywyar.pixivdownload.guicompose.DesktopShell
 import top.sywyar.pixivdownload.guicompose.PixivDownloaderTheme
 import top.sywyar.pixivdownload.guicompose.LocalExperiencePalette
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
@@ -34,6 +35,55 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class MediaToolsInteractionTest {
+    @Test
+    @DisplayName("切换侧栏退出媒体任务，返回工具页不会恢复已退出的工作区")
+    fun navigationStopsUtility() = runSkikoComposeUiTest(
+        size = Size(1200f, 860f),
+        effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
+    ) {
+        val labels = messages(Locale.US)
+        val fixture = DesktopMediaToolsControllerTest.Fixture()
+        val calls = mapOf<String, Function<Array<Any>, Any>>(
+            "mediaTools" to Function { fixture.tools.get() },
+            "mediaTool" to Function { fixture.source },
+            "message" to Function { labels.getProperty(it[0].toString(), it[0].toString()) },
+        )
+        DesktopConfigurationControllerTest.model(HashMap(), calls).use { model ->
+            var snapshot by mutableStateOf(model.snapshot())
+            model.subscribeSnapshots { snapshot = it }.use {
+                setContent {
+                    PixivDownloaderTheme("dark") {
+                        DesktopShell(
+                            document = snapshot.document(),
+                            documentRevision = snapshot.revision(),
+                            resolveText = { token ->
+                                if (token.key().isBlank()) token.fallback()
+                                else MessageFormat(labels.getProperty(token.key(), token.fallback()), Locale.US)
+                                    .format(token.arguments().toTypedArray())
+                            },
+                            automaticBackfillNotice = null,
+                            dismissAutomaticBackfill = { false },
+                            dispatch = { model.dispatch(snapshot, it) },
+                        )
+                    }
+                }
+                onNodeWithTag("navigation.tools").performClick()
+                onNodeWithTag("tools.entry.media").performScrollTo().performClick()
+                onNodeWithTag("media.sample.1.preview").performClick()
+                waitUntilExactlyOneExists(hasTestTag("media.sample.1.start"), timeoutMillis = 5_000)
+                onNodeWithTag("media.sample.1.start").performClick()
+                waitUntil(timeoutMillis = 5_000) { fixture.starts.get() == 1 }
+                onNodeWithTag("navigation.home").performClick()
+                waitUntil(timeoutMillis = 5_000) { fixture.cancellations.get() == 1 }
+                onNodeWithTag("tools.media.workspace").assertDoesNotExist()
+                onNodeWithTag("navigation.tools").performClick()
+                onNodeWithTag("tools.overview").assertIsDisplayed()
+                onNodeWithTag("tools.media.workspace").assertDoesNotExist()
+                assertEquals(1, fixture.cancellations.get())
+            }
+        }
+    }
+
     @Test
     @DisplayName("中文工具目录与媒体工作面板衔接，格式变更必须重新预览")
     fun chineseWorkspace() = exercise("light", Locale.SIMPLIFIED_CHINESE, 1200, 860, 1f)
@@ -111,10 +161,8 @@ class MediaToolsInteractionTest {
                 onNodeWithTag(prefix + ".cancel").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
                 onNodeWithTag("tools.media.workspace").performKeyInput { pressKey(Key.Escape) }
                 onNodeWithTag("tools.media.workspace").assertDoesNotExist()
-                assertEquals("running", fixture.state.get().state())
-                onNodeWithTag("tools.entry.media").performClick()
-                onNodeWithTag(prefix + ".cancel").assertIsDisplayed().performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.state.get().state() == "cancelled" }
+                onNodeWithTag("tools.entry.media").performClick()
                 waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(prefix + ".preview").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithTag("tools.media.tab.ffmpeg").performClick()
                 onNodeWithTag("status.ffmpeg.settings").performScrollTo().assertIsDisplayed().assertIsEnabled()

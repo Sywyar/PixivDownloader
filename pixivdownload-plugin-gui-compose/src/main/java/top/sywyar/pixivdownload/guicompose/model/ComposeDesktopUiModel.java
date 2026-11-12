@@ -207,6 +207,12 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         directoryMigration.scheduleSymbolicOrphanCheck();
     }
 
+    void leaveMediaTools() {
+        statusController.leaveFfmpeg();
+        mediaTools.leave();
+        rebuild();
+    }
+
     @Override
     public DesktopUiSnapshot snapshot() {
         return snapshot;

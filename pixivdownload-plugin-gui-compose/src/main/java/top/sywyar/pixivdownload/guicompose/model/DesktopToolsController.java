@@ -172,6 +172,9 @@ final class DesktopToolsController {
     }
 
     void closeFolderCheckerDialog() {
+        folderRows = List.of();
+        folderArtworks = Map.of();
+        selectedFolderRow = null;
         long startedAt = exclusiveToolStartedAt;
         boolean restart = folderCheckerRestartBackend;
         folderCheckerRestartBackend = false;
@@ -207,6 +210,10 @@ final class DesktopToolsController {
     }
 
     void closeImageClassifierDialog() {
+        classifierFolders = List.of();
+        classifierImages = List.of();
+        classifierArtwork = null;
+        classifierSupport.setPaths(Map.of());
         long startedAt = classifierToolStartedAt;
         classifierToolStartedAt = 0L;
         if (startedAt > 0L) {

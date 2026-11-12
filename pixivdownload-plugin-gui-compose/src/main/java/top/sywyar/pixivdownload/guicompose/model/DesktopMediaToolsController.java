@@ -21,6 +21,7 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
 /** Compose 拥有媒体表单和交互状态；副作用仅由宿主的精确能力句柄执行。 */
 final class DesktopMediaToolsController implements AutoCloseable {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DesktopMediaToolsController.class);
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
     private final Map<DesktopMediaTool.Identity, State> states = new ConcurrentHashMap<>();
@@ -191,19 +192,36 @@ final class DesktopMediaToolsController implements AutoCloseable {
         });
     }
 
+    void leave() {
+        for (State state : states.values()) {
+            state.exiting = true;
+            state.preview = null;
+            if (state.running()) cancel(state);
+        }
+    }
+
     private void cancel(State state) {
-        state.cancelling = true;
+        synchronized (state) {
+            if (state.cancelling) return;
+            state.cancelling = true;
+        }
         state.revision++;
+        LOG.info("Desktop media cancellation requested: owner={}, publication={}", state.tool.identity().pluginId(), state.tool.identity().publication());
         owner.rebuild();
         owner.executeAsync(() -> {
             try { source(state).cancel(); }
-            catch (RuntimeException failure) { fail(state, failure); state.cancelling = false; }
+            catch (RuntimeException failure) {
+                LOG.warn("Desktop media cancellation failed: owner={}, publication={}, type={}",
+                        state.tool.identity().pluginId(), state.tool.identity().publication(), failure.getClass().getSimpleName());
+                fail(state, failure); state.cancelling = false;
+            }
             owner.rebuild();
         });
     }
 
     private void run(State state, Runnable action) {
         if (state.busy || state.running()) return;
+        state.exiting = false;
         state.busy = true;
         state.revision++;
         state.notice = null;
@@ -211,7 +229,16 @@ final class DesktopMediaToolsController implements AutoCloseable {
         owner.executeAsync(() -> {
             try { if (active(state)) action.run(); }
             catch (RuntimeException failure) { fail(state, failure); }
-            finally { state.busy = false; if (active(state)) owner.rebuild(); }
+            finally {
+                state.busy = false;
+                if (active(state)) {
+                    if (state.exiting) {
+                        state.preview = null;
+                        if (state.running()) cancel(state);
+                    }
+                    owner.rebuild();
+                }
+            }
         });
     }
 
@@ -269,6 +296,7 @@ final class DesktopMediaToolsController implements AutoCloseable {
         volatile boolean thumbnails = true;
         volatile boolean busy;
         volatile boolean cancelling;
+        volatile boolean exiting;
         volatile long revision;
         volatile int page;
         volatile DesktopMediaTool.Preview preview;

@@ -496,6 +496,41 @@ class DesktopToolsControllerTest {
         } finally { release.countDown(); }
     }
 
+    @Test
+    @DisplayName("退出 FFmpeg 工具会中断安装，实际 worker 退出后才结束忙碌状态")
+    void leaveFfmpegCancelsInstallation() throws Exception {
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var interrupted = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("supportsManagedFfmpegInstall", args -> true);
+        overrides.put("installManagedFfmpeg", args -> {
+            started.countDown();
+            try {
+                release.await();
+                throw new AssertionError("Installation should have been interrupted");
+            } catch (InterruptedException expected) {
+                interrupted.countDown();
+                try { release.await(); } catch (InterruptedException duplicate) { throw new AssertionError(duplicate); }
+                throw new java.util.concurrent.CancellationException();
+            }
+        });
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitMediaReady(model);
+            activate(model, "status.ffmpeg.install");
+            activate(model, "ffmpeg.confirm.install");
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            activate(model, "status.ffmpeg.leave");
+            assertTrue(interrupted.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(model.busy(), "A stop request is not a completed installation");
+            release.countDown();
+            awaitMediaReady(model);
+            assertTrue(descendants(overview(model).media()).filter(DesktopUiNode.Text.class::isInstance)
+                    .map(DesktopUiNode.Text.class::cast).anyMatch(text ->
+                            text.text().key().equals("gui.compose.tools.workspace.cancelled")));
+        } finally { release.countDown(); }
+    }
+
     static void awaitMediaReady(ComposeDesktopUiModel model) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (model.busy() || descendants(overview(model).media()).filter(DesktopUiNode.Button.class::isInstance)
