@@ -46,6 +46,7 @@ public final class DefaultConfigTemplate {
 
         appendSetting(config, messages, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
         appendSetting(config, messages, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
+        appendSetting(config, messages, "local-import.presets: '[]'", "config.template.local-import.presets.comment");
         appendSetting(config, messages, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
         appendSetting(config, messages, "ffmpeg.executable-path: \"\"", "config.template.ffmpeg.executable-path.comment");
         appendSetting(config, messages, "ffmpeg.max-concurrent: " + FfmpegProperties.DEFAULT_MAX_CONCURRENT,

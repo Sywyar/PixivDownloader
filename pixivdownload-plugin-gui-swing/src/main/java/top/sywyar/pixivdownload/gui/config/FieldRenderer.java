@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.LocalImportGuideButton;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
@@ -90,6 +92,7 @@ public final class FieldRenderer {
             case MULTI_ENUM -> renderMultiEnum(spec);
             case PASSWORD -> renderPassword(spec);
             case STRING -> renderString(spec);
+            case PATH_TEMPLATES -> renderPathTemplates(spec);
         };
     }
 
@@ -275,6 +278,16 @@ public final class FieldRenderer {
                 v -> tf.setText(v == null ? "" : v),
                 tf,
                 p.validationError());
+    }
+    private static RenderedField renderPathTemplates(ConfigFieldSpec spec) {
+        var editor = new LocalImportPresetEditor(spec.defaultValue());
+        var controls = new JPanel();
+        controls.setOpaque(false);
+        controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
+        controls.add(editor);
+        controls.add(new LocalImportGuideButton(SwingHost.host()));
+        RenderedPanel p = renderFieldPanel(spec, controls);
+        return new RenderedField(p.panel(), editor::value, editor::setValue, editor, p.validationError());
     }
 
     // ── 字段面板布局 ──────────────────────────────────────────────────────────────

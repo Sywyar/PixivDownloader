@@ -82,9 +82,10 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
             Set<String> extensions = new LinkedHashSet<>();
             List<BasicFileAttributes> attributes = new ArrayList<>();
             long total = 0;
-            for (Path supplied : request.pageFiles()) {
-                Path source = root.resolve(supplied).toAbsolutePath().normalize();
-                if (!source.startsWith(root) || !unique.add(source)) throw new IOException("INVALID_SOURCE_PATH");
+            for (int page = 0; page < request.pageFiles().size(); page++) {
+                Path source = request.file(page);
+                if (!PlainFilePathGuard.isPlainDirectory(request.root(page))
+                        || !source.startsWith(request.root(page).normalize()) || !unique.add(source)) throw new IOException("INVALID_SOURCE_PATH");
                 PlainFilePathGuard.requirePlainRegularFile(source);
                 BasicFileAttributes facts = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 total = Math.addExact(total, facts.size());
@@ -98,7 +99,7 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
             try {
                 boolean written = Boolean.TRUE.equals(transaction.execute(status -> {
                     for (int page = 0; page < request.pageFiles().size(); page++) {
-                        Path source = root.resolve(request.pageFiles().get(page)).normalize();
+                        Path source = request.file(page);
                         try {
                             PlainFilePathGuard.requirePlainRegularFile(source);
                             var now = Files.readAttributes(source, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
@@ -108,6 +109,13 @@ public final class LocalWorkFileImporter implements WorkFileImporter {
                         } catch (IOException changed) { throw new java.io.UncheckedIOException(changed); }
                     }
                     if (metadata != null) authors.observe(metadata.authorId(), metadata.authorName());
+                    if (request.parsed()) {
+                        var existing = database.getArtwork(request.workId());
+                        if (existing != null && (existing.deleted() || !files.contains(request.workType(), request.workId())))
+                            throw new IllegalArgumentException("IMPORT_EXISTING_MANAGED_WORK");
+                        if (existing == null) registerArtwork(request, null, extensions);
+                        return files.merge(request);
+                    }
                     boolean created = request.workType() == WorkType.ARTWORK
                             ? registerArtwork(request, metadata, extensions)
                             : metadata == null ? handler.registerLocal(request) : handler.register(metadata);

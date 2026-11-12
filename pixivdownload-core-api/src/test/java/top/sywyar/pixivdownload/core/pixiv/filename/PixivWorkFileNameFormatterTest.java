@@ -11,6 +11,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivWorkFileNameFormatterTest {
 
     @Test
+    @DisplayName("共享定义保留下载变量求值及未支持变量的字面值")
+    void sharedDefinitionsPreserveDownloadSemantics() {
+        assertThat(PixivWorkFileNameFormatter.formatAll(
+                "{artwork_id}_{author_id}_{page}_{count}_{ai}_{ai+}_{R18}_{R18+}_{extension}_{name}_{ex}_{artworkId}",
+                42, "Title", 7L, "Author", 123, 1, true, 2)).containsExactly(
+                "42_7_0_1_AI_AI_R18G_R18G_{extension}_{name}_{ex}_{artworkId}");
+    }
+
+    @Test
     @DisplayName("应展开变量并合规化标题和作者名")
     void shouldFormatVariablesAndSanitizeNameParts() {
         List<String> names = PixivWorkFileNameFormatter.formatAll(

@@ -27,8 +27,8 @@ internal fun FileImportWorkspace(
     val nodes = descendants(tool).toList()
     val palette = LocalExperiencePalette.current
     val buttons = nodes.filterIsInstance<Button>()
-    val leave = buttons.first { it.id().endsWith(".leave") }
-    val leavePage by rememberUpdatedState { emit(Event(EventType.ACTIVATE, leave.id(), Value.empty())) }
+    val leave = buttons.firstOrNull { it.id().endsWith(".leave") }
+    val leavePage by rememberUpdatedState { leave?.let { emit(Event(EventType.ACTIVATE, it.id(), Value.empty())) } }
     DisposableEffect(tool.id()) { onDispose { leavePage() } }
     Box(modifier.fillMaxSize().testTag("tools.import.workspace")) {
         ToolPanelLayout(
@@ -43,7 +43,13 @@ internal fun FileImportWorkspace(
                 buttons.filterNot { it === leave }.forEach { ToolAction(it, text, emit, primary = it.id().endsWith(".start")) }
             },
         ) {
+            nodes.filterIsInstance<Link>().forEach {
+                ComposeDesktopUiNodeRenderer.Render(it, text, emit, Modifier.testTag(it.id()))
+            }
             nodes.filterIsInstance<TextInput>().forEach { ToolField(it, text, emit) }
+            nodes.filter { it is Choice || it is Toggle }.forEach {
+                ComposeDesktopUiNodeRenderer.Render(it, text, emit, Modifier.fillMaxWidth())
+            }
             nodes.filterIsInstance<Text>().forEach {
                 if (it.style() == TextStyle.ERROR) DesktopNotice(text(it.text()), it.style())
                 else CupertinoText(

@@ -14,6 +14,8 @@ public enum GuiConfigFieldType {
     INT,
     /** 普通字符串输入。 */
     STRING,
+    /** 本地路径模板集合，包含名称、模板和启用状态。 */
+    PATH_TEMPLATES,
     /** 本地时间输入（HH:mm）。 */
     TIME,
     /** 受控枚举选择。 */

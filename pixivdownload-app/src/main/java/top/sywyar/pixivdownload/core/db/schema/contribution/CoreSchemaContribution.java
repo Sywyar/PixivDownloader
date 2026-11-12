@@ -39,7 +39,9 @@ public final class CoreSchemaContribution {
                         column("page", "INTEGER", true, null, 0),
                         column("root_path", "TEXT", true, null, 0),
                         column("file_path", "TEXT", true, null, 0),
-                        column("record_time", "INTEGER", true, null, 0)
+                        column("record_time", "INTEGER", true, null, 0),
+                        column("source_page", "INTEGER", false, null, 0),
+                        column("parsed_metadata", "TEXT", false, null, 0)
                 ), List.of(uniqueConstraint("work_type", "work_id", "page"))),
                 new TableSpec(
                         "path_prefixes",

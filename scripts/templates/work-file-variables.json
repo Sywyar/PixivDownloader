@@ -1,0 +1,15 @@
+[
+  {"id":"artworkId","token":"artwork_id","label":"artwork-id","numeric":true,"download":true,"importing":true},
+  {"id":"artworkTitle","token":"artwork_title","label":"artwork-title","numeric":false,"download":true,"importing":true},
+  {"id":"authorId","token":"author_id","label":"author-id","numeric":true,"download":true,"importing":true},
+  {"id":"authorName","token":"author_name","label":"author-name","numeric":false,"download":true,"importing":true},
+  {"id":"timestamp","token":"timestamp","label":"timestamp","numeric":true,"download":true,"importing":false},
+  {"id":"page","token":"page","label":"page","numeric":true,"download":true,"importing":true},
+  {"id":"count","token":"count","label":"count","numeric":true,"download":true,"importing":false},
+  {"id":"ai","token":"ai","label":"ai","numeric":false,"download":true,"importing":false},
+  {"id":"ai+","token":"ai+","label":"ai-plus","numeric":false,"download":true,"importing":false},
+  {"id":"R18","token":"R18","label":"r18","numeric":false,"download":true,"importing":false},
+  {"id":"R18+","token":"R18+","label":"r18-plus","numeric":false,"download":true,"importing":false},
+  {"id":"extension","token":"extension","label":"extension","numeric":false,"download":false,"importing":true},
+  {"id":"name","token":"name","label":"name","numeric":false,"download":false,"importing":true}
+]

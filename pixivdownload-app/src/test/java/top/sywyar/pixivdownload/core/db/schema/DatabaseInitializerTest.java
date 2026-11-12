@@ -53,6 +53,22 @@ class DatabaseInitializerTest {
     }
 
     @Test
+    @DisplayName("旧外部文件表补充解析字段，原始路径和逐页记录保持不变")
+    void upgradesExternalFileReferences() {
+        var ds = newDataSource();
+        try {
+            var jdbc = new JdbcTemplate(ds);
+            jdbc.execute("CREATE TABLE external_work_files(reference_id TEXT NOT NULL PRIMARY KEY,work_type TEXT NOT NULL,work_id INTEGER NOT NULL,page INTEGER NOT NULL,root_path TEXT NOT NULL,file_path TEXT NOT NULL,record_time INTEGER NOT NULL,UNIQUE(work_type,work_id,page))");
+            jdbc.update("INSERT INTO external_work_files VALUES(?,?,?,?,?,?,?)", "original", "ARTWORK", 42, 0, "D:/图片", "D:/图片/42.png", 123);
+            newInitializer(ds).initialize();
+            newInitializer(ds).initialize();
+            assertThat(jdbc.queryForMap("SELECT * FROM external_work_files")).containsEntry("file_path", "D:/图片/42.png")
+                    .containsEntry("page", 0).containsEntry("record_time", 123)
+                    .containsEntry("source_page", null).containsEntry("parsed_metadata", null);
+        } finally { ds.destroy(); }
+    }
+
+    @Test
     @ExtendWith(OutputCaptureExtension.class)
     @DisplayName("全库初始化保留未知表并在中文环境输出英文差异告警")
     void warnsAboutUnknownTablesInEnglish(CapturedOutput output) throws Exception {

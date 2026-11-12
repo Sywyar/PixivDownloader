@@ -378,20 +378,9 @@ function buildSettingsDrawerBody() {
         }
     });
     const varChips = el('div', 'ab-var-chips');
-    [
-        ['{artwork_id}', 'settings.var.artwork-id', '作品 ID'],
-        ['{artwork_title}', 'settings.var.artwork-title', '作品标题'],
-        ['{author_id}', 'settings.var.author-id', '作者 ID'],
-        ['{author_name}', 'settings.var.author-name', '作者名'],
-        ['{timestamp}', 'settings.var.timestamp', '毫秒时间戳'],
-        ['{page}', 'settings.var.page', '当前页码'],
-        ['{count}', 'settings.var.count', '总页数'],
-        ['{ai}', 'settings.var.ai', 'AI / 空'],
-        ['{ai+}', 'settings.var.ai-plus', 'AI 或 Human'],
-        ['{R18}', 'settings.var.r18', 'R18 / R18G / 空'],
-        ['{R18+}', 'settings.var.r18-plus', 'SFW / R18 / R18G']
-    ].forEach(([token, key, fallback]) => {
-        const chip = el('button', 'ab-var-chip', () => bt(key, fallback));
+    DOWNLOAD_FILE_VARIABLES.forEach(variable => {
+        const token = '{' + variable.token + '}';
+        const chip = el('button', 'ab-var-chip', () => bt('settings.var.' + variable.label));
         chip.type = 'button';
         chip.title = token;
         chip.addEventListener('click', () => {

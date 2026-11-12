@@ -51,6 +51,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final DesktopToolsController tools;
     private final DesktopMediaToolsController mediaTools;
     private final DesktopFileImportController fileImports;
+    private final DesktopLocalImportController localImports;
+    final DesktopImportPresetEditor importPresets;
     private final DesktopOnboardingController onboarding;
     private final DesktopStatusController statusController;
     final DesktopNavigationView navigation;
@@ -119,6 +121,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.host = Objects.requireNonNull(host, "host");
         this.mediaTools = new DesktopMediaToolsController(this, host);
         this.fileImports = new DesktopFileImportController(this, host);
+        this.localImports = new DesktopLocalImportController(this, host);
+        this.importPresets = new DesktopImportPresetEditor(this, host);
         this.tools = new DesktopToolsController(
                 this,
                 host,
@@ -289,7 +293,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             return;
         }
         String value = event.value().values().stream().findFirst().orElse("");
-        if (fileImports.accept(targetId, value) || mediaTools.accept(targetId, value)) {
+        if (importPresets.accept(targetId, value) || localImports.accept(targetId, value) || fileImports.accept(targetId, value) || mediaTools.accept(targetId, value)) {
             rebuild();
             return;
         }
@@ -483,7 +487,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 "tools",
                 DesktopUiIcon.TOOLS,
                 tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions),
-                        mediaTools.panels(nextSelections, nextActions), fileImports.panels(nextActions)),
+                        mediaTools.panels(nextSelections, nextActions), java.util.stream.Stream.concat(
+                                localImports.panels(nextSelections, nextActions).stream(), fileImports.panels(nextActions).stream()).toList()),
                 DesktopUiNode.Insets.NONE
         ));
         var platformFacts = platformFacts();
@@ -895,6 +900,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.transfer.clear();
         mediaTools.close();
         fileImports.close();
+        localImports.close();
         configuration.invalidatePage();
         stablePages = null;
         pageEventIndexes.clear();

@@ -124,6 +124,23 @@ class CsrfProtectionFilterTest {
     }
 
     @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"/api/local-import/previews", "/api/local-import/tasks", "/api/local-import/tasks/fixture/cancel"})
+    @DisplayName("本地导入使用 Cookie 时要求同源，显式令牌客户端不依赖浏览器来源头")
+    void localImportProtectsAmbientCredentials(String path) throws Exception {
+        var request = request("POST", path);
+        request.setCookies(new Cookie("pixiv_session", "fixture-session"));
+        var response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, filterChain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(filterChain, never()).doFilter(request, response);
+        var explicit = request("POST", path);
+        explicit.addHeader("X-Session-Token", "fixture-session");
+        var explicitResponse = new MockHttpServletResponse();
+        filter.doFilterInternal(explicit, explicitResponse, filterChain);
+        verify(filterChain).doFilter(explicit, explicitResponse);
+    }
+
+    @ParameterizedTest
     @CsvSource({
             "/api/plugin-market/operations,Origin,http://localhost:8080,200",
             "/api/plugin-market/operations,Origin,https://untrusted.example,403",

@@ -300,6 +300,8 @@ class ToolsConfigurationTest {
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "findToolLog" -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath());
+                    case "message" -> args[0];
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "openExternalUri" -> {
                         org.junit.jupiter.api.Assertions.assertFalse(SwingUtilities.isEventDispatchThread());
                         assertEquals("backfill-fixture.html", Path.of((java.net.URI) args[0]).getFileName().toString());
@@ -341,6 +343,8 @@ class ToolsConfigurationTest {
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> saved.get();
+                    case "message" -> args[0];
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "readDownloadRootFromConfig" -> root.get();
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));

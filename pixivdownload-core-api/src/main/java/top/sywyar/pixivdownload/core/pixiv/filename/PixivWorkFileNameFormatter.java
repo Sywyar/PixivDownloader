@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv.filename;
 
+import top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -20,8 +21,9 @@ public final class PixivWorkFileNameFormatter {
 
     /** 默认文件名主干的最大 UTF-16 长度，不含扩展名。 */
     public static final int MAX_BASENAME_LENGTH = 180;
-    private static final Pattern VARIABLE_PATTERN = Pattern.compile(
-            "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}");
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile("\\{(" + WorkTemplateVariables.all().stream()
+            .filter(WorkTemplateVariables.Variable::download).map(v -> Pattern.quote(v.token()))
+            .collect(java.util.stream.Collectors.joining("|")) + ")}");
     private static final Pattern INVALID_FILE_NAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
     private static final Pattern TRAILING_DOTS_AND_SPACES = Pattern.compile("[. ]+$");
     private static final Set<String> WINDOWS_RESERVED_NAMES = Set.of(

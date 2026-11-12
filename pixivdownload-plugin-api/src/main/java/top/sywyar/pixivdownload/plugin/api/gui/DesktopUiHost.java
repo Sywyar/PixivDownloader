@@ -13,6 +13,18 @@ import java.util.function.Consumer;
  * 桌面界面可消费的稳定、工具包无关宿主业务契约。
  */
 public interface DesktopUiHost extends DesktopUiToolHost {
+    /** {@return 后端活动时可用的本地模板导入入口} */
+    default Optional<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports> localArtworkImports() {
+        return Optional.empty();
+    }
+    /** 解析设置草稿，不要求后端运行，也不保存配置。 */
+    default List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
+    /** 校验并编码设置草稿；持久化仍由设置页统一保存。 */
+    default String formatLocalImportPresets(List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> presets) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
     /** {@return 活动文件导入能力；缺席时不显示入口} */
     default List<top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool> fileImportTools() {
         return List.of();

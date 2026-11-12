@@ -110,6 +110,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/download/tasks"),
                 WebRouteContribution.admin("/api/acquisition/credentials"),
                 WebRouteContribution.admin("/api/download/tasks/**"),
+                WebRouteContribution.admin("/api/local-import/**"),
                 WebRouteContribution.local("/api/download/status"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.visitor("/api/pixiv/user/*/meta"),

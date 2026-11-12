@@ -1133,6 +1133,7 @@ public final class GuiConfigContributionAggregator {
             case BOOL -> FieldType.BOOL;
             case INT -> FieldType.INT;
             case STRING, TIME, PASSWORD -> FieldType.STRING;
+            case PATH_TEMPLATES -> FieldType.PATH_TEMPLATES;
             case ENUM -> FieldType.ENUM;
             case MULTI_ENUM -> FieldType.MULTI_ENUM;
         };

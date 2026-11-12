@@ -158,6 +158,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
+                    types("top.sywyar.pixivdownload.core.work.filename", "WorkTemplateVariables"),
                     types("top.sywyar.pixivdownload.core.work.importing", "WorkFileImporter", "WorkFileImportHandler", "WorkFileImportRequest", "LocalWorkFileImportRequest"),
                     types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler", "FileTransactionService"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
@@ -211,6 +212,8 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables$Variable",
+            "top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest$Source",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase",
@@ -361,11 +364,11 @@ class CoreApiOwnershipGuardTest {
     private static final Set<String> CONCRETE_ENGINE_IDS = Set.of(
             "voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao");
     private static final Map<String, Set<String>> APPROVED_OWNER_LITERALS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables", Set.of("ai", "ai+", "ai-plus")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver",
                     Set.of("^/c/[^/]+/(novel-cover-(?:master|original)/.+)$")),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter",
                     Set.of(
-                            "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}",
                             "ai",
                             "ai+"))
     );

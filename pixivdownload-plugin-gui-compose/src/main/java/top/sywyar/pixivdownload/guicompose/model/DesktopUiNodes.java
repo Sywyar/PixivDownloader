@@ -232,6 +232,9 @@ final class DesktopUiNodes {
     static TextToken key(String key) {
         return TextToken.key(key);
     }
+    static TextToken key(String key, Object... arguments) {
+        return new TextToken(null, key, "", Arrays.stream(arguments).map(String::valueOf).toList());
+    }
 
     static TextToken token(String namespace, String key, String fallback) {
         return token(namespace, key, fallback, List.of());

@@ -298,6 +298,18 @@ final class DesktopConfigurationFieldView {
                         enabled
                 );
             }
+            case PATH_TEMPLATES -> {
+                String action = binding + ".edit";
+                nextActions.put(action, () -> {
+                    if (enabled) owner.importPresets.open(value, updated -> { values.put(field.key(), updated); owner.rebuild(); });
+                });
+                String guide = binding + ".guide";
+                nextActions.put(guide + ".open", () -> owner.openUri(host.message("local-import.guide-url")));
+                yield column(nodeId + ".controls",
+                        new DesktopUiNode.Button(nodeId, action,
+                                key("local-import.presets-count", host.parseLocalImportPresets(value).size()), help, DesktopUiNode.ButtonStyle.NORMAL, enabled),
+                        new DesktopUiNode.Link(guide, guide + ".open", key("local-import.guide"), null, true));
+            }
             case PATH_DIR, PATH_FILE, STRING, PASSWORD -> new DesktopUiNode.TextInput(
                     nodeId,
                     binding,

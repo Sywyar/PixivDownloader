@@ -40,6 +40,14 @@ for (const name of ['pixiv-batch', 'pixiv-batch-alt']) {
             '7__CON_标题___123_0_2_AI_R18G');
         assert.equal(c.formatFileNameBase('{ai+}_{R18+}_{unknown}', {artworkId: '42'}, 0, 1),
             'Human_SFW_{unknown}');
+        assert.equal(c.formatFileNameBase('{extension}_{name}_{ex}_{artworkId}', vars, 0, 1),
+            '{extension}_{name}_{ex}_{artworkId}');
+        const definitions = vm.runInContext('DOWNLOAD_FILE_VARIABLES', c);
+        const expected = {artwork_id: '42', artwork_title: '标题__', author_id: '7', author_name: '_CON',
+            timestamp: '123', page: '0', count: '2', ai: 'AI', 'ai+': 'AI', R18: 'R18G', 'R18+': 'R18G'};
+        for (const variable of definitions) {
+            assert.equal(c.formatFileNameBase('{' + variable.token + '}', vars, 0, 2), expected[variable.token]);
+        }
         if (name === 'pixiv-batch-alt') {
             assert.equal(c.PixivBatchAlt.settings.buildDownloadFileNames, c.buildDownloadFileNames);
         }
