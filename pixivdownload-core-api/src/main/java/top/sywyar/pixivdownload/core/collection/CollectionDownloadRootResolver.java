@@ -15,4 +15,11 @@ public interface CollectionDownloadRootResolver {
      * @return 方法返回的 {@code Path} 实例
      */
     Path resolveDownloadRoot(long collectionId, Path defaultRoot);
+
+    /**
+     * 查询下载命名使用的收藏夹名称。
+     * @param collectionId 收藏夹标识
+     * @return 当前名称；收藏夹不存在时返回 null
+     */
+    String collectionName(long collectionId);
 }

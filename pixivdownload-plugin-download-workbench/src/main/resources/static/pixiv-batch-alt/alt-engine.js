@@ -30,6 +30,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
     const fileNameTimestamp = Date.now();
     const fileNames = buildDownloadFileNames(fileNameTemplate, {
+        ...collectionFileNameVariables(collectionId, batchCollections),
         artworkId,
         title,
         authorId: normalizeAuthorId(authorId),

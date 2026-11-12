@@ -224,6 +224,9 @@ public class NovelDownloadService implements NovelDownloader {
                 : EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long timestamp = novelDatabase.getUniqueTime(preferred);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
+        String collectionName = other.getCollectionId() == null ? null
+                : collectionDownloadRootResolver.collectionName(other.getCollectionId());
+        Long collectionId = collectionName == null ? null : other.getCollectionId();
         var supported = downloadPathGuard.pathSupport(directory);
         List<String> fixed = new java.util.ArrayList<>();
         fixed.add("0".repeat(WorkAssetService.PUBLICATION_TEMPORARY_NAME_LENGTH));
@@ -237,7 +240,8 @@ public class NovelDownloadService implements NovelDownloader {
         DownloadPathPlan names = DownloadPathPlan.resolve(directory,
                 supported == null ? DownloadPathLimits.UNKNOWN::accepts : supported,
                 length -> PixivWorkFileNameFormatter.formatAll(template, request.getNovelId(), request.getTitle(),
-                        other.getAuthorId(), other.getAuthorName(), timestamp, 1, other.isAi(), other.getXRestrict(), length),
+                        other.getAuthorId(), other.getAuthorName(), timestamp, 1, other.isAi(), other.getXRestrict(), length,
+                        collectionId, collectionName),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, request.getNovelId(),
                         request.getTitle(), other.getAuthorId(), other.getAuthorName(), timestamp, 1, other.isAi(), other.getXRestrict()),
                 suffixes, fixed, DownloadPathAction.parse(other.getPathOverflowAction()));

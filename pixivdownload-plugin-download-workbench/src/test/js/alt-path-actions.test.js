@@ -144,7 +144,7 @@ for (const classic of [false, true]) {
         const h = harness(null);
         if (classic) {
             Object.assign(h.context, {quotaInfo: {enabled: false},
-                setCurrent() {}, setStatus() {}, resolveBatchCollectionIdForDownload: async () => null});
+                setCurrent() {}, setStatus() {}, refreshBatchCollections: async () => ({collectionId: null, collections: []})});
             for (const name of ['batch-download-artwork.js', 'batch-download-workers.js']) {
                 vm.runInContext(fs.readFileSync(path.join(root, 'pixiv-batch', name), 'utf8'), h.context);
             }

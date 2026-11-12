@@ -56,11 +56,12 @@
     async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
         assertProcessInvocation(invocation);
         const delayMs = getImageDelayMs();
-        const collectionId = await resolveBatchCollectionIdForDownload(invocation);
+        const {collectionId, collections} = await refreshBatchCollections(invocation);
         assertProcessInvocation(invocation);
         const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         const fileNameTimestamp = Date.now();
         const fileNames = buildDownloadFileNames(fileNameTemplate, {
+            ...collectionFileNameVariables(collectionId, collections),
             artworkId,
             title,
             authorId: normalizeAuthorId(authorId),

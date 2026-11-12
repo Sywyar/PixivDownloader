@@ -363,7 +363,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
-                    other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength());
+                    other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength(), fileNamePlan.baseNames());
             recorded = true;
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
@@ -1176,6 +1176,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         directory = directory.resolve(String.valueOf(artworkId)).normalize();
         requireWithinDownloadRoot(root, directory);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
+        String collectionName = other.getCollectionId() == null ? null
+                : collectionDownloadRootResolver.collectionName(other.getCollectionId());
+        Long collectionId = collectionName == null ? null : other.getCollectionId();
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long recordTime = artworkDownloadHistory.allocateRecordTime(preferredTime);
         String sanitizedAuthorName = PixivWorkFileNameFormatter.sanitize(other.getAuthorName());
@@ -1183,7 +1186,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         DownloadPathPlan resolved = DownloadPathPlan.resolve(directory,
                 supported == null ? DownloadPathLimits.UNKNOWN::accepts : supported,
                 length -> PixivWorkFileNameFormatter.formatAll(template, artworkId, title, other.getAuthorId(),
-                        other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length),
+                        other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length,
+                        collectionId, collectionName),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, artworkId,
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
                 other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties")
@@ -1206,7 +1210,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private void recordDownload(Long artworkId, String title, String folderPath, Set<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
                                 String fileNameTemplate, long recordTime, String normalizedAuthorName,
-                                Long seriesId, Long seriesOrder, int maxLength) {
+                                Long seriesId, Long seriesOrder, int maxLength, List<String> fileNames) {
         artworkDownloadHistory.record(new ArtworkDownloadCompletion(
                 artworkId,
                 title,
@@ -1223,7 +1227,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 seriesId,
                 seriesOrder,
                 tags,
-                maxLength
+                maxLength,
+                fileNames
         ));
     }
 

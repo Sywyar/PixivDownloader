@@ -109,6 +109,7 @@ test('共享变量生成的按钮插入可执行模板并保存，不显示导�
     const chips = body.querySelectorAll('.ab-var-chip');
     const tokens = chips.map(chip => chip.title);
     assert.ok(tokens.includes('{artwork_id}') && tokens.includes('{ai+}') && tokens.includes('{R18+}'));
+    assert.ok(tokens.includes('{collection_name}') && tokens.includes('{collection_id}'));
     assert.ok(!tokens.includes('{extension}') && !tokens.includes('{name}'));
     const input = body.querySelector('.filename-template-controls').querySelector('input');
     input.value = 'selected_';
@@ -116,6 +117,23 @@ test('共享变量生成的按钮插入可执行模板并保存，不显示导�
     assert.equal(input.value, 'selected_{artwork_id}');
     assert.equal(h.writes.at(-1).fileNameTemplate, 'selected_{artwork_id}');
     assert.equal(h.context.formatFileNameBase(input.value, {artworkId: '42'}, 0, 1), 'selected_42');
+});
+
+test('更换或清空收藏夹立即刷新文件名预览，不把收藏夹写入保存的设置', () => {
+    const h = harness();
+    vm.runInContext("batchCollections = [{id: 7, name: '收藏/one'}, {id: 8, name: 'Two'}]; state.settings.collectionId = 7; state.settings.fileNameTemplate = '{collection_name}_{collection_id}_{artwork_id}'", h.context);
+    const body = h.context.buildSettingsDrawerBody();
+    h.document.body.appendChild(body);
+    const preview = body.querySelector('.ab-name-preview');
+    const select = body.querySelectorAll('select').find(node => node.children.some(option => option.value === '7'));
+    assert.match(preview.textContent, /收藏_one_7_12345678/);
+    select.value = '8';
+    select.dispatchEvent({type: 'change'});
+    assert.match(preview.textContent, /Two_8_12345678/);
+    select.value = '';
+    select.dispatchEvent({type: 'change'});
+    assert.match(preview.textContent, /__12345678/);
+    assert.ok(h.writes.every(value => !Object.hasOwn(value, 'collectionId')));
 });
 
 test('统一设置保留分区输入，筛选即时生效且与下载参数一起保存和恢复方案', async () => {

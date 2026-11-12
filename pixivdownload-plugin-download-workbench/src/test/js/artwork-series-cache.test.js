@@ -28,7 +28,7 @@ async function fixture(seriesResponse) {
             activeWorkers: 0, isRunning: false, sseListeners: {}, sseRefs: {}},
         isAdmin: true, bt: key => key, getCookie: () => '', getImageDelayMs: () => 0,
         pixivHeader: () => ({}), resolveBatchCollectionIdForDownload: async () => null,
-        checkBackend: async () => true, refreshBatchCollections: async () => {},
+        checkBackend: async () => true, refreshBatchCollections: async () => ({collectionId: null, collections: []}),
         updateStats() {}, saveQueue() {}, renderQueue() {}, setStatus() {},
         getIntervalMs: () => 0, sleep: async () => {}, ensureSharedSSE() {}, closeAllSSE() {},
         setInterval, clearInterval

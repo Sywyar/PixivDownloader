@@ -11,7 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class LocalImportTemplateTest {
     @Test @DisplayName("共用变量定义不把下载专用值当成本地来源事实")
     void rejectsDownloadOnlyVariables() {
-        for (String token : java.util.List.of("timestamp", "count", "ai", "ai+", "R18", "R18+", "TIMESTAMP")) {
+        for (String token : java.util.List.of("timestamp", "count", "ai", "ai+", "R18", "R18+", "TIMESTAMP",
+                "collection_name", "collection_id", "collectionName", "COLLECTION_ID")) {
             var failure = assertThrows(VariableException.class,
                     () -> new LocalImportTemplate(root + "/{artwork_id}_{" + token + "}.png"));
             assertEquals("IMPORT_VARIABLE_UNAVAILABLE", failure.getMessage());

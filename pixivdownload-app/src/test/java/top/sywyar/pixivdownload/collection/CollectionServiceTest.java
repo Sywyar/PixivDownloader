@@ -115,6 +115,18 @@ class CollectionServiceTest {
     class DownloadRootTests {
 
         @Test
+        @DisplayName("下载名称端口读取当前收藏夹名称，不存在时返回空")
+        void namingReadsCurrentCollection() {
+            var adapter = new CoreCollectionAdapter(collectionService);
+            when(collectionMapper.findById(7L)).thenReturn(
+                    new Collection(7L, "First", null, null, 0, 1, 0, 0),
+                    new Collection(7L, "Renamed", null, null, 0, 1, 0, 0), null);
+            assertThat(adapter.collectionName(7L)).isEqualTo("First");
+            assertThat(adapter.collectionName(7L)).isEqualTo("Renamed");
+            assertThat(adapter.collectionName(7L)).isNull();
+        }
+
+        @Test
         @DisplayName("应保留 UTF-8 字符并清理模板中的不安全路径分隔符")
         void shouldResolveUtf8TemplateAsSafeRelativePath() {
             when(collectionMapper.findById(7L)).thenReturn(new Collection(

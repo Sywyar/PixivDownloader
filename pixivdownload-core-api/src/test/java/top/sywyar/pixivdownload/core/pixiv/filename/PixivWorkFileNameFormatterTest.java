@@ -11,6 +11,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivWorkFileNameFormatterTest {
 
     @Test
+    @DisplayName("收藏夹变量按当次选择展开并保留安全清洗与空值语义")
+    void collectionVariables() {
+        String template = "{collection_id}_{collection_name}_{artwork_id}_p{page}";
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", null, null,
+                123, 2, false, 0, 180, 7L, "收藏😀/unsafe"))
+                .containsExactly("7_收藏😀_unsafe_42_p0", "7_收藏😀_unsafe_42_p1");
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", null, null,
+                123, 1, false, 0)).containsExactly("__42_p0");
+        assertThat(PixivWorkFileNameFormatter.formatAll("{collection_name}{collection_id}", 42, "Title", null, null,
+                123, 1, false, 0, 180, null, "stale"))
+                .containsExactly("42_p0");
+        assertThat(PixivWorkFileNameFormatter.formatAll("{collection_name}", 42, "Title", null, null,
+                123, 2, false, 0, 8, 7L, "abcdefghijk"))
+                .containsExactly("abcdefgh", "abcde_p1");
+    }
+
+    @Test
     @DisplayName("共享定义保留下载变量求值及未支持变量的字面值")
     void sharedDefinitionsPreserveDownloadSemantics() {
         assertThat(PixivWorkFileNameFormatter.formatAll(

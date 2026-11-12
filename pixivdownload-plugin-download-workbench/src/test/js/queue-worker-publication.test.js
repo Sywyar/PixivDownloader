@@ -27,7 +27,7 @@ async function fixture(alt, stage) {
         dockState: {quota: {enabled: false}}, isAdmin: true,
         bt: key => key, getCookie: () => '', getImageDelayMs: () => 0,
         normalizeAuthorId: value => Number(value) || null,
-        resolveBatchCollectionIdForDownload: async () => null,
+        refreshBatchCollections: async () => ({collectionId: null, collections: []}), batchCollections: [],
         evaluateDownloadFilterSkip: () => null,
         renderQueue() {}, updateStats() {}, setCurrent() {}, renderCurrent() {},
         clearSavedQueue() {}, syncAllResultsQueueState() {}, stopSpeedMeter() {},

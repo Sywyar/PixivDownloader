@@ -1010,6 +1010,8 @@ class ArtworkDownloadExecutorTest {
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
             other.setUgoiraDelays(List.of(100));
             other.setCollectionId(7L);
+            other.setFileNameTemplate("{collection_name}_{collection_id}_{artwork_id}_p{page}");
+            when(collectionDownloadRootResolver.collectionName(7L)).thenReturn("收藏😀/unsafe");
             Path collectionRoot = tempDir.resolve("收藏😀");
             when(collectionDownloadRootResolver.resolveDownloadRoot(7L, tempDir)).thenReturn(collectionRoot);
 
@@ -1029,6 +1031,8 @@ class ArtworkDownloadExecutorTest {
             ArtworkDownloadCompletion record = capturedDownloadCompletion();
             assertThat(record.artworkId()).isEqualTo(12345L);
             assertThat(record.folder()).isEqualTo(expectedPath.toAbsolutePath());
+            assertThat(record.fileNames()).containsExactly("收藏😀_unsafe_7_12345_p0");
+            assertThat(other.getFileNames()).isEqualTo(record.fileNames());
             verify(workCollectionMembership).addWork(WorkType.ARTWORK, 7L, 12345L);
         }
     }

@@ -27,6 +27,8 @@ public final class WorkTemplateVariables {
             new Variable("artworkTitle", "artwork_title", "artwork-title", false, true, true),
             new Variable("authorId", "author_id", "author-id", true, true, true),
             new Variable("authorName", "author_name", "author-name", false, true, true),
+            new Variable("collectionName", "collection_name", "collection-name", false, true, false),
+            new Variable("collectionId", "collection_id", "collection-id", true, true, false),
             new Variable("timestamp", "timestamp", "timestamp", true, true, false),
             new Variable("page", "page", "page", true, true, true),
             new Variable("count", "count", "count", true, true, false),

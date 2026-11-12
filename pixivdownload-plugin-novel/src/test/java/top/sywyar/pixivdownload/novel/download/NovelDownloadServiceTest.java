@@ -343,6 +343,8 @@ class NovelDownloadServiceTest {
         request.getOther().setAuthorId(42L);
         request.getOther().setAuthorName("Writer");
         request.getOther().setCollectionId(7L);
+        request.getOther().setFileNameTemplate("{collection_name}_{collection_id}_{artwork_id}");
+        when(collectionDownloadRootResolver.collectionName(7L)).thenReturn("收藏😀/unsafe");
         when(collectionDownloadRootResolver.resolveDownloadRoot(7L, tempDir)).thenReturn(tempDir);
         when(workCollectionMembership.addWork(WorkType.NOVEL, 7L, 103L)).thenReturn(true);
 
@@ -352,6 +354,8 @@ class NovelDownloadServiceTest {
         verify(collectionDownloadRootResolver).resolveDownloadRoot(7L, tempDir);
         verify(authorObservationService).observe(42L, "Writer");
         verify(workCollectionMembership).addWork(WorkType.NOVEL, 7L, 103L);
+        assertThat(tempDir.resolve("novel-103/收藏😀_unsafe_7_103.txt")).exists();
+        verify(novelDatabase).saveFileBaseName(103L, "收藏😀_unsafe_7_103");
         verify(visitorDownloadQuotaService).recordFolder(
                 "visitor-1", tempDir.resolve("novel-103").toAbsolutePath().normalize());
     }

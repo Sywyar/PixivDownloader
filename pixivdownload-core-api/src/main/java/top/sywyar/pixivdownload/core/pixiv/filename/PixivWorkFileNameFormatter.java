@@ -89,6 +89,30 @@ public final class PixivWorkFileNameFormatter {
     public static List<String> formatAll(String template, long artworkId, String artworkTitle,
                                          Long authorId, String authorName, long timestamp, int count,
                                          Boolean isAi, Integer xRestrict, int maxLength) {
+        return formatAll(template, artworkId, artworkTitle, authorId, authorName, timestamp, count,
+                isAi, xRestrict, maxLength, null, null);
+    }
+
+    /**
+     * 按下载时选中的收藏夹展开文件名；未选中时两个收藏夹变量都为空。
+     * @param template 文件名模板
+     * @param artworkId 作品标识
+     * @param artworkTitle 作品标题
+     * @param authorId 作者标识
+     * @param authorName 作者名称
+     * @param timestamp 文件名时间戳
+     * @param count 作品页数
+     * @param isAi 是否为 AI 生成作品
+     * @param xRestrict 年龄分级
+     * @param maxLength 包含消歧页码后缀的主干长度上限
+     * @param collectionId 下载时选中的收藏夹标识，可为空
+     * @param collectionName 下载时取得的收藏夹名称，可为空
+     * @return 按页排列且互不重复的文件名主干
+     */
+    public static List<String> formatAll(String template, long artworkId, String artworkTitle,
+                                         Long authorId, String authorName, long timestamp, int count,
+                                         Boolean isAi, Integer xRestrict, int maxLength,
+                                         Long collectionId, String collectionName) {
         if (maxLength < 1 || maxLength > MAX_BASENAME_LENGTH) {
             throw new IllegalArgumentException("Invalid filename length");
         }
@@ -96,7 +120,7 @@ public final class PixivWorkFileNameFormatter {
         List<String> names = new ArrayList<>(safeCount);
         for (int page = 0; page < safeCount; page++) {
             String name = format(template, artworkId, artworkTitle, authorId, authorName,
-                    timestamp, page, safeCount, isAi, xRestrict);
+                    timestamp, page, safeCount, isAi, xRestrict, collectionId, collectionName);
             names.add(maxLength == MAX_BASENAME_LENGTH ? name : truncate(name, maxLength));
         }
         return ensureUnique(names, maxLength);
@@ -168,14 +192,16 @@ public final class PixivWorkFileNameFormatter {
                                  int page,
                                  int count,
                                  Boolean isAi,
-                                 Integer xRestrict) {
+                                 Integer xRestrict,
+                                 Long collectionId,
+                                 String collectionName) {
         String normalizedTemplate = normalizeTemplate(template);
         Matcher matcher = VARIABLE_PATTERN.matcher(normalizedTemplate);
         StringBuffer buffer = new StringBuffer();
         while (matcher.find()) {
             matcher.appendReplacement(buffer, Matcher.quoteReplacement(resolveVariable(
                     matcher.group(1), artworkId, artworkTitle, authorId, authorName,
-                    timestamp, page, count, isAi, xRestrict)));
+                    timestamp, page, count, isAi, xRestrict, collectionId, collectionName)));
         }
         matcher.appendTail(buffer);
         return normalizeBaseName(buffer.toString(), fallbackBaseName(artworkId, page));
@@ -190,7 +216,9 @@ public final class PixivWorkFileNameFormatter {
                                           int page,
                                           int count,
                                           Boolean isAi,
-                                          Integer xRestrict) {
+                                          Integer xRestrict,
+                                          Long collectionId,
+                                          String collectionName) {
         boolean ai = Boolean.TRUE.equals(isAi);
         int restrict = xRestrict == null ? 0 : xRestrict;
         return switch (variable) {
@@ -198,6 +226,8 @@ public final class PixivWorkFileNameFormatter {
             case "artwork_title" -> sanitize(artworkTitle);
             case "author_id" -> authorId == null ? "" : String.valueOf(authorId);
             case "author_name" -> sanitize(authorName);
+            case "collection_name" -> collectionId == null ? "" : sanitize(collectionName);
+            case "collection_id" -> collectionId == null ? "" : String.valueOf(collectionId);
             case "timestamp" -> String.valueOf(timestamp);
             case "page" -> String.valueOf(page);
             case "count" -> String.valueOf(count);

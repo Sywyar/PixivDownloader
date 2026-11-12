@@ -348,6 +348,7 @@ function buildSettingsDrawerBody() {
     collectionSel.value = s.collectionId === null ? '' : String(s.collectionId);
     collectionSel.addEventListener('change', () => {
         s.collectionId = normalizeBatchCollectionId(collectionSel.value);
+        previewName();
     });
     bookmarks.appendChild(settingsRow(
         () => bt('settings.collection', '收藏到（本地收藏夹）'),
@@ -393,6 +394,7 @@ function buildSettingsDrawerBody() {
     const namePreview = el('p', 'ab-name-preview');
     function previewName() {
         const preview = buildDownloadFileNames(tplInput.value, {
+            ...collectionFileNameVariables(s.collectionId, batchCollections),
             artworkId: 12345678,
             title: bt('settings.filename.sample-title', '示例作品'),
             authorId: 98765,

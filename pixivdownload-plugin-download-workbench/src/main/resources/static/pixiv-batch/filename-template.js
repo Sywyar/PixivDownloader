@@ -35,6 +35,22 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "importing": true
     },
     {
+        "id": "collectionName",
+        "token": "collection_name",
+        "label": "collection-name",
+        "numeric": false,
+        "download": true,
+        "importing": false
+    },
+    {
+        "id": "collectionId",
+        "token": "collection_id",
+        "label": "collection-id",
+        "numeric": true,
+        "download": true,
+        "importing": false
+    },
+    {
         "id": "timestamp",
         "token": "timestamp",
         "label": "timestamp",
@@ -168,6 +184,8 @@ const DOWNLOAD_FILE_TOKENS = new Set(DOWNLOAD_FILE_VARIABLES.map(variable => var
             artwork_title: sanitizeFileNamePart(vars.title || ''),
             author_id: vars.authorId ? String(vars.authorId) : '',
             author_name: sanitizeFileNamePart(vars.authorName || ''),
+            collection_name: vars.collectionId == null ? '' : sanitizeFileNamePart(vars.collectionName || ''),
+            collection_id: vars.collectionId == null ? '' : String(vars.collectionId),
             timestamp: String(vars.timestamp || ''),
             page: String(page),
             count: String(count),
@@ -190,4 +208,9 @@ const DOWNLOAD_FILE_TOKENS = new Set(DOWNLOAD_FILE_VARIABLES.map(variable => var
             names.push(formatFileNameBase(template, vars, page, safeCount));
         }
         return ensureUniqueBaseNames(names);
+    }
+
+    function collectionFileNameVariables(collectionId, collections) {
+        const selected = collections.find(collection => String(collection.id) === String(collectionId));
+        return {collectionId: selected?.id ?? null, collectionName: selected?.name ?? ''};
     }
