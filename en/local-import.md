@@ -8,21 +8,21 @@ In Compose, Import local artworks opens in a dialog under Quick tools. Scans and
 
 ## Turn a real path into a path template
 
-A **path template** marks changing parts of a path with braces. The application reads information from those positions. Every template must contain `{artworkId}`, in either a directory name or a filename.
+A **path template** marks changing parts of a path with braces. The application reads information from those positions. Every template must contain `{artwork_id}`, in either a directory name or a filename.
 
 | Existing file | Path template to enter | Parsed information |
 | --- | --- | --- |
-| `D:/xxx/12345/pic.png` | `D:/xxx/{artworkId}/` | Artwork 12345; collect supported files in this directory and its subdirectories |
-| `D:/xxx/12345_xxx.png` | `D:/xxx/{artworkId}_xxx.{extension}` | Artwork 12345, extension png; `_xxx` is literal text |
-| `D:/678/12345/pic.png` | `D:/{authorId}/{artworkId}/` | Author 678, artwork 12345 |
-| `D:/xxx/12345_p0.jpg` | `D:/xxx/{artworkId}_p{page}.{extension}` | Artwork 12345, page 0 |
+| `D:/xxx/12345/pic.png` | `D:/xxx/{artwork_id}/` | Artwork 12345; collect supported files in this directory and its subdirectories |
+| `D:/xxx/12345_xxx.png` | `D:/xxx/{artwork_id}_xxx.{extension}` | Artwork 12345, extension png; `_xxx` is literal text |
+| `D:/678/12345/pic.png` | `D:/{author_id}/{artwork_id}/` | Author 678, artwork 12345 |
+| `D:/xxx/12345_p0.jpg` | `D:/xxx/{artwork_id}_p{page}.{extension}` | Artwork 12345, page 0 |
 
 End directory templates with `/`. File templates include the filename and extension. Use absolute paths; Windows accepts `/` or `\`. Templates do not create directories or rename files.
 
 ## For an occasional import: enter a temporary template
 
 1. Open **Tools → Import local artworks**.
-2. Enter one template per line under **Path templates for this import**, such as `D:/xxx/{artworkId}/`.
+2. Enter one template per line under **Path templates for this import**, such as `D:/xxx/{artwork_id}/`.
 3. Enter `12345` under **Artwork IDs** to import one artwork, or enter multiple IDs separated by newlines, spaces or commas. Leave the field empty to scan all matching artworks.
 4. To register just one file, fill in **Specific file (optional)** as well. A matching template is still required to parse its ID.
 5. Click **Scan and preview**, check the IDs, paths and proposed actions, then click **Start import**.
@@ -31,13 +31,13 @@ When temporary templates are present, only those templates are used. Presets are
 
 ## For repeated imports: save local import presets
 
-A **local import preset** is a named path template that you can enable or disable. After saving it, you can usually import by entering only artwork IDs.
+**Local import presets** are saved path templates, displayed as the paths you entered. Imports use all saved paths automatically.
 
 1. Find **Local import presets** in Settings and open the preset editor.
-2. Add a preset, name it “By author”, enter `D:/{authorId}/{artworkId}/` and enable it.
+2. Click **Add path** and enter absolute path templates such as `D:/{author_id}/{artwork_id}/`, one per row. Double-click a path to edit it, or remove a row.
 3. Apply the changes to the draft, save from Settings and restart the backend when prompted.
 4. Open **Import local artworks**, leave temporary templates empty and enter `12345` or a list of IDs.
-5. Select presets if needed. With none selected, all enabled presets are used. Preview the results before starting.
+5. The tool displays and uses all saved paths. Preview the results before starting.
 
 This example searches the author directories under `D:/` for artwork 12345 without requiring its author ID. Point templates at the smallest practical directory to reduce scanning. The configuration key is `local-import.presets`; editing it through Settings is recommended.
 
@@ -45,15 +45,15 @@ This example searches the author directories under `D:/` for artwork 12345 witho
 
 | Variable | Meaning |
 | --- | --- |
-| `{artworkId}` | Required; a positive integer artwork ID |
-| `{authorId}` | A positive integer author ID |
-| `{artworkTitle}` | An artwork title already present in the path |
-| `{authorName}` | An author name already present in the path |
+| `{artwork_id}` | Required; a positive integer artwork ID |
+| `{author_id}` | A positive integer author ID |
+| `{artwork_title}` | An artwork title already present in the path |
+| `{author_name}` | An author name already present in the path |
 | `{page}` | Page number, starting at 0 |
 | `{extension}` | Extension without its leading dot |
 | `{name}` | Other text within one path segment; not used as the artwork title |
 
-Variable names ignore case and underscores: `{artWorkId}`, `{artwork_id}` and `{artworkId}` are equivalent. Separate adjacent variables with literal text, for example `{artworkId}_{name}`, not `{artworkId}{name}`. An asterisk is not a wildcard.
+Variable names must match the lowercase snake_case spellings in the table exactly. Separate adjacent variables with literal text, for example `{artwork_id}_{name}`, not `{artwork_id}{name}`. An asterisk is not a wildcard.
 
 ## Preview, refresh and results
 
@@ -74,13 +74,12 @@ Administrators can use the same workflow through `/api/local-import`, with the a
 4. Send `{"previewId":"the returned preview UUID"}` to `POST /api/local-import/tasks`.
 5. Query `GET /api/local-import/tasks/{id}`; cancel with `POST /api/local-import/tasks/{id}/cancel`.
 
-Request body to scan two artworks using enabled presets:
+Request body to scan two artworks using all saved paths:
 
 ```json
 {
   "templates": [],
   "artworkIds": [12345, 12346],
-  "presetNames": [],
   "refreshIndex": false,
   "selectedFile": ""
 }
