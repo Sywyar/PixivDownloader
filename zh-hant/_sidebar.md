@@ -13,6 +13,7 @@
   - [排程工作](/zh-hant/scheduled-tasks)
   - [使用者腳本](/zh-hant/userscripts)
   - [匯入外部下載](/zh-hant/pixiv-batch-downloader-import)
+  - [本機作品匯入](/zh-hant/local-import)
 
 - **管理與疑難排解**
   - [作品畫廊](/zh-hant/gallery)

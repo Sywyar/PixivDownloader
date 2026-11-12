@@ -51,6 +51,7 @@ Windows 설치 폴더를 이동한 후 설치 패키지를 실행하고 새 폴�
 | `server.port` | `6999` | HTTP / HTTPS 수신 포트 |
 | `debug.enabled` | `false` | 디버그 모드 |
 | `download.root-folder` | `pixiv-download` | 작품 산출물 루트 폴더. 다운로드한 작품만 저장 |
+| `local-import.presets` | `[]` | 다시 사용할 경로 템플릿. 저장 후 백엔드 다시 시작. [사용 방법과 예시](/ko/local-import) |
 | `download.user-flat-folder` | `false` | 작가 일괄 다운로드 시 작가 하위 폴더 생략 여부 |
 | `download.max-concurrent` | `10` | 동시 다운로드 상한. 추가 대기 작품은 최대 100개이며 가득 차면 429 반환 |
 | `database.maximum-pool-size` | `28` | 주 데이터베이스 연결 풀 상한. 최솟값 `8` |

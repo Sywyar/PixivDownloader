@@ -13,6 +13,7 @@
   - [Scheduled tasks](/en/scheduled-tasks)
   - [Userscripts](/en/userscripts)
   - [Import external downloads](/en/pixiv-batch-downloader-import)
+  - [Import local artworks](/en/local-import)
 
 - **Manage and troubleshoot**
   - [Artwork gallery](/en/gallery)

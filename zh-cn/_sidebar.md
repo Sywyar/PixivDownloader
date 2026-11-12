@@ -13,6 +13,7 @@
   - [计划任务](/zh-cn/scheduled-tasks)
   - [油猴脚本](/zh-cn/userscripts)
   - [导入外部下载](/zh-cn/pixiv-batch-downloader-import)
+  - [本地作品导入](/zh-cn/local-import)
 
 - **管理与排障**
   - [作品画廊](/zh-cn/gallery)

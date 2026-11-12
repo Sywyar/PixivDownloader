@@ -51,6 +51,7 @@ Swing 与 Compose 设置页均提供「配置与环境迁移」，仅读取已�
 | `server.port` | `6999` | HTTP / HTTPS 监听端口 |
 | `debug.enabled` | `false` | 调试模式 |
 | `download.root-folder` | `pixiv-download` | 作品产物根目录（仅存放下载作品） |
+| `local-import.presets` | `[]` | 保存可重复使用的路径模板，保存后重启后端；[用法与示例](/zh-cn/local-import) |
 | `download.user-flat-folder` | `false` | 画师批量下载是否省略画师子目录 |
 | `download.max-concurrent` | `10` | 下载并发上限；另最多排队 100 件作品，满额返回 429 |
 | `database.maximum-pool-size` | `28` | 主数据库连接池上限（最小 `8`） |

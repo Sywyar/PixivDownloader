@@ -13,6 +13,7 @@
   - [スケジュールタスク](/ja/scheduled-tasks)
   - [ユーザースクリプト](/ja/userscripts)
   - [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import)
+  - [ローカル作品の取り込み](/ja/local-import)
 
 - **管理とトラブルシューティング**
   - [作品ギャラリー](/ja/gallery)

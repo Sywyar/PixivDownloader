@@ -19,6 +19,8 @@
 
 ## 核心宿主与默认请求
 
+- **本地导入指南**：只有点击设置页或工具页的「使用说明与示例」才由系统浏览器打开 `https://sywyar.github.io/PixivDownloader/`。页面从 `cdn.jsdelivr.net` 加载 docsify 资源，从 `raw.githubusercontent.com` 加载项目图标；链接仅指定界面语言，不附带作品 ID、目录、文件内容或应用凭据。访问使用浏览器网络设置，不经过 Java 后端代理；不点击就不会由此入口发起请求。
+
 - **同源认证与国际化**：登录页通过同源 `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` 检查会话与提交认证（回跳地址仅接受同源站内路径）。前端页面通过 `/api/i18n/meta`、`/api/i18n/messages/{namespace}` 与同源 `i18n-static/` 加载词典（单次超时 10 秒，缺失词典最多重试 3 轮：1.5、5、15 秒），不连接外部翻译服务。
 - **本机 GUI 通道**：桌面模式通过 `http://127.0.0.1:{随机端口}/api/gui/**` 轮询状态与提交操作，携带后端生成的 GUI token，强制本机直连并拒绝代理、重定向与转发头；`--no-gui` 模式不创建该端口。
 - **外部链接确认**：在应用 Web 页面点击外部 HTTP(S) 链接时，会先弹出目标地址确认框，确认后才由浏览器打开。

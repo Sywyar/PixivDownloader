@@ -56,6 +56,8 @@ For example, `{author_name}/{artwork_id}_p{page}` creates author-named subfolder
 
 !> Desktop maintenance tools that access the database use an exclusive maintenance session; the GUI automatically stops and restores the backend. Back up the selected database first (for PostgreSQL, also back up the server-side database), and do not start another instance using the same data directory. When the operation ends, check the tool report, backend state and gallery access. Closing the tool window does not mean the operation succeeded.
 
+Import local artworks is an online tool that requires the backend to stay running; it does not use the maintenance shutdown flow above. Register files using path templates, or save presets and enter only artwork IDs. See the [guide and examples](/en/local-import).
+
 ## Guest invitations
 
 Guest invitations are available in both `solo` and `multi` modes. In the gallery's upper-right corner, an administrator can click "Invite Guests", set an expiry time, allowed content ratings (SFW / R18 / R18G) and tag / author allowlists, then copy `http://host:port/invite?code=xxx` to share read-only access with external guests. All invitation codes can be viewed, disabled or deleted centrally at `http://localhost:6999/pixiv-invite-manage.html`.

@@ -60,7 +60,7 @@ Set the plugin root through the JVM property `pixivdownload.plugins-dir`. Never 
 | `{root}/douyin/{owner}/...` | Douyin plugin's default download directory, or its configured custom directory |
 | `{root}/_archives/{token}.zip` | Short-lived archives for batch export and multi-mode quotas |
 
-Third-party download-type plugins should likewise save works under `{root}/{pluginId}/` or the work directory specified in their settings. Legacy data and metadata import on the Tools page can import historical `<work ID>.meta.json` snapshots from registered work directories. If the database is missing, image files in those directories alone cannot rebuild work registration.
+Third-party download-type plugins should likewise save works under `{root}/{pluginId}/` or the work directory specified in their settings. Legacy data and metadata import on the Tools page can import historical `<work ID>.meta.json` snapshots from registered directories. Without a snapshot, paths containing artwork IDs can be used to [import local artworks](/en/local-import) and rebuild file references; metadata absent from the paths still needs to be filled in.
 
 ## Database path prefixes and relocation
 
@@ -85,7 +85,7 @@ After stopping the app, a complete backup should include:
 1. `config/`, `state/`, `data/` and `plugins/`;
 2. `download.root-folder`, custom collection download directories and custom work directories used by third-party plugins;
 3. If using PostgreSQL, the server's main database and all private plugin schemas;
-4. If using [import external downloads](/en/pixiv-batch-downloader-import), the external source directories referenced read-only;
+4. When using [import external downloads](/en/pixiv-batch-downloader-import) or [import local artworks](/en/local-import), also back up the external source directories referenced read-only;
 5. If restoring encrypted credentials in `config/credentials/` across machines or deployments, the corresponding credential master key too; otherwise, re-enter credentials in the destination environment.
 
 After recovery, verify administrator login, gallery and novel-body reading, scheduled-task state and one new download, in that order.

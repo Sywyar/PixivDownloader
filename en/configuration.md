@@ -51,6 +51,7 @@ After moving the Windows installation directory, run the installer, select the n
 | `server.port` | `6999` | HTTP / HTTPS listening port |
 | `debug.enabled` | `false` | Debug mode |
 | `download.root-folder` | `pixiv-download` | Root directory for work output (downloaded works only) |
+| `local-import.presets` | `[]` | Reusable path templates; save and restart the backend. [Guide and examples](/en/local-import) |
 | `download.user-flat-folder` | `false` | Omit artist subdirectories in artist batch downloads |
 | `download.max-concurrent` | `10` | Download concurrency limit; at most 100 additional works can queue, with 429 returned when full |
 | `database.maximum-pool-size` | `28` | Main database connection pool limit (minimum `8`) |

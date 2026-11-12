@@ -60,7 +60,7 @@ PixivDownloader 將下載作品、宿主執行期檔案與外部外掛套件分�
 | `{root}/douyin/{owner}/...` | Douyin 外掛預設下載目錄（或該外掛設定的自訂目錄） |
 | `{root}/_archives/{token}.zip` | 批次匯出與多人模式配額的短期壓縮檔 |
 
-第三方下載類型外掛同樣應將作品儲存在 `{root}/{pluginId}/` 或使用者在外掛設定中指定的作品目錄。工具頁「舊資料與中繼資料匯入」可從已登記作品目錄匯入歷史 `<作品 ID>.meta.json` 快照，但資料庫遺失時，無法僅憑目錄中的圖片檔案重建作品登記。
+第三方下載類型外掛同樣應將作品儲存在 `{root}/{pluginId}/` 或使用者在外掛設定中指定的作品目錄。工具頁「舊資料與中繼資料匯入」可從已登記作品目錄匯入歷史 `<作品 ID>.meta.json` 快照。沒有快照但路徑含作品 ID 時，可透過[本機作品匯入](/zh-hant/local-import)重建檔案參照；路徑中沒有的中繼資料仍須補全。
 
 ## 資料庫路徑前綴與目錄搬遷
 
@@ -85,7 +85,7 @@ SQLite 與 PostgreSQL 之間的資料庫引擎切換屬於獨立流程，見[設
 1. `config/`、`state/`、`data/`、`plugins/`；
 2. `download.root-folder`、收藏夾自訂下載目錄及第三方外掛自訂作品目錄；
 3. 若使用 PostgreSQL，還須備份伺服器上的主資料庫與全部外掛私有 schema；
-4. 若使用了[匯入外部下載](/zh-hant/pixiv-batch-downloader-import)，還須保留以唯讀方式參照的外部來源目錄；
+4. 若使用[匯入外部下載](/zh-hant/pixiv-batch-downloader-import)或[本機作品匯入](/zh-hant/local-import)，還須備份以唯讀方式參照的外部來源目錄；
 5. 若需跨機器/跨部署還原 `config/credentials/` 中的加密憑證，須同時保留對應的憑證主金鑰（否則需在目標環境重新輸入憑證）。
 
 還原後，請依序驗證管理員登入、畫廊與小說正文讀取、排程工作狀態及一次新下載。

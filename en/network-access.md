@@ -19,6 +19,8 @@ Host-managed plugin HTTP clients do not automatically replay requests after rate
 
 ## Core host and default requests
 
+- **Local import guide**: clicking Guide and examples in Settings or the tool page opens `https://sywyar.github.io/PixivDownloader/` in the system browser. The page loads docsify assets from `cdn.jsdelivr.net` and the project icon from `raw.githubusercontent.com`. The link specifies only the interface language; it includes no artwork IDs, local paths, file contents or application credentials. Requests use browser network settings, outside the Java backend proxy. This entry makes no requests until clicked.
+
 - **Same-origin authentication and internationalization**: the login page checks sessions and submits authentication through same-origin `/api/auth/check`, `/api/auth/login` and `/api/auth/invite-redeem` (return destinations accept only same-origin internal paths). Frontend pages load dictionaries through `/api/i18n/meta`, `/api/i18n/messages/{namespace}` and same-origin `i18n-static/` (10-second timeout per request; missing dictionaries retry up to 3 rounds at 1.5, 5 and 15 seconds). They do not connect to external translation services.
 - **Local GUI channel**: desktop mode polls status and submits operations through `http://127.0.0.1:{random port}/api/gui/**`, carrying a backend-generated GUI token. It enforces direct local access and rejects proxies, redirects and forwarding headers. `--no-gui` does not create this port.
 - **External-link confirmation**: clicking an external HTTP(S) link on an application Web page first shows a destination confirmation dialog. The browser opens it only after confirmation.

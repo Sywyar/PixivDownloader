@@ -13,6 +13,7 @@
   - [예약 작업](/ko/scheduled-tasks)
   - [사용자 스크립트](/ko/userscripts)
   - [외부 다운로드 가져오기](/ko/pixiv-batch-downloader-import)
+  - [로컬 작품 가져오기](/ko/local-import)
 
 - **관리 및 문제 해결**
   - [작품 갤러리](/ko/gallery)

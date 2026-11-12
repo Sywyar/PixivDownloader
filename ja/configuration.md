@@ -51,6 +51,7 @@ Windows のインストールディレクトリを移動した後は、インス
 | `server.port` | `6999` | HTTP / HTTPS の待ち受けポート |
 | `debug.enabled` | `false` | デバッグモード |
 | `download.root-folder` | `pixiv-download` | 作品の保存ルート。ダウンロード作品だけを置く |
+| `local-import.presets` | `[]` | 再利用するパステンプレート。保存後にバックエンドを再起動。[使い方と記入例](/ja/local-import) |
 | `download.user-flat-folder` | `false` | 作者別一括ダウンロードで作者サブディレクトリを省略するか |
 | `download.max-concurrent` | `10` | 同時ダウンロード上限。別途最大 100 作品を待機でき、満杯なら 429 を返す |
 | `database.maximum-pool-size` | `28` | 主データベースの接続プール上限。最小 `8` |
