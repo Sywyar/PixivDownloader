@@ -33,7 +33,7 @@ class BusinessDialogLayoutTest {
             File("../pixivdownload-app/src/main/resources/i18n/messages_en.properties")
                 .reader(Charsets.UTF_8).use(::load)
         }
-        for ((width, height) in listOf(900 to 400, 440 to 520)) {
+        for ((width, height) in listOf(900 to 360, 440 to 480)) {
             for (kind in listOf("trusted-key", "classifier", "directory", "message")) {
                 runSkikoComposeUiTest(size = Size(width.toFloat(), height.toFloat())) {
                     val calls = HashMap(RepositoryImportInteractionTest.defaults())
@@ -99,7 +99,7 @@ class BusinessDialogLayoutTest {
                         val primary = onNodeWithText(labels.getProperty(actionKeys.first))
                         primary.assertIsDisplayed()
                         val before = primary.fetchSemanticsNode().boundsInRoot
-                        val body = onNode(SemanticsMatcher("正文可滚动") {
+                        val body = onNode(SemanticsMatcher("$kind 正文在 $width × $height 下可滚动") {
                             (it.config.getOrNull(SemanticsProperties.VerticalScrollAxisRange)?.maxValue() ?: 0f) > 0f
                         })
                         body.performTouchInput { swipeUp() }

@@ -186,6 +186,7 @@ object ComposeDesktopUiNodeRenderer {
         modifier: Modifier = Modifier,
     ) {
         when (node) {
+            is DesktopUiNode.ImportPresetList -> top.sywyar.pixivdownload.guicompose.settings.ImportPresetListContent(node, text, emit, modifier)
             is DesktopUiNode.RepositoryEditor -> top.sywyar.pixivdownload.guicompose.settings.RepositoryEditorContent(node, text, emit, modifier)
             is DesktopUiNode.AboutOverview -> top.sywyar.pixivdownload.guicompose.about.AboutOverview(node, text, emit, modifier) { child, childModifier ->
                 Node(child, text, emit, childModifier)

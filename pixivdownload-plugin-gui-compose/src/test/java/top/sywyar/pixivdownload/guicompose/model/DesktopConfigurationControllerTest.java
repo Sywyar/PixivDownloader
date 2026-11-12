@@ -43,7 +43,7 @@ class DesktopConfigurationControllerTest {
         var variableFailure = new AtomicReference<VariableException>();
         String guide = "https://sywyar.github.io/PixivDownloader/#/ja/local-import";
         var parsed = new AtomicReference<List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset>>(List.of());
-        String encoded = "[{\"name\":\"Pictures\",\"template\":\"D:/{artwork_id}/\",\"enabled\":true}]";
+        String encoded = "[{\"template\":\"D:/{artwork_id}/\"}]";
         var field = new GuiConfigFieldContribution("local-import.presets", "fixture", "Presets", "",
                 GuiConfigFieldType.PATH_TEMPLATES, "[]", 0, false,
                 top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect.BACKEND_RESTART);
@@ -62,8 +62,6 @@ class DesktopConfigurationControllerTest {
             awaitReady(model);
             activate(model, "config.app.local-import.presets.input");
             activate(model, "import-presets.add");
-            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                    "import-presets.field.0.name", DesktopUiNode.Value.text("Pictures")));
             for (String variable : List.of("foo", "ai")) {
                 variableFailure.set(new VariableException(variable, variable.equals("ai")));
                 dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
@@ -82,7 +80,7 @@ class DesktopConfigurationControllerTest {
             dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
                     "import-presets.field.0.template", DesktopUiNode.Value.text("D:/{artwork_id}/")));
             activate(model, "import-presets.apply");
-            assertEquals(List.of(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset("Pictures", "D:/{artwork_id}/", true)), parsed.get());
+            assertEquals(List.of(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset("D:/{artwork_id}/")), parsed.get());
             assertTrue(stored.isEmpty());
             assertTrue(pendingCount(model) > 0);
             activate(model, "config.app.local-import.presets.guide");

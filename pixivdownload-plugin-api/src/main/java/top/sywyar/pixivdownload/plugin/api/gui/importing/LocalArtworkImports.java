@@ -30,23 +30,22 @@ public interface LocalArtworkImports {
         public String variable() { return variable; }
     }
 
-    record Preset(String name, String template, boolean enabled) {
+    record Preset(String template) {
         public Preset {
-            if (name == null || name.isBlank() || name.length() > 100 || template == null || template.isBlank() || template.length() > 4096)
+            if (template == null || template.isBlank() || template.length() > 4096)
                 throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
         }
     }
-    record Request(List<String> templates, List<Long> artworkIds, List<String> presetNames,
+    /** templates 留空时使用全部已保存预设；显式模板仅作用于本次导入。 */
+    record Request(List<String> templates, List<Long> artworkIds,
                    boolean refreshIndex, String selectedFile) {
         public Request {
             templates = templates == null ? List.of() : List.copyOf(templates);
             artworkIds = artworkIds == null ? List.of() : List.copyOf(artworkIds);
-            presetNames = presetNames == null ? List.of() : List.copyOf(presetNames);
             selectedFile = selectedFile == null ? "" : selectedFile;
-            if (templates.size() > 32 || artworkIds.size() > 10000 || presetNames.size() > 32 || selectedFile.length() > 4096
+            if (templates.size() > 32 || artworkIds.size() > 10000 || selectedFile.length() > 4096
                     || templates.stream().anyMatch(t -> t.isBlank() || t.length() > 4096)
-                    || artworkIds.stream().anyMatch(id -> id <= 0)
-                    || presetNames.stream().anyMatch(n -> n.isBlank() || n.length() > 100))
+                    || artworkIds.stream().anyMatch(id -> id <= 0))
                 throw new IllegalArgumentException("INVALID_IMPORT_REQUEST");
         }
     }

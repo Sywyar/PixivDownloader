@@ -23,13 +23,12 @@ public class LocalImportConfig {
             var node = JSON.readTree(value);
             if (!node.isArray() || node.size() > 32) throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
             List<Preset> result = new ArrayList<>();
-            Set<String> names = new HashSet<>();
             for (var item : node) {
-                if (!item.isObject() || item.size() != 3 || !item.path("name").isString() || !item.path("template").isString()
-                        || !item.path("enabled").isBoolean()) throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
-                var preset = new Preset(item.path("name").asString(), item.path("template").asString(), item.path("enabled").asBoolean());
+                if (!item.isObject() || !item.path("template").isString()
+                        || item.propertyNames().stream().anyMatch(key -> !Set.of("template", "name", "enabled").contains(key)))
+                    throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
+                var preset = new Preset(item.path("template").asString());
                 new LocalImportTemplate(preset.template());
-                if (!names.add(preset.name())) throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
                 result.add(preset);
             }
             return List.copyOf(result);

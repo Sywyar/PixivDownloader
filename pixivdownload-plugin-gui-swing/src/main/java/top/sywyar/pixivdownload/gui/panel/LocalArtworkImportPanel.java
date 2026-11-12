@@ -19,7 +19,7 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
     private final JButton entry;
     private final JTextArea templates = new JTextArea(2, 40), ids = new JTextArea(3, 40), details = new JTextArea();
     private final JTextField file = new JTextField(40);
-    private final JList<String> presets = new JList<>();
+    private final JTextArea presetPaths = help("");
     private final JCheckBox refresh;
     private final JButton scan, start, cancel, browse;
     private final JLabel state = new JLabel(), notice = new JLabel();
@@ -28,7 +28,7 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
     private Snapshot status;
     private List<Item> samples = List.of();
     private JDialog dialog;
-    private boolean busy, querying, closed, updatingPresets;
+    private boolean busy, querying, closed;
 
     LocalArtworkImportPanel(DesktopUiContext context) {
         this.context = context;
@@ -51,7 +51,6 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
             public void changedUpdate(DocumentEvent e) { invalidatePreview(); }
         };
         templates.getDocument().addDocumentListener(changes); ids.getDocument().addDocumentListener(changes); file.getDocument().addDocumentListener(changes);
-        presets.addListSelectionListener(e -> { if (!e.getValueIsAdjusting()) invalidatePreview(); });
         refresh.addActionListener(e -> invalidatePreview());
         update();
     }
@@ -68,10 +67,9 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
             fields.add(help(message("help")));
             fields.add(new LocalImportGuideButton(context.host()));
             fields.add(field("templates", templates, null)); fields.add(help(message("templates-help", WorkTemplateVariables.importTokens())));
+            fields.add(presetPaths);
             fields.add(field("ids", ids, null)); fields.add(help(message("ids-help")));
             fields.add(field("file", file, browse)); fields.add(help(message("file-help")));
-            presets.setVisibleRowCount(3);
-            fields.add(field("presets", presets, null)); fields.add(help(message("presets-help")));
             fields.add(refresh); fields.add(state); fields.add(notice); fields.add(progress);
             details.setEditable(false); details.setLineWrap(true); details.setWrapStyleWord(true); details.setRows(12);
             fields.add(details);
@@ -83,16 +81,8 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
             panel.registerKeyboardAction(e -> { dialog.setVisible(false); timer.stop(); entry.requestFocusInWindow(); }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
             dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosing(WindowEvent e) { timer.stop(); entry.requestFocusInWindow(); } });
         }
-        if (!running()) {
-            List<String> selected = presets.getSelectedValuesList();
-            updatingPresets = true;
-            try {
-                String[] names = source().presets().stream().filter(Preset::enabled).map(Preset::name).toArray(String[]::new);
-                presets.setListData(names);
-                presets.setSelectedIndices(java.util.stream.IntStream.range(0, names.length).filter(i -> selected.contains(names[i])).toArray());
-            } finally { updatingPresets = false; }
-            if (!selected.equals(presets.getSelectedValuesList())) invalidatePreview();
-        }
+        var saved = source().presets();
+        presetPaths.setText(saved.isEmpty() ? "" : message("preset-paths", String.join("\n", saved.stream().map(Preset::template).toList())));
         dialog.setVisible(true); timer.start(); poll(); update();
     }
     private JPanel field(String key, JComponent input, JButton action) {
@@ -105,13 +95,13 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
         JTextArea text = new JTextArea(value); text.setEditable(false); text.setOpaque(false); text.setLineWrap(true); text.setWrapStyleWord(true); return text;
     }
     private void invalidatePreview() {
-        if (!updatingPresets && !busy && !running()) { status = null; samples = List.of(); notice.setText(""); update(); }
+        if (!busy && !running()) { status = null; samples = List.of(); notice.setText(""); update(); }
     }
     private void scan() {
         try {
             var request = new Request(templates.getText().lines().map(String::strip).filter(s -> !s.isEmpty()).toList(),
                     ids.getText().isBlank() ? List.of() : Arrays.stream(ids.getText().strip().split("[\\s,;，；]+", -1)).map(Long::valueOf).toList(),
-                    presets.getSelectedValuesList(), refresh.isSelected(), file.getText().strip());
+                    refresh.isSelected(), file.getText().strip());
             samples = List.of(); run(() -> source().scan(request));
         } catch (RuntimeException failure) { notice.setText(message("error.INVALID_IMPORT_REQUEST")); }
     }
@@ -155,7 +145,8 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
     private boolean running() { return status != null && Set.of(Phase.SCANNING, Phase.IMPORTING, Phase.CANCELLING).contains(status.phase()); }
     private void update() {
         boolean editable = !busy && !running();
-        templates.setEnabled(editable); ids.setEnabled(editable); file.setEnabled(editable); presets.setEnabled(editable); refresh.setEnabled(editable); browse.setEnabled(editable);
+        presetPaths.setVisible(templates.getText().isBlank() && !presetPaths.getText().isEmpty());
+        templates.setEnabled(editable); ids.setEnabled(editable); file.setEnabled(editable); refresh.setEnabled(editable); browse.setEnabled(editable);
         scan.setEnabled(editable); start.setEnabled(editable && status != null && status.phase() == Phase.READY && status.artworks() > 0);
         cancel.setEnabled(!busy && running() && status.phase() != Phase.CANCELLING);
         progress.setVisible(running()); progress.setIndeterminate(status != null && status.phase() == Phase.SCANNING);

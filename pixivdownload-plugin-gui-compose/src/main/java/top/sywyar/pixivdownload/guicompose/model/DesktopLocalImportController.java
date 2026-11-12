@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports;
 import top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.*;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.function.Consumer;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
 /** Compose 工具页的临时表单；预设编辑和保存归设置页。 */
@@ -18,7 +17,6 @@ final class DesktopLocalImportController implements AutoCloseable {
     private final DesktopUiHost host;
     private final ScheduledExecutorService polling = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("local-import-status").factory());
     private String templates = "", ids = "", selectedFile = "";
-    private Set<String> selectedPresets = Set.of();
     private boolean refresh;
     private volatile boolean closed, busy;
     private volatile Snapshot status;
@@ -29,7 +27,7 @@ final class DesktopLocalImportController implements AutoCloseable {
         this.owner = owner; this.host = host;
         polling.scheduleWithFixedDelay(this::poll, 1, 1, TimeUnit.SECONDS);
     }
-    List<DesktopUiNode> panels(Map<String, Consumer<List<String>>> selections, Map<String, Runnable> actions) {
+    List<DesktopUiNode> panels(Map<String, Runnable> actions) {
         if (host.localArtworkImports().isEmpty()) return List.of();
         boolean editable = !busy && !running();
         List<DesktopUiNode> nodes = new ArrayList<>();
@@ -37,18 +35,14 @@ final class DesktopLocalImportController implements AutoCloseable {
         actions.put(ID + ".guide.open", () -> owner.openUri(host.message("local-import.guide-url")));
         nodes.add(new Link(ID + ".guide", ID + ".guide.open", key("local-import.guide"), null, true));
         nodes.add(new TextInput(ID + ".templates", ID + ".templates", key("local-import.templates"), key("local-import.templates-help", WorkTemplateVariables.importTokens()), InputKind.MULTILINE, templates, 40, 2, editable));
+        if (templates.isBlank()) {
+            var saved = source().presets();
+            if (!saved.isEmpty()) nodes.add(new Text(ID + ".preset-paths",
+                    key("local-import.preset-paths", String.join("\n", saved.stream().map(Preset::template).toList())),
+                    TextStyle.SECONDARY, true, true));
+        }
         nodes.add(new TextInput(ID + ".ids", ID + ".ids", key("local-import.ids"), key("local-import.ids-help"), InputKind.MULTILINE, ids, 40, 3, editable));
         nodes.add(input(ID + ".file", ID + ".file", "local-import.file", "local-import.file-help", InputKind.FILE, selectedFile, editable));
-        var presets = source().presets();
-        var options = presets.stream().filter(Preset::enabled)
-                .map(p -> new Option("preset." + presets.indexOf(p), TextToken.raw(p.name()), true)).toList();
-        selections.put(ID + ".presets", chosen -> {
-            if (!editable) return;
-            selectedPresets = chosen.stream().map(s -> presets.get(Integer.parseInt(s.substring(7))).name()).collect(java.util.stream.Collectors.toSet());
-            invalidate();
-        });
-        nodes.add(new Choice(ID + ".presets", ID + ".presets", key("local-import.presets"), key("local-import.presets-help"),
-                ChoiceStyle.CHECK_BOXES, SelectionMode.MULTIPLE, options, options.stream().filter(o -> selectedPresets.contains(presets.get(Integer.parseInt(o.id().substring(7))).name())).map(Option::id).toList(), editable));
         nodes.add(new Toggle(ID + ".refresh", ID + ".refresh", key("local-import.refresh"), null, ToggleStyle.CHECKBOX, refresh, editable));
         Snapshot current = status;
         if (current != null) {
@@ -93,7 +87,7 @@ final class DesktopLocalImportController implements AutoCloseable {
         try {
             var request = new Request(templates.lines().map(String::strip).filter(s -> !s.isEmpty()).toList(),
                     ids.isBlank() ? List.of() : Arrays.stream(ids.strip().split("[\\s,;，；]+", -1)).map(Long::valueOf).toList(),
-                    List.copyOf(selectedPresets), refresh, selectedFile.strip());
+                    refresh, selectedFile.strip());
             run(() -> source().scan(request));
         } catch (RuntimeException invalid) { notice = key("local-import.error.INVALID_IMPORT_REQUEST"); owner.rebuild(); }
     }

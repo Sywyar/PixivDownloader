@@ -494,7 +494,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 DesktopUiIcon.TOOLS,
                 tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions),
                         mediaTools.panels(nextSelections, nextActions), java.util.stream.Stream.concat(
-                                localImports.panels(nextSelections, nextActions).stream(), fileImports.panels(nextActions).stream()).toList()),
+                                localImports.panels(nextActions).stream(), fileImports.panels(nextActions).stream()).toList()),
                 DesktopUiNode.Insets.NONE
         ));
         var platformFacts = platformFacts();
@@ -638,12 +638,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             rebuild();
         };
         nextActions.put(dismissAction, dismiss);
-        DesktopUiNode.SurfaceStyle surfaceStyle = switch (state.style()) {
-            case SUCCESS -> DesktopUiNode.SurfaceStyle.SUCCESS;
-            case WARNING, QUESTION -> DesktopUiNode.SurfaceStyle.WARNING;
-            case ERROR -> DesktopUiNode.SurfaceStyle.ERROR;
-            case INFO -> DesktopUiNode.SurfaceStyle.INFO;
-        };
         DesktopUiNode body = state.content() == null ? dialogContent(
                 state.id() + ".content",
                 new DesktopUiNode.Text(
@@ -667,8 +661,8 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         ) : state.content().build(nextActions, dismissAction, dismiss);
         DesktopUiNode content = new DesktopUiNode.Surface(
                 state.id() + ".surface",
-                surfaceStyle,
-                DesktopUiNode.Insets.all(12),
+                DesktopUiNode.SurfaceStyle.PLAIN,
+                DesktopUiNode.Insets.all(0),
                 true,
                 body
         );

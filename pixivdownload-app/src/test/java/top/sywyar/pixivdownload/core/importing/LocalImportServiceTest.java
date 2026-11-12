@@ -43,14 +43,14 @@ class LocalImportServiceTest {
     void indexesBatchAndRefreshes() throws Exception {
         file("10/42/a.png"); file("10/43/b.png");
         String template = root + "/{author_id}/{artwork_id}/";
-        var a = service.scan(new Request(List.of(template), List.of(42L, 44L), List.of(), false, ""));
+        var a = service.scan(new Request(List.of(template), List.of(42L, 44L), false, ""));
         assertThat(await(a.id(), Phase.READY).artworks()).isEqualTo(2);
         assertThat(service.items(a.id(), 0, 10)).extracting(Item::disposition).containsExactly(Disposition.NEW, Disposition.MISSING);
         file("10/44/c.png");
-        var b = service.scan(new Request(List.of(template), List.of(44L), List.of(), false, ""));
+        var b = service.scan(new Request(List.of(template), List.of(44L), false, ""));
         assertThat(await(b.id(), Phase.READY).cachedIndex()).isTrue();
         assertThat(service.items(b.id(), 0, 10).getFirst().disposition()).isEqualTo(Disposition.MISSING);
-        var c = service.scan(new Request(List.of(template), List.of(44L), List.of(), true, ""));
+        var c = service.scan(new Request(List.of(template), List.of(44L), true, ""));
         assertThat(await(c.id(), Phase.READY).cachedIndex()).isFalse();
         assertThat(service.items(c.id(), 0, 10).getFirst().disposition()).isEqualTo(Disposition.NEW);
     }
@@ -59,13 +59,29 @@ class LocalImportServiceTest {
     void presetsAndIdempotentStart() throws Exception {
         file("42/a.png");
         config.setPresets(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(
-                List.of(new Preset("Pictures", root + "/{artwork_id}/", true))));
+                List.of(new Preset(root + "/{artwork_id}/"))));
         when(importer.importLocalFiles(any())).thenReturn(true);
-        var a = service.scan(new Request(List.of(), List.of(42L), List.of("Pictures"), false, ""));
+        var a = service.scan(new Request(List.of(), List.of(42L), false, ""));
         await(a.id(), Phase.READY); service.start(a.id());
         assertThat(await(a.id(), Phase.COMPLETED).imported()).isEqualTo(1);
         assertThat(service.start(a.id()).phase()).isEqualTo(Phase.COMPLETED);
         verify(importer, times(1)).importLocalFiles(argThat(r -> r.workId() == 42 && r.parsed() && r.sources().getFirst().page() == null));
+    }
+
+    @Test @DisplayName("默认扫描全部预设并去重，临时模板不改写已保存预设")
+    void scansAllPresetsAndDeduplicatesPaths() throws Exception {
+        file("first/42/a.png"); file("second/43/b.png");
+        var first = new Preset(root + "/first/{artwork_id}/");
+        var second = new Preset(root + "/second/{artwork_id}/");
+        config.setPresets(tools.jackson.databind.json.JsonMapper.builder().build()
+                .writeValueAsString(List.of(first, second, first)));
+        var all = service.scan(new Request(List.of(), List.of(), false, ""));
+        assertThat(await(all.id(), Phase.READY).files()).isEqualTo(2);
+        assertThat(service.items(all.id(), 0, 10)).extracting(Item::artworkId).containsExactly(42L, 43L);
+        var temporary = service.scan(new Request(List.of(second.template()), List.of(), false, ""));
+        assertThat(await(temporary.id(), Phase.READY).files()).isEqualTo(1);
+        assertThat(service.items(temporary.id(), 0, 10)).extracting(Item::artworkId).containsExactly(43L);
+        assertThat(config.entries()).containsExactly(first, second, first);
     }
 
     @Test @DisplayName("按模板逐层排除不匹配目录，不进入无关的深层树")
@@ -79,7 +95,7 @@ class LocalImportServiceTest {
         assertThat(parsed.acceptsDirectory(root.resolve("10/42/subfolder"))).isTrue();
         assertThat(parsed.acceptsDirectory(root.resolve("unrelated"))).isFalse();
         assertThat(new LocalImportTemplate(root + "/{artwork_id}.{extension}").acceptsDirectory(root.resolve("10"))).isFalse();
-        var preview = service.scan(new Request(List.of(template), List.of(), List.of(), false, ""));
+        var preview = service.scan(new Request(List.of(template), List.of(), false, ""));
         assertThat(await(preview.id(), Phase.READY).artworks()).isEqualTo(1);
     }
 
@@ -88,12 +104,12 @@ class LocalImportServiceTest {
         file("42/a.png"); file("43/b.png");
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         when(importer.importLocalFiles(any())).thenAnswer(call -> { entered.countDown(); release.await(); return true; });
-        var a = service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), List.of(), false, ""));
+        var a = service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), false, ""));
         await(a.id(), Phase.READY); service.start(a.id());
         try {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(service.cancel(a.id()).phase()).isEqualTo(Phase.CANCELLING);
-            assertThatThrownBy(() -> service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), List.of(), false, "")))
+            assertThatThrownBy(() -> service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), false, "")))
                     .hasMessage("IMPORT_BUSY");
         } finally { release.countDown(); }
         assertThat(await(a.id(), Phase.CANCELLED).imported()).isEqualTo(1);
@@ -103,7 +119,7 @@ class LocalImportServiceTest {
     @Test @DisplayName("同页多文件在预览报告冲突，不进入登记")
     void conflictsAreReviewable() throws Exception {
         file("42_p0_a.png"); file("42_p0_b.png");
-        var a = service.scan(new Request(List.of(root + "/{artwork_id}_p{page}_{name}.{extension}"), List.of(), List.of(), false, ""));
+        var a = service.scan(new Request(List.of(root + "/{artwork_id}_p{page}_{name}.{extension}"), List.of(), false, ""));
         await(a.id(), Phase.READY);
         assertThat(service.items(a.id(), 0, 10).getFirst().disposition()).isEqualTo(Disposition.CONFLICT);
         service.start(a.id());

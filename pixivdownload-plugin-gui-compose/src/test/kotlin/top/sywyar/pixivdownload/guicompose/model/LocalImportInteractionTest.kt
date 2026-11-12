@@ -41,7 +41,7 @@ class LocalImportInteractionTest {
         val phase = AtomicReference(Phase.READY)
         val id = UUID.randomUUID()
         val service = object : LocalArtworkImports {
-            override fun presets() = listOf(Preset("Pictures", "D:/{artwork_id}/", true))
+            override fun presets() = listOf(Preset("D:/{artwork_id}/"))
             override fun scan(request: Request): Snapshot {
                 variableFailure.get()?.let { throw it }
                 captured.set(request)
@@ -90,13 +90,12 @@ class LocalImportInteractionTest {
                 waitUntil(timeoutMillis = 5_000) { opened.get() != null }
                 assertEquals(labels.getProperty("local-import.guide-url"), opened.get().toString())
                 onNodeWithTag("local-import.ids").performScrollTo().assertTextContains("42\n43")
-                onNodeWithText("Pictures").performScrollTo().performClick()
                 onNodeWithText(labels.getProperty("local-import.refresh")).performScrollTo().performClick()
                 onNodeWithTag("local-import.scan").assertIsDisplayed().performClick()
                 waitUntil(timeoutMillis = 5_000) { captured.get() != null }
                 waitUntil(timeoutMillis = 5_000) { onAllNodes(hasTestTag("local-import.start") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
                 assertEquals(listOf(42L, 43L), captured.get().artworkIds())
-                assertEquals(listOf("Pictures"), captured.get().presetNames())
+                assertTrue(captured.get().templates().isEmpty())
                 assertTrue(captured.get().refreshIndex())
                 val image = Path.of("target/tools-ui/local-template-import.png")
                 Files.createDirectories(image.parent)

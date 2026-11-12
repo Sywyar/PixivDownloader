@@ -104,7 +104,7 @@ class LocalWorkFileImporterTest {
                 new top.sywyar.pixivdownload.core.importing.LocalImportConfig(), importer(history), database, externalFiles)) {
             Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
             var preview = service.scan(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Request(
-                    List.of(source + "/{artwork_id}_p{page}.{extension}"), List.of(), List.of(), false, ""));
+                    List.of(source + "/{artwork_id}_p{page}.{extension}"), List.of(), false, ""));
             awaitPhase(service, preview.id(), top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Phase.READY);
             assertThat(database.getArtwork(43)).isNull();
             Files.delete(missing);

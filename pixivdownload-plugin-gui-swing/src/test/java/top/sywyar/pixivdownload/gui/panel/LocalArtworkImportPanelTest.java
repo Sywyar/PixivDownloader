@@ -24,7 +24,7 @@ class LocalArtworkImportPanelTest {
         String guide = "https://sywyar.github.io/PixivDownloader/#/zh-hant/local-import";
         var captured = new AtomicReference<Request>(); var starts = new AtomicInteger(); UUID id = UUID.randomUUID();
         LocalArtworkImports service = new LocalArtworkImports() {
-            public List<Preset> presets() { return List.of(new Preset("Pictures", "D:/{artwork_id}/", true)); }
+            public List<Preset> presets() { return List.of(new Preset("D:/{artwork_id}/")); }
             public Snapshot scan(Request value) {
                 assertFalse(SwingUtilities.isEventDispatchThread());
                 if (scanFailure.get() != null) throw scanFailure.get();

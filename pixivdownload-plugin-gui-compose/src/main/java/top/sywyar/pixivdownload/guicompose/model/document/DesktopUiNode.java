@@ -30,7 +30,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
         DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
-        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.RepositoryEditor, DesktopUiNode.AboutOverview {
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.RepositoryEditor,
+        DesktopUiNode.ImportPresetList, DesktopUiNode.AboutOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -67,6 +68,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         EnumSet<Kind> kinds = EnumSet.noneOf(Kind.class);
         validateNode(root, documentIds, kinds, 0);
         return Set.copyOf(kinds);
+    }
+
+    /** 本地导入预设的单列编辑区；输入和操作继续使用既有事件校验。 */
+    record ImportPresetList(String id, List<TextInput> inputs, List<Button> removals,
+                            TextToken title, TextToken emptyText) implements DesktopUiNode {
+        public ImportPresetList {
+            inputs = List.copyOf(inputs);
+            removals = List.copyOf(removals);
+            if (inputs.size() != removals.size()) throw new IllegalArgumentException("Row actions must match inputs");
+        }
+        @Override public Kind kind() { return Kind.CONTAINER; }
+        @Override public List<DesktopUiNode> childNodes() {
+            var children = new ArrayList<DesktopUiNode>(inputs);
+            children.addAll(removals);
+            return List.copyOf(children);
+        }
     }
 
     /** 通用列、行、流式或网格容器。 */

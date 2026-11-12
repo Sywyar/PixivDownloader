@@ -18,7 +18,7 @@ class DesktopLocalImportControllerTest {
         var starts = new AtomicInteger();
         var scanFailure = new AtomicReference<VariableException>();
         LocalArtworkImports service = new LocalArtworkImports() {
-            public List<Preset> presets() { return List.of(new Preset("Pictures", "D:/{artwork_id}/", true)); }
+            public List<Preset> presets() { return List.of(new Preset("D:/{artwork_id}/")); }
             public Snapshot scan(Request input) {
                 if (scanFailure.get() != null) throw scanFailure.get();
                 request.set(input); phase.set(Phase.READY); return status(id);

@@ -42,14 +42,7 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
         requireOpen();
         if (task != null && busy(task.phase)) throw new IllegalStateException("IMPORT_BUSY");
         List<String> templates = new ArrayList<>(request.templates());
-        if (templates.isEmpty()) {
-            var presets = presets();
-            Set<String> selected = Set.copyOf(request.presetNames());
-            if (!presets.stream().filter(Preset::enabled).map(Preset::name).collect(java.util.stream.Collectors.toSet()).containsAll(selected))
-                throw new IllegalArgumentException("INVALID_IMPORT_PRESET");
-            presets.stream().filter(Preset::enabled).filter(p -> selected.isEmpty() || selected.contains(p.name()))
-                    .map(Preset::template).forEach(templates::add);
-        }
+        if (templates.isEmpty()) presets().stream().map(Preset::template).forEach(templates::add);
         if (templates.isEmpty()) throw new IllegalArgumentException("IMPORT_NO_TEMPLATES");
         List<LocalImportTemplate> parsed = templates.stream().distinct().map(LocalImportTemplate::new).toList();
         Task next = new Task(request, parsed);
