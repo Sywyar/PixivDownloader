@@ -46,13 +46,13 @@ public final class DownloadDirectoryConfigMigration implements EnvironmentPostPr
                     String base = (alreadyTemplate ? WorkDirectoryTemplate.parse(root).fixedPrefix().toString() : root)
                             .replace('\\', '/').replaceAll("/+$", "") + "/";
                     var values = new LinkedHashMap<String, String>();
-                    values.put("download.root-folder", alreadyTemplate ? root : base + "{artworkId}");
+                    values.put("download.root-folder", alreadyTemplate ? root : base + "{artwork_id}");
                     for (var mode : DownloadAcquisitionMode.values()) {
                         String key = "download.mode-templates." + mode.code();
                         String existing = editor.read(key);
                         values.put(key, existing != null ? existing :
                                 mode == DownloadAcquisitionMode.USER_PROFILE && !flat && !alreadyTemplate
-                                        ? base + "{username}/{R18}/{artworkId}" : "");
+                                        ? base + "{username}/{R18}/{artwork_id}" : "");
                     }
                     WorkDirectoryTemplate.parse(values.get("download.root-folder"));
                     values.put(VERSION_KEY, CURRENT_VERSION);

@@ -41,7 +41,7 @@ class LocalImportInteractionTest {
         val phase = AtomicReference(Phase.READY)
         val id = UUID.randomUUID()
         val service = object : LocalArtworkImports {
-            override fun presets() = listOf(Preset("Pictures", "D:/{artworkId}/", true))
+            override fun presets() = listOf(Preset("Pictures", "D:/{artwork_id}/", true))
             override fun scan(request: Request): Snapshot {
                 variableFailure.get()?.let { throw it }
                 captured.set(request)

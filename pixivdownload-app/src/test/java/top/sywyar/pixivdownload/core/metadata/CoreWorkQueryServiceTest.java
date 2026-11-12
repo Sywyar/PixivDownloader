@@ -78,7 +78,7 @@ class CoreWorkQueryServiceTest {
         initializer.initialize();
 
         DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setRootFolder(Path.of("pixiv-download").toAbsolutePath().normalize().toString() + "/{artworkId}");
+        downloadConfig.setRootFolder(Path.of("pixiv-download").toAbsolutePath().normalize().toString() + "/{artwork_id}");
         PathPrefixCodec codec = new PathPrefixCodec(
                 new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), downloadConfig, TestI18nBeans.appMessages());
         codec.init();

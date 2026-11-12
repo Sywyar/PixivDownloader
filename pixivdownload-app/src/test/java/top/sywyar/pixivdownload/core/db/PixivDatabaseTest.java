@@ -48,7 +48,7 @@ class PixivDatabaseTest {
         top.sywyar.pixivdownload.core.appconfig.DownloadConfig downloadConfig =
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
         downloadConfig.setRootFolder(
-                java.nio.file.Path.of("pixiv-download").toAbsolutePath().normalize().toString() + "/{artworkId}");
+                java.nio.file.Path.of("pixiv-download").toAbsolutePath().normalize().toString() + "/{artwork_id}");
         PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 

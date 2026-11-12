@@ -13,8 +13,8 @@ import java.util.Map;
 @Configuration
 @ConfigurationProperties(prefix = "download")
 public class DownloadConfig implements DownloadSettings {
-    public static final String DEFAULT_TEMPLATE = "pixiv-download/{artworkId}";
-    public static final String DEFAULT_USER_TEMPLATE = "pixiv-download/{username}/{R18}/{artworkId}";
+    public static final String DEFAULT_TEMPLATE = "pixiv-download/{artwork_id}";
+    public static final String DEFAULT_USER_TEMPLATE = "pixiv-download/{username}/{R18}/{artwork_id}";
     private volatile String rootFolder = DEFAULT_TEMPLATE;
     private Map<String, String> modeTemplates = new LinkedHashMap<>(Map.of("user", DEFAULT_USER_TEMPLATE));
 

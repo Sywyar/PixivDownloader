@@ -180,10 +180,10 @@ class ArtworkDownloadExecutorTest {
     }
 
     private void stubSuccessfulUgoiraDownload(boolean flatFolder) {
-        lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+        lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
         lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenAnswer(invocation ->
                 tempDir + (!flatFolder && "user".equals(invocation.getArgument(0))
-                        ? "/{username}/{R18}/{artworkId}" : "/{artworkId}"));
+                        ? "/{username}/{R18}/{artwork_id}" : "/{artwork_id}"));
         lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                 .thenReturn(1);
         lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
@@ -207,7 +207,7 @@ class ArtworkDownloadExecutorTest {
     @Test
     @DisplayName("第一页后数据库失效时不下载下一页或记录成功")
     void databaseFailureStopsInFlightPages() throws Exception {
-        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
         when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any()))
                 .thenAnswer(call -> { databaseAvailable.set(false); return "jpg"; });
         var executor = newExecutor(Runnable::run);
@@ -221,7 +221,7 @@ class ArtworkDownloadExecutorTest {
     @Test
     @DisplayName("历史写入后数据库失效时不执行后置收藏或索引维护")
     void databaseFailureStopsPostDownloadActions() throws Exception {
-        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
         when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any())).thenReturn("jpg");
         doAnswer(call -> { databaseAvailable.set(false); return null; }).when(artworkDownloadHistory).record(any());
         var options = new DownloadRequest.Other();
@@ -243,7 +243,7 @@ class ArtworkDownloadExecutorTest {
         @CsvSource({"true,true", "true,false", "false,true", "false,false"})
         @DisplayName("同步下载与提交拒绝在终结失败后保留致命主失败和原始诊断")
         void preservesFailureAcrossTermination(boolean blocking, boolean primaryFatal) {
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             Throwable original = primaryFatal ? new ProbeVmError() : new IllegalStateException("original");
             Throwable termination = primaryFatal ? new IllegalArgumentException("termination") : new ProbeVmError();
             AtomicInteger terminated = new AtomicInteger();
@@ -275,7 +275,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("提交失败的事件发布再失败时仍终结任务并保留全部诊断")
         void finishesRejectedTaskWhenFailurePublicationAlsoFails() {
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             var original = new IllegalStateException("original");
             var publication = new ProbeVmError();
             var termination = new IllegalArgumentException("termination");
@@ -299,7 +299,7 @@ class ArtworkDownloadExecutorTest {
             String imageUrl = "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/1000_p0.jpg";
             CountDownLatch entered = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             when(pixivImageDownloader.downloadImage(
                     eq(URI.create(imageUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
                     .thenAnswer(invocation -> {
@@ -382,7 +382,7 @@ class ArtworkDownloadExecutorTest {
         @SuppressWarnings("unchecked")
         @DisplayName("提交后状态创建前 quiesce 应取消宿主任务且不发布残留状态")
         void shouldCancelPendingTaskBeforeStatusCreation() {
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             AtomicReference<Runnable> submitted = new AtomicReference<>();
             ArtworkDownloadExecutor executor = newExecutor(submitted::set);
 
@@ -407,7 +407,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("父执行器拒绝提交时应归还 permit")
         void shouldReleasePermitWhenExecutorRejects() {
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             RejectedExecutionException rejected = new RejectedExecutionException("full");
             ArtworkDownloadExecutor executor = newExecutor(task -> { throw rejected; });
 
@@ -423,7 +423,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("运行中的插画任务协作取消后必须等执行线程退出")
         void shouldWaitForRunningDownloadToExit() throws Exception {
-            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
             CountDownLatch entered = new CountDownLatch(1);
             CountDownLatch release = new CountDownLatch(1);
             java.util.concurrent.atomic.AtomicBoolean blockFirstEvent =
@@ -981,7 +981,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("User 模式回退默认模板时不隐式追加用户名或分级目录")
         void shouldRespectFlatFolderEvenWhenXRestrictIsR18g() {
-            when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{artworkId}");
+            when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{artwork_id}");
             DownloadRequest.Other other = userOther(2);
 
             artworkDownloadExecutor.downloadImages(42345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
@@ -1007,7 +1007,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("收藏夹只替换模式模板前缀，目录与文件名共用同一次收藏夹快照")
         void collectionPreservesSelectedTemplateSuffix() {
-            when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artworkId}/pages");
+            when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artwork_id}/pages");
             var other = new DownloadRequest.Other();
             other.setAcquisitionMode("user");
             other.setUsername("reader");
@@ -1030,7 +1030,7 @@ class ArtworkDownloadExecutorTest {
         @org.junit.jupiter.params.provider.ValueSource(strings = {"series", "search", "quick", "single-import"})
         @DisplayName("按实际请求模式选择独立模板，系列元数据不改变来源")
         void explicitModeOverridesWithoutInferringSeries(String mode) {
-            when(downloadSettings.directoryTemplate(mode)).thenReturn(tempDir + "/selected/{seriesId}/works-{artworkId}/content");
+            when(downloadSettings.directoryTemplate(mode)).thenReturn(tempDir + "/selected/{series_id}/works-{artwork_id}/content");
             var other = new DownloadRequest.Other();
             other.setAcquisitionMode(mode);
             other.setSeriesId(8L);
@@ -1046,7 +1046,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("无收藏夹和系列时省略对应目录层并保留默认文件名")
         void missingContextsOmitDirectoryLayers() {
-            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{seriesId}/{R18}/{artworkId}");
+            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/{R18}/{artwork_id}");
             var other = new DownloadRequest.Other();
             other.setUgoira(true);
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
@@ -1062,7 +1062,7 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("批量下载指定收藏夹时应使用收藏夹下载根目录")
         void shouldUseCollectionDownloadRootWhenCollectionIdIsProvided() {
-            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collectionId}/{artworkId}");
+            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{artwork_id}");
             DownloadRequest.Other other = new DownloadRequest.Other();
             other.setUgoira(true);
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
@@ -1247,8 +1247,8 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
-            lenient().when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artworkId}");
+            lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+            lenient().when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artwork_id}");
             lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
         }
 
@@ -1749,8 +1749,8 @@ class ArtworkDownloadExecutorTest {
         @Test
         @DisplayName("有图片下载失败时不写下载历史且状态标记为失败")
         void shouldNotRecordHistoryWhenAnyImageFails() throws Exception {
-            lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artworkId}");
-            lenient().when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artworkId}");
+            lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+            lenient().when(downloadSettings.directoryTemplate("user")).thenReturn(tempDir + "/{username}/{R18}/{artwork_id}");
             lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000200L);
             byte[] payload = {1, 2, 3};
             stubSuccessfulImageDownload(OK_URL, payload);

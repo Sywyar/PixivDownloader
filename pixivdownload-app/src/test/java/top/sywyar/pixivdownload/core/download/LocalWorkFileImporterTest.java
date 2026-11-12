@@ -49,7 +49,7 @@ class LocalWorkFileImporterTest {
                 registry.contributions(), registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         settings = new DownloadConfig();
-        settings.setRootFolder(output.toString() + "/{artworkId}");
+        settings.setRootFolder(output.toString() + "/{artwork_id}");
         var codec = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), settings, TestI18nBeans.appMessages());
         codec.init();
         database = new PixivDatabase(new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
@@ -104,7 +104,7 @@ class LocalWorkFileImporterTest {
                 new top.sywyar.pixivdownload.core.importing.LocalImportConfig(), importer(history), database, externalFiles)) {
             Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
             var preview = service.scan(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Request(
-                    List.of(source + "/{artworkId}_p{page}.{extension}"), List.of(), List.of(), false, ""));
+                    List.of(source + "/{artwork_id}_p{page}.{extension}"), List.of(), List.of(), false, ""));
             awaitPhase(service, preview.id(), top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Phase.READY);
             assertThat(database.getArtwork(43)).isNull();
             Files.delete(missing);

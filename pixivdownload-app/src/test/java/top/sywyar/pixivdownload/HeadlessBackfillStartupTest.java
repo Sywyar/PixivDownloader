@@ -96,7 +96,7 @@ class HeadlessBackfillStartupTest {
         proxy.setEnabled(false);
         context.registerBean(ProxyConfig.class, () -> proxy);
         var download = new DownloadConfig();
-        download.setRootFolder("fixture-works" + "/{artworkId}");
+        download.setRootFolder("fixture-works" + "/{artwork_id}");
         context.registerBean(DownloadConfig.class, () -> download);
         var listeners = application.getListeners().stream().filter(HeadlessBackfillStartup.class::isInstance).toList();
         assertEquals(1, listeners.size());

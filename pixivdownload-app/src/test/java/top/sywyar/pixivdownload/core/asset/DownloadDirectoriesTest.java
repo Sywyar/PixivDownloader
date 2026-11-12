@@ -32,7 +32,7 @@ class DownloadDirectoriesTest {
                 registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         var config = new DownloadConfig();
-        config.setRootFolder(temp + "/{artworkId}");
+        config.setRootFolder(temp + "/{artwork_id}");
         codec = new PathPrefixCodec(new PathPrefixMapper(DatabaseProviderTestFixtures.main(source)), config, TestI18nBeans.appMessages());
         codec.init();
         directories = new DownloadDirectories(DatabaseProviderTestFixtures.main(source), codec, initializer);

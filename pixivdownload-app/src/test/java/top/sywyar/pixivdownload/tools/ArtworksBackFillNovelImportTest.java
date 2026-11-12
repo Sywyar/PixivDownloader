@@ -52,7 +52,7 @@ class ArtworksBackFillNovelImportTest {
              var pool = target.openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE)) {
             var main = DatabaseProviderTestFixtures.main(pool);
             var settings = new DownloadConfig();
-            settings.setRootFolder(directory.toString() + "/{artworkId}");
+            settings.setRootFolder(directory.toString() + "/{artwork_id}");
             var codec = new PathPrefixCodec(new PathPrefixMapper(main), settings, TestI18nBeans.appMessages());
             codec.init();
             try (var owner = main.forOwner("novel", List.of("pixiv-novels", "pixiv-tags"))) {

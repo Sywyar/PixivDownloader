@@ -42,7 +42,7 @@ class LocalImportServiceTest {
     @Test @DisplayName("按作者目录扫描后复用索引，显式刷新发现新增文件")
     void indexesBatchAndRefreshes() throws Exception {
         file("10/42/a.png"); file("10/43/b.png");
-        String template = root + "/{authorId}/{artworkId}/";
+        String template = root + "/{author_id}/{artwork_id}/";
         var a = service.scan(new Request(List.of(template), List.of(42L, 44L), List.of(), false, ""));
         assertThat(await(a.id(), Phase.READY).artworks()).isEqualTo(2);
         assertThat(service.items(a.id(), 0, 10)).extracting(Item::disposition).containsExactly(Disposition.NEW, Disposition.MISSING);
@@ -59,7 +59,7 @@ class LocalImportServiceTest {
     void presetsAndIdempotentStart() throws Exception {
         file("42/a.png");
         config.setPresets(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(
-                List.of(new Preset("Pictures", root + "/{artworkId}/", true))));
+                List.of(new Preset("Pictures", root + "/{artwork_id}/", true))));
         when(importer.importLocalFiles(any())).thenReturn(true);
         var a = service.scan(new Request(List.of(), List.of(42L), List.of("Pictures"), false, ""));
         await(a.id(), Phase.READY); service.start(a.id());
@@ -74,11 +74,11 @@ class LocalImportServiceTest {
         Path unrelated = root.resolve("unrelated");
         for (int i = 0; i < 66; i++) unrelated = unrelated.resolve("d");
         Files.createDirectories(unrelated);
-        String template = root + "/{authorId}/{artworkId}/";
+        String template = root + "/{author_id}/{artwork_id}/";
         var parsed = new LocalImportTemplate(template);
         assertThat(parsed.acceptsDirectory(root.resolve("10/42/subfolder"))).isTrue();
         assertThat(parsed.acceptsDirectory(root.resolve("unrelated"))).isFalse();
-        assertThat(new LocalImportTemplate(root + "/{artworkId}.{extension}").acceptsDirectory(root.resolve("10"))).isFalse();
+        assertThat(new LocalImportTemplate(root + "/{artwork_id}.{extension}").acceptsDirectory(root.resolve("10"))).isFalse();
         var preview = service.scan(new Request(List.of(template), List.of(), List.of(), false, ""));
         assertThat(await(preview.id(), Phase.READY).artworks()).isEqualTo(1);
     }
@@ -88,12 +88,12 @@ class LocalImportServiceTest {
         file("42/a.png"); file("43/b.png");
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         when(importer.importLocalFiles(any())).thenAnswer(call -> { entered.countDown(); release.await(); return true; });
-        var a = service.scan(new Request(List.of(root + "/{artworkId}/"), List.of(), List.of(), false, ""));
+        var a = service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), List.of(), false, ""));
         await(a.id(), Phase.READY); service.start(a.id());
         try {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(service.cancel(a.id()).phase()).isEqualTo(Phase.CANCELLING);
-            assertThatThrownBy(() -> service.scan(new Request(List.of(root + "/{artworkId}/"), List.of(), List.of(), false, "")))
+            assertThatThrownBy(() -> service.scan(new Request(List.of(root + "/{artwork_id}/"), List.of(), List.of(), false, "")))
                     .hasMessage("IMPORT_BUSY");
         } finally { release.countDown(); }
         assertThat(await(a.id(), Phase.CANCELLED).imported()).isEqualTo(1);
@@ -103,7 +103,7 @@ class LocalImportServiceTest {
     @Test @DisplayName("同页多文件在预览报告冲突，不进入登记")
     void conflictsAreReviewable() throws Exception {
         file("42_p0_a.png"); file("42_p0_b.png");
-        var a = service.scan(new Request(List.of(root + "/{artworkId}_p{page}_{name}.{extension}"), List.of(), List.of(), false, ""));
+        var a = service.scan(new Request(List.of(root + "/{artwork_id}_p{page}_{name}.{extension}"), List.of(), List.of(), false, ""));
         await(a.id(), Phase.READY);
         assertThat(service.items(a.id(), 0, 10).getFirst().disposition()).isEqualTo(Disposition.CONFLICT);
         service.start(a.id());

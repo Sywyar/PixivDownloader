@@ -67,7 +67,7 @@ class SetupServiceTest {
 
     private SetupService createSetupService(ObjectMapper mapper, String... args) {
         DownloadConfig config = new DownloadConfig();
-        config.setRootFolder(tempDir.resolve("pixiv-download").toString() + "/{artworkId}");
+        config.setRootFolder(tempDir.resolve("pixiv-download").toString() + "/{artwork_id}");
         ApplicationArguments arguments = mock(ApplicationArguments.class);
         when(arguments.getSourceArgs()).thenReturn(args);
         return new SetupService(config, mapper, arguments, TestI18nBeans.appMessages());

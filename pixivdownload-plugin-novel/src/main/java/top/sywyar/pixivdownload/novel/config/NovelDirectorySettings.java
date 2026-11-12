@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 public final class NovelDirectorySettings {
     public static final String ROOT_KEY = "download.novel-directory-template";
     public static final String MODE_PREFIX = "download.novel-mode-templates.";
-    public static final String DEFAULT_TEMPLATE = "pixiv-download/novel-{artworkId}";
-    public static final String DEFAULT_USER_TEMPLATE = "pixiv-download/{username}/{R18}/novel-{artworkId}";
+    public static final String DEFAULT_TEMPLATE = "pixiv-download/novel-{artwork_id}";
+    public static final String DEFAULT_USER_TEMPLATE = "pixiv-download/{username}/{R18}/novel-{artwork_id}";
     private final String root;
     private final Map<String, String> overrides;
 

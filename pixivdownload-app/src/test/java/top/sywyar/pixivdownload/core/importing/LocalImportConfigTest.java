@@ -26,8 +26,8 @@ class LocalImportConfigTest {
     }
     @Test @DisplayName("扁平配置保存保留变量、Unicode、启用状态与无关配置")
     void savesPresets() throws Exception {
-        var presets = List.of(new Preset("作者作品", directory + "/{authorId}/{artworkId}/", true),
-                new Preset("Disabled", directory + "/{artworkId}.{extension}", false));
+        var presets = List.of(new Preset("作者作品", directory + "/{author_id}/{artwork_id}/", true),
+                new Preset("Disabled", directory + "/{artwork_id}.{extension}", false));
         String value = tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(presets);
         var editor = new ConfigFileEditor(directory.resolve("config.yaml"));
         editor.writeAll(Map.of("local-import.presets", value, "unrelated.setting", "keep"));
@@ -37,7 +37,7 @@ class LocalImportConfigTest {
     @Test @DisplayName("重复名称、非法模板、空列表对象和缺少开关不能静默覆盖有效配置")
     void rejectsInvalidConfiguration() {
         var settings = new LocalImportConfig();
-        for (String value : List.of("{}", "null", "[{}]", "[{\"name\":\"x\",\"template\":\"relative/{artworkId}/\",\"enabled\":true}]"))
+        for (String value : List.of("{}", "null", "[{}]", "[{\"name\":\"x\",\"template\":\"relative/{artwork_id}/\",\"enabled\":true}]"))
             assertThatThrownBy(() -> settings.setPresets(value)).hasMessage("INVALID_IMPORT_PRESET");
         assertThat(settings.entries()).isEmpty();
     }

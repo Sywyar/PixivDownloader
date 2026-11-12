@@ -2,7 +2,6 @@
 package top.sywyar.pixivdownload.core.work.filename;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -43,13 +42,13 @@ public final class WorkTemplateVariables {
             new Variable("extension", "extension", "extension", false, false, true, false, false),
             new Variable("name", "name", "name", false, false, true, false, false));
     private static final Map<String, Variable> BY_NAME = VARIABLES.stream()
-            .collect(Collectors.toUnmodifiableMap(v -> normalize(v.token()), Function.identity()));
+            .collect(Collectors.toUnmodifiableMap(Variable::token, Function.identity()));
 
     /** @return 不可变的全部变量定义 */
     public static List<Variable> all() { return VARIABLES; }
 
     /**
-     * 保留本地导入对大小写与下划线的兼容。
+     * 按标准拼写查询本地导入变量。
      * @param name 不含花括号的变量名
      * @return 可反向解析的变量；未知或不适用于导入时返回 null
      */
@@ -59,11 +58,11 @@ public final class WorkTemplateVariables {
     }
 
     /**
-     * 按统一别名规则查询变量，保留其适用场景信息。
+     * 精确匹配模板的标准拼写，不接受驼峰或大小写变体。
      * @param name 不含花括号的变量名
      * @return 已知变量；未知时返回 null
      */
-    public static Variable find(String name) { return BY_NAME.get(normalize(name)); }
+    public static Variable find(String name) { return BY_NAME.get(name); }
 
     /** @return 本地导入界面展示的变量列表 */
     public static String importTokens() {
@@ -71,5 +70,4 @@ public final class WorkTemplateVariables {
                 .collect(Collectors.joining(", "));
     }
 
-    private static String normalize(String name) { return name.replace("_", "").toLowerCase(Locale.ROOT); }
 }

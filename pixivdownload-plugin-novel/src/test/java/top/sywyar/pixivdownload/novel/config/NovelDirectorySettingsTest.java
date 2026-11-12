@@ -17,36 +17,36 @@ class NovelDirectorySettingsTest {
     @Test @DisplayName("保留宿主旧根和空 User 覆盖，重复启动不覆盖小说自有配置")
     void preservesRootAndExplicitEmptyOverride() throws Exception {
         var host = mock(DownloadSettings.class);
-        when(host.directoryTemplate(null)).thenReturn(temp + "/pictures/{artworkId}");
-        when(host.directoryOverrides()).thenReturn(Map.of("user", "", "series", "serial/{artworkId}"));
+        when(host.directoryTemplate(null)).thenReturn(temp + "/pictures/{artwork_id}");
+        when(host.directoryOverrides()).thenReturn(Map.of("user", "", "series", "serial/{artwork_id}"));
         var paths = mock(RuntimePathProvider.class);
         Path file = temp.resolve("config/novel.properties");
         when(paths.configFile("properties")).thenReturn(file);
         var settings = NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
-        assertThat(settings.directoryTemplate(null)).isEqualTo(temp + "/pictures/novel-{artworkId}");
+        assertThat(settings.directoryTemplate(null)).isEqualTo(temp + "/pictures/novel-{artwork_id}");
         assertThat(settings.directoryTemplate("user")).isEqualTo(settings.directoryTemplate(null));
-        assertThat(settings.directoryTemplate("series")).isEqualTo("serial/novel-{artworkId}");
+        assertThat(settings.directoryTemplate("series")).isEqualTo("serial/novel-{artwork_id}");
         assertThat(Files.exists(temp.resolve("pictures"))).isFalse();
         byte[] original = Files.readAllBytes(file);
-        when(host.directoryTemplate(null)).thenReturn("changed/{artworkId}");
+        when(host.directoryTemplate(null)).thenReturn("changed/{artwork_id}");
         NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
         assertThat(Files.readAllBytes(file)).isEqualTo(original);
         var overridden = NovelDirectorySettings.initialize(host, paths, new MockEnvironment()
-                .withProperty(NovelDirectorySettings.ROOT_KEY, "books/{artworkId}/text")
+                .withProperty(NovelDirectorySettings.ROOT_KEY, "books/{artwork_id}/text")
                 .withProperty(NovelDirectorySettings.MODE_PREFIX + "series", ""));
-        assertThat(overridden.directoryTemplate("series")).isEqualTo("books/{artworkId}/text");
+        assertThat(overridden.directoryTemplate("series")).isEqualTo("books/{artwork_id}/text");
     }
 
     @Test @DisplayName("保留非扁平 User 的来源用户名与分级段，错误覆盖不回退")
     void preservesLegacyUserLayout() throws Exception {
         var host = mock(DownloadSettings.class);
-        when(host.directoryTemplate(null)).thenReturn("relative/{artworkId}");
-        when(host.directoryOverrides()).thenReturn(Map.of("user", "relative/{username}/{R18}/{artworkId}"));
+        when(host.directoryTemplate(null)).thenReturn("relative/{artwork_id}");
+        when(host.directoryOverrides()).thenReturn(Map.of("user", "relative/{username}/{R18}/{artwork_id}"));
         var paths = mock(RuntimePathProvider.class);
         when(paths.configFile("properties")).thenReturn(temp.resolve("novel.properties"));
         var settings = NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
-        assertThat(settings.directoryTemplate("user")).isEqualTo("relative/{username}/{R18}/novel-{artworkId}");
-        assertThatThrownBy(() -> new NovelDirectorySettings("books/{artworkId}", Map.of("series", "broken")))
+        assertThat(settings.directoryTemplate("user")).isEqualTo("relative/{username}/{R18}/novel-{artwork_id}");
+        assertThatThrownBy(() -> new NovelDirectorySettings("books/{artwork_id}", Map.of("series", "broken")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

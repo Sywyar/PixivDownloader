@@ -123,7 +123,7 @@ class NovelDownloadServiceTest {
         }).when(workAssets).publishFiles(any(), anyLong(), any(), any());
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         lenient().when(downloadConfig.directoryTemplate(org.mockito.ArgumentMatchers.nullable(String.class))).thenAnswer(call ->
-                tempDir + ("user".equals(call.getArgument(0)) ? "/{username}/{R18}/novel-{artworkId}" : "/novel-{artworkId}"));
+                tempDir + ("user".equals(call.getArgument(0)) ? "/{username}/{R18}/novel-{artwork_id}" : "/novel-{artwork_id}"));
         lenient().doAnswer(call -> { Files.createDirectories(call.getArgument(2)); return null; })
                 .when(downloadPathGuard).prepareDirectory(any(), anyLong(), any());
         lenient().when(taskScheduler.schedule(any(Runnable.class), any(Instant.class)))
@@ -342,7 +342,7 @@ class NovelDownloadServiceTest {
     @Test
     @DisplayName("下载完成后应通过核心端口记录作者、收藏关系与游客目录")
     void shouldRecordCoreFactsThroughPorts() {
-        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{seriesId}/novel-{artworkId}");
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/novel-{artwork_id}");
         NovelDownloadRequest request = txtRequest(103L, null);
         request.getOther().setAuthorId(42L);
         request.getOther().setAuthorName("Writer");
@@ -370,7 +370,7 @@ class NovelDownloadServiceTest {
     @ValueSource(longs = 42L)
     @DisplayName("小说按元数据展开系列，缺省收藏夹与系列目录层可省略")
     void optionalDirectoryContexts(Long seriesId) throws Exception {
-        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collectionId}/{series_id}/novel-{artworkId}");
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/novel-{artwork_id}");
         var request = txtRequest(104L, null);
         request.getOther().setSeriesId(seriesId);
         request.getOther().setFileNameTemplate("{artwork_id}_{artwork_title}");

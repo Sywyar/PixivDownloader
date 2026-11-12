@@ -85,7 +85,7 @@ public final class LocalImportTemplate {
     }
 
     public record Match(long artworkId, Integer page, Map<String, String> hints) {}
-    private record Part(String literal, String variable) {}
+    private record Part(String literal, String variable, boolean numeric) {}
 
     private static final class Segment {
         private final List<Part> parts = new ArrayList<>();
@@ -101,14 +101,14 @@ public final class LocalImportTemplate {
                 var definition = WorkTemplateVariables.find(variable);
                 if (definition == null || !definition.importing()) throw new VariableException(variable, definition != null);
                 if (!parts.isEmpty() && parts.getLast().variable != null) throw new IllegalArgumentException("AMBIGUOUS_IMPORT_TEMPLATE");
-                parts.add(new Part(null, definition.id()));
+                parts.add(new Part(null, definition.id(), definition.numeric()));
                 if (parts.size() > 32) throw new IllegalArgumentException("INVALID_IMPORT_TEMPLATE");
                 start = close + 1;
             }
         }
         private void literal(String value) {
             if (value.indexOf('}') >= 0) throw new IllegalArgumentException("INVALID_IMPORT_TEMPLATE");
-            parts.add(new Part(value, null));
+            parts.add(new Part(value, null, false));
         }
         boolean onlyArtworkId() { return parts.size() == 1 && "artworkId".equals(parts.getFirst().variable); }
         Map<String, String> match(String text, Map<String, String> known) {
@@ -131,10 +131,9 @@ public final class LocalImportTemplate {
                 return;
             }
             String previous = values.get(item.variable);
-            boolean numeric = WorkTemplateVariables.forImport(item.variable).numeric();
             for (int end = offset + 1; end <= text.length(); end++) {
                 String value = text.substring(offset, end);
-                if (numeric && !NUMBER.matcher(value).matches()) break;
+                if (item.numeric && !NUMBER.matcher(value).matches()) break;
                 if (item.variable.equals("extension") && !value.matches("[A-Za-z0-9]+")) break;
                 if (previous != null && !previous.equals(value)) continue;
                 values.put(item.variable, value);

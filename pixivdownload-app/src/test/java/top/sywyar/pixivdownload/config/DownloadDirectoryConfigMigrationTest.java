@@ -23,8 +23,8 @@ class DownloadDirectoryConfigMigrationTest {
         Files.writeString(file, "# retained\ndownload.root-folder: custom-pictures\ndownload.user-flat-folder: false\nserver.port: 8765\n", StandardCharsets.UTF_8);
         DownloadDirectoryConfigMigration.migrate(file);
         var editor = new ConfigFileEditor(file);
-        assertEquals("custom-pictures/{artworkId}", editor.read("download.root-folder"));
-        assertEquals("custom-pictures/{username}/{R18}/{artworkId}", editor.read("download.mode-templates.user"));
+        assertEquals("custom-pictures/{artwork_id}", editor.read("download.root-folder"));
+        assertEquals("custom-pictures/{username}/{R18}/{artwork_id}", editor.read("download.mode-templates.user"));
         assertNull(editor.read("download.user-flat-folder"));
         editor.write("download.mode-templates.user", "");
         byte[] before = Files.readAllBytes(file);
@@ -42,7 +42,7 @@ class DownloadDirectoryConfigMigrationTest {
         Files.writeString(file, "download.root-folder: '" + root + "'\ndownload.user-flat-folder: true\n", StandardCharsets.UTF_8);
         DownloadDirectoryConfigMigration.migrate(file);
         var editor = new ConfigFileEditor(file);
-        assertEquals(root + "/{artworkId}", editor.read("download.root-folder"));
+        assertEquals(root + "/{artwork_id}", editor.read("download.root-folder"));
         assertEquals("", editor.read("download.mode-templates.user"));
         assertEquals("", editor.read("download.mode-templates.series"));
         var environment = new org.springframework.core.env.StandardEnvironment();
@@ -51,7 +51,7 @@ class DownloadDirectoryConfigMigrationTest {
         DownloadConfig bound = org.springframework.boot.context.properties.bind.Binder.get(environment)
                 .bind("download", org.springframework.boot.context.properties.bind.Bindable.of(DownloadConfig.class)).get();
         bound.validateTemplates();
-        assertEquals(root + "/{artworkId}", bound.directoryTemplate("user"));
+        assertEquals(root + "/{artwork_id}", bound.directoryTemplate("user"));
         assertFalse(Files.exists(temp.resolve("pictures")));
     }
 
@@ -60,10 +60,10 @@ class DownloadDirectoryConfigMigrationTest {
     void selectsOnlyExplicitModeAndRejectsBrokenOverride() {
         var config = new DownloadConfig();
         assertFalse(Path.of(config.getRootFolder()).isAbsolute());
-        assertEquals("pixiv-download/{artworkId}", config.directoryTemplate(null));
-        config.setModeTemplates(Map.of("user", "", "series", "series/{artworkId}"));
+        assertEquals("pixiv-download/{artwork_id}", config.directoryTemplate(null));
+        config.setModeTemplates(Map.of("user", "", "series", "series/{artwork_id}"));
         assertEquals(config.directoryTemplate(null), config.directoryTemplate("user"));
-        assertEquals("series/{artworkId}", config.directoryTemplate("series"));
+        assertEquals("series/{artwork_id}", config.directoryTemplate("series"));
         config.setModeTemplates(Map.of("series", "broken"));
         assertThrows(IllegalArgumentException.class, () -> config.directoryTemplate("series"));
     }

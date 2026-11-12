@@ -65,7 +65,7 @@ public final class WorkDirectoryTemplate {
                 if (dynamic) suffix.add(segment);
                 else prefix = prefix.resolve(segment);
             }
-            if (!identity) throw rejected("identity", "artworkId");
+            if (!identity) throw rejected("identity", "artwork_id");
             return new WorkDirectoryTemplate(prefix.toString().isEmpty() ? Path.of(".") : prefix.normalize(), suffix);
         } catch (InvalidPathException failure) {
             throw rejected("path", "");
