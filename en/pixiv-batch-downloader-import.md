@@ -50,7 +50,9 @@ Keep the page open during import. 100% means processing is finished, not that ev
 
 ### Method 2: import exported JSON through desktop tools
 
-1. Open PixivBatchDownloader history import in the desktop GUI's Tools section. This does not depend on the userscript.
+1. Open PixivBatchDownloader import support in the desktop GUI's Tools section. In Compose, it opens as a dialog under Quick tools.
 2. Export history JSON from PixivBatchDownloader. If there are multiple parts, put them in one dedicated directory and select it. Each file is limited to 512 MiB, with up to 64 files and 1 GiB total.
 3. Select the source-file root. Combining it with the relative path `n` in each record must locate the actual file. This selection does not overwrite automatic-import configuration. Click Check and preview.
-4. Click Start import and check successful, skipped and failed counts. No Pixiv cookie is needed. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or closes normally.
+4. Click Start import and check successful, skipped and failed counts. No Pixiv cookie is needed. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or the application exits normally.
+
+The PixivBatchDownloader import support userscript makes importing past downloads easier: use method 1 above to read browser history directly. Desktop import also works independently. Closing its dialog leaves the task running; use Cancel to stop it.

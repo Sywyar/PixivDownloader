@@ -4,6 +4,8 @@ Register images already stored in your own directories by reading artwork IDs fr
 
 ?> Use a version that includes **Import local artworks**, and keep the backend running. Open it from the desktop Tools page in Compose or Swing. Paths sent through the HTTP API also refer to files on the machine running the backend.
 
+In Compose, Import local artworks opens in a dialog under Quick tools. Scans and imports continue when you close it. Reopen the tool to check progress or cancel.
+
 ## Turn a real path into a path template
 
 A **path template** marks changing parts of a path with braces. The application reads information from those positions. Every template must contain `{artworkId}`, in either a directory name or a filename.

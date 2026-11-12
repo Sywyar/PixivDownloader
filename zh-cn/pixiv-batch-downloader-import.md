@@ -50,7 +50,9 @@
 
 ### 方式二：在桌面工具导入导出的 JSON
 
-1. 在桌面 GUI「工具」中打开「PixivBatchDownloader 历史导入」（不依赖油猴脚本）。
+1. 在桌面 GUI「工具」中打开「PixivBatchDownloader 导入支持」。Compose 将其放在「快捷工具」中，以弹窗打开。
 2. 在 PixivBatchDownloader 中导出历史 JSON；若有多份分片，放入同一独立目录并选择该目录（单文件上限 512 MiB，最多 64 个文件、合计 1 GiB）。
 3. 选择源文件根目录（与记录中的相对路径 `n` 拼接后需对应真实文件；此次选择不改写自动导入配置），点击「检查并预览」。
-4. 点击「开始导入」并核对成功、跳过与失败计数，无需填写 Pixiv Cookie。临时整理目录位于 `data/pixiv-batch-downloader-import/history-import/`，任务结束或正常关闭时清理。
+4. 点击「开始导入」并核对成功、跳过与失败计数，无需填写 Pixiv Cookie。临时整理目录位于 `data/pixiv-batch-downloader-import/history-import/`，任务结束或程序正常退出时清理。
+
+使用「PixivBatchDownloader 导入支持」脚本导入历史下载数据更便捷，可按上面的方式一直接读取浏览器历史。桌面导入也可以独立使用；关闭导入弹窗后任务继续运行，需要停止时请点击取消。
