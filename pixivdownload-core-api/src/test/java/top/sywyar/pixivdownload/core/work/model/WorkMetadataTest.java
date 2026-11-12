@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,22 +11,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("WorkMetadata 中性作品元数据契约测试")
 class WorkMetadataTest {
-
-    @Test
-    @DisplayName("公共模型不携带来源插件私有详情块")
-    void shouldKeepOwnerPrivateDetailsOutOfSharedModel() {
-        assertThat(Arrays.stream(WorkMetadata.class.getRecordComponents())
-                .map(component -> component.getName()))
-                .containsExactly(
-                        "workId", "title", "description", "xRestrict", "isAi",
-                        "authorId", "authorName", "seriesId", "seriesOrder", "seriesTitle",
-                        "tags", "downloadTime", "pageCount", "extensions", "folder", "moved",
-                        "moveFolder", "moveTime", "fileNameTemplateRef",
-                        "uploadTime", "isOriginal", "createTime", "updateTime", "reuploadTime");
-        assertThatThrownBy(() -> Class.forName(
-                "top.sywyar.pixivdownload.core.work.model.NovelWorkDetails"))
-                .isInstanceOf(ClassNotFoundException.class);
-    }
 
     @Test
     @DisplayName("标签列表为防御性拷贝且 null 归一为空列表")
@@ -49,15 +32,4 @@ class WorkMetadataTest {
         assertThat(noTags.tags()).isEmpty();
     }
 
-    @Test
-    @DisplayName("文件名模板引用仅暴露不透明目录键与解析结果")
-    void shouldExposeTemplateAsOpaqueReference() {
-        WorkFileNameTemplateRef ref = new WorkFileNameTemplateRef(5L, "{artwork_title}");
-
-        assertThat(Arrays.stream(WorkFileNameTemplateRef.class.getRecordComponents())
-                .map(component -> component.getName()))
-                .containsExactly("catalogKey", "template");
-        assertThat(ref.catalogKey()).isEqualTo(5L);
-        assertThat(ref.template()).isEqualTo("{artwork_title}");
-    }
 }

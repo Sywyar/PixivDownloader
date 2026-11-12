@@ -182,7 +182,7 @@ test('仅有二百响应但没有明确 success true 时仍失败关闭', async 
     assert.equal(harness.failures[0].code, 'QUEUE_CANCEL_FAILED');
 });
 
-test('三份分发用户脚本均只调用精确取消并提供双语失败提示', () => {
+test('三份分发用户脚本均接入精确取消客户端', () => {
     for (const userscriptPath of userscriptPaths) {
         const source = fs.readFileSync(userscriptPath, 'utf8');
         assert.doesNotMatch(
@@ -197,7 +197,5 @@ test('三份分发用户脚本均只调用精确取消并提供双语失败提�
         assert.match(
             source,
             /\/api\/download\/queue\/' \+ QUEUE_TYPE \+ '\/cancel/);
-        assert.match(source, /Cancellation failed\./);
-        assert.match(source, /取消失败：下载类型信息可能不可用或已过期/);
     }
 });

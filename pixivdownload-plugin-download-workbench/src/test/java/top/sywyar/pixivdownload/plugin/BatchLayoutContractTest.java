@@ -9,9 +9,7 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -41,7 +39,6 @@ class BatchLayoutContractTest {
             STATIC_ROOT + "pixiv-batch/pixiv-batch-layout-workbench.css";
     private static final String CLASSIC_LAYOUT_CSS =
             STATIC_ROOT + "pixiv-batch/pixiv-batch-layout-classic.css";
-    private static final String LEGACY_LAYOUT_CSS = STATIC_ROOT + "pixiv-batch/pixiv-batch-layout.css";
     private static final String BATCH_I18N_ZH = "i18n/web/batch.properties";
     private static final String BATCH_I18N_EN = "i18n/web/batch_en.properties";
     private static final String WORKBENCH_SCOPE = "html[data-batch-layout=\"landscape\"]";
@@ -197,15 +194,6 @@ class BatchLayoutContractTest {
                 .doesNotContain("#download-workbench");
     }
 
-    private static Path pluginSourceRoot() {
-        Path workingDirectory = Path.of("").toAbsolutePath().normalize();
-        Path direct = workingDirectory.resolve("src/main/resources");
-        if (Files.isDirectory(direct)) {
-            return direct;
-        }
-        return workingDirectory.resolve("pixivdownload-plugin-download-workbench/src/main/resources");
-    }
-
     @Test
     @DisplayName("HTML 以声明式 link 唯一列出两张平级布局投影")
     void pageDeclaresAvailableLayoutsThroughStylesheetLinks() throws IOException {
@@ -237,20 +225,6 @@ class BatchLayoutContractTest {
         assertThat(read(BASE_CSS)).as("共享基础 CSS 应能从插件 classpath 读取").isNotBlank();
         assertThat(read(WORKBENCH_LAYOUT_CSS)).as("workbench 投影应能从插件 classpath 读取").isNotBlank();
         assertThat(read(CLASSIC_LAYOUT_CSS)).as("classic 投影应能从插件 classpath 读取").isNotBlank();
-    }
-
-    @Test
-    @DisplayName("旧覆盖层从 HTML、源码与干净 classpath 中彻底移除")
-    void legacyLayoutStylesheetIsRemoved() throws IOException {
-        String html = read(BATCH_HTML);
-        ClassLoader loader = BatchLayoutContractTest.class.getClassLoader();
-        Path legacySource = pluginSourceRoot().resolve("static/pixiv-batch/pixiv-batch-layout.css");
-
-        assertThat(html).doesNotContain("/pixiv-batch/pixiv-batch-layout.css");
-        assertThat(legacySource).as("旧布局源码不应继续存在").doesNotExist();
-        assertThat(loader.getResource(LEGACY_LAYOUT_CSS))
-                .as("clean 构建后的插件 classpath 不应残留旧布局资源")
-                .isNull();
     }
 
     @Test

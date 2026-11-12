@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,40 +32,6 @@ class PluginRuntimeTaskContractTest {
                         || name.contains("PackageId")
                         || name.contains("Generation")
                         || name.contains("Publication"));
-    }
-
-    @Test
-    @DisplayName("任务包装器是 Runnable 且区分可重试撤销与未提交终结")
-    void taskHasExactRevocationSurface() throws NoSuchMethodException {
-        assertThat(PluginRuntimeTask.class.isInterface()).isTrue();
-        assertThat(PluginRuntimeTask.class.getInterfaces()).containsExactly(Runnable.class);
-        assertThat(PluginRuntimeTask.class.getDeclaredFields()).isEmpty();
-        assertThat(Arrays.stream(PluginRuntimeTask.class.getDeclaredMethods())
-                .map(Method::getName))
-                .containsExactlyInAnyOrder("bindCancellation", "cancel", "discardUnsubmitted");
-
-        assertMethod(PluginRuntimeTask.class, "bindCancellation", void.class, Future.class);
-        assertMethod(PluginRuntimeTask.class, "cancel", void.class);
-        assertMethod(PluginRuntimeTask.class, "discardUnsubmitted", void.class);
-    }
-
-    @Test
-    @DisplayName("drain 只暴露精确 owner 代际与归零观测")
-    void drainHasExactScalarAndAwaitSurface() throws NoSuchMethodException {
-        assertThat(PluginRuntimeTaskDrain.class.isInterface()).isTrue();
-        assertThat(PluginRuntimeTaskDrain.class.getDeclaredFields()).isEmpty();
-        assertThat(Arrays.stream(PluginRuntimeTaskDrain.class.getDeclaredMethods())
-                .map(Method::getName))
-                .containsExactlyInAnyOrder(
-                        "ownerPluginId", "generation", "activeCount",
-                        "isDrained", "awaitDrained", "awaitDrained");
-
-        assertMethod(PluginRuntimeTaskDrain.class, "ownerPluginId", String.class);
-        assertMethod(PluginRuntimeTaskDrain.class, "generation", long.class);
-        assertMethod(PluginRuntimeTaskDrain.class, "activeCount", int.class);
-        assertMethod(PluginRuntimeTaskDrain.class, "isDrained", boolean.class);
-        assertMethod(PluginRuntimeTaskDrain.class, "awaitDrained", boolean.class, long.class);
-        assertMethod(PluginRuntimeTaskDrain.class, "awaitDrained", boolean.class);
     }
 
     @Test

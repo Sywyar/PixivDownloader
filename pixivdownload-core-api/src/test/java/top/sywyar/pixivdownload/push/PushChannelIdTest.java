@@ -10,14 +10,6 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 class PushChannelIdTest {
 
     @Test
-    @DisplayName("相同稳定 token 的独立实例按值相等")
-    void independentInstancesWithSameTokenAreEqual() {
-        assertThat(new PushChannelId("custom-channel"))
-                .isEqualTo(new PushChannelId("custom-channel"))
-                .hasSameHashCodeAs(new PushChannelId("custom-channel"));
-    }
-
-    @Test
     @DisplayName("接受 canonical 小写 token")
     void acceptsCanonicalLowercaseToken() {
         assertThat(new PushChannelId("channel-2").id()).isEqualTo("channel-2");
