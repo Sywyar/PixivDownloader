@@ -272,7 +272,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 带标题的分组容器。 */
-    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) implements DesktopUiNode {
+    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary,
+                 TextToken helpTitle, TextToken help) implements DesktopUiNode {
+        public Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) {
+            this(id, title, content, collapsible, summary, null, null);
+        }
         public Group(String id, TextToken title, DesktopUiNode content) {
             this(id, title, content, false);
         }

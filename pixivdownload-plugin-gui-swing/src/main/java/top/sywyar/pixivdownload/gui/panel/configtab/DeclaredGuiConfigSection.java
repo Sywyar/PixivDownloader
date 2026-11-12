@@ -94,7 +94,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
         for (GuiConfigSectionSpec section : sections) {
             addSectionNotices(content, section);
-            addSectionHeader(content, section);
+            if (section.layout() != GuiConfigSectionLayout.DIRECTORY_TEMPLATES) addSectionHeader(content, section);
             addPresetCombo(content, section, null);
             if (section.layout() == GuiConfigSectionLayout.DIRECTORY_TEMPLATES) {
                 var editor = new DirectoryTemplatesEditor(ctx, section, fieldsFor(section, rendered));

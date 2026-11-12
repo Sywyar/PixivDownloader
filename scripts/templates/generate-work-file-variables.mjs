@@ -91,7 +91,7 @@ const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').rep
 const help = variables.filter(v => v.download).map(v => {
     const key = 'filename.var.' + v.label;
     assert(labels.has(key), 'Missing variable label: ' + key);
-    return '                            <div><code>{' + v.token + '}</code> <span data-i18n="' + key + '">' + escape(labels.get(key)) + '</span></div>';
+    return '                            <button type="button" data-template-variable="{' + v.token + '}"><code>{' + v.token + '}</code> <span data-i18n="' + key + '">' + escape(labels.get(key)) + '</span></button>';
 }).join('\n');
 const htmlPath = webRoot + 'static/pixiv-batch.html';
 const html = readFileSync(new URL(htmlPath, root), 'utf8').replaceAll('\r\n', '\n');

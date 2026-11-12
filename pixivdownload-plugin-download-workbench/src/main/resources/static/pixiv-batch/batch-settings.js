@@ -132,6 +132,11 @@
         document.getElementById('s-image-delay').value = settingsTarget().imageDelay ?? 0;
         settingsTarget().fileNameTemplate = normalizeFileNameTemplate(settingsTarget().fileNameTemplate);
         document.getElementById('s-file-name-template').value = settingsTarget().fileNameTemplate;
+        document.querySelectorAll('[data-template-variable]').forEach(button => {
+            button.disabled = !isAdmin;
+            button.onclick = () => insertFileNameTemplateVariable(
+                document.getElementById('s-file-name-template'), button.dataset.templateVariable);
+        });
         const templateSelect = document.getElementById('s-file-name-templates');
         if (templateSelect) window.PixivFilenameTemplatePresets.bind(
             document.getElementById('s-file-name-template'),

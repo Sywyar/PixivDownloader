@@ -622,8 +622,41 @@ object ComposeDesktopUiNodeRenderer {
                     CupertinoText(if (expanded) "▾" else "▸", Modifier.padding(end = 8.dp))
                     CupertinoText(resolve(node.title(), text), style = CupertinoTheme.typography.headline)
                 }
-            } else CupertinoText(resolve(node.title(), text), style = CupertinoTheme.typography.headline)
+            } else GroupHeading(node, text) {
+                CupertinoText(resolve(node.title(), text), Modifier.weight(1f), style = CupertinoTheme.typography.headline)
+            }
             if (expanded) Node(node.content(), text, emit, Modifier.fillMaxWidth())
+        }
+    }
+
+    @Composable
+    internal fun GroupHeading(node: DesktopUiNode.Group, text: (DesktopUiNode.TextToken) -> String,
+                              title: @Composable RowScope.() -> Unit) {
+        var helpExpanded by rememberSaveable(node.id()) { mutableStateOf(false) }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                title()
+                if (node.help() != null) CupertinoButton(
+                    onClick = { helpExpanded = !helpExpanded },
+                    contentPadding = PaddingValues(4.dp),
+                    colors = CupertinoButtonDefaults.plainButtonColors(),
+                    modifier = Modifier.testTag(node.id() + ".help.toggle").semantics {
+                        stateDescription = text(DesktopUiNode.TextToken(GuiComposePlugin.ID,
+                            if (helpExpanded) "gui.compose.expanded" else "gui.compose.collapsed", "", emptyList()))
+                    }.onPreviewKeyEvent { event ->
+                        if (helpExpanded && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                            helpExpanded = false
+                            true
+                        } else false
+                    }
+                ) {
+                    CupertinoText(resolve(node.helpTitle(), text))
+                }
+            }
+            if (helpExpanded && node.help() != null) CupertinoText(resolve(node.help(), text),
+                modifier = Modifier.fillMaxWidth().testTag(node.id() + ".help"),
+                style = CupertinoTheme.typography.footnote, color = LocalExperiencePalette.current.secondaryText)
         }
     }
 

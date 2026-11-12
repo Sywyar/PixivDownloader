@@ -297,6 +297,12 @@ test('文件名预览跟随输入，变量按需展开，插入和键盘收起�
     variables.querySelectorAll('button').find(node => node.title === '{author_id}').dispatchEvent({type: 'click'});
     assert.equal(h.writes.at(-1).fileNameTemplate, 'draft_{artwork_id}{author_id}');
     assert.equal(h.document.activeElement, input);
+    input.setSelectionRange(0, 5);
+    variables.querySelectorAll('button').find(node => node.title === '{series_name}').dispatchEvent({type: 'click'});
+    assert.equal(h.writes.at(-1).fileNameTemplate, '{series_name}_{artwork_id}{author_id}');
+    assert.equal(input.selectionStart, '{series_name}'.length);
+    assert.equal(input.selectionEnd, input.selectionStart);
+    assert.equal(h.document.activeElement, input);
     let stopped = false;
     variables.dispatchEvent({type: 'keydown', key: 'Escape', preventDefault() {}, stopPropagation() { stopped = true; }});
     assert.equal(variables.open, false);

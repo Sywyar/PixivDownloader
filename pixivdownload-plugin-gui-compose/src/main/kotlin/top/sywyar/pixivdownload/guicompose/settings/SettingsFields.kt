@@ -101,8 +101,12 @@ private fun SettingsContent(
                 if (node.collapsible()) CupertinoButton({ expanded = !expanded }, contentPadding = PaddingValues(vertical = if (groupDepth > 0) 4.dp else 10.dp),
                     colors = CupertinoButtonDefaults.plainButtonColors(contentColor = palette.secondaryText)) {
                     CupertinoText((if (expanded) "▾  " else "▸  ") + text(node.title()), fontSize = 13.sp)
-                } else CupertinoText(text(node.title()), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 7.dp).semantics { heading() })
+                } else Box(Modifier.padding(bottom = 7.dp)) {
+                    ComposeDesktopUiNodeRenderer.GroupHeading(node, text) {
+                        CupertinoText(text(node.title()), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f).semantics { heading() })
+                    }
+                }
                 androidx.compose.animation.AnimatedVisibility(expanded || !node.collapsible(),
                     enter = androidx.compose.animation.fadeIn(tween(140)) + androidx.compose.animation.expandVertically(spring(dampingRatio = 1f)),
                     exit = androidx.compose.animation.fadeOut(tween(100)) + androidx.compose.animation.shrinkVertically(spring(dampingRatio = 1f))) {

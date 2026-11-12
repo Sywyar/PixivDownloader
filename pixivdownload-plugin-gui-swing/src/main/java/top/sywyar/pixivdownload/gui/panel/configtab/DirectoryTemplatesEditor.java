@@ -30,7 +30,15 @@ final class DirectoryTemplatesEditor extends JPanel {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setAlignmentX(Component.LEFT_ALIGNMENT);
         if (fields.isEmpty()) return;
-        ctx.addFields(this, List.of(fields.getFirst()));
+        var defaultSpec = fields.getFirst();
+        addHelpHeader(section.title(), defaultSpec.helpText());
+        var defaultInput = ConfigFieldRows.wrap(defaultSpec.key(), FieldRenderer.renderString(defaultSpec,
+                ctx.desktopHost().message("gui.config.directory.default"), ""));
+        ctx.registerField(defaultSpec, defaultInput);
+        add(defaultInput.panel());
+        var fallback = helpText(ctx.desktopHost().message("gui.config.directory.help"));
+        fallback.setFocusable(false);
+        add(fallback);
         Map<String, String> labels = new LinkedHashMap<>();
         section.fieldLayouts().forEach(layout -> labels.put(layout.fieldKey(), layout.cardLabel()));
         for (var spec : fields.subList(1, fields.size())) {
@@ -101,6 +109,58 @@ final class DirectoryTemplatesEditor extends JPanel {
         });
         add(add);
         refresh();
+    }
+
+    private void addHelpHeader(String title, String helpText) {
+        var header = new JPanel(new BorderLayout(12, 0)) {
+            @Override public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        header.setOpaque(false);
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.add(new JLabel(title), BorderLayout.CENTER);
+        add(header);
+        if (helpText == null || helpText.isBlank()) return;
+        var help = helpText(helpText);
+        help.setVisible(false);
+        var toggle = new JToggleButton(ctx.desktopHost().message("gui.config.directory.variables"));
+        toggle.addActionListener(event -> {
+            help.setVisible(toggle.isSelected());
+            revalidate();
+            repaint();
+        });
+        help.getAccessibleContext().setAccessibleName(toggle.getText());
+        header.add(toggle, BorderLayout.EAST);
+        add(help);
+        var close = new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) {
+                if (toggle.isSelected()) {
+                    toggle.doClick();
+                    toggle.requestFocusInWindow();
+                }
+            }
+        };
+        for (var component : List.of(toggle, help)) {
+            component.getInputMap().put(KeyStroke.getKeyStroke("ESCAPE"), "close-help");
+            component.getActionMap().put("close-help", close);
+        }
+    }
+
+    private static JTextArea helpText(String text) {
+        var area = new JTextArea(text) {
+            @Override public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        area.setEditable(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setOpaque(false);
+        area.setFont(UIManager.getFont("Label.font"));
+        area.setAlignmentX(Component.LEFT_ALIGNMENT);
+        area.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+        return area;
     }
 
     void valuesLoaded() {

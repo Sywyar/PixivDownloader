@@ -22,7 +22,8 @@ class DirectoryTemplateSettingsTest {
     }
 
     private static GuiConfigFieldContribution field(String key, String value) {
-        return new GuiConfigFieldContribution(key, GuiConfigGroups.DOWNLOAD, key, "",
+        return new GuiConfigFieldContribution(key, GuiConfigGroups.DOWNLOAD, key,
+                key.equals(ROOT) ? "gui.config.field.download.root-folder.help" : "",
                 GuiConfigFieldType.DIRECTORY_TEMPLATE, value, 0, false, GuiConfigEffect.PROCESS_RESTART);
     }
 

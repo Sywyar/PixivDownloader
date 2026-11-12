@@ -17,6 +17,14 @@ class MiniEventTarget {
         const list = this.listeners.get(type) || [];
         this.listeners.set(type, list.filter(item => item !== listener));
     }
+    setSelectionRange(start, end) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+    }
+    setRangeText(text, start, end, selectionMode) {
+        this.value = this.value.slice(0, start) + text + this.value.slice(end);
+        if (selectionMode === 'end') this.setSelectionRange(start + text.length, start + text.length);
+    }
     dispatchEvent(event) {
         if (!event || !event.type) throw new Error('event.type is required');
         if (typeof event.preventDefault !== 'function') {

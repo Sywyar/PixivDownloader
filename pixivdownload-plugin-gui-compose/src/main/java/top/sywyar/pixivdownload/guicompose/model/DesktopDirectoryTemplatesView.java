@@ -52,7 +52,7 @@ final class DesktopDirectoryTemplatesView {
                 List.of(new DesktopUiNode.FormRow(
                         defaultRow.id(),
                         key("gui.config.directory.default"),
-                        defaultRow.help(),
+                        null,
                         defaultRow.content(),
                         defaultRow.trailing()
                 ))
@@ -155,7 +155,10 @@ final class DesktopDirectoryTemplatesView {
                 base,
                 section.title() == null ? key("gui.config.directory.default") : section.title().token(),
                 column(base + ".content", nodes),
-                false
+                false,
+                null,
+                key("gui.config.directory.variables"),
+                defaultRow.help()
         );
     }
 

@@ -362,7 +362,6 @@ function buildSettingsDrawerBody() {
     tplInput.spellcheck = false;
     tplInput.addEventListener('change', () => {
         s.fileNameTemplate = normalizeFileNameTemplate(tplInput.value);
-        tplInput.value = s.fileNameTemplate;
         saveSettings();
         previewName();
     });
@@ -384,11 +383,7 @@ function buildSettingsDrawerBody() {
         const chip = el('button', 'ab-var-chip', () => bt('settings.var.' + variable.label));
         chip.type = 'button';
         chip.title = token;
-        chip.addEventListener('click', () => {
-            tplInput.value = tplInput.value + token;
-            tplInput.dispatchEvent(new Event('change'));
-            tplInput.focus();
-        });
+        chip.addEventListener('click', () => insertFileNameTemplateVariable(tplInput, token));
         varChips.appendChild(chip);
     });
     const namePreview = el('p', 'ab-name-preview');

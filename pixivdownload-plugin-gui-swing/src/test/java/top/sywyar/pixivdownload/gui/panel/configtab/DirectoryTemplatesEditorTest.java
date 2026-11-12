@@ -53,7 +53,18 @@ class DirectoryTemplatesEditorTest {
         SwingUtilities.invokeAndWait(() -> {
             var editor = new DirectoryTemplatesEditor(ctx, section, fields);
             editor.valuesLoaded();
-            assertThat(inputs).containsOnlyKeys("user", "series");
+            assertThat(inputs).containsOnlyKeys("root", "user", "series");
+            inputs.get("root").setValue().accept("draft/{artwork_id}");
+            var help = descendants(editor).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                    .filter(area -> area.getText().equals("Template help")).findFirst().orElseThrow();
+            var toggle = descendants(editor).filter(JToggleButton.class::isInstance).map(JToggleButton.class::cast)
+                    .findFirst().orElseThrow();
+            assertThat(help.isVisible()).isFalse();
+            toggle.doClick();
+            assertThat(help.isVisible()).isTrue();
+            help.getActionMap().get("close-help").actionPerformed(null);
+            assertThat(help.isVisible()).isFalse();
+            assertThat(inputs.get("root").getValue().get()).isEqualTo("draft/{artwork_id}");
             assertThat(inputs.get("user").panel().isVisible()).isTrue();
             assertThat(inputs.get("series").panel().isVisible()).isFalse();
             var mode = (JComboBox<?>) inputs.get("user").panel().getComponent(0);
@@ -63,7 +74,9 @@ class DirectoryTemplatesEditorTest {
             assertThat(inputs.get("series").panel().isVisible()).isTrue();
             button(inputs.get("series").panel(), "gui.config.directory.remove").doClick();
             assertThat(inputs.get("series").getValue().get()).isEmpty();
-            assertThat(inputs.values()).allSatisfy(input -> assertThat(input.panel().isVisible()).isFalse());
+            assertThat(inputs.get("user").panel().isVisible()).isFalse();
+            assertThat(inputs.get("series").panel().isVisible()).isFalse();
+            assertThat(inputs.get("root").panel().isVisible()).isTrue();
             button(editor, "gui.config.directory.add").doClick();
             assertThat(inputs.get("user").panel().isVisible()).isTrue();
             assertThat(inputs.get("user").getValue().get()).isEmpty();
@@ -77,7 +90,7 @@ class DirectoryTemplatesEditorTest {
 
     private static ConfigFieldSpec field(String key, String value) {
         return ConfigFieldSpec.builder(key, key, FieldType.STRING, "Download")
-                .ownerPluginId("independent").defaultValue(value).build();
+                .ownerPluginId("independent").help(key.equals("root") ? "Template help" : "").defaultValue(value).build();
     }
 
     private static JButton button(Component root, String label) {
