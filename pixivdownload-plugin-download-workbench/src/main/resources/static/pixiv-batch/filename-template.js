@@ -67,7 +67,37 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "token": "series_id",
         "label": "series-id",
         "numeric": true,
-        "download": false,
+        "download": true,
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
+    },
+    {
+        "id": "seriesName",
+        "token": "series_name",
+        "label": "series-name",
+        "numeric": false,
+        "download": true,
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
+    },
+    {
+        "id": "seriesTitle",
+        "token": "series_title",
+        "label": "series-title",
+        "numeric": false,
+        "download": true,
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
+    },
+    {
+        "id": "seriesOrder",
+        "token": "series_order",
+        "label": "series-order",
+        "numeric": true,
+        "download": true,
         "importing": false,
         "directory": true,
         "directoryOptional": true
@@ -77,7 +107,7 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "token": "username",
         "label": "username",
         "numeric": false,
-        "download": false,
+        "download": true,
         "importing": false,
         "directory": true,
         "directoryOptional": false
@@ -229,6 +259,7 @@ const DOWNLOAD_FILE_TOKENS = new Set(DOWNLOAD_FILE_VARIABLES.map(variable => var
         const normalizedTemplate = normalizeFileNameTemplate(template);
         const xRestrict = Number(vars.xRestrict) || 0;
         const isAi = !!vars.isAi;
+        const hasSeries = Number(vars.seriesId) > 0;
         const replacements = {
             artwork_id: String(vars.artworkId || ''),
             artwork_title: sanitizeFileNamePart(vars.title || ''),
@@ -236,6 +267,11 @@ const DOWNLOAD_FILE_TOKENS = new Set(DOWNLOAD_FILE_VARIABLES.map(variable => var
             author_name: sanitizeFileNamePart(vars.authorName || ''),
             collection_name: vars.collectionId == null ? '' : sanitizeFileNamePart(vars.collectionName || ''),
             collection_id: vars.collectionId == null ? '' : String(vars.collectionId),
+            series_id: hasSeries ? String(vars.seriesId) : '',
+            series_name: hasSeries ? sanitizeFileNamePart(vars.seriesTitle || '') : '',
+            series_title: hasSeries ? sanitizeFileNamePart(vars.seriesTitle || '') : '',
+            series_order: hasSeries && vars.seriesOrder != null && Number(vars.seriesOrder) >= 0 ? String(vars.seriesOrder) : '',
+            username: sanitizeFileNamePart(vars.username || ''),
             timestamp: String(vars.timestamp || ''),
             page: String(page),
             count: String(count),

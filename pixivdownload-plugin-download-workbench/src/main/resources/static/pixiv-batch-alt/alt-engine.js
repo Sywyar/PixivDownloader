@@ -31,6 +31,8 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     const fileNameTimestamp = Date.now();
     const fileNames = buildDownloadFileNames(fileNameTemplate, {
         ...collectionFileNameVariables(collectionId, batchCollections),
+        ...seriesInfo,
+        username,
         artworkId,
         title,
         authorId: normalizeAuthorId(authorId),
@@ -59,7 +61,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     };
     if (seriesInfo && seriesInfo.seriesId) {
         other.seriesId = Number(seriesInfo.seriesId);
-        other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+        other.seriesOrder = seriesInfo.seriesOrder == null ? null : Number(seriesInfo.seriesOrder);
         other.seriesTitle = seriesInfo.seriesTitle || null;
         if (seriesInfo.seriesDescription) other.seriesDescription = seriesInfo.seriesDescription;
         if (seriesInfo.seriesCoverUrl) other.seriesCoverUrl = seriesInfo.seriesCoverUrl;

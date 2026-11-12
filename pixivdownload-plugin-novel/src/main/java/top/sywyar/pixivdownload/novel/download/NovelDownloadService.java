@@ -216,15 +216,20 @@ public class NovelDownloadService implements NovelDownloader {
         Path root = collection.root().toAbsolutePath().normalize();
         String collectionName = collection.name();
         Long collectionId = collectionName == null ? null : other.getCollectionId();
+        var naming = new PixivWorkFileNameFormatter.Context(collectionId, collectionName,
+                other.getSeriesId(), other.getSeriesTitle(), other.getSeriesOrder(), other.getUsername());
         var values = new java.util.HashMap<String, String>();
         values.put("artworkId", String.valueOf(request.getNovelId()));
         values.put("artworkTitle", request.getTitle());
         values.put("authorId", other.getAuthorId() == null ? null : other.getAuthorId().toString());
         values.put("authorName", other.getAuthorName());
-        values.put("username", other.getUsername());
+        values.put("username", naming.username());
         values.put("collectionId", collectionId == null ? null : collectionId.toString());
         values.put("collectionName", collectionName);
-        values.put("seriesId", other.getSeriesId() == null ? null : other.getSeriesId().toString());
+        values.put("seriesId", naming.seriesId() == null ? null : naming.seriesId().toString());
+        values.put("seriesName", naming.seriesTitle());
+        values.put("seriesTitle", naming.seriesTitle());
+        values.put("seriesOrder", naming.seriesOrder() == null ? null : naming.seriesOrder().toString());
         values.put("R18", other.getXRestrict() == 2 ? "R18G" : other.getXRestrict() == 1 ? "R18" : "");
         Path directory = directoryTemplate.resolve(root, values);
         downloadPathGuard.requireWithinRoot(root, directory);
@@ -247,7 +252,7 @@ public class NovelDownloadService implements NovelDownloader {
                 supported == null ? DownloadPathLimits.UNKNOWN::accepts : supported,
                 length -> PixivWorkFileNameFormatter.formatAll(template, request.getNovelId(), request.getTitle(),
                         other.getAuthorId(), other.getAuthorName(), timestamp, 1, other.isAi(), other.getXRestrict(), length,
-                        collectionId, collectionName),
+                        naming),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, request.getNovelId(),
                         request.getTitle(), other.getAuthorId(), other.getAuthorName(), timestamp, 1, other.isAi(), other.getXRestrict()),
                 suffixes, fixed, DownloadPathAction.parse(other.getPathOverflowAction()));

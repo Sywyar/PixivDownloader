@@ -399,6 +399,10 @@ function buildSettingsDrawerBody() {
             title: bt('settings.filename.sample-title', '示例作品'),
             authorId: 98765,
             authorName: bt('settings.filename.sample-author', '示例画师'),
+            username: bt('settings.filename.sample-author', '示例画师'),
+            seriesId: 24680,
+            seriesTitle: bt('settings.filename.sample-series'),
+            seriesOrder: 1,
             xRestrict: 0,
             isAi: false,
             timestamp: Date.now()

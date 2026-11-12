@@ -1030,23 +1030,31 @@ class ArtworkDownloadExecutorTest {
         @org.junit.jupiter.params.provider.ValueSource(strings = {"series", "search", "quick", "single-import"})
         @DisplayName("按实际请求模式选择独立模板，系列元数据不改变来源")
         void explicitModeOverridesWithoutInferringSeries(String mode) {
-            when(downloadSettings.directoryTemplate(mode)).thenReturn(tempDir + "/selected/{series_id}/works-{artwork_id}/content");
+            when(downloadSettings.directoryTemplate(mode)).thenReturn(tempDir + "/selected/{series_id}/{series_name}/{series_order}/works-{artwork_id}/content");
             var other = new DownloadRequest.Other();
             other.setAcquisitionMode(mode);
             other.setSeriesId(8L);
+            other.setSeriesTitle("系列/one");
+            other.setSeriesOrder(0L);
+            other.setUsername("来源/User");
+            other.setAuthorName("Author");
+            other.setFileNameTemplate("{series_id}_{series_title}_{series_order}_{username}_{author_name}_{artwork_id}");
             other.setUgoira(true);
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
             other.setUgoiraDelays(List.of(100));
             artworkDownloadExecutor.downloadImages(12345L, "title", List.of(other.getUgoiraZipUrl()),
                     "https://www.pixiv.net/", other, null, null);
-            assertThat(capturedDownloadCompletion().folder()).isEqualTo(tempDir.resolve("selected/8/works-12345/content"));
+            var completion = capturedDownloadCompletion();
+            assertThat(completion.folder()).isEqualTo(tempDir.resolve("selected/8/系列_one/0/works-12345/content"));
+            assertThat(completion.fileNames()).containsExactly("8_系列_one_0_来源_User_Author_12345");
+            assertThat(other.getFileNames()).isEqualTo(completion.fileNames());
             verify(downloadSettings).directoryTemplate(mode);
         }
 
         @Test
         @DisplayName("无收藏夹和系列时省略对应目录层并保留默认文件名")
         void missingContextsOmitDirectoryLayers() {
-            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/{R18}/{artwork_id}");
+            when(downloadSettings.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/{series_name}/{series_title}/{series_order}/{R18}/{artwork_id}");
             var other = new DownloadRequest.Other();
             other.setUgoira(true);
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");

@@ -12,6 +12,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WorkDirectoryTemplateTest {
     @Test
+    @DisplayName("系列名称和序号缺省时省略目录层，零序号及名称中的花括号保留")
+    void seriesNameTitleAndOrder() {
+        var template = WorkDirectoryTemplate.parse("root/{series_name}/{series_title}/{series_order}/{artwork_id}");
+        assertEquals(Path.of("root", "123").toAbsolutePath(), template.resolve(Map.of("artworkId", "123")));
+        assertEquals(Path.of("root", "系列_{page}", "系列_{page}", "0", "123").toAbsolutePath(),
+                template.resolve(Map.of("seriesName", "系列/{page}", "seriesTitle", "系列/{page}",
+                        "seriesOrder", "0", "artworkId", "123")));
+        assertThrows(DirectoryTemplateException.class, () -> WorkDirectoryTemplate.parse("root/{series_name}/{series_order}"));
+    }
+    @Test
     @DisplayName("配置校验保留位置和未知变量，异常不包含完整目录")
     void retainsConfigurationLocation() {
         var failure = assertThrows(DirectoryTemplateException.class,

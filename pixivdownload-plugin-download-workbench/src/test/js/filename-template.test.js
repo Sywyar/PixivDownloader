@@ -38,19 +38,27 @@ for (const name of ['pixiv-batch', 'pixiv-batch-alt']) {
             PixivMediaSettings: {snapshot: () => ({})},
             submitWithPathAction: async (_url, payload) => { submitted = payload; return {res: {ok: true}, data: {}}; }
         });
-        vm.runInContext("state.settings.fileNameTemplate = '{collection_name}_{collection_id}_{artwork_id}_p{page}'; state.settings.collectionId = 7", c);
+        vm.runInContext("state.settings.fileNameTemplate = '{collection_name}_{collection_id}_{series_id}_{series_name}_{series_title}_{series_order}_{username}_{artwork_id}_p{page}'; state.settings.collectionId = 7", c);
         if (name === 'pixiv-batch-alt') vm.runInContext("batchCollections = [{id: 7, name: '收藏/one'}]", c);
         await c.sendDownload(42, ['https://example.test/0.png', 'https://example.test/1.png'], 'Title',
-            false, '', 9, 'Author', 0, false);
+            true, '来源/User', 9, 'Author', 0, false, null, null, null,
+            {seriesId: 55, seriesTitle: '系列/one', seriesOrder: 0, seriesDescription: 'description'});
         assert.equal(submitted.other.collectionId, 7);
-        assert.deepEqual(Array.from(submitted.other.fileNames), ['收藏_one_7_42_p0', '收藏_one_7_42_p1']);
+        assert.deepEqual(Array.from(submitted.other.fileNames), [
+            '收藏_one_7_55_系列_one_系列_one_0_来源_User_42_p0',
+            '收藏_one_7_55_系列_one_系列_one_0_来源_User_42_p1']);
         assert.equal(Object.hasOwn(submitted.other, 'collectionName'), false);
+        await c.sendDownload(42, ['https://example.test/0.png'], 'Title', false, '', 9, 'Author', 0, false,
+            null, null, null, {seriesId: 55, seriesTitle: '系列/one', seriesDescription: 'description'});
+        assert.equal(submitted.other.seriesOrder, null);
+        assert.deepEqual(Array.from(submitted.other.fileNames), ['收藏_one_7_55_系列_one_系列_one___42_p0']);
     });
 
     test(name + ' 按页面加载顺序提供文件名预览与下载使用的函数', () => {
         const c = page(name);
         const vars = {artworkId: '42', title: '标题:/ .', authorId: '7', authorName: 'CON',
-            timestamp: '123', isAi: true, xRestrict: 2, collectionId: 9, collectionName: '收藏😀/unsafe'};
+            timestamp: '123', isAi: true, xRestrict: 2, collectionId: 9, collectionName: '收藏😀/unsafe',
+            seriesId: 55, seriesTitle: '系列/{page}', seriesOrder: 0, username: '来源/User'};
         const defaultTemplate = vm.runInContext('DEFAULT_FILE_NAME_TEMPLATE', c);
         assert.equal(c.normalizeFileNameTemplate(null), defaultTemplate);
         assert.equal(c.normalizeFileNameTemplate('  {page} '), '  {page} ');
@@ -67,12 +75,24 @@ for (const name of ['pixiv-batch', 'pixiv-batch-alt']) {
         const definitions = vm.runInContext('DOWNLOAD_FILE_VARIABLES', c);
         const expected = {artwork_id: '42', artwork_title: '标题__', author_id: '7', author_name: '_CON',
             timestamp: '123', page: '0', count: '2', ai: 'AI', 'ai+': 'AI', R18: 'R18G', 'R18+': 'R18G',
-            collection_id: '9', collection_name: '收藏😀_unsafe'};
+            collection_id: '9', collection_name: '收藏😀_unsafe', series_id: '55',
+            series_name: '系列_{page}', series_title: '系列_{page}', series_order: '0', username: '来源_User'};
         for (const variable of definitions) {
             assert.equal(c.formatFileNameBase('{' + variable.token + '}', vars, 0, 2), expected[variable.token]);
         }
         if (name === 'pixiv-batch-alt') {
             assert.equal(c.PixivBatchAlt.settings.buildDownloadFileNames, c.buildDownloadFileNames);
+        }
+    });
+
+    test(name + ' 系列缺失时不使用残留标题与序号，未知序号为空', () => {
+        const c = page(name);
+        const template = '{series_id}_{series_name}_{series_title}_{series_order}_{username}_{artwork_id}';
+        assert.equal(c.formatFileNameBase(template,
+            {artworkId: 42, seriesTitle: 'stale', seriesOrder: 3}, 0, 1), '_____42');
+        for (const seriesOrder of [null, undefined, -1]) {
+            assert.equal(c.formatFileNameBase(template,
+                {artworkId: 42, seriesId: 8, seriesOrder}, 0, 1), '8_____42');
         }
     });
 

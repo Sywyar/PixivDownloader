@@ -342,13 +342,16 @@ class NovelDownloadServiceTest {
     @Test
     @DisplayName("下载完成后应通过核心端口记录作者、收藏关系与游客目录")
     void shouldRecordCoreFactsThroughPorts() {
-        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/novel-{artwork_id}");
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/{series_title}/{series_order}/novel-{artwork_id}");
         NovelDownloadRequest request = txtRequest(103L, null);
         request.getOther().setAuthorId(42L);
         request.getOther().setAuthorName("Writer");
         request.getOther().setCollectionId(7L);
         request.getOther().setSeriesId(42L);
-        request.getOther().setFileNameTemplate("{collection_name}_{collection_id}_{artwork_id}");
+        request.getOther().setSeriesTitle("系列/one");
+        request.getOther().setSeriesOrder(0L);
+        request.getOther().setUsername("来源/User");
+        request.getOther().setFileNameTemplate("{collection_name}_{collection_id}_{series_id}_{series_name}_{series_order}_{username}_{artwork_id}");
         when(collectionDownloadRootResolver.resolve(7L, tempDir)).thenReturn(
                 new CollectionDownloadRootResolver.Context(tempDir, "收藏😀/unsafe"));
         when(workCollectionMembership.addWork(WorkType.NOVEL, 7L, 103L)).thenReturn(true);
@@ -359,10 +362,10 @@ class NovelDownloadServiceTest {
         verify(collectionDownloadRootResolver).resolve(7L, tempDir);
         verify(authorObservationService).observe(42L, "Writer");
         verify(workCollectionMembership).addWork(WorkType.NOVEL, 7L, 103L);
-        assertThat(tempDir.resolve("收藏😀_unsafe/7/42/novel-103/收藏😀_unsafe_7_103.txt")).exists();
-        verify(novelDatabase).saveFileBaseName(103L, "收藏😀_unsafe_7_103");
+        assertThat(tempDir.resolve("收藏😀_unsafe/7/42/系列_one/0/novel-103/收藏😀_unsafe_7_42_系列_one_0_来源_User_103.txt")).exists();
+        verify(novelDatabase).saveFileBaseName(103L, "收藏😀_unsafe_7_42_系列_one_0_来源_User_103");
         verify(visitorDownloadQuotaService).recordFolder(
-                "visitor-1", tempDir.resolve("收藏😀_unsafe/7/42/novel-103").toAbsolutePath().normalize());
+                "visitor-1", tempDir.resolve("收藏😀_unsafe/7/42/系列_one/0/novel-103").toAbsolutePath().normalize());
     }
 
     @ParameterizedTest
@@ -370,7 +373,7 @@ class NovelDownloadServiceTest {
     @ValueSource(longs = 42L)
     @DisplayName("小说按元数据展开系列，缺省收藏夹与系列目录层可省略")
     void optionalDirectoryContexts(Long seriesId) throws Exception {
-        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/novel-{artwork_id}");
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{series_id}/{series_name}/{series_title}/{series_order}/novel-{artwork_id}");
         var request = txtRequest(104L, null);
         request.getOther().setSeriesId(seriesId);
         request.getOther().setFileNameTemplate("{artwork_id}_{artwork_title}");

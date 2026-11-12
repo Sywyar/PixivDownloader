@@ -278,9 +278,9 @@ async function processIllustItem(item, invocation) {
         const fallbackAuthorId = isUserMode ? normalizeAuthorId(state.userId) : null;
         const fallbackAuthorName = isUserMode ? (item.username || state.username || state.userId || '') : '';
         const seriesInfo = (item.seriesId && item.seriesId > 0)
-            ? {seriesId: item.seriesId, seriesOrder: item.seriesOrder ?? 0, seriesTitle: item.seriesTitle || null}
+            ? {seriesId: item.seriesId, seriesOrder: item.seriesOrder ?? null, seriesTitle: item.seriesTitle || null}
             : (meta.seriesId
-                ? {seriesId: meta.seriesId, seriesOrder: meta.seriesOrder ?? 0, seriesTitle: meta.seriesTitle || null}
+                ? {seriesId: meta.seriesId, seriesOrder: meta.seriesOrder ?? null, seriesTitle: meta.seriesTitle || null}
                 : null);
         const dlData = await sendDownload(
             item.id, urls, item.title,

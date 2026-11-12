@@ -11,6 +11,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivWorkFileNameFormatterTest {
 
     @Test
+    @DisplayName("系列变量与来源用户名使用下载快照，名称清洗且不递归展开")
+    void seriesAndSourceVariables() {
+        var context = new PixivWorkFileNameFormatter.Context(null, null, 8L, "系列/{page}", 0L, "来源/User");
+        String template = "{series_id}_{series_name}_{series_title}_{series_order}_{username}_{author_name}";
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", 7L, "Author",
+                123, 2, false, 0, 180, context)).containsExactly(
+                "8_系列_{page}_系列_{page}_0_来源_User_Author",
+                "8_系列_{page}_系列_{page}_0_来源_User_Author_p1");
+        var missing = new PixivWorkFileNameFormatter.Context(null, null, null, "stale", 3L, null);
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", 7L, "Author",
+                123, 1, false, 0, 180, missing)).containsExactly("_____Author");
+        var unknownOrder = new PixivWorkFileNameFormatter.Context(null, null, 8L, null, -1L, null);
+        assertThat(PixivWorkFileNameFormatter.formatAll("{series_id}_{series_order}_{series_title}",
+                42, "Title", 7L, "Author", 123, 1, false, 0, 180, unknownOrder)).containsExactly("8__");
+    }
+
+    @Test
     @DisplayName("收藏夹变量按当次选择展开并保留安全清洗与空值语义")
     void collectionVariables() {
         String template = "{collection_id}_{collection_name}_{artwork_id}_p{page}";

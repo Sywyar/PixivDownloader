@@ -62,6 +62,8 @@
         const fileNameTimestamp = Date.now();
         const fileNames = buildDownloadFileNames(fileNameTemplate, {
             ...collectionFileNameVariables(collectionId, collections),
+            ...seriesInfo,
+            username,
             artworkId,
             title,
             authorId: normalizeAuthorId(authorId),
@@ -90,7 +92,7 @@
         };
         if (seriesInfo && seriesInfo.seriesId) {
             other.seriesId = Number(seriesInfo.seriesId);
-            other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+            other.seriesOrder = seriesInfo.seriesOrder == null ? null : Number(seriesInfo.seriesOrder);
             other.seriesTitle = seriesInfo.seriesTitle || null;
             // 系列简介/封面只在本地数据库尚无时由后端落盘，前端这里仅负责把 Pixiv 的 hint 透传过去。
             // 缓存一批查一次，失败/空值不阻塞下载。
