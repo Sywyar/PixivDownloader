@@ -5,7 +5,7 @@
    ============================================================ */
 function renderUserMode(panel) {
     const def = AB_MODES[2];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
+    panel.appendChild(modeHeader(def, [settingsButton(), saveScheduleButton()].filter(Boolean)));
 
     const sources = altSourcesForMode('user');
     if (!sources.some(source => source.id === userState.source)) userState.source = sources[0] && sources[0].id;
@@ -371,7 +371,7 @@ function renderSearchMode(panel) {
         searchState.submode = storeGet('pixiv_search_submode') === 'batch' ? 'batch' : 'search';
     }
     const def = AB_MODES[3];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
+    panel.appendChild(modeHeader(def, [settingsButton(), saveScheduleButton()].filter(Boolean)));
 
     const sources = altSourcesForMode('search');
     if (!sources.some(source => source.id === searchState.source)) searchState.source = sources[0] && sources[0].id;

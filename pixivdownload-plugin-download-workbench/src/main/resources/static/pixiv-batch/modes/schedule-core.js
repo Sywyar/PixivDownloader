@@ -160,6 +160,9 @@
             const contribution = runtime.credentialContribution(sourceType, context || {});
             if (!contribution) return unavailable;
             return {
+                singleCredential: contribution.singleCredential === true,
+                credentialReadOnly: contribution.credentialReadOnly === true,
+                defaultCredentialSelection: contribution.defaultCredentialSelection,
                 supportsCredential: contribution.supportsCredential === true,
                 supportsProxy: contribution.supportsProxy === true,
                 presentation: contribution.presentation || {}
@@ -245,6 +248,34 @@
             });
         applyScheduleCredentialPresentation(prefix, capabilities, context && context.task
             ? scheduleTaskCredentialPolicy(context.task).bound : false);
+        const credentialInput = document.getElementById(`${prefix}-cookie`);
+        const credentialCheckbox = document.getElementById(`${prefix}-cookie-enabled`);
+        if (credentialInput?.parentElement) credentialInput.parentElement.style.display = capabilities.credentialReadOnly ? 'none' : '';
+        if (credentialCheckbox) {
+            credentialCheckbox.disabled = capabilities.credentialReadOnly;
+            credentialCheckbox.hidden = capabilities.credentialReadOnly;
+            credentialCheckbox.dataset.credentialReadOnly = String(capabilities.credentialReadOnly);
+        }
+        if (capabilities.credentialReadOnly) {
+            const task = context.task || context.editingTask;
+            credentialCheckbox.checked = true;
+            const label = document.getElementById(`${prefix}-cookie-label`);
+            const account = scheduleTaskCredentialPolicy(task).accountKey;
+            if (label) label.textContent = capabilities.presentation.boundLabel + (account ? ' · UID ' + account : '');
+            document.getElementById(`${prefix}-cookie-row`).style.display = '';
+        }
+        if (prefix === 'sch' && capabilities.singleCredential && !context?.task && !context?.editingTask) {
+            const input = document.getElementById('sch-cookie');
+            const checkbox = document.getElementById('sch-cookie-enabled');
+            const selected = capabilities.defaultCredentialSelection;
+            if (input && checkbox) {
+                checkbox.checked = true;
+                input._savedCredentialSelection = selected;
+                input.dataset.useSavedCredential = String(!!selected);
+                input.placeholder = selected?.label || bt('batch:credentials.account-required');
+                document.getElementById('sch-cookie-row').style.display = '';
+            }
+        }
         return capabilities;
     }
 

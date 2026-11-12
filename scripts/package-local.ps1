@@ -28,11 +28,13 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 . (Join-Path $PSScriptRoot "ffmpeg-release-integrity.ps1")
 . (Join-Path $PSScriptRoot "package-local-plugin-staging.ps1")
 . (Join-Path $PSScriptRoot "package-local-installer-catalog.ps1")
+. (Join-Path $PSScriptRoot "distribution-aot.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
 $InputDir = Join-Path $BuildRoot "input"
 $RuntimeDir = Join-Path $BuildRoot "runtime"
+$AotTrainingDir = Join-Path $BuildRoot 'aot-training'
 $OnlineAppImageRoot = Join-Path $BuildRoot "app-image-online"
 $OnlineAppDir = Join-Path $OnlineAppImageRoot "PixivDownload"
 $OfflineAppImageRoot = Join-Path $BuildRoot "app-image-full"
@@ -49,8 +51,8 @@ $FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
 $FfmpegLicenseDir = Join-Path $FfmpegDir "licenses"
 $AppName = "PixivDownload"
 $AppVendor = "sywyar"
-$MainClass = "org.springframework.boot.loader.launch.JarLauncher"
-$JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.net,jdk.unsupported,jdk.zipfs"
+$MainClass = "top.sywyar.pixivdownload.gui.GuiLauncher"
+$JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.jartool,jdk.localedata,jdk.management,jdk.net,jdk.unsupported,jdk.zipfs"
 $FfmpegReleaseBaseUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/"
 $FfmpegAssetName = "ffmpeg-windows-x64.zip"
 $OfficialPluginCatalogUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json"
@@ -306,7 +308,7 @@ try {
         $innoCompilerSource = Get-InnoSetupCompiler
     }
 
-    $cleanPaths = @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)
+    $cleanPaths = @($InputDir, $RuntimeDir, $AotTrainingDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)
     $protectedInputs = @($resolvedPrebuiltJar, $resolvedPrebuiltPluginsDir)
     if (-not $SkipInstaller) {
         $protectedInputs += Split-Path -Parent $innoCompilerSource
@@ -354,13 +356,19 @@ try {
         "--output", $RuntimeDir
     )
 
-    Write-Step "Removing distrusted CA from bundled runtime"
+    Write-Step "Applying bundled runtime certificate restrictions"
     Invoke-External "java" @(
         "-Dfile.encoding=UTF-8", "--source", "17",
         (Join-Path $PSScriptRoot "runtime-security/RemoveDistrustedCa.java"),
         (Join-Path $RuntimeDir "lib/security/cacerts")
     )
     & (Join-Path $PSScriptRoot "runtime-security/test-runtime-trust.ps1") -RuntimeHome $RuntimeDir
+
+    Write-Step "Preparing distribution AOT cache with bundled runtime"
+    $runtimeJava = Join-Path $RuntimeDir 'bin/java.exe'
+    $extracted = Expand-DistributionApplication -Java $runtimeJava -Jar $stagedJar -Destination (Join-Path $InputDir 'application')
+    New-DistributionAotCache -Java $runtimeJava -Jar $extracted `
+        -Cache (Join-Path $InputDir 'application.aot') -Training $AotTrainingDir
 
     Write-Step "Building app-image"
     Invoke-External "jpackage" @(
@@ -369,15 +377,31 @@ try {
         "--app-version", $InstallerVersion,
         "--vendor", $AppVendor,
         "--input", $InputDir,
-        "--main-jar", "$AppName-$Version.jar",
+        "--main-jar", "application/$AppName-$Version.jar",
         "--main-class", $MainClass,
         "--runtime-image", $RuntimeDir,
         "--icon", "pixivdownload-app/src/main/resources/static/favicon.ico",
         "--java-options", "-Dfile.encoding=UTF-8",
         "--java-options", "-Dstdout.encoding=UTF-8",
         "--java-options", "-Dstderr.encoding=UTF-8",
+        "--java-options", '-XX:AOTMode=auto',
+        "--java-options", '-XX:AOTCache=$APPDIR/application.aot',
         "--dest", $OnlineAppImageRoot
     )
+
+    $launcherConfig = Join-Path $OnlineAppDir "app/$AppName.cfg"
+    $mainClassPath = 'app.classpath=$APPDIR\application\' + "$AppName-$Version.jar"
+    $launcherLines = [IO.File]::ReadAllLines($launcherConfig, [Text.Encoding]::UTF8)
+    if (@($launcherLines | Where-Object { $_ -ceq $mainClassPath }).Count -ne 1) {
+        throw 'Unexpected jpackage application classpath.'
+    }
+    [IO.File]::WriteAllLines($launcherConfig, @($launcherLines | Where-Object {
+        -not $_.StartsWith('app.classpath=') -or $_ -ceq $mainClassPath
+    }), [Text.UTF8Encoding]::new($false))
+
+    Test-DistributionAotCache -Java (Join-Path $OnlineAppDir 'runtime/bin/java.exe') `
+        -Jar (Join-Path $OnlineAppDir "app/application/$AppName-$Version.jar") `
+        -Cache (Join-Path $OnlineAppDir 'app/application.aot') -Training $AotTrainingDir
 
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"

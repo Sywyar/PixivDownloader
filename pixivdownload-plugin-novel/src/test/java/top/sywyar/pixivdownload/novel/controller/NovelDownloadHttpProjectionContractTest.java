@@ -112,7 +112,7 @@ class NovelDownloadHttpProjectionContractTest {
                 true, "done", 7L, "title", "txt", "completed", true, false,
                 "path", 0, 0, 0L, 0L,
                 WorkActionResult.success("bookmarked"),
-                WorkActionResult.exists("exists")));
+                WorkActionResult.exists("exists"), null));
 
         assertThat(json.path("bookmarkResult").path("status").asString()).isEqualTo("success");
         assertThat(json.path("bookmarkResult").path("message").asString()).isEqualTo("bookmarked");

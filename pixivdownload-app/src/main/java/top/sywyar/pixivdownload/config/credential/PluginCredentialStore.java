@@ -7,18 +7,15 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -33,16 +30,10 @@ import java.util.concurrent.ConcurrentMap;
 public class PluginCredentialStore {
 
     private static final ConcurrentMap<Path, Object> PROCESS_LOCKS = new ConcurrentHashMap<>();
-    private static final Set<PosixFilePermission> OWNER_DIRECTORY_PERMISSIONS =
-            EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
-                    PosixFilePermission.OWNER_EXECUTE);
-    private static final Set<PosixFilePermission> OWNER_FILE_PERMISSIONS =
-            EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
-
     private final PluginCredentialCipher cipher;
 
     public PluginCredentialStore() {
-        this(new PluginCredentialCipher(PluginCredentialKeyMaterial.load()));
+        this.cipher = null;
     }
 
     PluginCredentialStore(PluginCredentialKeyMaterial keyMaterial) {
@@ -53,11 +44,14 @@ public class PluginCredentialStore {
         this.cipher = Objects.requireNonNull(cipher, "cipher");
     }
 
-    /**
-     * Reads this owner's credentials. Envelopes encrypted by the open-source fallback are
-     * atomically rewritten with the current key after successful authenticated decode.
-     */
+    /** 普通读取先完成旧信封迁移；只读归档入口单独保留无副作用语义。 */
     public Map<String, String> readAll(String ownerPluginId) throws IOException {
+        if (cipher == null) {
+            Path existing = RuntimeFiles.peekPluginCredentialPath(ownerPluginId);
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(existing, false);
+            if (!Files.exists(existing, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return Map.of();
+            return writableStore(true).readAll(ownerPluginId);
+        }
         Path path = credentialPath(ownerPluginId);
         synchronized (processLock(path)) {
             return readAllLocked(ownerPluginId, path);
@@ -73,7 +67,8 @@ public class PluginCredentialStore {
             byte[] bytes = input.readNBytes(8 * 1024 * 1024 + 1);
             try {
                 if (bytes.length > 8 * 1024 * 1024) throw new IOException("transfer.archive-limit");
-                return withoutBlankValues(cipher.decode(ownerPluginId, bytes).values());
+                PluginCredentialCipher reader = cipher == null ? InstallationCredentialKeys.forRead(bytes) : cipher;
+                return withoutBlankValues(reader.decode(ownerPluginId, bytes).values());
             } finally { Arrays.fill(bytes, (byte) 0); }
         }
     }
@@ -85,14 +80,15 @@ public class PluginCredentialStore {
             if (entry.getValue().isBlank()) throw new IOException("transfer.credential-empty");
             merged.put(entry.getKey(), entry.getValue());
         }
-        return cipher.encrypt(ownerPluginId, merged);
+        PluginCredentialCipher writer = cipher == null ? InstallationCredentialKeys.forWrite(false) : cipher;
+        return writer.encrypt(ownerPluginId, merged);
     }
 
     private Map<String, String> readAllLocked(String ownerPluginId, Path path) throws IOException {
         if (!Files.isRegularFile(path)) {
             return Map.of();
         }
-        byte[] content = Files.readAllBytes(path);
+        byte[] content = InstallationCredentialKeys.readBounded(path, InstallationCredentialKeys.MAX_CREDENTIAL_BYTES);
         try {
             PluginCredentialCipher.Decoded decoded = cipher.decode(ownerPluginId, content);
             Map<String, String> normalized = withoutBlankValues(decoded.values());
@@ -120,6 +116,10 @@ public class PluginCredentialStore {
             return;
         }
         Map<String, String> safeUpdates = validatedUpdates(updates);
+        if (cipher == null) {
+            writableStore(true).update(ownerPluginId, safeUpdates);
+            return;
+        }
         Path path = credentialPath(ownerPluginId);
         synchronized (processLock(path)) {
             Map<String, String> current = readAllLocked(ownerPluginId, path);
@@ -162,6 +162,10 @@ public class PluginCredentialStore {
             throws IOException {
         Objects.requireNonNull(ownerPluginIds, "ownerPluginIds");
         Objects.requireNonNull(operation, "operation");
+        if (cipher == null && Files.exists(RuntimeFiles.pluginCredentialKeyPath())) {
+            writableStore(true).withOwnerLocks(ownerPluginIds, operation);
+            return;
+        }
         LinkedHashSet<Path> uniquePaths = new LinkedHashSet<>();
         for (String ownerPluginId : ownerPluginIds) {
             uniquePaths.add(credentialPath(ownerPluginId));
@@ -172,6 +176,9 @@ public class PluginCredentialStore {
     }
 
     public Snapshot snapshot(String ownerPluginId) throws IOException {
+        if (cipher == null && Files.exists(RuntimeFiles.peekPluginCredentialPath(ownerPluginId))) {
+            return writableStore(true).snapshot(ownerPluginId);
+        }
         Path path = credentialPath(ownerPluginId);
         synchronized (processLock(path)) {
             boolean existed = Files.exists(path);
@@ -227,6 +234,8 @@ public class PluginCredentialStore {
     }
 
     private static Path credentialPath(String ownerPluginId) throws IOException {
+        top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(
+                RuntimeFiles.peekPluginCredentialPath(ownerPluginId), false);
         Path resolved = RuntimeFiles.resolvePluginCredentialPath(ownerPluginId)
                 .toAbsolutePath()
                 .normalize();
@@ -294,50 +303,32 @@ public class PluginCredentialStore {
         }
     }
 
-    private static void writeBytesAtomically(Path path, byte[] content) throws IOException {
+    private static PluginCredentialStore writableStore(boolean migrate) throws IOException {
+        return new PluginCredentialStore(InstallationCredentialKeys.forWrite(migrate));
+    }
+
+    static void writeBytesAtomically(Path path, byte[] content) throws IOException {
         Path target = path.toAbsolutePath().normalize();
         Path parent = target.getParent();
-        Files.createDirectories(parent);
-        tightenDirectory(parent);
+        top.sywyar.pixivdownload.common.PlainFilePathGuard.requirePlainParent(target, true);
+        top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(target, false);
+        top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.makePrivate(parent);
         Path temp = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
         try {
-            tightenFile(temp);
-            Files.write(temp, content);
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.makePrivate(temp);
+            try (var output = java.nio.channels.FileChannel.open(temp, java.nio.file.StandardOpenOption.WRITE,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                var buffer = java.nio.ByteBuffer.wrap(content);
+                while (buffer.hasRemaining()) output.write(buffer);
+                output.force(true);
+            }
             try {
                 Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
-            tightenFile(target);
         } finally {
             Files.deleteIfExists(temp);
-        }
-    }
-
-    private static void tightenDirectory(Path directory) {
-        try {
-            Files.setPosixFilePermissions(directory, OWNER_DIRECTORY_PERMISSIONS);
-        } catch (IOException | UnsupportedOperationException ignored) {
-            java.io.File file = directory.toFile();
-            file.setReadable(false, false);
-            file.setWritable(false, false);
-            file.setExecutable(false, false);
-            file.setReadable(true, true);
-            file.setWritable(true, true);
-            file.setExecutable(true, true);
-        }
-    }
-
-    private static void tightenFile(Path path) {
-        try {
-            Files.setPosixFilePermissions(path, OWNER_FILE_PERMISSIONS);
-        } catch (IOException | UnsupportedOperationException ignored) {
-            java.io.File file = path.toFile();
-            file.setReadable(false, false);
-            file.setWritable(false, false);
-            file.setExecutable(false, false);
-            file.setReadable(true, true);
-            file.setWritable(true, true);
         }
     }
 

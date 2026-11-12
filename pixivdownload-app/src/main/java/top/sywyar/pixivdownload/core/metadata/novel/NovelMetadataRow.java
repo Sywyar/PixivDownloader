@@ -24,8 +24,32 @@ public record NovelMetadataRow(
         Boolean isOriginal,
         String coverExt,
         boolean deleted,
-        Long uploadTime
+        Long uploadTime,
+        Long createTime,
+        Long updateTime,
+        Long reuploadTime
 ) {
+    public NovelMetadataRow(long novelId,
+        String title,
+        String folder,
+        int count,
+        String extensions,
+        long time,
+        Integer xRestrict,
+        Boolean isAi,
+        Long authorId,
+        String description,
+        Long fileName,
+        Long fileAuthorNameId,
+        Long seriesId,
+        Long seriesOrder,
+        Boolean isOriginal,
+        String coverExt,
+        boolean deleted,
+        Long uploadTime) {
+        this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, isOriginal, coverExt, deleted, uploadTime, null, null, null);
+    }
+
     public NovelMetadataRow(long novelId,
                             String title,
                             String folder,

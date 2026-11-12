@@ -321,7 +321,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                             }
                             if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), () -> !database.available() || status.isCancelled());
                         } catch (Exception e) {
-                            if (e instanceof CancellationException) {
+                            if (e instanceof CancellationException || e instanceof top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException) {
                                 throw e;
                             }
                             if (status.getImageProgress() != null) {
@@ -435,6 +435,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             throw unavailable;
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            status.setCompleted(true);
+            status.setFailed(true);
+            status.setErrorCode("ACQUISITION_CREDENTIALS_UNAVAILABLE");
+            status.setErrorMessage(messages.get("error.acquisition.credentials-unavailable"));
+            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+            log.warn("Artwork download paused: id={}, reason=ACQUISITION_CREDENTIALS_UNAVAILABLE", artworkId);
+            throw unavailable;
         } catch (Exception e) {
             log.error(logMessage("download.log.failed"), e);
             status.setCompleted(true);
@@ -444,7 +452,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         } finally {
             if (!recorded) {
                 downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
-                        ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));
+                        ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED,
+                        !status.isCancelled() && "ACQUISITION_CREDENTIALS_UNAVAILABLE".equals(status.getErrorCode())
+                                ? DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE : null));
             }
             if (database.available() && !succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
                 recordDownloadFailureStatistics();
@@ -669,7 +679,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         retryCount,
                         maxRetries,
                         cancellationRequested);
-            } catch (CancellationException e) {
+            } catch (CancellationException | top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException e) {
                 throw e;
             } catch (Exception e) {
                 retryCount++;
@@ -1356,10 +1366,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     localized.messageArgs()
             );
         }
-        String message = error.getMessage();
-        if (message == null || message.isBlank()) {
-            return messages.get(Locale.getDefault(), "error.unexpected");
-        }
-        return message;
+        return messages.get(Locale.getDefault(), "error.unexpected");
     }
 }

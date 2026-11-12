@@ -84,6 +84,13 @@ public class NovelGalleryController {
             @RequestParam(required = false) Long uploadedBefore,
             @RequestParam(required = false) Long downloadedFrom,
             @RequestParam(required = false) Long downloadedBefore,
+            @RequestParam(required = false) String sourceTimeField,
+            @RequestParam(required = false) Long createdFrom,
+            @RequestParam(required = false) Long createdBefore,
+            @RequestParam(required = false) Long updatedFrom,
+            @RequestParam(required = false) Long updatedBefore,
+            @RequestParam(required = false) Long reuploadedFrom,
+            @RequestParam(required = false) Long reuploadedBefore,
             WorkVisibilityScope visibilityScope) {
         java.util.Set<Long> mustAuthors = parseLongCsv(authorIds);
         if (authorId != null && authorId > 0) {
@@ -102,7 +109,7 @@ public class NovelGalleryController {
                 parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
                 mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
                 mustSeries, parseLongCsv(notSeriesIds),
-                visibilityScope.restrictionFor(WorkType.NOVEL), uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore));
+                visibilityScope.restrictionFor(WorkType.NOVEL), uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore));
     }
 
     private static java.util.Set<Long> parseLongCsv(String csv) {

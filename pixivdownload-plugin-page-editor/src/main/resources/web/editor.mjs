@@ -898,6 +898,8 @@ async function start() {
     const selection = document.createElement('select'); selection.id = 'selection';
     selectLabel.append(selection); $('layers').before(selectLabel);
     selection.addEventListener('change', () => editor.select(allModels().find(model => model.getId() === selection.value)));
+    // GrapesJS 默认延后刷新目标；输入必须立即绑定当前选择和视口。
+    editor.on('component:toggled change:device', () => editor.StyleManager.select(editor.getSelectedAll()));
     let selectionFrame;
     editor.on('component:selected component:deselected', () => {
         inspectorGeneration++;

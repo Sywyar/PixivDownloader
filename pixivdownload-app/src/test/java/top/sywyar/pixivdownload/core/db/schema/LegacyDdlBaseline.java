@@ -47,7 +47,7 @@ final class LegacyDdlBaseline {
                     + "move_folder TEXT,"
                     + "move_time INTEGER,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
-                    + "upload_time INTEGER,"
+                    + "upload_time INTEGER,source_upload_time INTEGER,time_projection_version INTEGER NOT NULL DEFAULT 0,create_time INTEGER,update_time INTEGER,reupload_time INTEGER,"
                     + "is_original INTEGER,"
                     + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",
             "CREATE TABLE IF NOT EXISTS statistics ("
@@ -84,6 +84,10 @@ final class LegacyDdlBaseline {
             "CREATE INDEX IF NOT EXISTS idx_artworks_author_time ON artworks(author_id, time)",
             "CREATE INDEX IF NOT EXISTS idx_artworks_series_order ON artworks(series_id, series_order)",
             "CREATE INDEX IF NOT EXISTS idx_artworks_upload_time ON artworks(upload_time, artwork_id)",
+            "CREATE INDEX IF NOT EXISTS idx_artworks_source_upload_time ON artworks(source_upload_time, artwork_id)",
+            "CREATE INDEX IF NOT EXISTS idx_artworks_create_time ON artworks(create_time, artwork_id)",
+            "CREATE INDEX IF NOT EXISTS idx_artworks_update_time ON artworks(update_time, artwork_id)",
+            "CREATE INDEX IF NOT EXISTS idx_artworks_reupload_time ON artworks(reupload_time, artwork_id)",
             // ── AuthorMapper ───────────────────────────────────────────────────
             "CREATE TABLE IF NOT EXISTS authors ("
                     + "author_id INTEGER PRIMARY KEY,"
@@ -196,11 +200,15 @@ final class LegacyDdlBaseline {
                     + "cover_ext TEXT DEFAULT NULL,"
                     + "file_base_name TEXT,"
                     + "deleted INTEGER NOT NULL DEFAULT 0,"
-                    + "upload_time INTEGER,"
+                    + "upload_time INTEGER,source_upload_time INTEGER,time_projection_version INTEGER NOT NULL DEFAULT 0,create_time INTEGER,update_time INTEGER,reupload_time INTEGER,"
                     + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",
             "CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)",
             "CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)",
             "CREATE INDEX IF NOT EXISTS idx_novels_upload_time ON novels(upload_time, novel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_novels_source_upload_time ON novels(source_upload_time, novel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_novels_create_time ON novels(create_time, novel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_novels_update_time ON novels(update_time, novel_id)",
+            "CREATE INDEX IF NOT EXISTS idx_novels_reupload_time ON novels(reupload_time, novel_id)",
             "CREATE TABLE IF NOT EXISTS novel_series ("
                     + "series_id INTEGER PRIMARY KEY,"
                     + "title TEXT NOT NULL,"
@@ -359,6 +367,12 @@ final class LegacyDdlBaseline {
                     + "first_seen_time INTEGER,"
                     + "last_attempt_time INTEGER,"
                     + "PRIMARY KEY(task_id, work_type, work_id))",
+            "CREATE TABLE IF NOT EXISTS scheduled_task_credential_candidates ("
+                    + "task_id INTEGER NOT NULL,"
+                    + "position INTEGER NOT NULL,"
+                    + "account_key TEXT,"
+                    + "secret TEXT NOT NULL,"
+                    + "PRIMARY KEY(task_id, position))",
             "CREATE TABLE IF NOT EXISTS scheduled_task_credentials ("
                     + "task_id INTEGER NOT NULL PRIMARY KEY,"
                     + "policy_owner_plugin_id TEXT NOT NULL,"

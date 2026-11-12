@@ -11,7 +11,7 @@
     "error.invite-expired": "招待コードが無効または期限切れです",
     "error.invite-invalid": "招待コードが無効です",
     "error.login-failed": "ログインに失敗しました",
-    "error.network": "ネットワークエラー：{message}",
+    "error.network": "接続に失敗しました。しばらくしてから再試行してください。",
     "field.password": "パスワード",
     "field.password.placeholder": "パスワード",
     "field.username": "ユーザー名",

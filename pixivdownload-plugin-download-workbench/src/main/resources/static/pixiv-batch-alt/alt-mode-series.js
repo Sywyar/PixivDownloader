@@ -5,7 +5,7 @@
    ============================================================ */
 function renderSeriesMode(panel) {
     const def = AB_MODES[4];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton(), saveScheduleButton()].filter(Boolean)));
+    panel.appendChild(modeHeader(def, [settingsButton(), saveScheduleButton()].filter(Boolean)));
 
     const sources = altSourcesForMode('series');
     if (!sources.some(source => source.id === seriesState.source)) seriesState.source = sources[0] && sources[0].id;

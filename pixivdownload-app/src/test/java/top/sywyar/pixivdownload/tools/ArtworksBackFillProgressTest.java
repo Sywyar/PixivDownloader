@@ -45,7 +45,7 @@ class ArtworksBackFillProgressTest {
             try (var connection = pool.getConnection()) {
                 top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
                 try (var statement = connection.createStatement()) {
-                    statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,author_id,is_ai,description,series_id,upload_time)"
+                    statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,author_id,is_ai,description,series_id,source_upload_time)"
                             + " VALUES(1,'fixture','{0}',1,'jpg',1,0,0,'known',0,1234)");
                     statement.executeUpdate("INSERT INTO tags(tag_id,name) VALUES(1,'fixture')");
                     statement.executeUpdate("INSERT INTO artwork_tags(artwork_id,tag_id) VALUES(1,1)");
@@ -153,7 +153,7 @@ class ArtworksBackFillProgressTest {
             assertEquals(1, result.filledUploadTime());
             verify(client, never()).queryNovel(anyLong());
             try (var connection = pool.getConnection(); var statement = connection.createStatement();
-                 var rows = statement.executeQuery("SELECT COUNT(*) FROM novels WHERE upload_time IS NOT NULL")) {
+                 var rows = statement.executeQuery("SELECT COUNT(*) FROM novels WHERE source_upload_time IS NOT NULL")) {
                 assertTrue(rows.next());
                 assertEquals(dryRun ? 0 : 1, rows.getInt(1));
             }

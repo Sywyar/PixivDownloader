@@ -1,5 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────
 # 首次部署（务必先完成初始化，再常驻运行）：
+#   先按配置文档生成独立保护密钥，设置 PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE 为宿主文件绝对路径。
+#   Linux 宿主令该文件仅 UID/GID 10001 可读；密钥放在 config 及其备份之外，不随镜像打包。
+#   保留该文件，升级与重启不重新生成；缺少变量时 Compose 拒绝启动。
 #   1. docker compose run --rm app --setup   # 交互式创建管理员/选择 solo|multi，
 #                                            #   写入 state/setup_config.json
 #   2. docker compose up -d                  # 常驻运行
@@ -35,6 +38,10 @@ services:
     pids_limit: 256
     mem_limit: 2g
     cpus: 2.0
+    environment:
+      PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE: /run/secrets/pixivdownload-credentials
+    secrets:
+      - pixivdownload-credentials
     tmpfs:
       - /tmp:size=256m,noexec,nosuid,nodev
     volumes:
@@ -59,3 +66,7 @@ services:
 
 volumes:
   plugins:
+
+secrets:
+  pixivdownload-credentials:
+    file: "${PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE:?Set PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE to the private protection key file}"

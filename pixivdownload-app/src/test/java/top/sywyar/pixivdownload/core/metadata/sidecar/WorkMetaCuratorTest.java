@@ -29,6 +29,32 @@ class WorkMetaCuratorTest {
     }
 
     @Test
+    @DisplayName("来源的四个日期分别归一化，创建和更新不冒充上传")
+    void sourceDatesStayIndependent() {
+        var raw = json("{\"id\":1,\"createDate\":\"2020-01-01T00:00:00Z\","
+                + "\"uploadDate\":\"2020-02-01T00:00:00Z\",\"updateDate\":\"2020-03-01T00:00:00Z\","
+                + "\"reuploadDate\":\"2020-04-01T00:00:00Z\"}");
+        var meta = curator.curateNovel(1, raw, "forward");
+        assertThat(meta.createTime()).isEqualTo(epoch("2020-01-01T00:00:00Z"));
+        assertThat(meta.uploadTime()).isEqualTo(epoch("2020-02-01T00:00:00Z"));
+        assertThat(meta.updateTime()).isEqualTo(epoch("2020-03-01T00:00:00Z"));
+        assertThat(meta.reuploadTime()).isEqualTo(epoch("2020-04-01T00:00:00Z"));
+        var partial = json("{\"id\":1,\"createDate\":\"2020-01-01T00:00:00Z\",\"updateDate\":\"2020-03-01T00:00:00Z\"}");
+        assertThat(curator.curateNovel(1, partial, "forward").uploadTime()).isNull();
+        assertThat(curator.curateArtwork(1, partial, null, "forward").uploadTime()).isNull();
+        var legacy = curator.curateNovel(1, partial, "forward").document();
+        legacy.put("schemaVersion", 1);
+        ((tools.jackson.databind.node.ObjectNode) legacy.path("normalized")).put("uploadTime", 123L);
+        String captured = legacy.path("fetchedAt").stringValue();
+        var restored = curator.restore(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL, 1, legacy);
+        assertThat(restored.uploadTime()).isNull();
+        assertThat(restored.createTime()).isEqualTo(epoch("2020-01-01T00:00:00Z"));
+        assertThat(restored.document().path("fetchedAt").stringValue()).isEqualTo(captured);
+        assertThat(restored.document().path("source").stringValue()).isEqualTo("forward");
+        assertThat(legacy.path("normalized").path("uploadTime").longValue()).isEqualTo(123L);
+    }
+
+    @Test
     @DisplayName("插画：剥 C 类（计数/会话私有/巨型噪声）、保留 A+B，normalized 抽出高价值字段 + 列投影")
     void shouldCurateArtwork() {
         JsonNode illust = json("""
@@ -47,7 +73,7 @@ class WorkMetaCuratorTest {
         assertThat(c.isOriginal()).isFalse();
 
         JsonNode doc = c.document();
-        assertThat(doc.path("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(doc.path("schemaVersion").asInt()).isEqualTo(2);
         assertThat(doc.path("workType").asString()).isEqualTo("ARTWORK");
         assertThat(doc.path("workId").asLong()).isEqualTo(1L);
         assertThat(doc.path("source").asString()).isEqualTo("schedule");

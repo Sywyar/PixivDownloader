@@ -70,6 +70,29 @@ test('业务提交保持原 DTO，统一拦截响应沿用普通失败反馈且�
     await invite;
 });
 
+for (const action of ['doLogin', 'doInviteRedeem']) {
+    test(action + ' 不显示服务器诊断、旧式错误正文或网络异常详情', async () => {
+        for (const failure of ['server', 'legacy', 'network', 'invalid-json']) {
+            const s = await page();
+            const pending = s.actions[action]();
+            await settle();
+            const detail = 'Handler dispatch failed: java.lang.NoSuchMethodError internal-probe';
+            if (failure === 'network') s.posts[0].reject(new Error(detail));
+            else s.posts[0].resolve({ok: false, status: failure === 'server' ? 500 : 400,
+                json: async () => {
+                    if (failure === 'invalid-json') throw new SyntaxError(detail);
+                    return failure === 'server' ? {code: 'error.unexpected', error: detail} : {error: detail};
+                }});
+            await pending;
+            const message = s.node(action === 'doLogin' ? 'error-msg' : 'invite-error').textContent;
+            assert.ok(message.length > 0);
+            assert.doesNotMatch(message, /internal-probe|NoSuchMethodError|Handler dispatch/);
+            assert.equal(s.node('login-btn').disabled, false);
+            assert.equal(s.node('invite-btn').disabled, false);
+        }
+    });
+}
+
 test('登录后的回跳按浏览器URL语义限制在当前来源', async () => {
     const blocked = [String.raw`/\outside.example.test/`, '/\t/outside.example.test/',
         '//outside.example.test/', 'https://outside.example.test/', 'javascript:alert(1)', '/\\[invalid'];

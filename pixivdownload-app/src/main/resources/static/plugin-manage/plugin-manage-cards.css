@@ -31,12 +31,18 @@
     filter: none;
 }
 
+.pm-page :is(button, a):focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 3px;
+}
+
+.pm-security-notice > .accordion-body { max-width: var(--layout-reading); line-height: 1.6; }
+
 .pm-btn i {
     font-size: 0.75rem;
 }
 
 .pm-btn--primary { background: var(--brand); }
-.pm-btn--teal { background: var(--accent-teal); }
 /* 描边按钮（设置 / 卸载等次级动作） */
 .pm-btn--gray,
 .pm-btn--danger {
@@ -95,47 +101,6 @@
     font-size: 0.78125rem;
     line-height: 1.55;
 }
-
-/* ── 概览统计（信息区） ── */
-.pm-stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--surface);
-}
-
-.pm-stat {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: .375rem .75rem;
-    padding: .625rem 1rem;
-}
-
-.pm-stat-num {
-    font-size: 1.25rem;
-    font-weight: 800;
-    line-height: 1;
-    font-family: var(--font-mono);
-    color: var(--stat-color, var(--text));
-}
-
-.pm-stat-label {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--muted);
-}
-
-.pm-stat-icon { display: none; }
-
-.pm-stat--pixiv { --stat-color: var(--accent-pixiv); }
-.pm-stat--green { --stat-color: var(--status-green); }
-.pm-stat--amber { --stat-color: var(--accent-amber); }
-.pm-stat--blue { --stat-color: var(--accent-blue); }
 
 /* ── 筛选与搜索 ── */
 .pm-toolbar {

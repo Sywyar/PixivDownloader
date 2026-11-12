@@ -14,6 +14,7 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 public class ScheduledTaskMapper {
     private static final String TASK = "scheduled_tasks";
     private static final String CREDENTIAL = "scheduled_task_credentials";
+    private static final String CANDIDATES = "scheduled_task_credential_candidates";
     private static final String PENDING = "scheduled_task_pending_work";
     private final MainDatabase database;
     public ScheduledTaskMapper(MainDatabase database) { this.database = database; }
@@ -282,14 +283,24 @@ public class ScheduledTaskMapper {
         row.put("secret_reference", secretReference); row.put("updated_time", updatedTime);
         var changes = new LinkedHashMap<String, Expression>();
         row.keySet().stream().filter(name -> !name.equals("task_id")).forEach(name -> changes.put(name, new Incoming(name)));
-        return database.transaction(s -> s.insert(CREDENTIAL, row,
-                new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("task_id"), changes)));
+        return database.transaction(s -> {
+            s.delete(CANDIDATES, eq(CANDIDATES, "task_id", taskId));
+            return s.insert(CREDENTIAL, row,
+                    new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("task_id"), changes));
+        });
     }
     public int deleteCredential(long taskId, String policyOwnerPluginId, String policyId) {
-        return database.transaction(s -> s.delete(CREDENTIAL, credential(taskId, policyOwnerPluginId, policyId)));
+        return database.transaction(s -> {
+            int removed = s.delete(CREDENTIAL, credential(taskId, policyOwnerPluginId, policyId));
+            if (removed > 0) s.delete(CANDIDATES, eq(CANDIDATES, "task_id", taskId));
+            return removed;
+        });
     }
     public int deleteCredentialByTask(long taskId) {
-        return database.transaction(s -> s.delete(CREDENTIAL, eq(CREDENTIAL, "task_id", taskId)));
+        return database.transaction(s -> {
+            s.delete(CANDIDATES, eq(CANDIDATES, "task_id", taskId));
+            return s.delete(CREDENTIAL, eq(CREDENTIAL, "task_id", taskId));
+        });
     }
     public int updateCredentialPolicyState(long taskId, String policyOwnerPluginId, String policyId,
                                            String expectedPolicyStateJson, String newPolicyStateJson, long updatedTime) {
@@ -303,6 +314,37 @@ public class ScheduledTaskMapper {
         var row = rows.get(0);
         return new ScheduledCredentialBinding((String) row.get("policy_owner_plugin_id"),
                 (String) row.get("policy_id"), (String) row.get("policy_state_json"));
+    }
+    public void replaceCredentialCandidates(long taskId, List<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue> candidates) {
+        if (candidates.size() > 8) throw new IllegalArgumentException("Too many credential candidates");
+        database.transaction(s -> {
+            s.delete(CANDIDATES, eq(CANDIDATES, "task_id", taskId));
+            for (int index = 0; index < candidates.size(); index++) {
+                var candidate = candidates.get(index);
+                var row = new LinkedHashMap<String, Object>();
+                row.put("task_id", taskId); row.put("position", index);
+                row.put("account_key", candidate.accountKey()); row.put("secret", candidate.secret());
+                s.insert(CANDIDATES, row, DatabaseSession.Conflict.error());
+            }
+            return null;
+        });
+    }
+    public List<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue> findCredentialCandidates(long taskId, String owner, String policy) {
+        String primary = findCredentialSecret(taskId, owner, policy);
+        if (primary == null || primary.isBlank()) return List.of();
+        var rows = query(new Query(CANDIDATES, fields(CANDIDATES, "position", "account_key", "secret"),
+                eq(CANDIDATES, "task_id", taskId), List.of(), List.of(), 9, 0));
+        if (rows.isEmpty()) return List.of(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue(null, primary));
+        if (rows.size() > 8) throw new IllegalStateException("Invalid credential candidates");
+        var sorted = rows.stream().sorted(java.util.Comparator.comparingInt(row -> ((Number) row.get("position")).intValue())).toList();
+        var result = new ArrayList<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue>();
+        for (int index = 0; index < sorted.size(); index++) {
+            var row = sorted.get(index);
+            if (((Number) row.get("position")).intValue() != index) throw new IllegalStateException("Invalid credential order");
+            result.add(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue((String) row.get("account_key"), (String) row.get("secret")));
+        }
+        if (!primary.equals(result.getFirst().secret())) throw new IllegalStateException("Credential primary mismatch");
+        return List.copyOf(result);
     }
     public String findCredentialSecret(long taskId, String policyOwnerPluginId, String policyId) {
         var rows = query(new Query(CREDENTIAL, fields(CREDENTIAL, "secret"), credential(taskId, policyOwnerPluginId, policyId),

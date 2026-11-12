@@ -59,7 +59,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
     }
 
     /**
-     * 捕获小说 meta：归一化后写 {@code upload_time} 列投影（小说 {@code is_original} 列在 insert 时已写）及数据库快照。
+     * 捕获小说 meta：归一化后写独立的来源时间列投影（小说 {@code is_original} 列在 insert 时已写）及数据库快照。
      *
      * @param novelBody {@code /ajax/novel/{id}} 的 body；为 {@code null} 时直接跳过
      */

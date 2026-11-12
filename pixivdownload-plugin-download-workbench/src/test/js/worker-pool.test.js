@@ -207,7 +207,7 @@ for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
             document: {getElementById: () => new MiniElement('select'),
                 createElement: tag => new MiniElement(tag)}});
         for (const file of ['pixiv-batch/filename-template.js', alt
-            ? 'pixiv-batch-alt/alt-settings.js' : 'pixiv-batch/batch-settings.js']) {
+            ? 'pixiv-batch-alt/alt-settings.js' : 'pixiv-batch/settings-context.js', ...(alt ? [] : ['pixiv-batch/batch-settings.js'])]) {
             vm.runInContext(readFileSync(resolve(root, file), 'utf8'), c, {filename: file});
         }
         state.isRunning = false;

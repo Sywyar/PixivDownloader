@@ -70,6 +70,7 @@ async function init() {
             if (window.PixivNav) PixivNav.refresh();
             updateSearchPlaceholder();
             updateOrderToggleLabel();
+            renderDateFilters();
             syncCollectionFormTitle();
             reloadCurrentView();
         }
@@ -220,11 +221,16 @@ function setupEventHandlers() {
         setFilterPanelOpen(!panel.classList.contains('open'));
     });
     // Sort chips
+    document.getElementById('dateSort').addEventListener('change', event => {
+        state.sort = event.target.value || 'date';
+        state.page = 0;
+        syncDateSort();
+        reloadCurrentView();
+    });
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
         chip.addEventListener('click', () => {
-            document.querySelectorAll('.chip[data-sort]').forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
             state.sort = chip.dataset.sort;
+            syncDateSort();
             state.page = 0;
             reloadCurrentView();
         });
@@ -284,22 +290,6 @@ function setupEventHandlers() {
     document.getElementById('tagExpandToggle').addEventListener('click', () => toggleExpand('filterTagChips', 'tagExpandToggle'));
     document.getElementById('seriesExpandToggle').addEventListener('click', () => toggleExpand('filterSeriesChips', 'seriesExpandToggle'));
     document.getElementById('authorExpandToggle').addEventListener('click', () => toggleExpand('filterAuthorChips', 'authorExpandToggle'));
-    for (const prefix of ['upload', 'download']) {
-        for (const name of [prefix + 'StartDate', prefix + 'EndDate']) {
-            document.getElementById(name).addEventListener('change', () => {
-                const from = document.getElementById(prefix + 'StartDate');
-                const to = document.getElementById(prefix + 'EndDate');
-                to.setCustomValidity(from.value && to.value && from.value > to.value
-                    ? pageI18n.t('filter.date.invalid', 'The end date must not precede the start date.') : '');
-                if (!from.reportValidity() || !to.reportValidity()) return;
-                state[prefix + 'StartDate'] = from.value;
-                state[prefix + 'EndDate'] = to.value;
-                state.page = 0;
-                updateFilterBadge();
-                reloadCurrentView();
-            });
-        }
-    }
 
     document.getElementById('filterReset').addEventListener('click', resetAllFilters);
     document.getElementById('authorFilterClear').addEventListener('click', () => {

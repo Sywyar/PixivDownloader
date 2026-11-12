@@ -15,6 +15,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.beans.factory.ObjectProvider;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
@@ -692,7 +693,7 @@ public class AuthFilter extends OncePerRequestFilter {
         if (cookies == null) return null;
         String code = null;
         for (Cookie c : cookies) {
-            if (INVITE_COOKIE.equals(c.getName()) && c.getValue() != null && !c.getValue().isBlank()) {
+            if (InstanceCookies.name(req, INVITE_COOKIE).equals(c.getName()) && c.getValue() != null && !c.getValue().isBlank()) {
                 code = c.getValue();
                 break;
             }
@@ -738,7 +739,7 @@ public class AuthFilter extends OncePerRequestFilter {
         Cookie[] cookies = req.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName())
+                if (InstanceCookies.name(req, "pixiv_user_id").equals(c.getName())
                         && UuidUtils.parseUuidV4(c.getValue()) != null) {
                     return;
                 }
@@ -746,7 +747,7 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         String uuid = UuidUtils.extractOrGenerateUuid(req);
-        ResponseCookie cookie = ResponseCookie.from("pixiv_user_id", uuid)
+        ResponseCookie cookie = ResponseCookie.from(InstanceCookies.name(req, "pixiv_user_id"), uuid)
                 .path("/")
                 .maxAge(Duration.ofDays(30))
                 .sameSite("Strict")

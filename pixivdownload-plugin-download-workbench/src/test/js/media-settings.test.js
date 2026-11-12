@@ -23,14 +23,19 @@ function mountSettings(classic = false) {
     document.body = document.createElement('body');
     const dialog = document.createElement('dialog');
     if (classic) dialog.id = 'download-settings-card';
+    else dialog.className = 'ab-settings';
     document.body.appendChild(dialog);
     const settings = {imageFormats: 'original', ugoiraFormats: 'webp'};
     let changes = 0;
     const context = vm.createContext({document, fetch: () => { throw new Error('Settings must stay browser-local'); }});
     context.window = context;
+    const hints = [];
+    context.PixivBatch = {settings: {attachHint: (label, help) => hints.push({label, help})}};
     vm.runInContext(readFileSync(resolve(__dirname,
         '../../main/resources/static/pixiv-batch/media-settings.js'), 'utf8'), context);
     context.PixivMediaSettings.mount(dialog, settings, () => changes++, key => key, true);
+    assert.equal(hints.length, classic ? 0 : 5);
+    assert.ok(hints.every(({label, help}) => label.parentNode === help.parentNode));
     return {document, settings, changes: () => changes, media: context.PixivMediaSettings};
 }
 

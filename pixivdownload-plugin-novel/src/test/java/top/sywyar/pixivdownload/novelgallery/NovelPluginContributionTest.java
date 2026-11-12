@@ -115,6 +115,7 @@ class NovelPluginContributionTest {
     @DisplayName("小说后端专属文案由插件资源成对持有")
     void backendOutputMessagesAreOwnedByPlugin() throws Exception {
         Set<String> expectedKeys = Set.of(
+                "error.unexpected",
                 "novel.download.status.completed",
                 "novel.download.status.in-progress",
                 "novel.render.uploaded-image",

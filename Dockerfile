@@ -21,7 +21,7 @@ RUN set -eux; \
 
 WORKDIR /app
 
-COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar
+COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/app/ app/
 COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/
 COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json
 COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS
@@ -37,12 +37,16 @@ RUN set -eux; \
 
 USER 10001:10001
 
+RUN java -cp 'app/*' top.sywyar.pixivdownload.startup.DistributionLauncher prepare /app/app/application.aot /tmp/pixiv-aot-training \
+    && java -XX:AOTMode=on -XX:AOTCache=/app/app/application.aot -cp '/app/app/*' -version \
+    && rm -rf /tmp/pixiv-aot-training
+
 # Default server.port (config.yaml can change it; update probes/compose ports together).
 EXPOSE 6999
 
 # Containers are headless; GuiLauncher automatically follows the --no-gui path.
 # The state volume holds the instance lease and SQLite native extraction; /tmp stays noexec.
-ENTRYPOINT ["java", "-Djava.awt.headless=true", "-Dpixivdownload.instance-dir=/app/state/instance", "-Dorg.sqlite.tmpdir=/app/state", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-Dpixivdownload.instance-dir=/app/state/instance", "-Dorg.sqlite.tmpdir=/app/state", "-XX:AOTMode=auto", "-XX:AOTCache=/app/app/application.aot", "-cp", "/app/app/*", "top.sywyar.pixivdownload.gui.GuiLauncher"]
 
 # Health uses the public actuator endpoint allowed by AuthFilter.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

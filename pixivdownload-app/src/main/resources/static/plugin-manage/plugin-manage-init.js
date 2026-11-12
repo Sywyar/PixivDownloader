@@ -23,13 +23,13 @@
         var box = document.getElementById('pm-updates');
         var summary = PM.state.pluginUpdates;
         box.replaceChildren();
-        box.hidden = !summary || !summary.enabled;
+        box.hidden = !summary || !summary.enabled
+            || !(summary.compatibleUpdates || summary.sdkBlockedUpdates || summary.checkFailed);
         if (box.hidden) return;
         [
             ['compatible', summary.compatibleUpdates, 'pm-update-compatible'],
             ['sdkBlocked', summary.sdkBlockedUpdates, 'pm-update-blocked'],
-            ['failed', summary.checkFailed ? 1 : 0, ''],
-            ['none', !summary.checkFailed && !summary.compatibleUpdates && !summary.sdkBlockedUpdates ? 1 : 0, '']
+            ['failed', summary.checkFailed ? 1 : 0, '']
         ].forEach(function (item) {
             if (!item[1]) return;
             var line = document.createElement('p');

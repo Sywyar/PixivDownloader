@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.schedule;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue;
+import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
@@ -68,13 +70,27 @@ public final class ScheduleCredentialService {
             throw badRequest("schedule.error.credential-empty", "凭证无效或为空");
         }
         String normalizedSecret = secret.trim();
+        List<String> candidates = AcquisitionCredentials.candidates(normalizedSecret);
         try (ScheduleCredentialBindingLease binding =
                      executionEngine.prepareCredentialBinding(
                              task, expectedSourceActivationToken)) {
             String policyOwnerPluginId = binding.policyOwnerPluginId();
             String policyId = binding.policyId();
-            rejectUnchangedSecret(taskId, policyOwnerPluginId, policyId, normalizedSecret);
-            ScheduledCredentialBindResult bindResult = binding.probe(normalizedSecret);
+            if (task.credentialSecretReference() != null && binding.isBindingFixed()) {
+                throw fixedBinding();
+            }
+            rejectUnchangedSecret(taskId, policyOwnerPluginId, policyId, candidates);
+            List<ScheduledCredentialBindResult> results = candidates.size() == 1
+                    ? List.of(binding.probe(normalizedSecret)) : binding.probeCandidates(candidates);
+            ScheduledCredentialBindResult bindResult = results.getFirst();
+            var values = new ArrayList<ScheduledCredentialValue>();
+            for (int index = 0; index < candidates.size(); index++) {
+                var checked = results.get(index);
+                if (index > 0 && (checked.probeResult().status() != ScheduledCredentialProbeResult.Status.VALID
+                        || checked.postBindResult().decision().action() != ScheduledGuardDecision.Action.CONTINUE))
+                    throw badRequest("schedule.error.credential-invalid", "凭证无效或暂不可用");
+                values.add(new ScheduledCredentialValue(checked.probeResult().accountKey(), candidates.get(index)));
+            }
             ScheduledCredentialProbeResult probe = bindResult.probeResult();
             if (probe.status() == ScheduledCredentialProbeResult.Status.INVALID) {
                 throw badRequest("schedule.error.credential-invalid", "凭证无效或已失效");
@@ -85,7 +101,7 @@ public final class ScheduleCredentialService {
                         "暂时无法验证凭证，请检查网络后重试");
             }
             transactions.executeWithoutResult(status -> bindInTransaction(
-                    task, binding, bindResult, normalizedSecret));
+                    task, binding, bindResult, values));
         } catch (ScheduleSourcePublicationChangedException failure) {
             throw conflict(
                     "schedule.error.source-publication-changed",
@@ -104,21 +120,36 @@ public final class ScheduleCredentialService {
     }
 
     public void revoke(long taskId) {
-        transactions.executeWithoutResult(status -> {
-            ScheduledTask task = requireExisting(taskId);
-            requireIdle(task);
-            if (task.credentialPolicyOwnerPluginId() == null) {
-                return;
-            }
-            if (task.credentialPolicyId() == null) {
+        ScheduledTask task = requireExisting(taskId);
+        requireIdle(task);
+        if (task.credentialPolicyOwnerPluginId() == null) return;
+        try (var lease = preparePolicyLease(task.credentialPolicyId())) {
+            if (lease == null || !task.credentialPolicyOwnerPluginId().equals(lease.owner().featurePluginId())
+                    || !capabilities.activate(lease)) {
                 throw badRequest(
                         "schedule.error.credential-policy-unavailable",
                         "计划任务凭证策略当前不可用");
             }
-            requireChanged(store.removeCredential(
-                    taskId, task.stateVersion(), task.credentialPolicyOwnerPluginId(),
-                    task.credentialPolicyId()));
-        });
+            boolean fixed;
+            try {
+                fixed = lease.capability().isBindingFixed(task.sourceType(), task.definitionJson());
+            } catch (RuntimeException failure) {
+                throw badRequest("schedule.error.credential-policy-unavailable", "计划任务凭证策略当前不可用");
+            }
+            if (fixed) throw fixedBinding();
+            if (!capabilities.whileCurrentPublication(lease, () -> {
+                transactions.executeWithoutResult(status -> requireChanged(store.removeCredential(
+                        taskId, task.stateVersion(), task.credentialPolicyOwnerPluginId(),
+                        task.credentialPolicyId())));
+                return true;
+            }).orElse(false)) {
+                throw conflict("schedule.error.credential-policy-publication-changed", "凭证策略已更新，请刷新后重试");
+            }
+        }
+    }
+
+    private static ScheduleManagementException fixedBinding() {
+        return badRequest("schedule.error.credential-fixed", "此计划的凭证已固定，不能更换或清除；使用其他凭证请新建计划。");
     }
 
     public ScheduleCredentialPolicyView project(ScheduledTask task) {
@@ -219,7 +250,8 @@ public final class ScheduleCredentialService {
             ScheduledTask expectedTask,
             ScheduleCredentialBindingLease binding,
             ScheduledCredentialBindResult bindResult,
-            String secret) {
+            List<ScheduledCredentialValue> candidates) {
+        String secret = candidates.getFirst().secret();
         ScheduledTask current = requireExisting(expectedTask.id());
         if (current.stateVersion() != expectedTask.stateVersion()) {
             throw concurrentChange();
@@ -228,7 +260,7 @@ public final class ScheduleCredentialService {
         requireBindingActive(binding);
         String ownerPluginId = binding.policyOwnerPluginId();
         String policyId = binding.policyId();
-        rejectUnchangedSecret(current.id(), ownerPluginId, policyId, secret);
+        rejectUnchangedSecret(current.id(), ownerPluginId, policyId, candidates.stream().map(ScheduledCredentialValue::secret).toList());
         boolean sameBinding = ownerPluginId.equals(current.credentialPolicyOwnerPluginId())
                 && policyId.equals(current.credentialPolicyId())
                 && Objects.equals(
@@ -236,7 +268,9 @@ public final class ScheduleCredentialService {
         String policyState = sameBinding && current.credentialPolicyStateJson() != null
                 ? current.credentialPolicyStateJson()
                 : bindResult.initialPolicyStateJson();
-        OptionalLong bound = store.bindCredential(
+        OptionalLong bound = candidates.size() > 1 ? store.bindCredentials(
+                current.id(), current.stateVersion(), ownerPluginId, policyId, policyState, candidates,
+                "scheduled-task:" + current.id() + ":credential", System.currentTimeMillis()) : store.bindCredential(
                 current.id(), current.stateVersion(), ownerPluginId, policyId,
                 bindResult.probeResult().accountKey(), policyState, secret,
                 "scheduled-task:" + current.id() + ":credential",
@@ -376,9 +410,9 @@ public final class ScheduleCredentialService {
             long taskId,
             String ownerPluginId,
             String policyId,
-            String secret) {
-        String current = store.findCredentialSecret(taskId, ownerPluginId, policyId);
-        if (current != null && current.equals(secret)) {
+            List<String> secrets) {
+        var current = store.findCredentialCandidates(taskId, ownerPluginId, policyId);
+        if (current.stream().map(ScheduledCredentialValue::secret).toList().equals(secrets)) {
             throw badRequest(
                     "schedule.error.credential-unchanged",
                     "凭证与当前已绑定的相同，未做更新；若任务因凭证失效被挂起，请改用新的有效凭证");

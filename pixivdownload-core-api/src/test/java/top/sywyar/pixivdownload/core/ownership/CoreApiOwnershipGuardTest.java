@@ -151,6 +151,7 @@ class CoreApiOwnershipGuardTest {
                     "VisitorDownloadQuotaReservation", "VisitorDownloadQuotaService")),
             Map.entry("核心计划任务持久化语义", union(
                     types("top.sywyar.pixivdownload.core.schedule",
+                            "ScheduledCredentialValue",
                             "ScheduleTaskDefinitionUpdate", "ScheduledPendingWork", "ScheduledTask",
                             "ScheduledTaskCreate", "ScheduledTaskStore"),
                     types("top.sywyar.pixivdownload.core.schedule.state",
@@ -676,6 +677,7 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(PixivAjaxException.class))
                 .containsExactlyInAnyOrder(
                         "public failure():top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure",
+                        "public retryAfterMillis():long",
                         "public statusCode():int");
         assertThat(publicDeclaredMethodSignatures(PixivBookmarkActions.class))
                 .containsExactlyInAnyOrder(

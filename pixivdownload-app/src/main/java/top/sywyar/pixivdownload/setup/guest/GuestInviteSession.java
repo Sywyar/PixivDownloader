@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.setup.guest;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.util.Set;
 
@@ -52,7 +53,7 @@ public record GuestInviteSession(
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie cookie : cookies) {
-                if (COOKIE_NAME.equals(cookie.getName()) && cookie.getValue() != null
+                if (InstanceCookies.name(request, COOKIE_NAME).equals(cookie.getName()) && cookie.getValue() != null
                         && !cookie.getValue().isBlank()) return true;
             }
         }

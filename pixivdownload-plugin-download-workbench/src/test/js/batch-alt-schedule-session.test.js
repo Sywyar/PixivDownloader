@@ -4,6 +4,105 @@ const assert = require('node:assert/strict');
 const {setup} = require('./batch-alt-schedule-session-support');
 const defaults = require('../../../../scripts/schedule/pixiv-defaults.json');
 
+test('快捷来源变化原位更新计划按钮，账号返回、作品列表和内层关闭均不需切页', async () => {
+    const h = setup();
+    h.load('../pixiv-batch/batch-pagination.js', 'alt-mode-capture.js');
+    const opened = [];
+    let accountResult;
+    const acquisition = {
+        type: 'illust', dataSource: {id: 'pixiv'},
+        account: {buildRequest: () => ({}), readId: data => data.id},
+        actions: {
+            bookmarks: {viewType: 'works', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.uid && {sourceType: 'my-bookmarks', source: {userId: ctx.uid}, kind: 'illust'}},
+            following: {viewType: 'following-list', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.inner && {sourceType: 'user-new', source: {userId: ctx.inner.userId}, kind: 'illust'}},
+            collections: {viewType: 'collection-list', buildPageRequest: () => ({}),
+                scheduleSource: ctx => ctx.inner && {sourceType: 'collection', source: {collectionId: ctx.inner.id}, kind: 'illust'}}
+        },
+        buildUserPageRequest: () => ({})
+    };
+    acquisition.actions.collections.buildCollectionWorksPageRequest = () => ({});
+    Object.assign(h.context.PixivBatch.queueTypes, {
+        acquisition: () => acquisition, acquisitionList: () => [acquisition],
+        dataSourcesForMode: () => [{id: 'pixiv', label: 'Pixiv'}],
+        manifestDescriptor: () => null,
+        acquisitionLease: () => ({assertCurrent() {}}), filtersFor: () => null
+    });
+    Object.assign(h.context, {
+        altAcquisitionJson: async (_type, _mode, _spec, operation) => operation === 'account'
+            ? new Promise(resolve => { accountResult = resolve; }) : {items: [], users: [], collections: [], hasMore: false},
+        openScheduleEditor: () => opened.push(h.context.altCaptureScheduleSource(0)),
+        loadingGrid: () => h.context.document.createElement('progress'),
+        syncAllResultsQueueState() {},
+        enqueueBar: () => h.context.document.createElement('nav')
+    });
+    h.run("state.mode='quick-fetch';quickState.source='pixiv';quickState.kind='illust';quickState.uid=null;");
+    h.context.renderQuickMode(h.panel);
+    const button = h.field('abSaveScheduleBtn'), hint = h.field('abSaveScheduleHint');
+    assert.equal(button.disabled, true);
+    assert.equal(hint.hidden, false);
+    const assertReady = ready => {
+        assert.equal(h.field('abSaveScheduleBtn'), button);
+        assert.equal(h.field('abSaveScheduleHint'), hint);
+        assert.equal(button.disabled, !ready);
+        assert.equal(hint.hidden, ready);
+        assert.equal(button.getAttribute('aria-describedby'), ready ? null : hint.id);
+    };
+    h.context.runQuickAction(h.context.quickActionDef('bookmarks'));
+    await new Promise(resolve => setImmediate(resolve));
+    assertReady(false);
+    accountResult({id: '42'});
+    await new Promise(resolve => setImmediate(resolve));
+    assertReady(true);
+    button.click();
+    assert.equal(opened.at(-1).sourceType, 'my-bookmarks');
+    assert.equal(opened.at(-1).params.source.userId, '42');
+    for (const [action, enter, item, expected] of [
+        ['following', 'drillQuickUser', {userId: '57', userName: 'Artist'}, 'user-new'],
+        ['collections', 'drillQuickCollection', {id: '63', title: 'Collection'}, 'collection']
+    ]) {
+        h.context.runQuickAction(h.context.quickActionDef(action));
+        await new Promise(resolve => setImmediate(resolve));
+        assertReady(false);
+        await h.context[enter](item);
+        assertReady(true);
+        button.click();
+        assert.equal(opened.at(-1).sourceType, expected);
+        h.panel.querySelector('.ab-drill-head').querySelector('button').click();
+        assertReady(false);
+    }
+});
+
+test('切换账号后重新获取收藏和 UID，迟到的旧账号响应不会覆盖新账号', async () => {
+    const h = setup();
+    h.load('alt-mode-capture.js');
+    let identity = 'account-a';
+    const pending = [];
+    const actions = [];
+    Object.assign(h.context, {
+        quickAcquisition: () => ({account: {credentialIdentity: () => identity,
+            buildRequest: () => ({}), readId: data => data.id}}),
+        altSourcesForMode: () => [{id: 'pixiv'}],
+        altTypesForSource: () => [{type: 'illust'}],
+        quickActionDefs: () => [{id: 'bookmarks', view: 'works', descriptor: {}}],
+        renderQuickStage() {},
+        runQuickAction: action => actions.push(action.id),
+        altAcquisitionJson: () => new Promise(resolve => pending.push(resolve))
+    });
+    h.run("state.mode='quick-fetch';quickState.source='pixiv';quickState.action='bookmarks';");
+    h.context.renderQuickMode(h.panel);
+    identity = 'account-b';
+    h.context.renderQuickMode(h.panel);
+    assert.deepEqual(actions, ['bookmarks', 'bookmarks']);
+    assert.equal(pending.length, 2);
+    pending[1]({id: '202'});
+    await new Promise(resolve => setImmediate(resolve));
+    pending[0]({id: '101'});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.run('quickState.uid'), '202');
+});
+
 test('固定页搜索创建和编辑均保留每轮抓取上限', async () => {
     for (const maxPages of [1, 3]) {
         const h = setup({paramsJson: JSON.stringify({kind: 'illust',
@@ -286,6 +385,65 @@ test('快捷编辑沿用所选类型贡献，收藏可切换小说而珍藏集�
     c.context.openScheduleEditor(c.task);c.run('quickState.kind="illust";');await c.save();
     const collection=JSON.parse(c.requests[0].body.definitionJson);
     assert.equal(collection.kind,'mixed');assert.equal(collection.source.collectionId,'27');
+});
+
+test('我的作品与约稿计划在我的 Pixiv 编辑，保存沿用固定账号并恢复手动草稿', async () => {
+    for (const [sourceType, kind] of [['user-new', 'illust'], ['user-new', 'novel'], ['user-request', 'illust']]) {
+        const h = setup({sourceType, credentialPolicy: {bound: true, accountKey: '12345'},
+            paramsJson: JSON.stringify({kind, source: {myPixiv: true, userId: '12345'}, fetchLimit: 7})});
+        h.context.PixivBatch.queueTypes.acquisition = type => ({actions: {
+            own: {sourceType, viewType: 'works-list', scheduleSource: ctx => ({
+                sourceType, source: {userId: ctx.uid}, kind: type})}
+        }});
+        h.run("quickState.uid='999';quickState.action='manual';userState.input='67890';");
+        h.context.openScheduleEditor(h.task);
+        assert.equal(h.run('state.mode'), 'quick-fetch');
+        assert.equal(h.run('quickState.uid'), '12345');
+        assert.equal(h.run('quickState.action'), 'own');
+        assert.equal(h.run('userState.input'), '67890');
+        await h.save();
+        assert.equal(h.requests.length, 1);
+        assert.equal(h.requests[0].method, 'PUT');
+        const saved = JSON.parse(h.requests[0].body.definitionJson);
+        assert.equal(saved.source.userId, '12345');
+        assert.equal(saved.source.myPixiv, true);
+        assert.equal(saved.kind, kind);
+        assert.equal(h.run('quickState.uid'), '999');
+        assert.equal(h.run('quickState.action'), 'manual');
+    }
+});
+
+test('我的 Pixiv 关注画师计划恢复钻取目标，普通画师计划仍在画师页编辑', async () => {
+    const h = setup({sourceType: 'user-new', credentialPolicy: {bound: true, accountKey: '12345'},
+        paramsJson: JSON.stringify({kind: 'novel', source: {myPixiv: true, userId: '67890'}})});
+    h.context.PixivBatch.queueTypes.acquisition = type => ({actions: {
+        own: {sourceType: 'user-new', viewType: 'works-list'},
+        following: {viewType: 'following-list', scheduleSource: ctx => ({
+            sourceType: 'user-new', source: {userId: ctx.inner.userId}, kind: type})}
+    }});
+    h.context.openScheduleEditor(h.task);
+    assert.equal(h.run('state.mode'), 'quick-fetch');
+    assert.equal(h.run('quickState.action'), 'following');
+    assert.equal(h.context.altCaptureScheduleSource(7).params.source.userId, '67890');
+    h.confirm(true);
+    await h.context.cancelScheduleEdit();
+    assert.equal(h.requests.length, 0);
+    const ordinary = setup({sourceType: 'user-new',
+        paramsJson: JSON.stringify({kind: 'illust', source: {userId: '67890'}})});
+    ordinary.context.openScheduleEditor(ordinary.task);
+    assert.equal(ordinary.run('state.mode'), 'user');
+    assert.equal(ordinary.field('abUserInput').value, '67890');
+});
+
+test('我的 Pixiv 编辑选择来源只修改草稿，不以手动 Cookie 读取作品', () => {
+    const h = setup({sourceType: 'user-new', credentialPolicy: {bound: true, accountKey: '12345'},
+        paramsJson: JSON.stringify({kind: 'illust', source: {myPixiv: true, userId: '12345'}})});
+    h.load('alt-mode-capture.js');
+    h.context.openScheduleEditor(h.task);
+    h.context.loadQuickWorks = () => { throw new Error('Unexpected manual account read'); };
+    h.context.runQuickAction({id: 'own', view: 'works'});
+    assert.equal(h.run('quickState.action'), 'own');
+    assert.equal(h.requests.length, 0);
 });
 
 test('抓取提示跟随当前搜索范围，第一页零上限直接保存', async () => {

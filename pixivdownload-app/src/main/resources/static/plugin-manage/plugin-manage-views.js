@@ -1,6 +1,6 @@
 'use strict';
 /*
- * 插件管理页渲染层：据共享状态把概览统计、筛选标签、插件卡片、空 / 加载 / 错误状态与恢复横幅渲染进 DOM。
+ * 插件管理页渲染层：据共享状态把筛选标签、插件卡片、空 / 加载 / 错误状态与恢复横幅渲染进 DOM。
  * 纯命令式渲染（按状态重绘相应容器）；顶层事件绑定与状态写入收拢在 plugin-manage-init.js。
  */
 (function (global) {
@@ -25,25 +25,6 @@
         return vm.enabled ? PM.t('switch.disable', '点击停用') : PM.t('switch.enable', '点击启用');
     }
 
-    // —— 概览统计（信息区） ——
-    function statTile(num, key, fallback, icon, color) {
-        return '<div class="pm-stat pm-stat--' + color + '">'
-            + '<div class="pm-stat-num">' + E(num) + '</div>'
-            + '<div class="pm-stat-label">' + E(PM.t(key, fallback)) + '</div>'
-            + '<i class="fa-solid ' + icon + ' pm-stat-icon"></i>'
-            + '</div>';
-    }
-
-    function renderStats(models) {
-        var s = PM.stats(models);
-        document.getElementById('pm-stats').innerHTML = [
-            statTile(s.total, 'stat.total', '已安装插件', 'fa-puzzle-piece', 'pixiv'),
-            statTile(s.enabled, 'stat.enabled', '已启用', 'fa-circle-check', 'green'),
-            statTile(s.external, 'stat.external', '外置插件', 'fa-cube', 'amber'),
-            statTile(s.required, 'stat.required', '必须插件', 'fa-shield-halved', 'blue')
-        ].join('');
-    }
-
     // —— 筛选标签 ——
     function renderTabs(models) {
         var tabs = PM.tabsModel(models);
@@ -53,7 +34,8 @@
         var focusedTab = host.contains(focusedElement) && focusedElement.getAttribute('data-pm-tab');
         var html = tabs.map(function (tab) {
             var cls = 'pm-tab' + (tab.id === active ? ' active' : '');
-            return '<button type="button" class="' + cls + '" data-pm-tab="' + tab.id + '">'
+            return '<button type="button" class="' + cls + '" data-pm-tab="' + tab.id
+                + '" aria-pressed="' + (tab.id === active) + '">'
                 + '<i class="fa-solid ' + tab.icon + '"></i>'
                 + E(PM.t(tab.labelKey, tab.id)) + ' ' + tab.count
                 + '</button>';
@@ -344,7 +326,6 @@
         var countEl = document.getElementById('pm-result-count');
 
         renderRecovery();
-        renderStats(models);
         renderTabs(models);
 
         if (PM.state.loading && !PM.state.report) {

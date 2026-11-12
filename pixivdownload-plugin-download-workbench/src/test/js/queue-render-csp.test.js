@@ -54,6 +54,7 @@ async function fixture(alt, size = 300, production = false) {
         queueItemDisplayTitle:q=>{if(alt)builds.push(q.id);return q.title;}, queueItemCanonicalUrl:q=>'https://example.com/'+q.id,
         queueItemMessage:q=>String(q.downloadedCount), pct:q=>q.downloadedCount,
         progressExtrasModel:()=>[],
+        progressSlotsFor:()=>[],
         queueProgressSnapshot:q=>Object.assign({},q),
         currentFrontItem:items=>items.find(q=>q.status==='downloading')||null,
         currentCardModel:q=>q?{title:q.title,percent:q.downloadedCount,detail:'current:'+q.downloadedCount}:null,
@@ -148,7 +149,7 @@ test('新版动图从元数据就预留下载和转换位置，后续总量、�
     for (const group of initial) {
         assert.equal(group.length, 2);
         assert.ok(group.every(bar => all(bar, n => n.props.role === 'progressbar')
-            .every(n => n.props['aria-busy'] === 'false' && n.props['aria-valuenow'] === undefined)));
+            .every(n => n.props['aria-valuenow'] === undefined)));
     }
     q.totalImages = 1;
     for (const phase of ['zip', 'extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing', null]) {
@@ -165,11 +166,51 @@ test('新版动图从元数据就预留下载和转换位置，后续总量、�
         f.sync(q); await f.flush();
         bars(f.list).forEach((bar, i) => assert.equal(bar, initial[0][i]));
         assert.doesNotMatch(textOf(f.list), /20%|60%/);
-        assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+        assert.equal(byClass(f.list, 'is-indeterminate').length, status === 'downloading' ? 1 : 0);
     }
     f.state.queue = [];
     f.sync(); await f.flush();
     assert.equal(bars(f.list).length, 0);
+    assert.deepEqual(f.errors, []);
+});
+
+test('新版小说复用主、子进度条，成功保留最终步骤，重试清除旧进度', async () => {
+    const f = await fixture(true, 1, true), q = f.state.queue[0];
+    Object.assign(q, {kind: 'novel', totalImages: 0});
+    f.sync(q); await f.flush();
+    const bars = root => all(root, n => n.props.role === 'progressbar');
+    const initial = [bars(f.list), bars(f.current)];
+    initial.forEach(group => assert.equal(group.length, 2));
+    for (const [field, label, value, percent] of [
+        ['novelText', 'novel-text', {done: 0, total: 0}, undefined],
+        ['novelText', 'novel-text', {done: 5, total: 10}, '50'],
+        ['novelCover', 'novel-cover', {done: 1, total: 4}, '25'],
+        ['novelEmbedded', 'novel-images', {done: 1, total: 2}, '50']
+    ]) {
+        Object.assign(q, {totalImages: 1, novelText: null, novelCover: null, novelEmbedded: null, [field]: value});
+        f.sync(q); await f.flush();
+        [f.list, f.current].forEach((root, index) => {
+            assert.equal(bars(root).length, 2);
+            bars(root).forEach((bar, i) => assert.equal(bar, initial[index][i]));
+            assert.equal(bars(root)[1].props['aria-valuenow'], percent);
+            assert.equal(bars(root)[1].props['aria-busy'], String(percent === undefined));
+            assert.match(bars(root)[1].props['aria-label'], new RegExp(label));
+        });
+    }
+    for (const status of ['completed', 'failed', 'pending', 'downloading']) {
+        Object.assign(q, {status, downloadedCount: status === 'completed' ? 1 : 0, novelEmbedded: null});
+        f.sync(q); await f.flush();
+        assert.equal(bars(f.list).length, 2);
+        bars(f.list).forEach((bar, i) => assert.equal(bar, initial[0][i]));
+        if (status === 'completed') {
+            assert.equal(bars(f.list)[0].props['aria-valuenow'], '100');
+            assert.equal(bars(f.list)[1].props['aria-valuenow'], '100');
+        } else {
+            assert.notEqual(bars(f.list)[0].props['aria-valuenow'], '100');
+            assert.equal(bars(f.list)[1].props['aria-valuenow'], undefined);
+        }
+        assert.equal(bars(f.list)[1].props['aria-busy'], String(status === 'downloading'));
+    }
     assert.deepEqual(f.errors, []);
 });
 
@@ -203,25 +244,6 @@ test('计划动图详情复用真实 Vue 行与当前卡，进度刷新不构造
     assert.deepEqual(f.errors, []);
 });
 
-test('新版小说先创建全部资源进度，正文、封面和插图依次更新原节点', async () => {
-    const f = await fixture(true, 1, true), q = f.state.queue[0];
-    Object.assign(q, {kind: 'novel', totalImages: 0});
-    f.sync(); await f.flush();
-    const bars = () => byClass(f.list, 'ab-mini-prog');
-    const initial = bars();
-    assert.equal(initial.length, 3);
-    for (const field of ['novelText', 'novelCover', 'novelEmbedded']) {
-        q[field] = {done: 1, total: 2};
-        f.sync(q); await f.flush();
-        bars().forEach((bar, i) => assert.equal(bar, initial[i]));
-        q[field] = null;
-    }
-    q.status = 'completed';
-    f.sync(q); await f.flush();
-    assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
-    assert.deepEqual(f.errors, []);
-});
-
 test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时保留进度节点', async () => {
     const f = await fixture(true, 2, true), q = f.state.queue[0];
     q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
@@ -229,8 +251,8 @@ test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时
     f.sync(q); await f.flush();
     const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
     const initial = [bars(f.list), bars(f.current)];
-    assert.equal(initial[0].length, 3);
-    assert.equal(initial[1].length, 3);
+    assert.equal(initial[0].length, 4);
+    assert.equal(initial[1].length, 2);
     for (const imageProgress of [null,
         {imageNumber: 2, totalImages: 3, progress: 75, processing: [{phase: 'ffmpeg', outputFormat: 'webp'}]},
         {phase: 'processing', processing: [{phase: 'verifying', outputFormat: 'png'}]}, null]) {
@@ -241,7 +263,7 @@ test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时
             bars(root).forEach((bar, i) => assert.equal(bar, initial[index][i]));
         }
     }
-    assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    assert.equal(byClass(f.list, 'is-indeterminate').length, 1);
     assert.doesNotMatch(textOf(f.list), /75%|25%|WEBP|PNG/);
     f.setLanguage('fr'); f.sync(); await f.flush();
     assert.match(textOf(f.list), /fr:.*queue.progress.inactive/);
@@ -257,17 +279,18 @@ for(const alt of [false,true]) {
         f.sync(q);await f.flush();
         for(const root of [f.list,f.current]) {
             assert.match(textOf(root),/queue.image-download.label/);
-            assert.match(textOf(root),/queue.media.waiting/);
-            assert.match(textOf(root),/queue.media.verifying.*WEBP.*1\/2/);
+            if (!alt) {
+                assert.match(textOf(root),/queue.media.waiting/);
+                assert.match(textOf(root),/queue.media.verifying.*WEBP.*1\/2/);
+            }
             const bars=all(root,n=>n.props.role==='progressbar');
-            assert.equal(bars.filter(n=>n.props['aria-busy']==='true').length,2);
+            assert.equal(bars.filter(n=>n.props['aria-busy']==='true').length,alt ? 0 : 2);
             assert.equal(bars.filter(n=>n.props['aria-valuenow']==='25').length,1);
         }
         q.imageProgress={phase:'processing',processing:[{imageNumber:1,totalImages:5,phase:'thumbnail',status:'failed'}]};
         f.sync(q);await f.flush();
         assert.match(textOf(f.current),/queue.media.failed/);
-        if (alt) assert.match(textOf(f.current),/queue.image-download.label.*queue.progress.inactive/);
-        else assert.doesNotMatch(textOf(f.current),/queue.image-download.label/);
+        assert.doesNotMatch(textOf(f.current),/queue.image-download.label/);
         assert.equal(byClass(f.current,'is-indeterminate').length,0);
         delete q.imageProgress;
         for(const phase of ['ffmpeg-waiting','finalizing']) {
@@ -294,14 +317,14 @@ for(const alt of [false,true]) {
         }
         assert.equal(f.metrics.currentRenders,0);
         assert.equal(textOf(f.current),before);
-        assert.match(textOf(byClass(f.list,f.rowClass)[1]),/100/);
+        assert.match(textOf(byClass(f.list,f.rowClass)[1]),alt ? /99%/ : /100/);
         front.imageProgress={progress:25,downloadedBytes:1024,totalBytes:4096};f.sync(front);await f.flush();
         const progressFills = () => alt
             ? byClass(byClass(f.current, 'ab-progress-extras')[0], 'ab-mini-prog-fill')
             : byClass(f.current, 'prog-fill');
-        const fill=alt ? progressFills()[0] : progressFills().at(-1);
+        const fill=progressFills().at(-1);
         front.imageProgress.progress=75;f.sync(front);await f.flush();
-        assert.equal(alt ? progressFills()[0] : progressFills().at(-1),fill);
+        assert.equal(progressFills().at(-1),fill);
         assert.equal(fill.props.style.width,'75%');
         other.status='completed';f.sync(other);await f.flush();
         assert.notEqual(textOf(f.current),before);
@@ -432,7 +455,7 @@ test('新版真实展示函数保留进度节点，覆盖图片、小说、动�
     q.imageProgress={downloadedBytes:1024,totalBytes:4096,progress:25};
     f.sync(q);await f.flush();
     const extras=byClass(f.current,'ab-progress-extras')[0];
-    const fill=byClass(extras,'ab-mini-prog-fill')[0];
+    const fill=byClass(extras,'ab-mini-prog-fill')[1];
     f.metrics.detachedElements=0;
     for(let i=1;i<=100;i++) {
         q.downloadedCount=i;q.imageProgress.progress=i;
@@ -442,9 +465,9 @@ test('新版真实展示函数保留进度节点，覆盖图片、小说、动�
     assert.equal(byClass(f.current,'ab-current-head')[0],head);
     assert.equal(byClass(f.current,'ab-ring-fill')[0],ring);
     assert.equal(byClass(f.current,'ab-progress-extras')[0],extras);
-    assert.equal(byClass(extras,'ab-mini-prog-fill')[0],fill);
+    assert.equal(byClass(extras,'ab-mini-prog-fill')[1],fill);
     assert.equal(fill.props.style.width,'100%');
-    assert.equal(ring.props.style.strokeDashoffset,'0');
+    assert.ok(Number(ring.props.style.strokeDashoffset) > 0, '整项完成回执前环形进度不到 100%');
     q.kind='novel';delete q.imageProgress;
     q.novelText={done:3,total:0};q.novelCover={done:4,total:8};q.novelEmbedded={done:2,total:4};
     q.translatePhase='TRANSLATING';q.translateElapsed=12;
@@ -455,7 +478,7 @@ test('新版真实展示函数保留进度节点，覆盖图片、小说、动�
     q.kind='illust';delete q.translatePhase;
     q.ugoiraProgress={phase:'extract',zipProgress:100,totalFrames:10,extractedFrames:4};
     f.sync(q);await f.flush();
-    assert.match(textOf(f.current),/"current":4,"total":10/);
+    assert.match(textOf(f.current),/4 \/ 10/);
     q.ugoiraProgress={phase:'ffmpeg',ffmpegProgress:50,ffmpegOutTimeMs:1000,ffmpegDurationMs:2000};
     f.sync(q);await f.flush();
     assert.equal(byClass(f.current,'is-ffmpeg')[0].props.style.width,'50%');

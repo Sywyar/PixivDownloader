@@ -135,7 +135,17 @@ async function processSingle(item) {
         await descriptor.process(item, signal);
     } catch (error) {
         if (signal.aborted) return;
-        if (error && error.code === 'STALE_QUEUE_TYPE') {
+            if (error?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') {
+                item.status = 'paused';
+                item.statusMessageKey = 'batch:credentials.unavailable';
+                item.lastMessage = '';
+                item.lastMessageParts = null;
+                state.stopRequested = true;
+                saveQueue();
+                renderQueue();
+                return;
+            }
+            if (error && error.code === 'STALE_QUEUE_TYPE') {
             pauseUnavailableQueueType(item);
             return;
         }
@@ -146,6 +156,8 @@ async function processSingle(item) {
 // 插画 / 漫画 / 动图下载流程。
 async function processIllustItem(item, invocation) {
     assertProcessInvocation(invocation);
+    item.imageProgress = item.ugoiraProgress = null;
+    item.downloadedCount = 0;
     item.statusMessageKey = null;
     item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
     renderQueue(item, true);
@@ -337,6 +349,8 @@ async function processIllustItem(item, invocation) {
                 }
             }
         } else if (final && final.failed) {
+                if (final.errorCode === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+                    throw Object.assign(new Error(final.message), {code: final.errorCode});
             item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
             item.imageProgress = final.imageProgress || null;
             item.status = 'failed';
@@ -358,6 +372,8 @@ async function processIllustItem(item, invocation) {
                     item.imageProgress = null;
                     item.ugoiraProgress = null;
                 } else if (check && check.failed) {
+                            if (check.errorCode === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+                                throw Object.assign(new Error(check.message), {code: check.errorCode});
                     item.status = 'failed';
                     item.lastMessage = bt('queue.message.failed-backend', null, {message: check.message || bt('status.backend-failure', null)});
                 } else if (check && check.completed) {
@@ -386,6 +402,7 @@ async function processIllustItem(item, invocation) {
                 }
             } catch (error) {
                 assertProcessInvocation(invocation);
+                if (error?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') throw error;
                 item.status = 'failed';
                 item.lastMessage = bt('queue.message.failed-status-error', '失败 — 状态查询异常');
             }
@@ -393,6 +410,7 @@ async function processIllustItem(item, invocation) {
     } catch (e) {
         assertProcessInvocation(invocation);
         item.statusMessageKey = null;
+        if (e.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE') throw e;
         if (handlePathActionError(item, e)) return;
         if (e.message === 'quota_exceeded') {
             item.status = 'failed';

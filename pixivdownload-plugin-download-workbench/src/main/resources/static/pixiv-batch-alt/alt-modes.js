@@ -184,6 +184,7 @@ function renderStage() {
     syncWorkspaceNavigation();
     syncFilterButtonBadge();
     syncWorkSelection();
+    syncSaveScheduleButton();
 }
 
 /* ============================================================
@@ -203,28 +204,21 @@ function modeHeader(modeDef, actions) {
     head.appendChild(actionWrap);
     const heading = el('div', 'ab-mode-heading');
     heading.appendChild(head);
-    if ((actions || []).some(action => action.id === 'abFilterBtn')) {
+    const scheduleButton = (actions || []).find(action => action.id === 'abSaveScheduleBtn');
+    if (scheduleButton && state.mode === QUICK_FETCH_MODE) {
+        const hint = el('p', 'ab-mode-hint ab-field-note',
+            () => bt('schedule.save.quick-hint', '先选择作品列表，再创建计划任务。'));
+        hint.id = 'abSaveScheduleHint';
+        hint.hidden = !scheduleButton.disabled;
+        if (!hint.hidden) scheduleButton.setAttribute('aria-describedby', hint.id);
+        heading.appendChild(hint);
+    }
+    if ((actions || []).some(action => action.id === 'abSettingsBtn')) {
         const filters = el('div', 'ab-active-filters');
         filters.dataset.activeFilters = '1';
         heading.appendChild(filters);
     }
     return heading;
-}
-
-function filterButton(id = 'abFilterBtn') {
-    const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
-    btn.id = id;
-    btn.type = 'button';
-    btn.appendChild(abIconEl('filter'));
-    const label = el('span', '', () => bt('filters.title', '附加筛选'));
-    label.setAttribute('data-i18n', 'batch-alt:filters.title');
-    btn.appendChild(label);
-    const badge = el('span', 'ab-badge');
-    badge.dataset.filterBadge = '1';
-    badge.hidden = true;
-    btn.appendChild(badge);
-    btn.addEventListener('click', openFiltersDrawer);
-    return btn;
 }
 
 function settingsButton(id = 'abSettingsBtn') {
@@ -235,30 +229,38 @@ function settingsButton(id = 'abSettingsBtn') {
     const label = el('span', '', () => bt('settings.title', '下载设置'));
     label.setAttribute('data-i18n', 'batch-alt:settings.title');
     btn.appendChild(label);
+    const badge = el('span', 'ab-badge');
+    badge.dataset.filterBadge = '1';
+    badge.hidden = true;
+    btn.appendChild(badge);
     btn.addEventListener('click', openSettingsDrawer);
     return btn;
 }
 
 function saveScheduleButton() {
     if (!isAdmin || scheduleState.editing) return null;
-    let preview = null;
-    try { preview = altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext()); } catch { /* 来源不可用 */ }
-    if (!preview && state.mode !== QUICK_FETCH_MODE) return null;
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
+    btn.id = 'abSaveScheduleBtn';
     btn.type = 'button';
     btn.appendChild(abIconEl('clock'));
     btn.appendChild(el('span', '', () => bt('schedule.editor.save', '存为计划任务')));
-    btn.disabled = !preview;
-    if (!preview) {
-        const hint = () => bt('schedule.save.quick-hint',
-            '请先展开具体的作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后再创建计划任务');
-        bindAltText(btn, hint, 'title');
-        const group = el('div', 'ab-field');
-        group.append(btn, el('p', 'ab-field-note', hint));
-        return group;
-    }
     btn.addEventListener('click', () => openScheduleEditor(null));
-    return btn;
+    syncSaveScheduleButton(btn);
+    return btn.hidden ? null : btn;
+}
+
+function syncSaveScheduleButton(btn = document.getElementById('abSaveScheduleBtn')) {
+    if (!btn) return;
+    let preview = null;
+    try { preview = altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext()); } catch { /* 来源不可用 */ }
+    btn.disabled = !preview;
+    btn.hidden = !isAdmin || !!scheduleState.editing || (!preview && state.mode !== QUICK_FETCH_MODE);
+    const hint = document.getElementById('abSaveScheduleHint');
+    if (hint) {
+        hint.hidden = btn.hidden || !btn.disabled;
+        if (hint.hidden) btn.removeAttribute('aria-describedby');
+        else btn.setAttribute('aria-describedby', hint.id);
+    }
 }
 
 function sourceChips(sources, current, onSelect) {

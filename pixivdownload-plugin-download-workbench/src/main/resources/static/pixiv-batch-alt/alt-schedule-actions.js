@@ -28,12 +28,12 @@ async function validateScheduleCredential(sourceType, credential, task) {
     if (error) throw new Error(String(error));
 }
 
-async function bindScheduleCredential(taskId, sourceType, credential, task) {
+async function bindScheduleCredential(taskId, sourceType, credential, task, savedCredentialSelection) {
     const runtime = altScheduleSources();
     if (!runtime) throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
     const result = credential
         ? await runtime.bindCredential(sourceType, taskId, credential, {task: task || null})
-        : await runtime.bindSavedCredential(sourceType, taskId, {task: task || null});
+        : await runtime.bindSavedCredential(sourceType, taskId, {task: task || null, savedCredentialSelection});
     if (!result?.ok) {
         throw new Error(result?.error || (result?.status === 'missing'
             ? bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证')

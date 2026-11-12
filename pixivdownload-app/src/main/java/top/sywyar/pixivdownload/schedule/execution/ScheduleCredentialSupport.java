@@ -51,12 +51,12 @@ final class ScheduleCredentialSupport {
                 && Objects.equals(task.credentialPolicyOwnerPluginId(), actualOwner.featurePluginId())
                 && Objects.equals(task.credentialPolicyId(), plan.credentialPolicyId())
                 && task.credentialSecretReference() != null;
-        String secret = bindingMatches
-                ? store.findCredentialSecret(
+        var secrets = bindingMatches
+                ? store.findCredentialCandidates(
                         task.id(), actualOwner.featurePluginId(), plan.credentialPolicyId())
-                : null;
+                : java.util.List.<top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue>of();
         return new ScheduleCredentialMaterial(
-                secret,
+                secrets,
                 bindingMatches ? task.credentialSecretReference() : null,
                 bindingMatches ? task.credentialAccountKey() : null);
     }
@@ -160,7 +160,8 @@ final class ScheduleCredentialSupport {
                     ScheduledCredentialContext.Purpose.BIND, definition, route, handle, cancellation);
             ScheduledCredentialBindResult result;
             try {
-                result = policy.probeForBinding(context);
+                result = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(java.util.List.of(candidateSecret))
+                        .call(() -> policy.probeForBinding(context));
             } catch (ScheduledExecutionException failure) {
                 throw safePluginException(
                         failure, "schedule.credential.bind-probe-failed", credential);

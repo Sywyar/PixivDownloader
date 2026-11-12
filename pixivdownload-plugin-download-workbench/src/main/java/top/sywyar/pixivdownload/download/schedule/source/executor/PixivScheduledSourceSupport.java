@@ -539,6 +539,8 @@ public final class PixivScheduledSourceSupport {
         } catch (PixivFetchService.PixivFetchException ignored) {
             throw failure(ScheduledFailure.Category.CREDENTIAL_INVALID,
                     "schedule.pixiv.discovery-credential-invalid");
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
         } catch (PixivAjaxException ignored) {
             if (ignored.failure() == PixivAjaxFailure.INVALID_TARGET) {
                 throw failure(ScheduledFailure.Category.INVALID_DEFINITION,

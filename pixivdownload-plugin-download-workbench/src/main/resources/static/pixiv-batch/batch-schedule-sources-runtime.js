@@ -69,7 +69,7 @@
         const allowed = [
             'matches', 'preview', 'capture', 'restore', 'summary', 'fetchLimitMode',
             'quickSourceNote', 'credentialContribution', 'validateCredential',
-            'bindCredential', 'bindSavedCredential', 'revokeCredential',
+            'bindCredential', 'bindSavedCredential', 'selectSavedCredential', 'revokeCredential',
             'credentialTaskPresentation', 'credentialPolicyGroups',
             'applyCredentialPolicyAction', 'dispose'
         ];

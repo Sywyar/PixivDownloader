@@ -36,7 +36,7 @@ public final class NovelDownloadExecutionLane {
     public void execute(Runnable task) {
         Objects.requireNonNull(task, "task");
         ProxyScope proxyScope = ProxyScope.capture();
-        taskExecutor.execute(() -> runInLane(proxyScope, task));
+        taskExecutor.execute(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.capture(() -> runInLane(proxyScope, task)));
     }
 
     public <T> T executeAndWait(Callable<T> task) throws Exception {
@@ -47,7 +47,7 @@ public final class NovelDownloadExecutionLane {
 
         ProxyScope proxyScope = ProxyScope.capture();
         FutureTask<T> future = new FutureTask<>(task);
-        taskExecutor.execute(() -> runInLane(proxyScope, future));
+        taskExecutor.execute(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.capture(() -> runInLane(proxyScope, future)));
         try {
             return future.get();
         } catch (InterruptedException e) {

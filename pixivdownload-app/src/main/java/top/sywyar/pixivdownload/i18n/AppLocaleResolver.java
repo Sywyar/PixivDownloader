@@ -7,6 +7,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.LocaleResolver;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.time.Duration;
 import java.util.List;
@@ -37,7 +38,7 @@ public class AppLocaleResolver implements LocaleResolver {
             return paramLocale;
         }
 
-        Locale cookieLocale = parse(readCookieValue(request, catalog.languageCookieName()));
+        Locale cookieLocale = parse(readCookieValue(request, InstanceCookies.name(request, catalog.languageCookieName())));
         if (cookieLocale != null) {
             return cookieLocale;
         }
@@ -52,7 +53,7 @@ public class AppLocaleResolver implements LocaleResolver {
         }
 
         Locale normalizedLocale = catalog.resolve(locale).toLocale();
-        Cookie cookie = new Cookie(catalog.languageCookieName(), normalizedLocale.toLanguageTag());
+        Cookie cookie = new Cookie(InstanceCookies.name(request, catalog.languageCookieName()), normalizedLocale.toLanguageTag());
         cookie.setPath("/");
         cookie.setHttpOnly(false);
         cookie.setSecure(request.isSecure());

@@ -105,7 +105,7 @@ class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSuppor
         assertThat(result.candidateCheckpoint().payloadJson()).contains("done");
         assertThat(events).containsExactly("start", "batch-500", "batch-1000", "finalizer", "end");
         assertThat(routeIdentity.get()).isNotNull();
-        verify(store).findCredentialSecret(1L, "fixture", POLICY);
+        verify(store).findCredentialCandidates(1L, "fixture", POLICY);
     }
 
     @Test

@@ -70,7 +70,6 @@ html.ab-workbench, .ab-workbench body { height: auto; overflow-x: clip; }
 .ab-app :is(.button, input, select, textarea):focus-visible { outline: 2px solid var(--exp-link); outline-offset: 3px; }
 .ab-app :is(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--exp-link); }
 .ab-app :is(.ab-modal, .ab-drawer) { border-radius: 16px; }
-.ab-app .ab-setting-row { padding-block: 14px; border-bottom: 1px solid var(--exp-separator); }
 .ab-app .progressbar .ab-mini-prog-fill { transition-property: transform; }
 .ab-app .ab-loading-line { display: flex; align-items: center; gap: 8px; }
 .ab-app .ab-loading-line .preloader { width: 20px; height: 20px; flex: none; }

@@ -16,6 +16,8 @@
 // @description:ko 원본 파일 폴더를 설정하고 유저스크립트 실행을 허용한 뒤 Pixiv를 새로 고치세요. 새 다운로드를 자동 등록하거나 메뉴에서 브라우저 기록을 직접 읽을 수 있습니다. 기록 파일을 내보낼 필요가 없으며 원본 파일은 유지됩니다.
 // @match        https://www.pixiv.net/*
 // @match        https://pixiv.net/*
+// @pixiv-presence-page /pixiv-batch.html
+// @pixiv-presence-page /pixiv-batch-alt.html
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue

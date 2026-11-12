@@ -19,6 +19,19 @@ public interface ScheduledCredentialPolicy {
     String policyId();
 
     /**
+     * 声明任务首次绑定后是否禁止管理员替换或撤销凭证。默认允许修改；首次绑定不受此声明限制。
+     * 由当前活动 policy publication 纯函数解释来源定义，不得读 secret、联网或产生副作用。
+     * 宿主在修改前持有精确租约并复核任务版本；策略缺席或撤回时拒绝修改。
+     *
+     * @param sourceType 任务的来源类型
+     * @param definitionJson 任务的不透明来源定义
+     * @return 已有绑定是否固定
+     */
+    default boolean isBindingFixed(String sourceType, String definitionJson) {
+        return false;
+    }
+
+    /**
      * 执行探测并返回结果。
      *
      * @param context 上下文

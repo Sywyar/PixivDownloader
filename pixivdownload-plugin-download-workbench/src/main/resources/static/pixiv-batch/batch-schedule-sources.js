@@ -98,11 +98,13 @@ window.PixivBatch.scheduleSources = (function () {
             mode: text(raw.mode),
             quickSource: quickSourceSnapshot(raw.quickSource)
         };
-        const task = raw.editingTask;
+        if (raw.savedCredentialSelection) out.savedCredentialSelection = quickSourceSnapshot(raw.savedCredentialSelection);
+        const task = raw.editingTask || raw.task;
         // 原定义只交给同一来源，保留未知字段和字段缺席语义。
         if (task && handler(task.sourceType) === entry) {
             out.editingTask = Object.freeze({
                 sourceType: entry.descriptor.sourceType,
+                credentialBound: task.credentialPolicy?.bound === true,
                 paramsJson: text(task.paramsJson)
             });
         }
@@ -443,6 +445,19 @@ window.PixivBatch.scheduleSources = (function () {
         return normalizedOperationPromise(value, normalizeCredentialOperationResult);
     }
 
+    async function selectSavedCredential(sourceType, context) {
+        const entry = handler(sourceType);
+        const lease = credentialLease(entry);
+        lease.assertCurrent();
+        if (typeof entry.methods.selectSavedCredential !== 'function') return {};
+        const result = await invoke(sourceType, 'selectSavedCredential', [{
+            ...scopedSourceContext(entry, context),
+            signal: context?.signal, openCredentialDialog: context?.openCredentialDialog
+        }, lease], null);
+        lease.assertCurrent();
+        return result == null ? null : quickSourceSnapshot(result);
+    }
+
     function revokeCredential(sourceType, taskId, context) {
         const value = invokeCredentialWrite(
             sourceType, 'revokeCredential', [taskId], context);
@@ -558,6 +573,7 @@ window.PixivBatch.scheduleSources = (function () {
         validateCredential,
         bindCredential,
         bindSavedCredential,
+        selectSavedCredential,
         revokeCredential,
         credentialTaskPresentation,
         credentialPolicyGroups,

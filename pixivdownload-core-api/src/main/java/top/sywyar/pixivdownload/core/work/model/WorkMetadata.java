@@ -24,7 +24,7 @@ import java.util.List;
  * @param seriesOrder        系列内序号，可为 {@code null}
  * @param seriesTitle        系列标题（仅 {@code seriesId > 0} 时补全），缺行时为 {@code null}
  * @param tags               作品标签（防御性拷贝，不可变）
- * @param downloadTime       下载落库时间（毫秒）
+ * @param downloadTime       下载记录时间（毫秒），沿用作品登记时保存的时间
  * @param pageCount          当前来源投影声明的本地文件计数
  * @param extensions         文件扩展名记录
  * @param folder             作品目录（已解析路径前缀），可为 {@code null}
@@ -32,8 +32,11 @@ import java.util.List;
  * @param moveFolder         移动目标目录，可为 {@code null}
  * @param moveTime           移动时间（毫秒），可为 {@code null}
  * @param fileNameTemplateRef 文件名模板的中性引用，可为 {@code null}；目录键只是不透明兼容值
- * @param uploadTime          来源提供的真实发布时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
+ * @param uploadTime          来源上传时间（epoch 毫秒），不与创建时间或首次公开发布时间混用，
  *                            未捕获时为 {@code null}
+ * @param createTime          来源创建时间（epoch 毫秒），未知为 null
+ * @param updateTime          来源更新时间（epoch 毫秒），未知为 null
+ * @param reuploadTime        来源重新上传时间（epoch 毫秒），未知为 null
  * @param isOriginal          原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）
  */
 public record WorkMetadata(
@@ -57,7 +60,58 @@ public record WorkMetadata(
         Long moveTime,
         WorkFileNameTemplateRef fileNameTemplateRef,
         Long uploadTime,
+        Boolean isOriginal,
+        Long createTime,
+        Long updateTime,
+        Long reuploadTime) {
+    /**
+     * 创建未提供来源创建、更新和重新上传时间的元数据视图。
+     * @param workId 作品标识
+     * @param title 标题
+     * @param description 简介，可为 null
+     * @param xRestrict 年龄分级，可为 null
+     * @param isAi AI 生成标记，可为 null
+     * @param authorId 作者标识，可为 null
+     * @param authorName 作者名，可为 null
+     * @param seriesId 系列标识，可为 null
+     * @param seriesOrder 系列内序号，可为 null
+     * @param seriesTitle 系列标题，可为 null
+     * @param tags 作品标签
+     * @param downloadTime 下载记录时间，epoch 毫秒
+     * @param pageCount 本地文件计数
+     * @param extensions 文件扩展名记录
+     * @param folder 作品目录，可为 null
+     * @param moved 本地资产是否已移动
+     * @param moveFolder 移动目标目录，可为 null
+     * @param moveTime 移动时间，epoch 毫秒，可为 null
+     * @param fileNameTemplateRef 文件名模板引用，可为 null
+     * @param uploadTime 来源上传时间，epoch 毫秒，可为 null
+     * @param isOriginal 原创标记，可为 null
+     */
+    public WorkMetadata(long workId,
+        String title,
+        String description,
+        Integer xRestrict,
+        Boolean isAi,
+        Long authorId,
+        String authorName,
+        Long seriesId,
+        Long seriesOrder,
+        String seriesTitle,
+        List<WorkTag> tags,
+        long downloadTime,
+        int pageCount,
+        String extensions,
+        String folder,
+        boolean moved,
+        String moveFolder,
+        Long moveTime,
+        WorkFileNameTemplateRef fileNameTemplateRef,
+        Long uploadTime,
         Boolean isOriginal) {
+        this(workId, title, description, xRestrict, isAi, authorId, authorName, seriesId, seriesOrder, seriesTitle, tags, downloadTime, pageCount, extensions, folder, moved, moveFolder, moveTime, fileNameTemplateRef, uploadTime, isOriginal, null, null, null);
+    }
+
 
     /**
      * 创建 {@code WorkMetadata} 实例。

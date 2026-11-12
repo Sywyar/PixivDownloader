@@ -55,6 +55,40 @@ class StaticResourceVersioningTest {
     @TempDir
     Path directory;
 
+    @Test
+    @DisplayName("静态语言元数据仅在开发模式按访问端口隔离，缓存不能复用其它端口的名称")
+    void languageMetadataCookieScopeAndCache() throws Exception {
+        String property = top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.ENABLED_PROPERTY;
+        String previous = System.getProperty(property);
+        try (var context = context()) {
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            byte[] original = new ClassPathResource("static/i18n-static/meta.json").getContentAsByteArray();
+            String previousEtag = null;
+            for (String mode : new String[]{null, "false", "true"}) {
+                if (mode == null) System.clearProperty(property);
+                else System.setProperty(property, mode);
+                for (int port : new int[]{80, 8081}) {
+                    var result = mvc.perform(get("http://localhost:" + port + "/i18n-static/meta.json"))
+                            .andExpect(status().isOk()).andReturn().getResponse();
+                    if (!"true".equals(mode)) {
+                        assertThat(result.getContentAsByteArray()).isEqualTo(original);
+                    } else {
+                        var metadata = JsonMapper.builderWithJackson2Defaults().build().readTree(result.getContentAsByteArray());
+                        assertThat(metadata.get("languageCookieName").asText()).isEqualTo("pixiv_dev_" + port + "_pixiv_lang");
+                        assertThat(result.getHeader("ETag")).isNotEqualTo(previousEtag);
+                        mvc.perform(get("http://localhost:" + port + "/i18n-static/meta.json")
+                                        .header("If-None-Match", previousEtag))
+                                .andExpect(status().isOk());
+                    }
+                    previousEtag = result.getHeader("ETag");
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
     @Configuration
     @EnableWebMvc
     @Import({StaticResourceConfig.class, ResourcePageAdvice.class, PageController.class})

@@ -36,6 +36,10 @@ import java.util.Set;
  */
 public class CorePlugin implements PixivFeaturePlugin {
 
+    @Override public List<String> credentialKeys() {
+        return List.of(top.sywyar.pixivdownload.config.credential.AcquisitionCredentialLibrary.KEY);
+    }
+
     @Override
     public String id() {
         return "core";
@@ -104,6 +108,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitor("/api/download/cancel/**"),
                 WebRouteContribution.visitor("/api/download/extensions"),
                 WebRouteContribution.admin("/api/download/tasks"),
+                WebRouteContribution.admin("/api/acquisition/credentials"),
                 WebRouteContribution.admin("/api/download/tasks/**"),
                 WebRouteContribution.local("/api/download/status"),
                 WebRouteContribution.admin("/api/schedule/**"),

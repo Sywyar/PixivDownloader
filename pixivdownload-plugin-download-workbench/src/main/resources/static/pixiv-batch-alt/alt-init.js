@@ -9,6 +9,7 @@ function applyPageLanguageViews(nextClient) {
     if (pageI18n) pageI18n.apply();
     document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
     refreshAltText();
+    window.PixivCredentials?.refresh();
     renderDockStatus();
     renderQuotaBar();
     renderArchiveCard();
@@ -139,7 +140,7 @@ function buildOnboardingConfig(savedName) {
             singleImportTab: '#abRailModes [data-mode="single-import"]',
             importTextarea: '#abImportInput',
             importButton: '#abBtnImport',
-            filtersCard: '#abFilterBtn',
+            filtersCard: '#abSettingsBtn',
             settingsCard: '#abSettingsBtn',
             startButton: '#abBtnStart',
             progressArea: '#abDock',
@@ -173,6 +174,7 @@ async function init() {
         await loadServerState();
     }
 
+    if (isAdmin) await window.PixivCredentials.initialize().catch(() => {});
     loadSettings();
     window.PixivBatchPageLayout.bind(isAdmin, () => bt('batch:page.layout-save-failed'), flushServerState);
     loadSearchFilterPrefs();

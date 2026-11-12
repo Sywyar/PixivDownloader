@@ -1,10 +1,12 @@
 package top.sywyar.pixivdownload.i18n;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.util.List;
 import java.util.Locale;
@@ -19,7 +21,7 @@ public class I18nController {
     private final LocaleCatalog catalog;
 
     @GetMapping("/meta")
-    public I18nMetadataResponse metadata(Locale locale) {
+    public I18nMetadataResponse metadata(Locale locale, HttpServletRequest request) {
         LocaleDescriptor currentLocale = catalog.resolve(locale);
         List<LocaleOptionResponse> locales = catalog.visibleLocales().stream()
                 .map(item -> new LocaleOptionResponse(
@@ -37,7 +39,7 @@ public class I18nController {
                 catalog.sourceLocale().tag(),
                 catalog.defaultLocale().tag(),
                 catalog.fallbackLocale().tag(),
-                catalog.languageCookieName(),
+                InstanceCookies.name(request, catalog.languageCookieName()),
                 catalog.languageParameterName(),
                 locales,
                 bundleRegistry.supportedNamespaces()

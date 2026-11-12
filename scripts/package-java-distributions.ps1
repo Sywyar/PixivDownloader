@@ -221,6 +221,14 @@ function Assert-DistributionLayout {
     if (-not [string]::Equals($coreSha, $InputJarSha256, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "${Label}: core jar SHA-256 differs from the input PrebuiltJar."
     }
+    $entry = Join-Path $Directory "app/$coreJarName"
+    $libraries = Join-Path $Directory 'app/lib'
+    if (-not (Test-Path -LiteralPath $entry -PathType Leaf) -or
+        (Get-Item -LiteralPath $entry).Length -eq 0 -or
+        -not (Test-Path -LiteralPath $libraries -PathType Container) -or
+        @(Get-ChildItem -LiteralPath $libraries -File -Filter '*.jar').Count -eq 0) {
+        throw "${Label}: extracted application entry or libraries missing."
+    }
 
     $pluginsDir = Join-Path $Directory "plugins"
     if (-not (Test-Path -LiteralPath $pluginsDir -PathType Container)) {

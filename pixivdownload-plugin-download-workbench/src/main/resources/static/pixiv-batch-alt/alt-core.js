@@ -81,7 +81,10 @@ async function apiGet(path, requestInit) {
     const init = Object.assign({}, requestInit || {});
     init.headers = Object.assign({}, pixivHeader(), init.headers || {});
     const res = await fetch(BASE + path, init);
-    return res.json();
+    const data = await res.json();
+    if (data?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+        throw Object.assign(new Error(data.error), {code: data.code});
+    return data;
 }
 
 async function apiJson(path, requestInit) {
@@ -274,7 +277,7 @@ function closeModal() {
 }
 
 function closeAltDialog(id) {
-    const root = document.getElementById(id);
+    const root = typeof id === 'string' ? document.getElementById(id) : id;
     if (!root) return;
     const finish = () => {
         if (root.open) root.close();
@@ -305,7 +308,7 @@ function closeAltDialog(id) {
 
 // 原生对话框负责模态、焦点约束、Escape 与关闭后的焦点恢复。
 function openAltDialog(spec, drawer) {
-    const root = document.getElementById(drawer ? 'abDrawerRoot' : 'abModalRoot');
+    const root = spec.root || document.getElementById(drawer ? 'abDrawerRoot' : 'abModalRoot');
     if (!root) return null;
     const style = root.open && root.animate ? window.getComputedStyle(root) : null;
     const from = style ? {opacity: style.opacity, transform: style.transform}
@@ -313,7 +316,7 @@ function openAltDialog(spec, drawer) {
     root._abClosing?.cancel();
     root._abClosing = null;
     root.getAnimations?.().forEach(animation => animation.cancel());
-    const close = drawer ? closeDrawer : closeModal;
+    const close = spec.root ? () => closeAltDialog(root) : drawer ? closeDrawer : closeModal;
     let confirming = false;
     root._abRequestClose = async () => {
         if (confirming) return;

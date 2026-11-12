@@ -7,6 +7,7 @@ import java.util.*;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.plugin.api.operation.OperationTargets;
 
 /** 证明暂存只保存有界纯值；准备不授予业务权限，真实请求仍核对发布并消费一次。 */
@@ -28,11 +29,12 @@ public final class HookChallenges {
     public HookChallenges(java.time.Clock clock) { this.clock = clock; new SecureRandom().nextBytes(key); }
 
     String subject(HttpServletRequest request, HttpServletResponse response) {
-        String client = cookie(request, IDENTITY_COOKIE);
+        String identityCookie = InstanceCookies.name(request, IDENTITY_COOKIE);
+        String client = cookie(request, identityCookie);
         if (!client.matches("[a-f0-9-]{36}\\.[a-f0-9]{64}") || !MessageDigest.isEqual(
                 client.substring(37).getBytes(StandardCharsets.US_ASCII), sign(client.substring(0, 36)).getBytes(StandardCharsets.US_ASCII))) {
             String id = UUID.randomUUID().toString(); client = id + "." + sign(id);
-            setCookie(response, request, IDENTITY_COOKIE, client, -1);
+            setCookie(response, request, identityCookie, client, -1);
         }
         return sign(client + "\n" + request.getRemoteAddr());
     }
@@ -84,18 +86,19 @@ public final class HookChallenges {
 
     synchronized Ticket consume(HttpServletRequest request, HttpServletResponse response, Target target, List<OperationHookCalls.Identity> providers) {
         expire();
+        String ticketPrefix = InstanceCookies.name(request, TICKET_COOKIE);
         String value = request.getHeader(TICKET_HEADER);
         if (value != null && value.isEmpty()) value = null;
         Cookie selected = null;
         if (request.getCookies() != null) for (var cookie : request.getCookies()) {
-            if (!cookie.getName().startsWith(TICKET_COOKIE) || !cookie.getValue().equals(target.scope())) continue;
-            String token = cookie.getName().substring(TICKET_COOKIE.length());
+            if (!cookie.getName().startsWith(ticketPrefix) || !cookie.getValue().equals(target.scope())) continue;
+            String token = cookie.getName().substring(ticketPrefix.length());
             if (value != null) { if (token.equals(value)) selected = cookie; }
             else if (selected == null || matches(pending.get(token), target, providers)) {
                 selected = cookie;
             }
         }
-        if (value == null) value = selected == null ? "" : selected.getName().substring(TICKET_COOKIE.length());
+        if (value == null) value = selected == null ? "" : selected.getName().substring(ticketPrefix.length());
         else if (value.length() > 128) value = "invalid";
         if (selected != null) setCookie(response, request, selected.getName(), "", 0);
         var proof = pending.get(value);
@@ -110,15 +113,16 @@ public final class HookChallenges {
 
     synchronized void nativeTicket(HttpServletRequest request, HttpServletResponse response, String token, Target target) {
         expire();
-        if (request.getCookies() != null) for (var cookie : request.getCookies()) if (cookie.getName().startsWith(TICKET_COOKIE)) {
-            if (!pending.containsKey(cookie.getName().substring(TICKET_COOKIE.length()))) setCookie(response, request, cookie.getName(), "", 0);
+        String ticketPrefix = InstanceCookies.name(request, TICKET_COOKIE);
+        if (request.getCookies() != null) for (var cookie : request.getCookies()) if (cookie.getName().startsWith(ticketPrefix)) {
+            if (!pending.containsKey(cookie.getName().substring(ticketPrefix.length()))) setCookie(response, request, cookie.getName(), "", 0);
         }
         var proof = pending.get(token);
         if (proof == null || pending.values().stream().filter(value -> value.nativeSubject().equals(target.subject())).count() >= 16)
             throw new IllegalStateException("HOOK_UNAVAILABLE");
         pending.put(token, new Pending(proof.digest(), proof.providers(), proof.expires(), proof.proofs(), target.subject()));
         // 每张票据独立命名；同目标并发提交也不会互相覆盖 Cookie。
-        setCookie(response, request, TICKET_COOKIE + token, target.scope(), (int) ((proof.expires() - clock.millis() + 999) / 1000));
+        setCookie(response, request, ticketPrefix + token, target.scope(), (int) ((proof.expires() - clock.millis() + 999) / 1000));
     }
 
     private void expire() { pending.values().removeIf(item -> item.expires() <= clock.millis()); }

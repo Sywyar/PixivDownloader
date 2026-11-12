@@ -167,6 +167,7 @@ test('alt: initial page load initializes recovery once and language refresh only
         initQueueRecovery: () => calls.push('recovery')
     });
     vm.runInContext(source('pixiv-batch/page-layout.js'), context);
+    context.window.PixivCredentials = {initialize: async () => {}, refresh() {}};
     vm.runInContext(source('pixiv-batch-alt/alt-init.js'), context);
     for (const name of ['hydrateIcons', 'initPageI18n', 'detectMode', 'detectAuthState',
         'loadServerState', 'loadSettings', 'loadSearchFilterPrefs', 'bindChrome', 'bindScheduleMenus', 'loadAppInfo',

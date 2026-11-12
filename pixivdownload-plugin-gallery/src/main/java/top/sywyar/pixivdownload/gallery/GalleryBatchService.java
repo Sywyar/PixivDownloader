@@ -145,7 +145,8 @@ public class GalleryBatchService {
                 seriesIds,
                 filter.notSeriesIds(),
                 null).withUploadTimeRange(filter.uploadedFrom(), filter.uploadedBefore())
-                .withDownloadTimeRange(filter.downloadedFrom(), filter.downloadedBefore());
+                .withDownloadTimeRange(filter.downloadedFrom(), filter.downloadedBefore()).withSourceTimeField(filter.sourceTimeField())
+                .withSourceTimeRanges(filter.createdFrom(), filter.createdBefore(), filter.updatedFrom(), filter.updatedBefore(), filter.reuploadedFrom(), filter.reuploadedBefore());
     }
 
     private List<String> normalizeFormats(Collection<String> formats) {
@@ -176,6 +177,9 @@ public class GalleryBatchService {
         out.put("isAi", meta.isAi());
         out.put("time", meta.downloadTime());
         out.put("uploadTime", meta.uploadTime());
+        out.put("createTime", meta.createTime());
+        out.put("updateTime", meta.updateTime());
+        out.put("reuploadTime", meta.reuploadTime());
         out.put("tags", tagManifest(meta.tags()));
         out.put("files", files);
         return out;

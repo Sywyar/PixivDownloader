@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
 /** AES-256-GCM envelope codec with an HKDF-SHA-256 owner key derivation. */
 final class PluginCredentialCipher {
 
-    static final String FORMAT = "pixivdownload-plugin-credentials-v1";
+    static final String FORMAT = "pixivdownload-plugin-credentials-v2";
+    static final String LEGACY_FORMAT = "pixivdownload-plugin-credentials-v1";
     private static final String FIELD_FORMAT = "format";
     private static final String FIELD_KEY_ID = "key-id";
     private static final String FIELD_NONCE = "nonce";
@@ -46,14 +47,28 @@ final class PluginCredentialCipher {
 
     private final PluginCredentialKeyMaterial keyMaterial;
     private final SecureRandom secureRandom;
+    private final String format;
 
     PluginCredentialCipher(PluginCredentialKeyMaterial keyMaterial) {
         this(keyMaterial, new SecureRandom());
     }
 
     PluginCredentialCipher(PluginCredentialKeyMaterial keyMaterial, SecureRandom secureRandom) {
+        this(keyMaterial, secureRandom, FORMAT);
+    }
+
+    private PluginCredentialCipher(PluginCredentialKeyMaterial keyMaterial, SecureRandom secureRandom, String format) {
         this.keyMaterial = java.util.Objects.requireNonNull(keyMaterial, "keyMaterial");
         this.secureRandom = java.util.Objects.requireNonNull(secureRandom, "secureRandom");
+        this.format = format;
+    }
+
+    static PluginCredentialCipher legacy(PluginCredentialKeyMaterial keyMaterial) {
+        return new PluginCredentialCipher(keyMaterial, new SecureRandom(), LEGACY_FORMAT);
+    }
+
+    static boolean isLegacy(byte[] content) throws IOException {
+        return LEGACY_FORMAT.equals(parseEnvelopeCandidate(decodeUtf8(content)).get(FIELD_FORMAT));
     }
 
     byte[] encrypt(String ownerPluginId, Map<String, String> values) throws IOException {
@@ -72,7 +87,7 @@ final class PluginCredentialCipher {
                     new GCMParameterSpec(GCM_TAG_BITS, nonce));
             cipher.updateAAD(aad(owner, keyId));
             byte[] ciphertext = cipher.doFinal(plaintext);
-            String envelope = FIELD_FORMAT + "=" + FORMAT + "\n"
+            String envelope = FIELD_FORMAT + "=" + format + "\n"
                     + FIELD_KEY_ID + "=" + keyId + "\n"
                     + FIELD_NONCE + "=" + encodeUrl(nonce) + "\n"
                     + FIELD_CIPHERTEXT + "=" + encodeUrl(ciphertext) + "\n";
@@ -104,7 +119,7 @@ final class PluginCredentialCipher {
     }
 
     private Decoded decryptEnvelope(String owner, Map<String, String> envelope) throws IOException {
-        if (!FORMAT.equals(envelope.get(FIELD_FORMAT))) {
+        if (!format.equals(envelope.get(FIELD_FORMAT))) {
             throw new IOException("Unsupported plugin credential format for owner: " + owner);
         }
         if (!envelope.keySet().equals(ENVELOPE_FIELDS)) {
@@ -234,8 +249,8 @@ final class PluginCredentialCipher {
         }
     }
 
-    private static byte[] aad(String owner, String keyId) {
-        return (FORMAT + "\0" + owner + "\0" + keyId).getBytes(StandardCharsets.UTF_8);
+    private byte[] aad(String owner, String keyId) {
+        return (format + "\0" + owner + "\0" + keyId).getBytes(StandardCharsets.UTF_8);
     }
 
     private static String requireOwner(String ownerPluginId) {

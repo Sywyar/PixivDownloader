@@ -63,6 +63,27 @@ class ScheduledTaskStoreTest {
         dataSource.destroy();
     }
 
+    @Test @DisplayName("多凭据与版本在同一事务保存，陈旧写入和中途失败都保留原候选")
+    void candidatesShareVersionAndTransaction() {
+        long id = store.create(create("多凭据"));
+        var values = java.util.List.of(
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("a", "secret-a"),
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("b", "secret-b"));
+        assertThat(store.bindCredentials(id, 0L, "fixture-plugin", "fixture-policy", "{}", values, null, 2_000L))
+                .hasValue(1L);
+        assertThat(store.findCredentialCandidates(id, "fixture-plugin", "fixture-policy")).isEqualTo(values);
+        assertThat(store.bindCredentials(id, 0L, "fixture-plugin", "fixture-policy", "{}", values.reversed(), null, 3_000L))
+                .isEmpty();
+        assertThat(store.findCredentialCandidates(id, "fixture-plugin", "fixture-policy")).isEqualTo(values);
+        var faulting = transactionalStore(faultingMapper("replaceCredentialCandidates"));
+        assertThatThrownBy(() -> faulting.bindCredentials(id, 1L, "fixture-plugin", "fixture-policy", "{}",
+                values.reversed(), null, 3_000L)).isInstanceOf(IllegalStateException.class);
+        assertThat(store.findById(id).stateVersion()).isEqualTo(1L);
+        assertThat(store.findCredentialCandidates(id, "fixture-plugin", "fixture-policy")).isEqualTo(values);
+        assertThat(store.removeCredential(id, 1L, "fixture-plugin", "fixture-policy")).hasValue(2L);
+        assertThat(store.findCredentialCandidates(id, "fixture-plugin", "fixture-policy")).isEmpty();
+    }
+
     @Test
     @DisplayName("create 返回 generated key，并持久化 canonical 默认状态")
     void createReturnsGeneratedIdAndPersistsCanonicalDefaults() {

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -51,6 +52,11 @@ class PixivImageDownloadServiceTest {
     @Mock
     private RestTemplate restTemplate;
 
+    private final PixivCredentialRetry retryService = new PixivCredentialRetry();
+
+    @AfterEach
+    void tearDown() { retryService.destroy(); }
+
     @Test
     @DisplayName("校验 pximg 来源后使用统一图片请求头流式写入并报告响应信息")
     void shouldDownloadAllowedImageWithHeadersAndProgress() throws Exception {
@@ -96,7 +102,7 @@ class PixivImageDownloadServiceTest {
             }
         };
 
-        boolean downloaded = new PixivImageDownloadService(restTemplate)
+        boolean downloaded = new PixivImageDownloadService(restTemplate, retryService)
                 .download(source, referer, target, "PHPSESSID=test", observer);
 
         assertThat(downloaded).isTrue();
@@ -124,7 +130,7 @@ class PixivImageDownloadServiceTest {
                 any(RequestCallback.class), any(ResponseExtractor.class)))
                 .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
 
-        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate, retryService).download(
                 source, referer, target, null, observerWithMaximumBytes(4)))
                 .isInstanceOf(java.io.IOException.class);
         assertThat(target).doesNotExist();
@@ -148,7 +154,7 @@ class PixivImageDownloadServiceTest {
                 any(RequestCallback.class), any(ResponseExtractor.class)))
                 .thenAnswer(invocation -> invocation.<ResponseExtractor<?>>getArgument(3).extractData(response));
 
-        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate, retryService).download(
                 source, referer, target, null, observerWithMaximumBytes(4)))
                 .isInstanceOf(java.io.IOException.class);
         assertThat(Files.readAllBytes(target)).isEqualTo(existing);
@@ -160,7 +166,7 @@ class PixivImageDownloadServiceTest {
     void shouldRejectDisallowedImageHost() throws Exception {
         Path target = tempDir.resolve("example.jpg");
 
-        boolean downloaded = new PixivImageDownloadService(restTemplate).download(
+        boolean downloaded = new PixivImageDownloadService(restTemplate, retryService).download(
                 URI.create("https://example.com/example.jpg"),
                 URI.create("https://www.pixiv.net/novel/show.php?id=42"),
                 target,
@@ -176,7 +182,7 @@ class PixivImageDownloadServiceTest {
     @Test
     @DisplayName("非 HTTPS CDN 或非 Pixiv Referer 在发起请求前拒绝")
     void shouldRejectUnsafeSourceOrReferer() throws Exception {
-        PixivImageDownloadService service = new PixivImageDownloadService(restTemplate);
+        PixivImageDownloadService service = new PixivImageDownloadService(restTemplate, retryService);
         PixivImageTransferObserver observer = new PixivImageTransferObserver() {
         };
 
@@ -207,7 +213,7 @@ class PixivImageDownloadServiceTest {
                 any(RequestCallback.class), any(ResponseExtractor.class)))
                 .thenThrow(new ResourceAccessException("timeout for sensitive target"));
 
-        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate, retryService).download(
                 source,
                 referer,
                 tempDir.resolve("failed.jpg"),
@@ -231,7 +237,7 @@ class PixivImageDownloadServiceTest {
                 .thenThrow(HttpClientErrorException.create(
                         HttpStatus.NOT_FOUND, "not found", HttpHeaders.EMPTY, null, null));
 
-        boolean downloaded = new PixivImageDownloadService(restTemplate).download(
+        boolean downloaded = new PixivImageDownloadService(restTemplate, retryService).download(
                 source,
                 referer,
                 target,
@@ -258,7 +264,7 @@ class PixivImageDownloadServiceTest {
                     return extractor.extractData(response);
                 });
 
-        boolean downloaded = new PixivImageDownloadService(restTemplate).download(
+        boolean downloaded = new PixivImageDownloadService(restTemplate, retryService).download(
                 source,
                 referer,
                 target,
@@ -292,7 +298,7 @@ class PixivImageDownloadServiceTest {
             Path target = tempDir.resolve("existing.jpg");
             Files.writeString(target, "original", StandardCharsets.UTF_8);
 
-            boolean downloaded = new PixivImageDownloadService(client).download(
+            boolean downloaded = new PixivImageDownloadService(client, retryService).download(
                     URI.create("https://i.pximg.net/example.jpg"),
                     URI.create("https://www.pixiv.net/artworks/42"),
                     target, "PHPSESSID=secret", observerWithMaximumBytes(1));
@@ -326,10 +332,32 @@ class PixivImageDownloadServiceTest {
                 if (!available.get()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
             }
         };
-        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(source,
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate, retryService).download(source,
                 URI.create("https://www.pixiv.net/artworks/42"), target, null, observer))
                 .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
         assertThat(Files.readString(target)).isEqualTo("original");
         assertThat(target.resolveSibling("image.jpg.part")).doesNotExist();
+    }
+
+    @Test @DisplayName("图片上游 429 只重试本次读取并按选择顺序发送 Cookie")
+    void shouldFallbackImageReadWithoutPartialOutput() throws Exception {
+        var template = new RestTemplate();
+        template.setErrorHandler(new org.springframework.web.client.NoOpResponseErrorHandler());
+        var server = MockRestServiceServer.bindTo(template).build();
+        URI source = URI.create("https://i.pximg.net/img-original/42.jpg");
+        server.expect(requestTo(source)).andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("Cookie", "PHPSESSID=1_a"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .header("Retry-After", "120"));
+        server.expect(requestTo(source)).andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header("Cookie", "PHPSESSID=2_b"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess("image", MediaType.IMAGE_JPEG));
+        var service = new PixivImageDownloadService(template, retryService);
+        var credentials = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(
+                java.util.List.of("PHPSESSID=1_a", "PHPSESSID=2_b"));
+        Path target = tempDir.resolve("fallback.jpg");
+        assertThat(credentials.call(() -> service.download(source, URI.create("https://www.pixiv.net/artworks/42"),
+                target, credentials.primary(), new PixivImageTransferObserver() {}))).isTrue();
+        assertThat(Files.readString(target)).isEqualTo("image");
+        assertThat(target.resolveSibling("fallback.jpg.part")).doesNotExist();
+        server.verify();
     }
 }

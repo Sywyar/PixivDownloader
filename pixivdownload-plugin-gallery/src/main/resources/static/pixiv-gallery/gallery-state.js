@@ -10,10 +10,7 @@
         searchType: 'all',
         r18: 'any',
         ai: 'any',
-        uploadStartDate: '',
-        downloadStartDate: '',
-        downloadEndDate: '',
-        uploadEndDate: '',
+        dateFilters: [{field: 'date', start: '', end: ''}],
         formats: new Set(),
         collectionIds: new Set(),
         tagFilters: {
@@ -121,7 +118,7 @@
     const GALLERY_CROSS_TRANSFER_KEY = 'pixiv:gallery-cross-transfer-v1';
     const GALLERY_CROSS_TRANSFER_TTL_MS = 60_000;
     const GALLERY_SORT_VALUES = new Set([
-        'date', 'uploadTime', 'artworkId', 'imgs', 'status', 'authorId', 'tags', 'series'
+        'date', 'uploadTime', 'createTime', 'updateTime', 'reuploadTime', 'artworkId', 'imgs', 'status', 'authorId', 'tags', 'series'
     ]);
     const GALLERY_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
     const GALLERY_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
@@ -130,33 +127,6 @@
     let tagOptionsPromise = null;
     let authorOptionsPromise = null;
     let seriesOptionsPromise = null;
-
-    function filterDateMillis(value, nextDay = false) {
-        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-        const date = new Date(value + 'T00:00:00');
-        if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
-            || date.getDate() !== Number(value.slice(8))) return null;
-        if (nextDay) date.setDate(date.getDate() + 1);
-        return date.getTime();
-    }
-
-    function galleryTimeRanges() {
-        return {downloadedFrom: filterDateMillis(state.downloadStartDate),
-            downloadedBefore: filterDateMillis(state.downloadEndDate, true),
-            uploadedFrom: filterDateMillis(state.uploadStartDate),
-            uploadedBefore: filterDateMillis(state.uploadEndDate, true)};
-    }
-
-    function restoreTimeRanges(payload) {
-        for (const prefix of ['upload', 'download']) {
-            const start = prefix + 'StartDate', end = prefix + 'EndDate';
-            state[start] = filterDateMillis(payload[start]) ? payload[start] : '';
-            state[end] = filterDateMillis(payload[end]) ? payload[end] : '';
-            if (state[start] && state[end] && state[start] > state[end]) {
-                state[start] = state[end] = '';
-            }
-        }
-    }
 
     function serializeGalleryState() {
         return {
@@ -168,10 +138,7 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
-            uploadStartDate: state.uploadStartDate,
-            downloadStartDate: state.downloadStartDate,
-            downloadEndDate: state.downloadEndDate,
-            uploadEndDate: state.uploadEndDate,
+            dateFilters: state.dateFilters.map(row => ({...row})),
             formats: [...state.formats],
             collectionIds: [...state.collectionIds],
             tagFilters: {
@@ -316,10 +283,7 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
-            uploadStartDate: state.uploadStartDate,
-            downloadStartDate: state.downloadStartDate,
-            downloadEndDate: state.downloadEndDate,
-            uploadEndDate: state.uploadEndDate,
+            dateFilters: state.dateFilters.map(row => ({...row})),
             sort: state.sort,
             order: state.order,
             collectionIds: [...state.collectionIds],
@@ -398,13 +362,8 @@
     }
 
     function applyGalleryStateToUi() {
-        for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
-            const input = document.getElementById(name);
-            if (input) input.value = state[name];
-        }
-        document.querySelectorAll('.chip[data-sort]').forEach(chip => {
-            chip.classList.toggle('active', chip.dataset.sort === state.sort);
-        });
+        renderDateFilters();
+        syncDateSort();
         const orderBtn = document.getElementById('orderToggle');
         if (orderBtn) {
             orderBtn.dataset.order = state.order;

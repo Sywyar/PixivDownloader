@@ -464,7 +464,7 @@ public class NovelDatabase {
                 record.rawContent(),
                 record.coverExt(),
                 record.deleted(),
-                record.uploadTime());
+                record.uploadTime(), record.createTime(), record.updateTime(), record.reuploadTime());
     }
 
     private NovelSeries resolveSeries(NovelSeries series) {

@@ -9,6 +9,7 @@ const vm = require('node:vm');
 function load() {
     const root = path.join(__dirname, '../../main/resources/static');
     const nodes = new Map(), timers = new Map(), requests = [];
+    let sequence = 0;
     function node(id) {
         if (!nodes.has(id)) {
             const classes = new Set(), listeners = new Map();
@@ -20,7 +21,11 @@ function load() {
                 dispatchEvent(event) { listeners.get(event.type)?.({...event, target: this}); },
                 setCustomValidity(message) { this.validationMessage = message; },
                 reportValidity() { return !this.validationMessage; },
-                querySelector: () => null, querySelectorAll: () => [], setAttribute() {}, replaceChildren() {}
+                children: [], focus() {},
+                append(...items) { this.children.push(...items); },
+                get lastElementChild() { return this.children.at(-1); },
+                querySelector(selector) { return this.children.find(item => item.tagName === selector) || null; },
+                querySelectorAll: () => [], setAttribute() {}, replaceChildren() { this.children = []; }
             });
         }
         return nodes.get(id);
@@ -28,7 +33,7 @@ function load() {
     const sandbox = {
         console, URLSearchParams, URL, FormData, location: {pathname: '/pixiv-gallery.html', search: '', href: 'http://localhost/pixiv-gallery.html'},
         history: {replaceState() {}},
-        document: {getElementById: node, querySelectorAll: () => [], addEventListener() {}, body: node('body')},
+        document: {createElement(tag) { const item = node("created-" + sequence++); item.tagName = tag; return item; }, getElementById: node, querySelectorAll: () => [], addEventListener() {}, body: node('body')},
         localStorage: {getItem: () => null, setItem() {}}, sessionStorage: {getItem: () => null, setItem() {}},
         addEventListener() {}, PixivActions: {bind() {}},
         setTimeout(fn) { timers.set(fn, fn); return fn; }, clearTimeout: fn => timers.delete(fn),
@@ -50,7 +55,7 @@ for (const entry of ['reset', 'collection']) {
         const h = load(), s = h.state;
         s.page = 3; s.search = 'keep'; s.searchType = 'title'; s.sort = 'artworkId'; s.order = 'asc';
         s.r18 = 'r18'; s.ai = 'yes'; s.formats.add('png'); s.collectionIds.add(9);
-        s.uploadStartDate = '2020-01-01'; s.uploadEndDate = '2020-01-31';
+        s.dateFilters = [{field: 'uploadTime', start: '2020-01-01', end: '2020-01-31'}];
         s.seriesFilter = {id: 10, title: 'series'}; s.authorNames.set(11, 'author');
         for (const kind of ['tag', 'author']) {
             h.sandbox.setFilterSelectionMode(kind, 12, 'not');
@@ -65,7 +70,7 @@ for (const entry of ['reset', 'collection']) {
         else h.sandbox.switchCollectionFilter(7);
         assert.equal(s.page, 0);
         assert.equal(s.r18, 'any'); assert.equal(s.ai, 'any'); assert.equal(s.formats.size, 0);
-        assert.equal(s.uploadStartDate, ''); assert.equal(s.uploadEndDate, '');
+        assert.equal(Object.keys(h.sandbox.galleryTimeRanges()).length, 0);
         assert.deepEqual([...s.collectionIds], entry === 'reset' ? [] : [7]);
         assert.equal(s.seriesFilter.id, null); assert.equal(s.authorNames.size, 0);
         for (const kind of ['tag', 'author']) {
@@ -133,72 +138,86 @@ test('收藏夹保存固定原对象和图标，重复提交不发请求且完�
     assert.equal(h.node('collectionFormSubmit').disabled, false);
 });
 
-test('上传日期范围按本地日历保存，包含结束日，并进入批量筛选快照', () => {
-    const h = load();
-    h.state.uploadStartDate = '2020-02-03'; h.state.uploadEndDate = '2020-02-03';
-    h.state.sort = 'uploadTime';
-    const range = h.sandbox.galleryTimeRanges();
-    assert.equal(range.uploadedFrom, new Date('2020-02-03T00:00:00').getTime());
-    assert.equal(range.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
-    const saved = h.sandbox.serializeGalleryState();
-    h.state.uploadStartDate = ''; h.state.uploadEndDate = '';
-    h.sandbox.applyPersistedGalleryState(saved);
-    assert.equal(h.state.uploadStartDate, '2020-02-03');
-    assert.equal(h.state.uploadEndDate, '2020-02-03');
-    const snapshot = h.sandbox.currentBatchFilterSnapshot();
-    assert.equal(snapshot.uploadedFrom, range.uploadedFrom);
-    assert.equal(snapshot.uploadedBefore, range.uploadedBefore);
-    h.sandbox.applyPersistedGalleryState({...saved, uploadStartDate: '2020-02-31'});
-    assert.equal(h.state.uploadStartDate, '');
-});
+function dateInputs(h) {
+    h.sandbox.renderDateFilters();
+    const row = h.node('dateFilters').children[0];
+    return [row.children[1].children[1], row.children[2].children[1]];
+}
 
-test('结束日期早于起始日期时不发送筛选请求', () => {
+test('多个日期条件同时保存、交接并进入批量快照，重置清除全部范围', () => {
     const h = load();
-    h.node('uploadStartDate').value = '2020-02-04';
-    h.node('uploadEndDate').value = '2020-02-03';
-    h.node('uploadEndDate').dispatchEvent({type: 'change'});
-    assert.equal(h.requests.length, 0);
-    assert.ok(h.node('uploadEndDate').validationMessage);
-    h.node('uploadEndDate').value = '2020-02-04';
-    h.node('uploadEndDate').dispatchEvent({type: 'change'});
-    assert.equal(h.requests.length, 1);
-    assert.equal(h.state.uploadStartDate, '2020-02-04');
-});
-
-
-test('下载和上传日期组合保留于跨页交接和批量快照，重置清除两者', () => {
-    const h = load();
-    h.sandbox.applyCrossTransferToGallery({
-        downloadStartDate: '2021-05-01', downloadEndDate: '2021-05-02',
-        uploadStartDate: '2020-02-03', uploadEndDate: '2020-02-03', sort: 'date', order: 'asc'
-    });
+    const rows = [
+        {field: 'date', start: '2021-05-01', end: '2021-05-02'},
+        {field: 'uploadTime', start: '2020-02-03', end: '2020-02-03'},
+        {field: 'createTime', start: '2019-01-01', end: ''}
+    ];
+    h.sandbox.applyCrossTransferToGallery({dateFilters: rows, sort: 'date', order: 'asc'});
     const saved = h.sandbox.serializeGalleryState();
     h.sandbox.applyPersistedGalleryState(saved);
     const snapshot = h.sandbox.currentBatchFilterSnapshot();
     assert.equal(snapshot.downloadedFrom, new Date('2021-05-01T00:00:00').getTime());
     assert.equal(snapshot.downloadedBefore, new Date('2021-05-03T00:00:00').getTime());
     assert.equal(snapshot.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
+    assert.equal(snapshot.createdFrom, new Date('2019-01-01T00:00:00').getTime());
     assert.equal(snapshot.sort, 'date');
     assert.equal(snapshot.order, 'asc');
+    assert.deepEqual(JSON.parse(JSON.stringify(saved.dateFilters)), rows);
+    saved.dateFilters[0].start = '';
+    assert.equal(h.state.dateFilters[0].start, '2021-05-01');
     h.sandbox.resetGalleryFilters([]);
-    for (const key of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
-        assert.equal(h.state[key], '');
-        assert.equal(h.node(key).value, '');
-    }
+    assert.deepEqual(Object.keys(h.sandbox.galleryTimeRanges()), []);
 });
 
-test('下载日期拒绝倒置区间，允许单边筛选并恢复筛选请求', () => {
+for (const field of ['date', 'uploadTime']) {
+    test(`${field} 拒绝倒置区间，修正后仅发送一次请求`, () => {
+        const h = load();
+        h.state.dateFilters = [{field, start: '', end: ''}];
+        const [from, to] = dateInputs(h);
+        from.value = '2021-05-02'; to.value = '2021-05-01';
+        to.dispatchEvent({type: 'change'});
+        assert.equal(h.requests.length, 0);
+        assert.ok(to.validationMessage);
+        from.value = '';
+        from.dispatchEvent({type: 'change'});
+        assert.equal(h.requests.length, 1);
+        assert.equal(h.state.dateFilters[0].end, '2021-05-01');
+    });
+}
+
+test('切换和移除日期类别后旧类别不再参与查询，新增空行不限制结果', () => {
     const h = load();
-    h.node('downloadStartDate').value = '2021-05-02';
-    h.node('downloadEndDate').value = '2021-05-01';
-    h.node('downloadEndDate').dispatchEvent({type: 'change'});
-    assert.equal(h.requests.length, 0);
-    assert.ok(h.node('downloadEndDate').validationMessage);
-    h.node('downloadStartDate').value = '';
-    h.node('downloadStartDate').dispatchEvent({type: 'change'});
-    assert.equal(h.requests.length, 1);
-    assert.equal(h.sandbox.galleryTimeRanges().downloadedFrom, null);
-    assert.equal(h.sandbox.galleryTimeRanges().downloadedBefore, new Date('2021-05-02T00:00:00').getTime());
-    h.sandbox.applyPersistedGalleryState({downloadStartDate: '2021-02-29'});
-    assert.equal(h.state.downloadStartDate, '');
+    h.state.dateFilters = [{field: 'uploadTime', start: '2020-01-01', end: ''}];
+    h.sandbox.renderDateFilters();
+    const select = h.node('dateFilters').children[0].children[0];
+    select.value = 'createTime'; select.dispatchEvent({type: 'change'});
+    assert.equal(h.sandbox.galleryTimeRanges().uploadedFrom, undefined);
+    assert.equal(h.sandbox.galleryTimeRanges().createdFrom, new Date('2020-01-01T00:00:00').getTime());
+    h.node('dateFilters').children[0].lastElementChild.children[1].click();
+    assert.equal(h.state.dateFilters.length, 2);
+    assert.deepEqual(Object.keys(h.sandbox.galleryTimeRanges()), ['createdFrom']);
+    h.node('dateFilters').children[0].lastElementChild.children[0].click();
+    assert.deepEqual(Object.keys(h.sandbox.galleryTimeRanges()), []);
+});
+
+test('恢复旧日期偏好并拒绝无效日期及重复类别', () => {
+    const h = load();
+    h.sandbox.restoreTimeRanges({downloadStartDate: '2021-05-02', uploadEndDate: '2021-02-29'});
+    assert.deepEqual(Object.keys(h.sandbox.galleryTimeRanges()), ['downloadedFrom']);
+    h.sandbox.restoreTimeRanges({dateFilters: [
+        {field: 'createTime', start: '2020-01-01'}, {field: 'createTime', start: '2021-01-01'},
+        {field: 'unknown', start: '2021-01-01'}
+    ]});
+    assert.equal(h.state.dateFilters.length, 1);
+    assert.equal(h.sandbox.galleryTimeRanges().createdFrom, new Date('2020-01-01T00:00:00').getTime());
+    h.sandbox.restoreTimeRanges({dateFilters: [{field: 'date', start: '2021-05-02', end: '2021-05-01'}]});
+    assert.deepEqual(Object.keys(h.sandbox.galleryTimeRanges()), []);
+});
+
+test('日期排序从其他排序切换回来时恢复选中态', () => {
+    const h = load();
+    h.state.sort = 'artworkId'; h.sandbox.syncDateSort();
+    assert.equal(h.node('dateSort').classList.contains('active'), false);
+    h.state.sort = 'createTime'; h.sandbox.syncDateSort();
+    assert.equal(h.node('dateSort').classList.contains('active'), true);
+    assert.equal(h.node('dateSort').value, 'createTime');
 });

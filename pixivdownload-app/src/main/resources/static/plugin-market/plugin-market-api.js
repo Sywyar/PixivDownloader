@@ -177,9 +177,9 @@
         return detail;
     };
 
-    function postJson(url, body, signal, method) {
+    function postJson(url, body) {
         return fetch(url, {
-            method: method || 'POST', credentials: 'same-origin', signal: signal,
+            method: 'POST', credentials: 'same-origin',
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function (res) {
@@ -192,15 +192,6 @@
             });
         });
     }
-
-    API.enableDatabaseProvider = function (owner, signal) {
-        return postJson('/api/plugins/' + enc(owner) + '/enabled', {enabled: true}, signal, 'PUT');
-    };
-    API.fetchDatabaseSettings = function (signal) { return getJson('/api/plugins/database', signal); };
-    API.checkDatabase = function (draft, signal) { return postJson('/api/plugins/database/check', draft, signal); };
-    API.previewDatabaseMigration = function (draft, signal) { return postJson('/api/plugins/database/preview', draft, signal); };
-    API.startDatabaseMigration = function (token, signal) { return postJson('/api/plugins/database/migrate', {token: token}, signal); };
-    API.fetchDatabaseMigration = function (signal) { return getJson('/api/plugins/database/migration', signal); };
 
     API.previewInstall = function (repositoryId, pluginId, version) {
         return getJson('/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId)

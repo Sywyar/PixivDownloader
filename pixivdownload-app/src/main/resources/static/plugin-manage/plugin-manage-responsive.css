@@ -40,7 +40,6 @@
         margin-right: 0;
     }
 
-    .pm-stats { grid-template-columns: repeat(2, 1fr); }
     .pm-grid { grid-template-columns: 1fr; }
 }
 
@@ -83,9 +82,6 @@
         flex: 1 1 150px;
     }
 
-    .pm-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
 
     .pm-tabs { flex-wrap: wrap; width: 100%; }
     .pm-tab { flex: 1 1 40%; justify-content: center; }

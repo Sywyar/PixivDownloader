@@ -178,9 +178,9 @@ class GalleryRepositoryTest {
     @Test
     @DisplayName("上传时间范围含起点不含终点且未知时间在两个排序方向都置后")
     void uploadTimeRangeAndNullOrdering() {
-        jdbc.update("UPDATE artworks SET upload_time = 100 WHERE artwork_id = ?", ARTWORK_B);
-        jdbc.update("UPDATE artworks SET upload_time = 200 WHERE artwork_id = ?", ARTWORK_F);
-        jdbc.update("UPDATE artworks SET upload_time = 200 WHERE artwork_id = ?", ARTWORK_H);
+        jdbc.update("UPDATE artworks SET source_upload_time = 100 WHERE artwork_id = ?", ARTWORK_B);
+        jdbc.update("UPDATE artworks SET source_upload_time = 200 WHERE artwork_id = ?", ARTWORK_F);
+        jdbc.update("UPDATE artworks SET source_upload_time = 200 WHERE artwork_id = ?", ARTWORK_H);
         var ascending = WorkQuery.builder(WorkType.ARTWORK).sort("uploadTime").order("asc").build();
         var descending = WorkQuery.builder(WorkType.ARTWORK).sort("uploadTime").order("desc").build();
         assertThat(repository.findArtworkIds(ascending).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H, ARTWORK_K);
@@ -195,7 +195,7 @@ class GalleryRepositoryTest {
     @Test
     @DisplayName("下载日期按边界筛选并在分页前组合上传日期与排序")
     void downloadTimeRangeAndCombinedPagination() {
-        jdbc.update("UPDATE artworks SET upload_time = 900 WHERE artwork_id IN (?, ?)", ARTWORK_B, ARTWORK_H);
+        jdbc.update("UPDATE artworks SET source_upload_time = 900 WHERE artwork_id IN (?, ?)", ARTWORK_B, ARTWORK_H);
         WorkQuery query = WorkQuery.builder(WorkType.ARTWORK).sort("date").order("asc")
                 .downloadTimeRange(100L, 301L).build();
         assertThat(repository.findArtworkIds(query).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H);
@@ -214,6 +214,20 @@ class GalleryRepositoryTest {
         }
     }
 
+    @Test
+    @DisplayName("来源日期独立筛选，历史下载时间仍参与排序与分页")
+    void independentDateDimensions() {
+        jdbc.update("UPDATE artworks SET create_time=100,update_time=200,reupload_time=300 WHERE artwork_id=?", ARTWORK_B);
+        jdbc.update("UPDATE artworks SET create_time=400,update_time=500,reupload_time=600 WHERE artwork_id=?", ARTWORK_F);
+        for (String field : java.util.List.of("createTime", "updateTime", "reuploadTime")) {
+            var q = WorkQuery.builder(WorkType.ARTWORK).sort(field).order("asc").sourceTimeField(field).uploadTimeRange(1L, 350L).build();
+            assertThat(repository.findArtworkIds(q).ids()).containsExactly(ARTWORK_B);
+        }
+        var downloads = WorkQuery.builder(WorkType.ARTWORK).sort("date").order("asc").build();
+        assertThat(repository.findArtworkIds(downloads).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H, ARTWORK_K);
+        assertThat(repository.findArtworkIds(downloads.withDownloadTimeRange(1L, 1000L)).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H, ARTWORK_K);
+    }
+
     private void createTables() {
         jdbc.execute("""
                 CREATE TABLE artworks (
@@ -223,7 +237,8 @@ class GalleryRepositoryTest {
                     count INTEGER NOT NULL,
                     extensions TEXT NOT NULL,
                     time INTEGER NOT NULL,
-                    upload_time INTEGER DEFAULT NULL,
+                    source_upload_time INTEGER DEFAULT NULL,
+                    create_time INTEGER,update_time INTEGER,reupload_time INTEGER,
                     "R18" INTEGER DEFAULT NULL,
                     is_ai INTEGER DEFAULT NULL,
                     author_id INTEGER DEFAULT NULL,

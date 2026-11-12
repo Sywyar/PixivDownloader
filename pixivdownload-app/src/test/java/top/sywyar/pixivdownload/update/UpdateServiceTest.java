@@ -9,7 +9,6 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
-import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.OfficialArtifactTrustRoots;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
@@ -75,7 +74,7 @@ class UpdateServiceTest {
         when(client.fetchBytes(MANIFEST_URL + ".sig", 16L * 1024L)).thenReturn(new byte[0]);
         when(client.fetchBytes(nightlyUrl, 1024L * 1024L)).thenReturn(nightly);
         when(client.fetchBytes(nightlyUrl + ".sig", 16L * 1024L)).thenReturn(signing.signature(nightly));
-        PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+        UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
         when(provider.clientFor(any())).thenReturn(client);
         UpdateService service = new UpdateService(config, APP_MESSAGES, signing.verifier(),
                 tempDir.resolve("trust.json"), provider);
@@ -108,7 +107,7 @@ class UpdateServiceTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.registerBean(UpdateConfig.class, UpdateServiceTest::config);
             context.registerBean(AppMessages.class, () -> APP_MESSAGES);
-            context.registerBean(PluginCatalogClientProvider.class, () -> mock(PluginCatalogClientProvider.class));
+            context.registerBean(UpdateHttpClientProvider.class, () -> mock(UpdateHttpClientProvider.class));
             context.registerBean(UpdateService.class);
             context.refresh();
 
@@ -331,7 +330,7 @@ class UpdateServiceTest {
     void shouldRejectHttpManifestBeforeNetwork() {
         UpdateConfig config = config();
         config.setManifestUrl("http://example.com/update.json");
-        PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+        UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
         UpdateService service = new UpdateService(config, APP_MESSAGES, provider);
 
         assertThat(service.checkForUpdate(true).isCheckSucceeded()).isFalse();
@@ -360,7 +359,7 @@ class UpdateServiceTest {
                 invocation.<LongConsumer>getArgument(3).accept(2);
                 return 2L;
             }).when(client).streamToFile(anyString(), anyLong(), any(Path.class), any(LongConsumer.class));
-            PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+            UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
             when(provider.clientFor(any())).thenReturn(client);
             UpdateService service = new UpdateService(
                     config(), APP_MESSAGES, signing.verifier(), tempDir.resolve("trust.json"), provider);
@@ -371,6 +370,8 @@ class UpdateServiceTest {
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("size mismatch");
             assertThat(part).doesNotExist();
+            assertThat(service.getDownloadProgress().failed()).isTrue();
+            assertThat(service.getDownloadProgress().error()).isEqualTo("update.download.failed");
         } finally {
             restoreProperty("os.name", oldOsName);
             restoreProperty("os.arch", oldOsArch);
@@ -399,7 +400,7 @@ class UpdateServiceTest {
                 .build();
         java.util.concurrent.atomic.AtomicReference<UpdateCheckResult> captured =
                 new java.util.concurrent.atomic.AtomicReference<>();
-        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(PluginCatalogClientProvider.class)) {
+        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(UpdateHttpClientProvider.class)) {
             @Override
             void downloadInstaller(UpdateCheckResult check) throws IOException {
                 captured.set(check);
@@ -436,6 +437,26 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("异步下载失败状态只保存安全错误码")
+    void asyncDownloadFailureDoesNotStoreInternalDetails() throws Exception {
+        UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(UpdateHttpClientProvider.class)) {
+            @Override
+            void downloadInstaller(UpdateCheckResult check) throws IOException {
+                throw new IOException("internal-probe C:/private/update token=private-value");
+            }
+        };
+        var lastResult = UpdateService.class.getDeclaredField("lastResult");
+        lastResult.setAccessible(true);
+        lastResult.set(service, UpdateCheckResult.builder().updateAvailable(true)
+                .assetUrl("https://example.com/update.exe").assetSizeBytes(30).build());
+        service.startDownloadAsync(false);
+        org.awaitility.Awaitility.await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(service.getDownloadProgress().failed()).isTrue();
+            assertThat(service.getDownloadProgress().error()).isEqualTo("update.download.failed");
+        });
+    }
+
+    @Test
     @DisplayName("安装启动仅使用服务端已验证文件并在启动前重验大小和哈希")
     void shouldBindInstallToVerifiedDownloadSnapshot() throws Exception {
         String oldOsName = System.getProperty("os.name");
@@ -455,7 +476,7 @@ class UpdateServiceTest {
                 invocation.<LongConsumer>getArgument(3).accept(payload.length);
                 return (long) payload.length;
             }).when(client).streamToFile(anyString(), anyLong(), any(Path.class), any(LongConsumer.class));
-            PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+            UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
             when(provider.clientFor(any())).thenReturn(client);
             UpdateService service = spy(new UpdateService(config(), APP_MESSAGES, provider));
             doNothing().when(service).scheduleExit();
@@ -511,7 +532,7 @@ class UpdateServiceTest {
     void shouldShortCircuitWhenDisabled() {
         UpdateConfig config = new UpdateConfig();
         config.setEnabled(false);
-        PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+        UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
         UpdateService service = new UpdateService(config, APP_MESSAGES, provider);
 
         UpdateCheckResult result = service.checkForUpdate(true);
@@ -526,7 +547,7 @@ class UpdateServiceTest {
         PluginCatalogHttpClient client = mock(PluginCatalogHttpClient.class);
         when(client.fetchBytes(MANIFEST_URL, 1024L * 1024L)).thenReturn(manifest);
         when(client.fetchBytes(MANIFEST_URL + ".sig", 16L * 1024L)).thenReturn(signature);
-        PluginCatalogClientProvider provider = mock(PluginCatalogClientProvider.class);
+        UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
         when(provider.clientFor(any())).thenReturn(client);
         return new UpdateService(config(), APP_MESSAGES, signing.verifier(), state, provider);
     }
@@ -553,7 +574,8 @@ class UpdateServiceTest {
                         detail, new javax.net.ssl.SSLHandshakeException(detail)), "TLS_FAILED", null)
         );
         var client = mock(PluginCatalogHttpClient.class);
-        PluginCatalogClientProvider provider = repository -> client;
+        UpdateHttpClientProvider provider = mock(UpdateHttpClientProvider.class);
+        when(provider.clientFor(any())).thenReturn(client);
         var signing = new SigningSupport();
         var service = new UpdateService(config(), APP_MESSAGES, signing.verifier(), tempDir.resolve("trust.json"), provider);
         for (Failure failure : failures) {

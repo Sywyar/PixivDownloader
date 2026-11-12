@@ -47,16 +47,62 @@ const PixivUserscriptDetection = (() => {
         return current.has(id) || (bundledIds.has(id) && current.has('all-in-one'));
     }
 
-    function describe(id, found, translate) {
-        const lines = [];
-        if (found.has(id)) {
-            lines.push(translate('batch:userscripts.detected', undefined, {version: [...found.get(id)].join(', ')}));
+    function compareVersions(left, right) {
+        // 油猴允许自定义版本；只比较明确的数字版本和常见预发布编号，其他格式不推断升级。
+        const parse = value => {
+            const match = typeof value === 'string'
+                && /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(alpha|beta|rc)(?:\.(\d+))?)?$/.exec(value);
+            if (!match) return null;
+            return [
+                BigInt(match[1]), BigInt(match[2] || 0), BigInt(match[3] || 0),
+                ['alpha', 'beta', 'rc', undefined].indexOf(match[4]), BigInt(match[5] || 0)
+            ];
+        };
+        const a = parse(left), b = parse(right);
+        if (!a || !b) return null;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
         }
-        if (bundledIds.has(id) && found.has('all-in-one')) {
-            lines.push(translate('batch:userscripts.covered', undefined, {version: [...found.get('all-in-one')].join(', ')}));
-        }
-        return lines.length ? lines.join(' · ') : translate('batch:userscripts.not-detected');
+        return 0;
     }
 
-    return {probe, has, describe};
+    function describe(id, availableVersion, found, translate) {
+        const lines = [];
+        const add = (state, version) => lines.push({
+            state,
+            text: translate('batch:userscripts.' + state, undefined, {version})
+        });
+        const versions = found?.get(id);
+        let availableState = 'available-version';
+        if (versions?.size) {
+            const compared = [...versions].map(version => compareVersions(availableVersion, version));
+            if (compared.every(order => order === 1)) availableState = 'update-available';
+            else if (compared.every(order => order === -1)) availableState = 'older-version';
+        }
+        if (availableState === 'update-available') add(availableState, availableVersion);
+        if (versions?.size) add('detected', [...versions].join(', '));
+        if (bundledIds.has(id) && found?.has('all-in-one')) {
+            add('covered', [...found.get('all-in-one')].join(', '));
+        }
+        if (!lines.length) add(found ? 'not-detected' : 'detecting');
+        if (availableState !== 'update-available' && availableVersion
+            && !(versions?.size === 1 && versions.has(availableVersion))) {
+            add(availableState, availableVersion);
+        }
+        return lines;
+    }
+
+    function renderVersion(node, script, found, translate) {
+        const lines = describe(script.id, script.version, found, translate);
+        node.setAttribute('role', 'status');
+        node.setAttribute('aria-atomic', 'true');
+        lines.forEach((line, index) => {
+            const part = node.children[index] || node.appendChild(document.createElement('span'));
+            part.dataset.state = line.state;
+            part.textContent = line.text;
+        });
+        while (node.children.length > lines.length) node.lastElementChild.remove();
+    }
+
+    return {probe, has, describe, renderVersion};
 })();

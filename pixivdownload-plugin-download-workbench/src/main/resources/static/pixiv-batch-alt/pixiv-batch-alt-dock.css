@@ -189,6 +189,7 @@
     color: var(--muted);
     margin-top: 4px;
     font-variant-numeric: tabular-nums;
+    min-block-size: 2lh;
 }
 
 /* 队首进度卡下方的剩余计数行（「还有 X 个正在下载、Y 个排队中…」）；var(--muted) 自动适配深色模式。 */
@@ -358,6 +359,24 @@
     border-radius: 4px;
     background: var(--line);
     overflow: hidden;
+}
+
+.ab-progress-extras {
+    container-type: inline-size;
+}
+
+@container (max-width: 24rem) {
+    .ab-progress-extras .ab-mini-prog-label {
+        min-block-size: 2lh;
+        align-content: start;
+        row-gap: 0;
+    }
+}
+
+@container (max-width: 16rem) {
+    .ab-progress-extras .ab-mini-prog-label {
+        min-block-size: 3lh;
+    }
 }
 
 .ab-mini-prog-fill {

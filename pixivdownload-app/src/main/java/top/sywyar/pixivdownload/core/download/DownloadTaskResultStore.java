@@ -36,12 +36,12 @@ public final class DownloadTaskResultStore {
     DownloadTaskResultStore(Path directory) { this.directory = directory; }
 
     private record Result(int version, DownloadAttempt attempt, String owner, String queueType,
-                          String title, DownloadEvent.Phase phase, String updatedAt) {}
+                          String title, DownloadEvent.Phase phase, String updatedAt, DownloadEvent.FailureReason failureReason) {}
 
     void save(DownloadTaskSnapshot task, String owner) throws IOException {
         if (!task.terminal()) throw new IllegalArgumentException("download result is not terminal");
         byte[] bytes = mapper.writeValueAsBytes(new Result(1, task.attempt(), owner, task.queueType(),
-                task.title(), task.phase(), task.updatedAt().toString()));
+                task.title(), task.phase(), task.updatedAt().toString(), task.failureReason()));
         if (bytes.length > MAX_RECORD_BYTES) throw new IOException("download result too large");
         Path target = path(task.attempt().attemptId());
         Files.createDirectories(target.getParent());
@@ -73,7 +73,7 @@ public final class DownloadTaskResultStore {
                     || result.title() == null || result.title().length() > 512 || result.updatedAt() == null)
                 throw new IOException("invalid download result");
             DownloadTaskSnapshot task = new DownloadTaskSnapshot(result.attempt(), result.queueType(),
-                    result.title(), result.phase(), Instant.parse(result.updatedAt()), 0);
+                    result.title(), result.phase(), Instant.parse(result.updatedAt()), 0, result.failureReason());
             if (!task.terminal()) throw new IOException("download result is not terminal");
             return owner.admin() || Objects.equals(owner.ownerUuid(), result.owner())
                     ? Optional.of(task) : Optional.empty();

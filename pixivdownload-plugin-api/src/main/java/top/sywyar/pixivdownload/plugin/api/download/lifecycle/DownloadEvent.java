@@ -8,9 +8,22 @@ import java.util.Objects;
  * COMPLETED 表示文件及历史已写入，辅助收藏等后置动作可以尚未完成。
  * 不重放、不承诺进程崩溃时的终态交付，也不代表浏览器队列状态。
  * @param attempt 本次执行身份
+ * @param failureReason 安全失败原因；非失败事件为 null
  * @param phase 已到达的执行阶段
  */
-public record DownloadEvent(DownloadAttempt attempt, Phase phase) {
+public record DownloadEvent(DownloadAttempt attempt, Phase phase, FailureReason failureReason) {
+    /** 不携带凭据或底层异常的失败原因。 */
+    public enum FailureReason {
+        /** 当前选择的凭据均不可用，保留队列等待恢复。 */
+        CREDENTIALS_UNAVAILABLE
+    }
+    /**
+     * 构造没有附加失败原因的事件。
+     * @param attempt 本次执行身份
+     * @param phase 已到达的执行阶段
+     */
+    public DownloadEvent(DownloadAttempt attempt, Phase phase) { this(attempt, phase, null); }
+
     /** 当前执行器与本地导入公开的阶段。 */
     public enum Phase {
         /** 已开始接纳或同步执行，尚不代表已排队。 */
@@ -34,5 +47,6 @@ public record DownloadEvent(DownloadAttempt attempt, Phase phase) {
     public DownloadEvent {
         Objects.requireNonNull(attempt, "attempt");
         Objects.requireNonNull(phase, "phase");
+        if (failureReason != null && phase != Phase.FAILED) throw new IllegalArgumentException("failure reason requires FAILED");
     }
 }

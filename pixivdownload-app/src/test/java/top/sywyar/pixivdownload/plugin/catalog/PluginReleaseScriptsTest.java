@@ -93,7 +93,6 @@ class PluginReleaseScriptsTest {
                 "elseif ($_ -match '^\\s*plugin\\.requires\\s*=') { \"plugin.requires=$RequiredSdk\" }",
                 "\"--update\" \"--file\" $StagedArtifact \"plugin.properties\"",
                 "Remove-ExistingReleaseAssets -Tag $tag -AssetNames $assetNames",
-                "gh release edit $tag --repo $Repo --title $title",
                 "gh release create $tag $uploadPaths --repo $Repo --title $title",
                 "--prerelease");
         assertThat(publisher).doesNotContain("Nightly release $tag already exists");
@@ -101,8 +100,7 @@ class PluginReleaseScriptsTest {
                 "$manifestName = if ($isNightly) { \"nightly-manifest.json\" } else { \"manifest.json\" }",
                 "$version = if ($isNightly) {",
                 "Get-NightlyPluginVersion $sourceVersion $nightlySuffix",
-                "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }",
-                "$releasedTime = if ($isNightly) { $nowUtc } else { $rel.publishedAt }");
+                "$tag = if ($isNightly) { \"$id-nightly\" } else { \"$id-v$version\" }");
     }
 
     @Test
@@ -327,33 +325,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Windows 升级按随包 manifest 清理同 id 旧包，保留清单外插件")
-    void installerUpgradeReconcilesOnlyBundledDefaultPluginIds() throws Exception {
-        String inno = innoScript();
-        String installerInstall = innoSupportScript("installer-plugin-install.ps1");
-
-        assertThat(installerInstall).contains(
-                "ParameterSetName = \"Reconcile\"",
-                "[switch]$ReconcileBundledDefaults",
-                "function Reconcile-BundledDefaultPlugins",
-                "Get-Prop $entry \"id\"",
-                "Get-Prop $entry \"version\"",
-                "Get-Prop $entry \"file\"",
-                "Read-PluginDescriptorFromPackage $stableArtifact",
-                "Remove-SupersededInstalledPlugins $pluginsDir $pluginId $stableArtifact",
-                "\"$($artifact.FullName).sig.json\"");
-        assertThat(inno).contains(
-                "procedure ReconcileBundledDefaultPlugins;",
-                "{app}\\plugins\\plugins-manifest.json",
-                "-ReconcileBundledDefaults",
-                "ewWaitUntilTerminated",
-                "(CurStep = ssPostInstall) and ShouldInstallApplicationFiles");
-        assertThat(inno).doesNotContain(
-                "{app}\\plugins\\douyin-*",
-                "Type: filesandordirs; Name: \"{app}\\plugins\"");
-    }
-
-    @Test
     @DisplayName("Windows 主程序与安装器 loader 均请求管理员权限")
     void windowsLauncherAndInstallerLoaderRequestAdministratorRights() throws Exception {
         String windows = script("package-local.ps1");
@@ -540,8 +511,8 @@ class PluginReleaseScriptsTest {
         assertThat(inno).doesNotContain("ParsePluginCatalogOutput");
         assertThat(inno).doesNotContain("LoadStringsFromFile(OutputPath");
         assertThat(inno).doesNotContain("solidbreak");
-        assertThat(inno).doesNotContain("SetTimer@user32.dll");
-        assertThat(inno).doesNotContain("KillTimer@user32.dll");
+        assertThat(inno).contains("PreviewSetTimer(PreviewTableHost.Handle, 1, 25, 0)");
+        assertThat(inno).contains("PreviewKillTimer(PreviewTableHost.Handle, 1)");
         assertThat(inno).doesNotContain("StartPluginCatalogTimer");
         assertThat(inno).doesNotContain("PluginCatalogTimerProc");
         assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogTimerProc)");
@@ -550,7 +521,8 @@ class PluginReleaseScriptsTest {
         assertThat(inno).doesNotContain("CreateCallback(@PluginCatalogProjectionTimerProc)");
         assertThat(inno).doesNotContain("SchedulePackagedInstallerPluginCatalogLoad");
         assertThat(inno).doesNotContain("while (not IsPluginCatalogOutputReady(OutputPath))");
-        assertThat(inno).doesNotContain("WizardForm.NextButton.Enabled := False");
+        assertThat(innoSupportScript("PixivDownload-plugins.iss.inc"))
+                .doesNotContain("WizardForm.NextButton.Enabled := False");
         assertThat(inno).doesNotContainPattern("if\\s+ShouldShowOptionalPluginsPage\\s+then\\s+StartPluginCatalogTimer");
         Matcher initializeWizard = Pattern.compile("procedure InitializeWizard;(?<body>.*?)function ShouldSkipPage",
                 Pattern.DOTALL).matcher(inno);
@@ -573,7 +545,6 @@ class PluginReleaseScriptsTest {
                 "[System.Net.WebRequest]::GetSystemWebProxy()",
                 "Write-State (\"ERROR|\" + (Escape-StateField (Format-Error $_)))",
                 "function Remove-SupersededInstalledPlugins",
-                "plugin.id",
                 "$item.PluginId + \"-\" + $item.Version + $ext",
                 "Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target",
                 "$($artifact.FullName).sha256",
@@ -1202,7 +1173,7 @@ class PluginReleaseScriptsTest {
         String distribution = script("assemble-plugin-distribution.ps1");
 
         assertThat(distribution).contains(
-                "Writing launch scripts",
+                "Preparing extracted application and launch scripts",
                 "$coreJarName = \"PixivDownload-$Version.jar\"",
                 "$runBat = $runBat.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
                 "$runSh = $runSh.Replace(\"PixivDownload-VERSION.jar\", $coreJarName)",
@@ -1220,7 +1191,7 @@ class PluginReleaseScriptsTest {
                 "set \"APP_HOME=%~dp0\"",
                 "cd /d \"%APP_HOME%\" || exit /b 1",
                 "\"-Dpixivdownload.plugins-dir=%APP_HOME%plugins\"",
-                "\"%APP_HOME%PixivDownload-VERSION.jar\" %*")
+                "\"%APP_HOME%app\\PixivDownload-VERSION.jar\" top.sywyar.pixivdownload.startup.DistributionLauncher run %*")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
         // run.sh 契约：#!/usr/bin/env sh / 自解析目录 / plugins-dir / 精确 JAR 名 / "$@" / exec。
         Matcher runSh = Pattern.compile("#!/usr/bin/env sh(?<body>.*?\"\\$@\")", Pattern.DOTALL)
@@ -1231,7 +1202,8 @@ class PluginReleaseScriptsTest {
                 "APP_HOME=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)",
                 "cd \"$APP_HOME\"",
                 "\"-Dpixivdownload.plugins-dir=$APP_HOME/plugins\"",
-                "\"$APP_HOME/PixivDownload-VERSION.jar\" \\",
+                "\"$APP_HOME/app/PixivDownload-VERSION.jar\" \\",
+                "top.sywyar.pixivdownload.startup.DistributionLauncher run \\",
                 "\"$@\"")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
     }
@@ -1390,7 +1362,7 @@ class PluginReleaseScriptsTest {
 
         assertThat(dockerfile).contains(
                 "ARG PIXIVDOWNLOADER_DISTRIBUTION=build/dist/default-downloader",
-                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/PixivDownload-*.jar app.jar",
+                "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/app/ app/",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins/ plugins/",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/plugins-manifest.json plugins-manifest.json",
                 "COPY --chown=10001:10001 ${PIXIVDOWNLOADER_DISTRIBUTION}/SHA256SUMS SHA256SUMS",

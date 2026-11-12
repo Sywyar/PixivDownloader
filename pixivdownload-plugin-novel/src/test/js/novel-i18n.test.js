@@ -6,6 +6,23 @@ const path = require('path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+for (const [name, createTime, uploadTimestamp, expected] of [
+    ['创建时间优先', 1000, 2000, 1000],
+    ['旧记录回退上传时间', null, 2000, 2000],
+    ['没有发布时间则省略', null, null, null],
+]) {
+    test('小说详情只保留发布时间：' + name, () => {
+        const meta = {}, messages = [];
+        const sandbox = {window: {PixivNovel: {}}, document: {getElementById: () => meta}, escapeHtml: String,
+            pageI18n: {t(key, fallback, args) { messages.push({key, args}); return key; }}};
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/pixiv-novel/novel-content.js'), 'utf8'), sandbox);
+        sandbox.renderMetaRow({wordCount: 12, createTime, uploadTimestamp, downloadTime: 3000, updateTime: 4000, reuploadTime: 5000});
+        assert.deepEqual(messages.map(message => message.key), expected ? ['meta.word-count', 'meta.published'] : ['meta.word-count']);
+        if (expected) assert.equal(messages[1].args.time, new Date(expected).toLocaleString());
+        assert.match(meta.innerHTML, /meta.word-count/);
+    });
+}
+
 const I18N = path.join(__dirname, '..', '..', 'main', 'resources', 'i18n', 'web');
 const ZH = fs.readFileSync(path.join(I18N, 'novel.properties'), 'utf8');
 const EN = fs.readFileSync(path.join(I18N, 'novel_en.properties'), 'utf8');

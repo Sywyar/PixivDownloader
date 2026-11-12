@@ -206,6 +206,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             body = requireAjaxBody(pixivAjaxClient.get(uri, cookie));
         } catch (ScheduledExecutionException e) {
             throw e;
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
         } catch (PixivAjaxException e) {
             throw classifyAjaxTransportFailure(e);
         } catch (RuntimeException e) {
@@ -244,6 +246,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throw failure(ScheduledFailure.Category.USER_ACTION_REQUIRED, "DOWNLOAD_PATH_ACTION_REQUIRED");
         } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
             throw unavailable;
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
+            throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-retryable");
         }

@@ -167,6 +167,12 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.equal(textOf(one('pmk-card-name')), 'visible');
     assert.equal(textOf(one('pmk-card-desc')), '<img src=x onerror=alert(1)>');
     assert.equal(textOf(one('pmk-seg-count')), '2');
+    const browse = one('pmk-browse-toggle');
+    assert.equal(browse.props['aria-expanded'], false);
+    browse.props.onClick();
+    await flush();
+    assert.equal(browse.props['aria-expanded'], true);
+    assert.equal(one('pmk-sidebar').props['data-expanded'], true);
     const filters = elements(root, 'pmk-switch');
     assert.equal(filters[0].props['aria-label'], 'plugin-market:filter.hide-default-installed');
     assert.equal(filters[1].props['aria-label'], 'plugin-market:filter.hide-dependencies');
@@ -179,6 +185,7 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.equal(elements(root, 'pmk-card').length, 3);
 
     const search = one('pmk-search').children.find(n => n.tagName === 'INPUT');
+    assert.equal(search.props['aria-label'], 'plugin-market:search.placeholder');
     search.value = 'missing';
     search.listeners.input({ target: search });
     await flush();
@@ -241,6 +248,23 @@ test('市场在禁止动态代码编译时挂载，筛选、详情、安装结�
     assert.equal(textOf(one('pmk-title')), 'Plugin Market');
     assert.equal(textOf(one('pmk-toolbar-description')), 'plugin-market:category.all.description');
     assert.deepEqual(page.errors, []);
+});
+
+test('市场说明默认收起，刷新和语言切换保留原生展开状态', async () => {
+    const page = await mountMarket();
+    const help = elements(page.root, 'pmk-security-notice')[0];
+    assert.equal(help.tagName, 'DETAILS');
+    assert.ok(!help.open);
+    help.open = true;
+    await page.reload({});
+    assert.equal(elements(page.root, 'pmk-security-notice')[0], help);
+    assert.equal(help.open, true);
+    page.market.state.i18n.client = {lang: 'ja-JP', t: key => 'translated:' + key};
+    page.market.state.activeView.rerender();
+    await page.flush();
+    assert.equal(elements(page.root, 'pmk-security-notice')[0], help);
+    assert.equal(help.open, true);
+    assert.match(textOf(help), /translated:plugin-market:security.notice.title/);
 });
 
 test('卡片与详情默认安装兼容旧版，兼容筛选保留条目且仍可手动查看最新版', async () => {

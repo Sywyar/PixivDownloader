@@ -780,6 +780,7 @@ public class SSEController {
                     .downloadedCount(downloadStatus.getDownloadedCount())
                     .completed(downloadStatus.isCompleted())
                     .failed(downloadStatus.isFailed())
+                    .errorCode(downloadStatus.getErrorCode())
                     .cancelled(downloadStatus.isCancelled())
                     .folderName(downloadStatus.getFolderName())
                     .bookmarkResult(downloadStatus.getBookmarkResult())

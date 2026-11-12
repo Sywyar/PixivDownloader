@@ -197,7 +197,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 null,
                 uploadTime,
                 navigation.isNull() || seriesId > 0 || (completeResponse && navigation.isMissingNode()),
-                payload.path("title").isString() ? payload.path("title").stringValue() : null, null
+                payload.path("title").isString() ? payload.path("title").stringValue() : null, null, completeResponse
         );
     }
 
@@ -259,6 +259,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         final boolean seriesKnown;
         final String title;
         final CuratedWorkMeta metadata;
+        final boolean completeResponse;
 
         private LookupResult(
                 ResultType type,
@@ -276,12 +277,12 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 boolean seriesKnown
         ) {
             this(type, authorId, authorName, xRestrict, isAi, description, tags, seriesId, seriesOrder,
-                    seriesTitle, message, uploadTime, seriesKnown, null, null);
+                    seriesTitle, message, uploadTime, seriesKnown, null, null, false);
         }
 
         private LookupResult(ResultType type, long authorId, String authorName, Integer xRestrict, Boolean isAi,
                 String description, List<TagEntry> tags, long seriesId, Long seriesOrder, String seriesTitle,
-                String message, Long uploadTime, boolean seriesKnown, String title, CuratedWorkMeta metadata) {
+                String message, Long uploadTime, boolean seriesKnown, String title, CuratedWorkMeta metadata, boolean completeResponse) {
             this.type = type;
             this.authorId = authorId;
             this.authorName = authorName;
@@ -297,11 +298,12 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             this.seriesKnown = seriesKnown;
             this.title = title;
             this.metadata = metadata;
+            this.completeResponse = completeResponse;
         }
 
         LookupResult withMetadata(CuratedWorkMeta metadata) {
             return new LookupResult(type, authorId, authorName, xRestrict, isAi, description, tags,
-                    seriesId, seriesOrder, seriesTitle, message, uploadTime, seriesKnown, title, metadata);
+                    seriesId, seriesOrder, seriesTitle, message, uploadTime, seriesKnown, title, metadata, completeResponse);
         }
 
         static LookupResult found(

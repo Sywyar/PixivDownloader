@@ -30,7 +30,7 @@
             }
             if (format === 'netscape') {
                 return raw.split('\n')
-                    .filter(l => l.trim() && !l.trim().startsWith('#'))
+                    .filter(l => l.trim() && (!l.trim().startsWith('#') || l.trim().startsWith('#HttpOnly_')))
                     .map(l => {
                         const p = l.split('\t');
                         return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;

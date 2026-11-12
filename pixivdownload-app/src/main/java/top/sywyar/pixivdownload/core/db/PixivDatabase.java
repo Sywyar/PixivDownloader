@@ -232,7 +232,7 @@ public class PixivDatabase {
                 record.seriesOrder(),
                 record.deleted(),
                 record.uploadTime(),
-                record.isOriginal()
+                record.isOriginal(), record.createTime(), record.updateTime(), record.reuploadTime()
         );
     }
 

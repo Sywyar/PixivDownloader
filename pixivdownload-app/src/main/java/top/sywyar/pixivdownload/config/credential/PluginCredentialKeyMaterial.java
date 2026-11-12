@@ -11,13 +11,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 
-/**
- * Host-owned root keyring for encrypted plugin credentials.
- *
- * <p>The current key encrypts new writes. The open-source fallback remains readable so an
- * installation built from source can be upgraded to an official build without losing credentials.
- * Root keys never enter a plugin child context or a stable plugin contract.
- */
+/** 宿主内部密钥材料；发行资源只用于旧格式迁移，正常读写使用安装实例密钥。 */
 final class PluginCredentialKeyMaterial {
 
     static final String RESOURCE_NAME = "plugin-credential-key.properties";
@@ -39,7 +33,7 @@ final class PluginCredentialKeyMaterial {
         this.byId = Map.copyOf(entries);
     }
 
-    static PluginCredentialKeyMaterial load() {
+    static PluginCredentialKeyMaterial loadLegacy() {
         Properties properties = new Properties();
         ClassLoader loader = PluginCredentialKeyMaterial.class.getClassLoader();
         try (InputStream input = loader.getResourceAsStream(RESOURCE_NAME)) {
@@ -51,6 +45,10 @@ final class PluginCredentialKeyMaterial {
             throw new IllegalStateException("Failed to load plugin credential key resource", e);
         }
         return fromProperties(properties);
+    }
+
+    static PluginCredentialKeyMaterial installed(byte[] rootKey) {
+        return new PluginCredentialKeyMaterial(PROFILE_OPEN_SOURCE, rootKey, rootKey);
     }
 
     static PluginCredentialKeyMaterial fromProperties(Properties properties) {

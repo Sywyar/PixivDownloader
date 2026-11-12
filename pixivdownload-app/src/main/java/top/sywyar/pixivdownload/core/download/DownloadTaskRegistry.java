@@ -165,7 +165,8 @@ public final class DownloadTaskRegistry {
             if (event.phase() == DownloadEvent.Phase.ACCEPTED && before != DownloadEvent.Phase.ACCEPTED) return false;
             if (event.phase() == DownloadEvent.Phase.QUEUED && before != DownloadEvent.Phase.ACCEPTED) return false;
             if (event.phase() == DownloadEvent.Phase.STARTED && before == DownloadEvent.Phase.STARTED) return false;
-            entry.value = value(event.attempt(), entry.value.queueType(), entry.value.title(), event.phase());
+            entry.value = new DownloadTaskSnapshot(event.attempt(), entry.value.queueType(), entry.value.title(),
+                    event.phase(), clock.instant(), ++revision, event.failureReason());
             entry.publishedPhase = event.phase();
             terminal = entry.value.terminal();
             if (terminal) entry.task = null;

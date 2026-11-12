@@ -341,7 +341,7 @@
     }
 
     // 打开弹窗并按任务现状预填：代理可回显；凭证只恢复勾选态，不回显原值。
-    function showScheduleOverrideModal(id) {
+    function showScheduleOverrideModal(id, section = 'cookie') {
         const task = scheduleTaskById(id);
         const modal = document.getElementById('schedule-override-modal');
         if (!task || !modal) return;
@@ -363,24 +363,33 @@
         const capabilities = updateScheduleCredentialControls(
             'sch-ov', sourceType, {task});
         if (!capabilities.supportsCredential && !capabilities.supportsProxy) return;
-        scheduleOverrideSession = {saving: false};
+        scheduleOverrideSession = {saving: false, section};
         setScheduleOverrideSaving(false);
         modal.dataset.taskId = String(Number(id));
         modal.dataset.sourceType = sourceType;
         modal.dataset.sourceActivationToken = sourceActivationToken;
         const title = document.getElementById('schedule-override-title');
-        if (title) title.textContent = (capabilities.presentation || {}).modalTitle
-            || scheduleOverrideActionLabel(capabilities).replace(/^[^\p{L}\p{N}]+/u, '');
+        if (title) title.textContent = bt(section === 'proxy' ? 'schedule.proxy-title' : 'schedule.credential-title');
         const intro = document.getElementById('schedule-override-intro');
         if (intro) intro.textContent = (capabilities.presentation || {}).modalIntro
             || bt('schedule.override.intro-generic', '为该计划任务指定独立的代理或来源凭证；取消已生效的选项并保存会清除对应设置。');
         onScheduleOverrideToggle('sch-ov');
+        for (const kind of ['proxy', 'cookie']) {
+            const checkbox = document.getElementById('sch-ov-' + kind + '-enabled');
+            const row = document.getElementById('sch-ov-' + kind + '-row');
+            if (checkbox?.closest('label')) checkbox.closest('label').hidden = kind !== section;
+            if (row) row.hidden = kind !== section;
+        }
+        if (intro) intro.hidden = section === 'proxy' || capabilities.credentialReadOnly;
+        const saveButton = modal.querySelector('[data-pixiv-click="saveScheduleOverride()"]');
+        if (saveButton) saveButton.hidden = section === 'cookie' && capabilities.credentialReadOnly;
         setScheduleOverrideStatus('');
         modal.hidden = false;
         document.body.classList.add('schedule-modal-open');
     }
 
     function closeScheduleOverrideModal() {
+        document.getElementById('sch-ov-cookie')?._credentialChoice?.abort();
         const modal = document.getElementById('schedule-override-modal');
         if (!modal) return;
         scheduleOverrideSession = null;
@@ -396,12 +405,13 @@
         const modal = document.getElementById('schedule-override-modal');
         if (!modal) return;
         modal.querySelectorAll('input, button:not([data-pixiv-click="closeScheduleOverrideModal()"])')
-            .forEach(control => { control.disabled = saving; });
+            .forEach(control => { control.disabled = saving || control.dataset.credentialReadOnly === 'true'; });
     }
 
     // 弹窗保存：校验 → 取消勾选的清除确认 → 逐项调用后端。失败把原因留在弹窗里（不关闭），
     // 成功关闭弹窗并在卡片 tips 区给出反馈。
     async function saveScheduleOverride() {
+        if (document.getElementById('sch-ov-cookie')?._credentialChoice) return;
         const modal = document.getElementById('schedule-override-modal');
         const session = scheduleOverrideSession;
         if (!modal || modal.hidden || !session || session.saving) return;
@@ -438,6 +448,10 @@
             return;
         }
         const ov = readScheduleOverrideInputs('sch-ov', sourceType, {task});
+        ov.supportsProxy = ov.supportsProxy && session.section === 'proxy';
+        ov.supportsCredential = ov.supportsCredential && session.section !== 'proxy';
+        ov.proxyChecked = ov.proxyChecked && ov.supportsProxy;
+        ov.credentialChecked = ov.credentialChecked && ov.supportsCredential;
         const current = () => scheduleOverrideSession === session && scheduleLeaseCurrent(sourceLease);
         session.saving = true;
         setScheduleOverrideSaving(true);
@@ -739,6 +753,7 @@
     }
 
     function renderScheduleTaskCard(t, includeQueueBody = true) {
+        const capabilities = scheduleCredentialCapabilities(t.sourceType, {task: t});
         const sourceType = t.sourceType;
         const kind = scheduleTaskKind(t);
         const typeLabel = t.sourceAvailable === false ? sourceType : scheduleTypeLabel(sourceType);
@@ -806,7 +821,8 @@
             </div>
             <div class="schedule-card-actions">
                 <button class="btn btn-cyan" ${runAttr} data-pixiv-click="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
-                ${credentialUi.showOverride ? `<button class="btn btn-blue" ${busyAttr} data-pixiv-click="showScheduleOverrideModal(${t.id})">${escHtml(credentialUi.overrideLabel)}</button>` : ''}
+                ${credentialUi.showOverride && capabilities.supportsProxy ? `<button class="btn btn-blue" ${busyAttr} data-pixiv-click="showScheduleOverrideModal(${t.id}, 'proxy')">${escHtml(bt('schedule.proxy-title'))}</button>` : ''}
+                ${credentialUi.showOverride && capabilities.supportsCredential ? `<button class="btn btn-blue" ${busyAttr} data-pixiv-click="showScheduleOverrideModal(${t.id}, 'cookie')">${escHtml(bt('schedule.credential-title'))}</button>` : ''}
                 ${paused
                     ? `<button class="btn btn-green" ${resumeAttr} data-pixiv-click="resumeScheduleTask(${t.id})">${escHtml(bt('schedule.action.resume', '▶ 恢复'))}</button>`
                     : `<button class="btn btn-yellow" ${pauseAttr} data-pixiv-click="pauseScheduleTask(${t.id})">${escHtml(bt('schedule.action.pause', '⏸ 暂停'))}</button>`}

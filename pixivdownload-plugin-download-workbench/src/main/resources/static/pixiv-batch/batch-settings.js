@@ -35,16 +35,16 @@
         const btn = document.getElementById('s-image-delay-unit');
         const input = document.getElementById('s-image-delay');
         const cur = parseFloat(input.value) || 0;
-        if (state.settings.imageDelayUnit === 's') {
-            state.settings.imageDelayUnit = 'ms';
+        if (settingsTarget().imageDelayUnit === 's') {
+            settingsTarget().imageDelayUnit = 'ms';
             input.value = Math.round(cur * 1000);
             btn.textContent = 'ms';
         } else {
-            state.settings.imageDelayUnit = 's';
+            settingsTarget().imageDelayUnit = 's';
             input.value = +(cur / 1000).toFixed(3);
             btn.textContent = 's';
         }
-        state.settings.imageDelay = parseFloat(input.value) || 0;
+        settingsTarget().imageDelay = parseFloat(input.value) || 0;
         saveSettings();
     }
 
@@ -52,16 +52,16 @@
         const btn = document.getElementById('s-interval-unit');
         const input = document.getElementById('s-interval');
         const cur = parseFloat(input.value) || 0;
-        if (state.settings.intervalUnit === 's') {
-            state.settings.intervalUnit = 'ms';
+        if (settingsTarget().intervalUnit === 's') {
+            settingsTarget().intervalUnit = 'ms';
             input.value = Math.round(cur * 1000);
             btn.textContent = 'ms';
         } else {
-            state.settings.intervalUnit = 's';
+            settingsTarget().intervalUnit = 's';
             input.value = +(cur / 1000).toFixed(3);
             btn.textContent = 's';
         }
-        state.settings.interval = parseFloat(input.value) || 0;
+        settingsTarget().interval = parseFloat(input.value) || 0;
         saveSettings();
     }
 
@@ -71,8 +71,8 @@
     function typeApplicableInCurrentMode(type) {
         const mode = state.mode;
         if (mode === SINGLE_IMPORT_MODE || mode === 'series') return true;
-        if (mode === 'user') return state.settings.userKind === type;
-        if (mode === 'search') return state.settings.searchKind === type;
+        if (mode === 'user') return settingsTarget().userKind === type;
+        if (mode === 'search') return settingsTarget().searchKind === type;
         if (mode === QUICK_FETCH_MODE) {
             // 快捷获取在展示该类型网格（含珍藏集内混合作品）或编辑该类型 / 混合类 quick 任务时显示其设置，
             // 供其格式 / 合订等设置生效并被计划任务快照采用。
@@ -96,6 +96,8 @@
     }
 
     function saveSettings() {
+        window.PixivDownloadProfiles?.refresh();
+        if (scheduleSettingsDraft) return;
         // 「收藏到」（收藏夹选择）不持久化：每次加载都默认为「不加入收藏夹」，仅在当前会话内生效。
         const {collectionId, ...persisted} = state.settings;
         storeSet('pixiv_batch_settings', JSON.stringify(persisted));
@@ -112,25 +114,29 @@
             }
         } catch {
         }
-        document.getElementById('s-interval').value = state.settings.interval;
-        document.getElementById('s-concurrent').value = state.settings.concurrent;
+        renderSettings();
+    }
+
+    function renderSettings() {
+        document.getElementById('s-interval').value = settingsTarget().interval;
+        document.getElementById('s-concurrent').value = settingsTarget().concurrent;
         const autoStart = document.getElementById('s-auto-start');
         if (autoStart) {
-            autoStart.checked = state.settings.autoStartOnEnqueue === true;
+            autoStart.checked = settingsTarget().autoStartOnEnqueue === true;
             document.getElementById('s-auto-start-wrap').hidden = !isAdmin;
         }
-        document.getElementById('s-skip').checked = state.settings.skipHistory;
-        document.getElementById('s-verify-files').checked = state.settings.verifyHistoryFiles ?? false;
-        document.getElementById('s-redownload-deleted').checked = state.settings.redownloadDeleted ?? false;
-        document.getElementById('s-bookmark').checked = state.settings.bookmark ?? false;
-        document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
-        state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
-        document.getElementById('s-file-name-template').value = state.settings.fileNameTemplate;
+        document.getElementById('s-skip').checked = settingsTarget().skipHistory;
+        document.getElementById('s-verify-files').checked = settingsTarget().verifyHistoryFiles ?? false;
+        document.getElementById('s-redownload-deleted').checked = settingsTarget().redownloadDeleted ?? false;
+        document.getElementById('s-bookmark').checked = settingsTarget().bookmark ?? false;
+        document.getElementById('s-image-delay').value = settingsTarget().imageDelay ?? 0;
+        settingsTarget().fileNameTemplate = normalizeFileNameTemplate(settingsTarget().fileNameTemplate);
+        document.getElementById('s-file-name-template').value = settingsTarget().fileNameTemplate;
         const templateSelect = document.getElementById('s-file-name-templates');
         if (templateSelect) window.PixivFilenameTemplatePresets.bind(
             document.getElementById('s-file-name-template'),
             templateSelect,
-            state.settings,
+            settingsTarget(),
             saveSettings,
             key => bt('batch:' + key),
             isAdmin
@@ -140,28 +146,30 @@
         });
         const pathAction = document.getElementById('s-path-overflow-action');
         if (pathAction) {
-            pathAction.value = state.settings.pathOverflowAction || 'ASK';
+            pathAction.value = settingsTarget().pathOverflowAction || 'ASK';
             if (!pathAction.value) pathAction.value = 'ASK';
             pathAction.closest('.filename-setting').hidden = !isAdmin;
         }
-        const unit = state.settings.intervalUnit || 's';
-        state.settings.intervalUnit = unit;
+        const collection = document.getElementById('s-collection');
+        if (collection) collection.value = settingsTarget().collectionId == null ? '' : String(settingsTarget().collectionId);
+        const unit = settingsTarget().intervalUnit || 's';
+        settingsTarget().intervalUnit = unit;
         document.getElementById('s-interval-unit').textContent = unit;
-        const imgUnit = state.settings.imageDelayUnit || 'ms';
-        state.settings.imageDelayUnit = imgUnit;
+        const imgUnit = settingsTarget().imageDelayUnit || 'ms';
+        settingsTarget().imageDelayUnit = imgUnit;
         document.getElementById('s-image-delay-unit').textContent = imgUnit;
         const fmtEl = document.getElementById('s-novel-format');
-        if (fmtEl) fmtEl.value = (state.settings.novelFormat || 'txt');
+        if (fmtEl) fmtEl.value = (settingsTarget().novelFormat || 'txt');
         const mergeEl = document.getElementById('s-novel-merge');
-        if (mergeEl) mergeEl.checked = !!state.settings.mergeNovelSeries;
+        if (mergeEl) mergeEl.checked = !!settingsTarget().mergeNovelSeries;
         const mergeFmtEl = document.getElementById('s-novel-merge-format');
-        if (mergeFmtEl) mergeFmtEl.value = (state.settings.mergeNovelFormat || 'epub');
+        if (mergeFmtEl) mergeFmtEl.value = (settingsTarget().mergeNovelFormat || 'epub');
         const autoTrEl = document.getElementById('s-novel-auto-translate');
-        if (autoTrEl) autoTrEl.checked = !!state.settings.novelAutoTranslate;
+        if (autoTrEl) autoTrEl.checked = !!settingsTarget().novelAutoTranslate;
         const trLangEl = document.getElementById('s-novel-translate-lang');
-        if (trLangEl) trLangEl.value = state.settings.novelTranslateLang || defaultNovelTranslateLang();
+        if (trLangEl) trLangEl.value = settingsTarget().novelTranslateLang || defaultNovelTranslateLang();
         const trSegEl = document.getElementById('s-novel-translate-seg');
-        if (trSegEl) trSegEl.value = state.settings.novelTranslateSeg ?? 0;
+        if (trSegEl) trSegEl.value = settingsTarget().novelTranslateSeg ?? 0;
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
         // 持久化的 kind 可能是可见的作品类型，也可能只是来源内部 owner（来源不重复贡献单项切换 UI）。
@@ -174,15 +182,15 @@
         const controls = window.PixivBatch && window.PixivBatch.modeControls;
         const registry = window.PixivBatch && window.PixivBatch.queueTypes;
         if (controls && registry) {
-            let userType = registry.resolveSelectionForMode(state.settings.userKind, 'user');
-            let searchType = registry.resolveSelectionForMode(state.settings.searchKind, 'search');
+            let userType = registry.resolveSelectionForMode(settingsTarget().userKind, 'user');
+            let searchType = registry.resolveSelectionForMode(settingsTarget().searchKind, 'search');
             if (!userType) {
-                state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
-                userType = registry.resolveSelectionForMode(state.settings.userKind, 'user');
+                settingsTarget().userKind = normalizeKindSetting('user-kind-switcher', settingsTarget().userKind);
+                userType = registry.resolveSelectionForMode(settingsTarget().userKind, 'user');
             }
             if (!searchType) {
-                state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
-                searchType = registry.resolveSelectionForMode(state.settings.searchKind, 'search');
+                settingsTarget().searchKind = normalizeKindSetting('search-kind-switcher', settingsTarget().searchKind);
+                searchType = registry.resolveSelectionForMode(settingsTarget().searchKind, 'search');
             }
             if (userType) controls.syncType('user', userType);
             if (searchType) controls.syncType('search', searchType);
@@ -194,11 +202,11 @@
                 modes.search.applySearchSourceKindAvailability();
             }
         } else {
-            state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
-            state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
+            settingsTarget().userKind = normalizeKindSetting('user-kind-switcher', settingsTarget().userKind);
+            settingsTarget().searchKind = normalizeKindSetting('search-kind-switcher', settingsTarget().searchKind);
         }
-        applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
-        applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
+        applyKindSwitcherUI('user-kind-switcher', settingsTarget().userKind);
+        applyKindSwitcherUI('search-kind-switcher', settingsTarget().searchKind);
         applySearchKindUI();
         applyNovelSettingsVisibility();
         updateExtraFiltersCardVisibility();
@@ -246,8 +254,8 @@
             // 标签声明什么 kind 就用什么（User 模式新增 'request' = 约稿，发现走约稿接口、渲染按插画）；
             // 切换器的可选 kind 由当前启用的作品类型动态注入（插画为内置项），此处按标签取值即可、不写死具体类型。
             const next = label.dataset.kind || 'illust';
-            if (state.settings[settingKey] === next) return;
-            state.settings[settingKey] = next;
+            if (settingsTarget()[settingKey] === next) return;
+            settingsTarget()[settingKey] = next;
             applyKindSwitcherUI(switcherId, next);
             saveSettings();
             if (typeof onChange === 'function') onChange(next);
@@ -259,10 +267,10 @@
     function currentModeKind() {
         const qt = window.PixivBatch.queueTypes;
         if (state.mode === 'user') {
-            return qt.resolveSelectionForMode(state.settings.userKind, 'user');
+            return qt.resolveSelectionForMode(settingsTarget().userKind, 'user');
         }
         if (state.mode === 'search') {
-            return qt.resolveSelectionForMode(state.settings.searchKind, 'search');
+            return qt.resolveSelectionForMode(settingsTarget().searchKind, 'search');
         }
         if (state.mode === 'series') {
             return qt.resolveSelectionForMode(seriesState.kind, 'series');
@@ -271,45 +279,45 @@
     }
 
     function syncSettings() {
-        state.settings.interval = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
-        state.settings.imageDelay = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
-        state.settings.concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
+        settingsTarget().interval = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
+        settingsTarget().imageDelay = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
+        settingsTarget().concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
         const autoStart = document.getElementById('s-auto-start');
-        if (isAdmin && autoStart) state.settings.autoStartOnEnqueue = autoStart.checked;
-        state.settings.skipHistory = document.getElementById('s-skip').checked;
-        state.settings.verifyHistoryFiles = document.getElementById('s-verify-files').checked;
-        state.settings.redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
-        state.settings.bookmark = document.getElementById('s-bookmark').checked;
+        if (isAdmin && autoStart) settingsTarget().autoStartOnEnqueue = autoStart.checked;
+        settingsTarget().skipHistory = document.getElementById('s-skip').checked;
+        settingsTarget().verifyHistoryFiles = document.getElementById('s-verify-files').checked;
+        settingsTarget().redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
+        settingsTarget().bookmark = document.getElementById('s-bookmark').checked;
         const template = document.getElementById('s-file-name-template').value;
-        state.settings.fileNameTemplate = typeof scheduleEditingToken !== 'undefined' && scheduleEditingToken
+        settingsTarget().fileNameTemplate = typeof scheduleEditingToken !== 'undefined' && scheduleEditingToken
                 && !template.trim() ? window.PixivBatch.pixivScheduleDefaults.download.fileNameTemplate
             : normalizeFileNameTemplate(template);
-        state.settings.pathOverflowAction = (document.getElementById('s-path-overflow-action') || {}).value || 'ASK';
+        settingsTarget().pathOverflowAction = (document.getElementById('s-path-overflow-action') || {}).value || 'ASK';
         const sel = document.getElementById('s-collection');
-        state.settings.collectionId = sel.value ? Number(sel.value) : null;
+        settingsTarget().collectionId = sel.value ? Number(sel.value) : null;
         const fmtEl = document.getElementById('s-novel-format');
-        if (fmtEl) state.settings.novelFormat = (fmtEl.value || 'txt').toLowerCase();
+        if (fmtEl) settingsTarget().novelFormat = (fmtEl.value || 'txt').toLowerCase();
         const mergeEl = document.getElementById('s-novel-merge');
-        if (mergeEl) state.settings.mergeNovelSeries = !!mergeEl.checked;
+        if (mergeEl) settingsTarget().mergeNovelSeries = !!mergeEl.checked;
         const mergeFmtEl = document.getElementById('s-novel-merge-format');
-        if (mergeFmtEl) state.settings.mergeNovelFormat = (mergeFmtEl.value || 'epub').toLowerCase();
+        if (mergeFmtEl) settingsTarget().mergeNovelFormat = (mergeFmtEl.value || 'epub').toLowerCase();
         const autoTrEl = document.getElementById('s-novel-auto-translate');
-        if (autoTrEl) state.settings.novelAutoTranslate = !!autoTrEl.checked;
+        if (autoTrEl) settingsTarget().novelAutoTranslate = !!autoTrEl.checked;
         const trLangEl = document.getElementById('s-novel-translate-lang');
         if (trLangEl) {
             // 与当前页面语言的默认目标语言相同（或留空）时存空 = 「跟随页面语言」，不把默认译名烤进模型；
             // 仅当用户填入不同文本时才记为自定义值。
             const v = (trLangEl.value || '').trim();
-            state.settings.novelTranslateLang = (v && v !== defaultNovelTranslateLang()) ? v : '';
+            settingsTarget().novelTranslateLang = (v && v !== defaultNovelTranslateLang()) ? v : '';
         }
         const trSegEl = document.getElementById('s-novel-translate-seg');
-        if (trSegEl) state.settings.novelTranslateSeg = Math.max(0, parseInt(trSegEl.value, 10) || 0);
+        if (trSegEl) settingsTarget().novelTranslateSeg = Math.max(0, parseInt(trSegEl.value, 10) || 0);
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
         toggleSkipHistoryOptions();
         saveSettings();
         // 下载设置实时生效：运行中调高并发数时立即补足 worker（调低由 workerLoop 自行收敛）。
-        if (state.isRunning) ensureWorkers();
+        if (!scheduleSettingsDraft && state.isRunning) ensureWorkers();
     }
 
     // 合订本格式选择仅在勾选「生成合订本」时可见
@@ -324,7 +332,7 @@
     // 语言切换 / 初次加载：用户未自定义目标语言（模型为空）时，让输入框跟随当前页面语言显示默认目标语言。
     // 用户已自定义（模型非空）则保留其填写值，不被语言切换覆盖。
     function refreshNovelTranslateLangDefault() {
-        if (state.settings.novelTranslateLang) return;
+        if (settingsTarget().novelTranslateLang) return;
         const el = document.getElementById('s-novel-translate-lang');
         if (el) el.value = defaultNovelTranslateLang();
     }
@@ -374,10 +382,10 @@
         return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
-    function setBatchCollectionSetting(value) {
+    function setBatchCollectionSetting(value, target = state.settings) {
         const next = normalizeBatchCollectionId(value);
-        const current = normalizeBatchCollectionId(state.settings.collectionId);
-        state.settings.collectionId = next;
+        const current = normalizeBatchCollectionId(target.collectionId);
+        target.collectionId = next;
         if (current === next) return false;
         saveSettings();
         return true;
@@ -412,6 +420,7 @@
     async function refreshBatchCollections(invocation) {
         const scoped = invocation && typeof invocation.assertActive === 'function'
             ? invocation : null;
+        const target = scoped ? state.settings : settingsTarget();
         if (!scoped && batchCollectionsRefreshPromise) {
             return batchCollectionsRefreshPromise;
         }
@@ -423,8 +432,8 @@
             const canUseCollections = appMode === 'solo' || isAdmin;
             if (!canUseCollections) {
                 if (scoped) scoped.assertActive();
-                setBatchCollectionSetting(null);
-                resetBatchCollectionSelect();
+                setBatchCollectionSetting(null, target);
+                if (settingsTarget() === target) resetBatchCollectionSelect();
                 return {collectionId: null, collections: []};
             }
             try {
@@ -438,25 +447,25 @@
                         isAdmin = false;
                         updateAuthButtons();
                     }
-                    setBatchCollectionSetting(null);
-                    resetBatchCollectionSelect();
+                    setBatchCollectionSetting(null, target);
+                    if (settingsTarget() === target) resetBatchCollectionSelect();
                     return {collectionId: null, collections: []};
                 }
                 const data = await res.json();
                 if (scoped) scoped.assertActive();
                 const collections = Array.isArray(data.collections) ? data.collections : [];
-                const current = normalizeBatchCollectionId(state.settings.collectionId);
+                const current = normalizeBatchCollectionId(target.collectionId);
                 const validIds = new Set(collections
                     .map(c => normalizeBatchCollectionId(c.id))
                     .filter(id => id !== null));
                 const selectedId = current !== null && validIds.has(current) ? current : null;
-                setBatchCollectionSetting(selectedId);
-                renderBatchCollections(collections, selectedId);
+                setBatchCollectionSetting(selectedId, target);
+                if (settingsTarget() === target) renderBatchCollections(collections, selectedId);
                 return {collectionId: selectedId, collections};
             } catch (error) {
                 if (scoped) scoped.assertActive();
-                setBatchCollectionSetting(null);
-                resetBatchCollectionSelect();
+                setBatchCollectionSetting(null, target);
+                if (settingsTarget() === target) resetBatchCollectionSelect();
                 return {collectionId: null, collections: []};
             } finally {
                 if (scoped) {
@@ -484,3 +493,5 @@
 // ---- PixivBatch facade ----
 window.PixivBatch.settings = window.PixivBatch.settings || {};
 window.PixivBatch.settings = Object.assign(window.PixivBatch.settings, { syncSettings, bindDelegatedSettingAutosave, getIntervalMs, getImageDelayMs, toggleIntervalUnit, toggleImageDelayUnit, applyNovelSettingsVisibility, reconcileQueueTypeSettings, updateNovelTranslateVisibility, refreshNovelTranslateLangDefault, refreshBatchCollections, updateBatchLimitNote, loadSettings, saveSettings });
+
+window.PixivBatch.settings.target = settingsTarget;

@@ -11,7 +11,7 @@
 
         function acquisitionCredentialHeaders() {
             const credential = getCookie();
-            return credential ? {'X-Acquisition-Credential': credential} : {};
+            return window.PixivCredentials?.headers() || (credential ? {'X-Acquisition-Credential': credential} : {});
         }
 
         function previewRequestInit() {
@@ -151,7 +151,7 @@
 
         function requirePixivQuickSession(loader) {
             return function () {
-                if (!cookieHasPhpsessid()) {
+                if (window.PixivCredentials ? !window.PixivCredentials.accountSelection() : !cookieHasPhpsessid()) {
                     throw new Error(bt('quick.error.no-cookie', '请先保存含 PHPSESSID 的 Cookie'));
                 }
                 return loader.apply(this, arguments);
@@ -469,6 +469,7 @@
             },
             settings: {
                 'media-output': {
+                    profileSettings: settings => window.PixivMediaSettings.snapshot(settings),
                     mount(root) {
                         context.assertActive();
                         if (!root) return;
@@ -477,7 +478,8 @@
                         mediaCard = card;
                         card.id = 'media-output-settings';
                         root.append(card);
-                        window.PixivMediaSettings.mount(card, state.settings, saveSettings,
+                        window.PixivMediaSettings.mount(card,
+                            window.PixivBatch.settings.target?.() || state.settings, saveSettings,
                             key => bt('batch:' + key, key), isAdmin);
                     }
                 }
@@ -590,10 +592,12 @@
                         order: 10
                     },
                     pageSize: QUICK_PAGE_SIZE_ILLUST,
-                    requestInit: previewRequestInit,
+                    requestInit() { return {headers: window.PixivCredentials?.accountHeaders() || acquisitionCredentialHeaders()}; },
                     thumbnailEndpoint,
                     account: {
-                        credentialMissing() { return !cookieHasPhpsessid(); },
+                        credentialMissing() { return window.PixivCredentials ? !window.PixivCredentials.accountSelection() : !cookieHasPhpsessid(); },
+                        credentialIdentity() { return window.PixivCredentials?.accountIdentity(); },
+                        mountCredential(root, options) { return window.PixivCredentials?.mountAccount(root, options); },
                         missingHint() {
                             return bt('quick.account.hint-no-cookie',
                                 '未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie');

@@ -71,7 +71,11 @@ class GalleryControllerTest {
                         .param("authorIds", "21")
                         .param("notAuthorIds", "31")
                         .param("orAuthorIds", "41,42")
-                        .param("authorId", "22"))
+                        .param("authorId", "22")
+                        .param("uploadedFrom", "100").param("uploadedBefore", "200")
+                        .param("createdFrom", "300").param("createdBefore", "400")
+                        .param("updatedFrom", "500").param("updatedBefore", "600")
+                        .param("reuploadedFrom", "700").param("reuploadedBefore", "800"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
@@ -85,6 +89,13 @@ class GalleryControllerTest {
         assertThat(query.excludedAuthorIds()).containsExactly(31L);
         assertThat(query.optionalAuthorIds()).containsExactly(41L, 42L);
         assertThat(query.restriction()).isSameAs(RESTRICTION);
+        assertThat(query.uploadedFrom()).isEqualTo(100L);
+        assertThat(query.createdFrom()).isEqualTo(300L);
+        assertThat(query.createdBefore()).isEqualTo(400L);
+        assertThat(query.updatedFrom()).isEqualTo(500L);
+        assertThat(query.updatedBefore()).isEqualTo(600L);
+        assertThat(query.reuploadedFrom()).isEqualTo(700L);
+        assertThat(query.reuploadedBefore()).isEqualTo(800L);
     }
 
     @Test

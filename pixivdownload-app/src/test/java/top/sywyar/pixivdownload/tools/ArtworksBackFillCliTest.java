@@ -73,7 +73,7 @@ class ArtworksBackFillCliTest {
             assertTrue(messages.contains(MessageBundles.getForLog("artworks-backfill.log.phase-progress",
                     ArtworksBackFill.Phase.FINISHED, 1, 1, 1, 0, 0)));
             try (var connection = target.openConnection(); var statement = connection.createStatement();
-                 var row = statement.executeQuery("SELECT upload_time,metadata_json FROM novels WHERE novel_id=1")) {
+                 var row = statement.executeQuery("SELECT source_upload_time,metadata_json FROM novels WHERE novel_id=1")) {
                 assertTrue(row.next());
                 assertEquals(dryRun ? null : 1580698800000L, row.getObject(1));
                 assertEquals(metadata.document().toString(), row.getString(2));

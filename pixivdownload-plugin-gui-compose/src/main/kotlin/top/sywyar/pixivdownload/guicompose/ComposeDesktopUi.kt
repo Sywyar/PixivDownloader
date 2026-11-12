@@ -4,6 +4,8 @@ package top.sywyar.pixivdownload.guicompose
 
 import top.sywyar.pixivdownload.guicompose.tools.AutomaticBackfillNotice
 import top.sywyar.pixivdownload.guicompose.tools.LocalOpenBackfill
+import top.sywyar.pixivdownload.guicompose.tools.runningTaskCount
+import top.sywyar.pixivdownload.guicompose.tools.toolRunningBorder
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask
 import java.util.UUID
 
@@ -37,6 +39,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +50,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
@@ -80,6 +84,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -769,17 +774,57 @@ private fun NavigationPanel(
         document.pages().forEachIndexed { index, page ->
             if (index == 4) CupertinoHorizontalDivider(Modifier.padding(vertical = 8.dp))
             val active = page.id() == selected
+            val content = (page.content() as? DesktopUiNode.Surface)?.content() ?: page.content()
+            val runningCount = (content as? DesktopUiNode.ToolsOverview)?.runningTaskCount() ?: 0
+            val runningDescription = if (runningCount > 0) {
+                resolveText(DesktopUiNode.TextToken(
+                    "gui-compose",
+                    "gui.compose.tools.running-count",
+                    "",
+                    listOf(runningCount.toString()),
+                ))
+            } else null
             val background by animateColorAsState(
                 if (active) LocalExperiencePalette.current.selection else Color.Transparent,
                 tween(140), label = "navigation-selection",
             )
-            CupertinoSurface(shape = CupertinoTheme.shapes.small,
+            CupertinoSurface(
+                shape = CupertinoTheme.shapes.small,
                 color = background,
-                modifier = Modifier.fillMaxWidth().selectable(active, role = Role.Tab) { onSelect(page.id()) }) {
-                Row(Modifier.heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                modifier = Modifier.fillMaxWidth().testTag("navigation.${page.id()}")
+                    .toolRunningBorder(runningCount > 0, cornerRadius = 7.dp)
+                    .semantics { if (runningDescription != null) stateDescription = runningDescription }
+                    .selectable(active, role = Role.Tab) { onSelect(page.id()) },
+            ) {
+                Row(
+                    Modifier.heightIn(min = DesktopLayout.navigationHeight).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     DesktopIcon(desktopIcon(page.icon()), null, Modifier.size(18.dp))
-                    CupertinoText(resolveText(page.title()), style = CupertinoTheme.typography.body)
+                    CupertinoText(
+                        resolveText(page.title()),
+                        modifier = Modifier.weight(1f),
+                        style = CupertinoTheme.typography.body,
+                    )
+                    if (runningCount > 0) {
+                        CupertinoSurface(
+                            shape = RoundedCornerShape(50),
+                            color = LocalExperiencePalette.current.link,
+                            contentColor = LocalExperiencePalette.current.onAccent,
+                            modifier = Modifier.clearAndSetSemantics {},
+                        ) {
+                            Box(
+                                Modifier.heightIn(min = 20.dp).widthIn(min = 20.dp).padding(horizontal = 5.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CupertinoText(
+                                    runningCount.toString(),
+                                    style = CupertinoTheme.typography.caption1.copy(fontWeight = FontWeight.SemiBold),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

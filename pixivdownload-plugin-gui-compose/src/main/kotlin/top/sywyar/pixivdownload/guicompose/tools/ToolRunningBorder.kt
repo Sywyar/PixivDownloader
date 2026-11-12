@@ -12,12 +12,13 @@ import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import top.sywyar.pixivdownload.guicompose.LocalExperiencePalette
 
 /** 固定长度的线段表示任务仍在运行，不表示完成比例。 */
 @Composable
-internal fun Modifier.toolRunningBorder(running: Boolean): Modifier {
+internal fun Modifier.toolRunningBorder(running: Boolean, cornerRadius: Dp = 13.dp): Modifier {
     if (!running) return this
     val palette = LocalExperiencePalette.current
     val reducedMotion = rememberCoroutineScope().coroutineContext[MotionDurationScale]?.scaleFactor == 0f
@@ -38,7 +39,7 @@ internal fun Modifier.toolRunningBorder(running: Boolean): Modifier {
                     inset,
                     size.width - inset,
                     size.height - inset,
-                    CornerRadius(13.dp.toPx()),
+                    CornerRadius(cornerRadius.toPx()),
                 ),
             )
         }

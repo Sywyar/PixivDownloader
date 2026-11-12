@@ -135,7 +135,7 @@ class ToolsOverviewTest {
             ToolsOverviewTest::class.java.getResourceAsStream("/i18n/web/gui-compose_en.properties")!!.reader(Charsets.UTF_8).use(::load)
         }
         private fun resolve(token: TextToken) = if (token.key().isBlank()) token.fallback() else messages.getProperty(token.key(), token.key())
-        private fun activeTool(id: String) = Group(
+        fun activeTool(id: String) = Group(
             id,
             TextToken.raw(id),
             Container(
@@ -152,7 +152,7 @@ class ToolsOverviewTest {
             ),
             false,
         )
-        private fun sample(values: Map<String, String> = mapOf("db" to "artworks.db", "proxy-host" to "localhost", "proxy-port" to "7890", "delay" to "800", "limit" to "0"),
+        fun sample(values: Map<String, String> = mapOf("db" to "artworks.db", "proxy-host" to "localhost", "proxy-port" to "7890", "delay" to "800", "limit" to "0"),
                            activity: ToolActivity? = null, mediaTools: List<DesktopUiNode> = emptyList(),
                            fileImports: List<DesktopUiNode> = emptyList()): DesktopUiNode.ToolsOverview {
             fun button(id: String) = Button(id, id, TextToken.raw(id.substringAfterLast('.')), null, ButtonStyle.NORMAL, true)

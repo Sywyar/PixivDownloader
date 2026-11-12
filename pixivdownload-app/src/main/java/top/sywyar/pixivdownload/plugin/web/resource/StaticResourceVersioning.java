@@ -14,7 +14,9 @@ import org.springframework.web.servlet.resource.CssLinkResourceTransformer;
 import org.springframework.web.servlet.resource.ResourceTransformerChain;
 import org.springframework.web.servlet.resource.TransformedResource;
 import org.springframework.web.util.HtmlUtils;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.api.web.page.PageCatalog;
 import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
@@ -70,6 +72,12 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
     @Override
     public Resource transform(HttpServletRequest request, Resource resource, ResourceTransformerChain chain)
             throws IOException {
+        if (PluginDevelopmentArtifacts.enabled()
+                && SafeRequestPath.resolve(request).filter("/i18n-static/meta.json"::equals).isPresent()) {
+            var metadata = (tools.jackson.databind.node.ObjectNode) JSON.readTree(resource.getContentAsByteArray());
+            metadata.put("languageCookieName", InstanceCookies.name(request, metadata.get("languageCookieName").asText()));
+            return new TransformedResource(resource, JSON.writeValueAsBytes(metadata));
+        }
         return transformPage(request, super.transform(request, resource, chain));
     }
 

@@ -15,6 +15,12 @@ $BuiltProject = [IO.Path]::GetFullPath($BuiltProject)
 $WorkDirectory = [IO.Path]::GetFullPath($WorkDirectory)
 if (Test-Path -LiteralPath $WorkDirectory) { throw 'SDK runtime consumer directory must be new.' }
 [IO.Directory]::CreateDirectory($WorkDirectory) | Out-Null
+$credentialKeyFile = Join-Path $WorkDirectory 'credential-protection.key'
+[IO.File]::WriteAllText($credentialKeyFile,
+    [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)), [Text.Encoding]::ASCII)
+if (-not $IsWindows) {
+    [IO.File]::SetUnixFileMode($credentialKeyFile, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+}
 $cache = Join-Path $WorkDirectory 'cache'
 [IO.Directory]::CreateDirectory($cache) | Out-Null
 $metadata = [IO.File]::ReadAllText((Join-Path $BuiltProject 'sdk-project.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -37,6 +43,7 @@ function Invoke-SdkJava([string[]]$Arguments, [string]$Directory, [string]$Log, 
     $info.RedirectStandardError = $true
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
     foreach ($key in @('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS')) { $info.Environment.Remove($key) | Out-Null }
+    $info.Environment['PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE'] = $credentialKeyFile
     $process = [Diagnostics.Process]::Start($info)
     $process | Add-Member -NotePropertyName Stdout -NotePropertyValue ($process.StandardOutput.ReadToEndAsync())
     $process | Add-Member -NotePropertyName Stderr -NotePropertyValue ($process.StandardError.ReadToEndAsync())

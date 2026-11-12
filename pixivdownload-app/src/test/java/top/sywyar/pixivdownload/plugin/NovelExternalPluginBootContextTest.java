@@ -330,6 +330,18 @@ class NovelExternalPluginBootContextTest {
                 "top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"sort\":null}"})
+    @DisplayName("小说批量筛选省略排序或显式空排序时，经真实插件请求链返回导出选项")
+    void batchExportOptionsAcceptsMissingSort(String filter) throws Exception {
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.webAppContextSetup(applicationContext).build();
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/gallery/novels/export/options").contentType("application/json")
+                        .content("{\"mode\":\"filter\",\"filter\":" + filter + "}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.variants").isArray());
+    }
+
     @Test
     @DisplayName("单篇直接下载与批量归档经真实装配读取精确译文，日志不含正文")
     void exportsStoredVariantThroughPlugin() throws Exception {
@@ -382,6 +394,14 @@ class NovelExternalPluginBootContextTest {
             http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                             .post("/api/gallery/novels/export/options").contentType("application/json")
                             .content("{\"ids\":[732]}"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .jsonPath("$.variants[0]").value("zh-CN@youdao"));
+            http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .post("/api/gallery/novels/export/options").contentType("application/json")
+                            .content("""
+                                    {"mode":"filter","filter":{"searchType":"id","search":"732"}}
+                                    """))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
                             .jsonPath("$.variants[0]").value("zh-CN@youdao"));

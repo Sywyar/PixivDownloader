@@ -18,6 +18,7 @@ public class DownloadStatusResponse {
     private int currentImageIndex;
     private boolean completed;
     private boolean failed;
+    private String errorCode;
     private boolean cancelled;
     private double progressPercentage;
     private String downloadPath;

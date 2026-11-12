@@ -141,6 +141,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.visitor("/pixiv-batch-alt.html"),
         WebRouteContribution.visitor("/pixiv-batch-alt/**"),
         WebRouteContribution.admin("/api/batch/page"),
+        WebRouteContribution.admin("/api/batch/profiles"),
         WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),

@@ -132,13 +132,19 @@
         // Cookie
         const savedCookie = storeGet('pixiv_cookie') || '';
         const cookieInput = document.getElementById('cookie-input');
-        cookieInput.value = savedCookie;
+        setCookieInputValue(savedCookie, getCookieFmt());
         cookieInput.addEventListener('input', applyCookieDependentUi);
-        setCookieFmt(getCookieFmt());
+        cookieInput.addEventListener('paste', event => {
+            if (getCookieInputFmt() !== 'netscape' || !event.clipboardData) return;
+            const raw = event.clipboardData.getData('text/plain');
+            if (!raw) return;
+            event.preventDefault();
+            setCookieInputValue(raw, 'netscape');
+        });
 
         document.getElementById('cookie-save').addEventListener('click', async () => {
             const raw = document.getElementById('cookie-input').value.trim();
-            const result = validateAndParseCookie(raw, getCookieFmt());
+            const result = validateAndParseCookie(raw, getCookieInputFmt());
             if (!result.ok) {
                 setCookieStatus({key: 'status.cookie-save-failed', fallback: 'Cookie 保存失败：{message}', args: {message: result.errorMessage}}, 'error');
                 return;
@@ -254,7 +260,19 @@
         switchMode(savedMode);
 
         // Settings
+        if (isAdmin) {
+            const library = document.getElementById('credential-library');
+            library.hidden = false;
+            document.getElementById('pixiv-cookie-card').hidden = true;
+            document.querySelector('#cookie-card > .cookie-fmt').hidden = true;
+            window.PixivCredentials.mount(library, {
+                importButton: document.getElementById('cookie-import'),
+                importStatus: document.getElementById('cookie-status')
+            });
+            await window.PixivCredentials.initialize().catch(() => {});
+        }
         loadSettings();
+        mountDownloadProfiles();
         window.PixivBatchPageLayout.bind(isAdmin, () => bt('batch:page.layout-save-failed'), flushServerState);
         window.PixivBatch.modes.user.initUserInputDraftPersistence();
         await refreshBatchCollections();

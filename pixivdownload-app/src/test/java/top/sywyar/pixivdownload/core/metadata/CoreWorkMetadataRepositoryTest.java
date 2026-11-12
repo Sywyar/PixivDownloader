@@ -94,7 +94,7 @@ class CoreWorkMetadataRepositoryTest {
         }
 
         @Test
-        @DisplayName("hydrate upload_time / is_original 列投影到 WorkMetadata")
+        @DisplayName("hydrate source_upload_time / is_original 列投影到 WorkMetadata")
         void shouldHydrateUploadMeta() {
             ArtworkRecord rec = new ArtworkRecord(7L, "t", "/f/7", 1, "jpg", 1700L,
                     false, null, null, 0, false, null, null, null, null, null, null,
@@ -247,7 +247,7 @@ class CoreWorkMetadataRepositoryTest {
         }
 
         @Test
-        @DisplayName("hydrate novel upload_time 与 is_original 列投影到通用 WorkMetadata")
+        @DisplayName("hydrate novel source_upload_time 与 is_original 列投影到通用 WorkMetadata")
         void shouldHydrateNovelUploadMeta() {
             NovelMetadataRow rec = new NovelMetadataRow(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
                     null, null, null, null, null, true, null, false, 1717000000000L);

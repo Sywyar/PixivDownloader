@@ -38,6 +38,7 @@ class PixivAjaxProxyClientTest {
 
     private RestTemplate restTemplate;
     private MockRestServiceServer server;
+    private final PixivCredentialRetry retryService = new PixivCredentialRetry();
 
     @BeforeEach
     void setUp() {
@@ -50,6 +51,7 @@ class PixivAjaxProxyClientTest {
         try {
             server.verify();
         } finally {
+            retryService.destroy();
             ((DisposableBean) restTemplate).destroy();
         }
     }
@@ -65,7 +67,7 @@ class PixivAjaxProxyClientTest {
                 .andExpect(header("X-Requested-With", "XMLHttpRequest"))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
 
-        PixivAjaxClient client = new PixivAjaxProxyClient(restTemplate);
+        PixivAjaxClient client = new PixivAjaxProxyClient(restTemplate, retryService);
 
         assertThat(client.get(uri, "PHPSESSID=test"))
                 .isEqualTo("{\"title\":\"日本語\"}");
@@ -77,13 +79,13 @@ class PixivAjaxProxyClientTest {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
         server.expect(requestTo(uri)).andRespond(withSuccess());
 
-        assertThat(new PixivAjaxProxyClient(restTemplate).get(uri, null)).isEmpty();
+        assertThat(new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null)).isEmpty();
     }
 
     @Test
     @DisplayName("携带 Cookie 前拒绝非 HTTPS Pixiv JSON 目标")
     void shouldRejectUnsafeTargetsBeforeDispatch() {
-        PixivAjaxProxyClient client = new PixivAjaxProxyClient(restTemplate);
+        PixivAjaxProxyClient client = new PixivAjaxProxyClient(restTemplate, retryService);
 
         for (URI uri : List.of(
                 URI.create("http://www.pixiv.net/ajax/novel/42"),
@@ -111,7 +113,7 @@ class PixivAjaxProxyClientTest {
                 "{}".getBytes(StandardCharsets.UTF_8),
                 MediaType.APPLICATION_JSON));
 
-        assertThat(new PixivAjaxProxyClient(restTemplate).get(uri, null)).isEqualTo("{}");
+        assertThat(new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null)).isEqualTo("{}");
     }
 
     @ParameterizedTest
@@ -123,7 +125,7 @@ class PixivAjaxProxyClientTest {
         server.expect(requestTo(uri)).andRespond(request -> new MockClientHttpResponse(
                 body, HttpStatusCode.valueOf(status)));
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate)
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService)
                 .get(uri, "PHPSESSID=secret"))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure -> {
                     assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.HTTP_STATUS);
@@ -149,7 +151,7 @@ class PixivAjaxProxyClientTest {
         server.expect(requestTo(uri)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                 .body("ignored-body"));
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure -> {
                     assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.HTTP_STATUS);
                     assertThat(failure.statusCode()).isEqualTo(503);
@@ -165,7 +167,7 @@ class PixivAjaxProxyClientTest {
             throw new IOException("timeout for sensitive target");
         });
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure -> {
                     assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.TRANSPORT);
                     assertThat(failure.statusCode()).isZero();
@@ -190,7 +192,7 @@ class PixivAjaxProxyClientTest {
             return response;
         });
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure ->
                         assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.RESPONSE_TOO_LARGE));
         assertThat(body.bytesRead).isZero();
@@ -211,7 +213,7 @@ class PixivAjaxProxyClientTest {
             }
         });
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure ->
                         assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.RESPONSE_TOO_LARGE));
         assertThat(body.bytesRead)

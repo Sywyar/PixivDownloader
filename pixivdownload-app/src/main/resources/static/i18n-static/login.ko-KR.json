@@ -11,7 +11,7 @@
     "error.invite-expired": "초대 코드가 유효하지 않거나 만료되었습니다",
     "error.invite-invalid": "초대 코드가 유효하지 않습니다",
     "error.login-failed": "로그인에 실패했습니다",
-    "error.network": "네트워크 오류：{message}",
+    "error.network": "연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
     "field.password": "비밀번호",
     "field.password.placeholder": "비밀번호",
     "field.username": "사용자 이름",

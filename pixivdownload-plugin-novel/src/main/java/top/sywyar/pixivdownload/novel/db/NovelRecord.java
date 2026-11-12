@@ -25,8 +25,38 @@ public record NovelRecord(
         String rawContent,
         String coverExt,
         boolean deleted,
-        Long uploadTime
+        Long uploadTime,
+        Long createTime,
+        Long updateTime,
+        Long reuploadTime
 ) {
+    public NovelRecord(long novelId,
+        String title,
+        String folder,
+        int count,
+        String extensions,
+        long time,
+        Integer xRestrict,
+        Boolean isAi,
+        Long authorId,
+        String description,
+        Long fileName,
+        Long fileAuthorNameId,
+        Long seriesId,
+        Long seriesOrder,
+        Integer wordCount,
+        Integer textLength,
+        Integer readingTimeSeconds,
+        Integer pageCount,
+        Boolean isOriginal,
+        String xLanguage,
+        String rawContent,
+        String coverExt,
+        boolean deleted,
+        Long uploadTime) {
+        this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt, deleted, uploadTime, null, null, null);
+    }
+
     public NovelRecord(long novelId,
                        String title,
                        String folder,

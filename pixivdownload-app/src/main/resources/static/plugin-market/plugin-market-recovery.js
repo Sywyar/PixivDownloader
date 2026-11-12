@@ -23,19 +23,22 @@
         if (!root || !activePage) return;
         root.replaceChildren();
         var active = snapshot && snapshot.active;
+        root.hidden = !active && !error;
         root.classList.toggle('pmk-recovery--active', !!active);
-        if (active) {
-            element('h2', PMK.t(snapshot.recoveryMode ? 'recovery.banner.title' : 'recovery.no-gui'), root);
-            element('p', PMK.t('recovery.explanation'), root);
-            element('p', snapshot.advice, root).className = 'pmk-recovery-advice';
-            var details = element('details', '', root);
-            details.open = true;
-            element('summary', PMK.t('recovery.error-summary'), details);
-            var list = element('ul', '', details);
-            (snapshot.errors || []).forEach(function (message) { element('li', message, list); });
-            if (!snapshot.errors || !snapshot.errors.length)
-                element('p', PMK.t('recovery.no-error-details'), details);
+        if (!active) {
+            if (error) element('p', error, root).setAttribute('role', 'alert');
+            return;
         }
+        element('h2', PMK.t(snapshot.recoveryMode ? 'recovery.banner.title' : 'recovery.no-gui'), root);
+        element('p', PMK.t('recovery.explanation'), root);
+        element('p', snapshot.advice, root).className = 'pmk-recovery-advice';
+        var details = element('details', '', root);
+        details.open = true;
+        element('summary', PMK.t('recovery.error-summary'), details);
+        var list = element('ul', '', details);
+        (snapshot.errors || []).forEach(function (message) { element('li', message, list); });
+        if (!snapshot.errors || !snapshot.errors.length)
+            element('p', PMK.t('recovery.no-error-details'), details);
         var actions = element('div', '', root);
         actions.className = 'pmk-recovery-actions';
         ['restart', 'exit'].forEach(function (action) {
@@ -46,8 +49,6 @@
             button.addEventListener('click', function () { perform(action); });
         });
         var hint = pending ? 'recovery.action-pending'
-            : !snapshot ? 'recovery.status-unavailable'
-            : !active ? 'recovery.normal-disabled'
             : !snapshot.actionsAllowed ? 'recovery.local-only' : '';
         if (hint) element('p', PMK.t(hint), root);
         if (error) element('p', error, root).setAttribute('role', 'alert');
@@ -57,13 +58,17 @@
         if (request) request.abort();
         var current = request = new AbortController();
         snapshot = null;
+        error = '';
         render();
         try {
             var value = await PMK.api.fetchRecovery(current.signal);
+            if (!value || typeof value.active !== 'boolean') throw new Error('Invalid recovery status');
             if (!current.signal.aborted) { snapshot = value; error = ''; render(); refreshCards(); }
             return current.signal.aborted ? null : snapshot;
         } catch (failure) {
-            if (!current.signal.aborted) { snapshot = null; error = ''; render(); refreshCards(); }
+            if (!current.signal.aborted) {
+                snapshot = null; error = PMK.t('recovery.status-unavailable'); render(); refreshCards();
+            }
             return null;
         } finally {
             if (request === current) request = null;

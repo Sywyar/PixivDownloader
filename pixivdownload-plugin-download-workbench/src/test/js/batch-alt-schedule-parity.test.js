@@ -126,7 +126,7 @@ test('SSE 使用复合身份，合批刷新，并保留后续快照前的逐图�
     assert.equal(h.c.run('altScheduleQueues.get(1).data.items[1].status'), 'pending');
     await h.c.loadScheduleQueue(h.task, true);
     const model = h.c.scheduleQueueDetailModel(h.c.run('altScheduleQueues.get(1).data'));
-    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /40%/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /46%/);
     assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /ffmpeg/);
     assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-round-current').innerHTML, /Current work/);
     h.c.run('scheduleState.expandedQueues.clear()');
@@ -179,15 +179,16 @@ test('普通队列保留操作，计划行禁止触发普通队列的取消和�
     assert.equal(h.c.queueItemRow(item, {readOnly: true}).querySelectorAll('button').length, 0);
 });
 
-test('小说的正文、内嵌图片、封面进度和插件状态都经共享行显示', () => {
+test('小说的正文、内嵌图片和封面共用子进度条，计划行保留插件状态', () => {
     const h = setup();
-    const row = h.c.queueItemRow({id: 'n1', kind: 'novel', status: 'downloading', title: 'Novel',
-        novelText: {done: 10, total: 20}, novelEmbedded: {done: 1, total: 4},
-        novelCover: {done: 10, total: 40}, liveStatus: {phase: 'TRANSLATING'}}, {readOnly: true});
-    assert.match(row.outerHTML, /queue\.novel-text\.label/);
-    assert.match(row.outerHTML, /queue\.novel-images\.label/);
-    assert.match(row.outerHTML, /queue\.novel-cover\.label/);
-    assert.match(row.outerHTML, /TRANSLATING/);
+    for (const [field, label] of [['novelText', 'novel-text'], ['novelCover', 'novel-cover'], ['novelEmbedded', 'novel-images']]) {
+        const row = h.c.queueItemRow({id: 'n1', kind: 'novel', status: 'downloading', title: 'Novel',
+            totalImages: 1, downloadedCount: 0, [field]: {done: 1, total: 4},
+            liveStatus: {phase: 'TRANSLATING'}}, {readOnly: true});
+        assert.equal(row.querySelectorAll('[role="progressbar"]').length, 2);
+        assert.match(row.outerHTML, new RegExp(label));
+        assert.match(row.outerHTML, /TRANSLATING/);
+    }
 });
 
 test('来源贡献凭证策略分组，确认和数值提示后按 owner 身份执行', async () => {

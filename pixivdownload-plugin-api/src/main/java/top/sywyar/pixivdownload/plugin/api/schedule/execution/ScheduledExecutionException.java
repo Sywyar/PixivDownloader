@@ -99,6 +99,16 @@ public class ScheduledExecutionException extends Exception {
                 "schedule.cancelled");
     }
 
+    /**
+     * 创建不推进 checkpoint 的凭据耗尽失败。
+     * @param retryAfterMillis 冷却等待毫秒数
+     * @return 凭据耗尽失败
+     */
+    public static ScheduledExecutionException credentialsUnavailable(long retryAfterMillis) {
+        return new ScheduledExecutionException(ScheduledFailure.Category.CREDENTIALS_EXHAUSTED,
+                "ACQUISITION_CREDENTIALS_UNAVAILABLE", retryAfterMillis);
+    }
+
     private static String normalizeCode(String code) {
         if (code == null || code.isBlank()) {
             throw new IllegalArgumentException("failure code must not be blank");

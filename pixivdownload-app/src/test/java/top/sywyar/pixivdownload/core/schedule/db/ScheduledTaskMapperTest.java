@@ -53,6 +53,35 @@ class ScheduledTaskMapperTest {
         return source;
     }
 
+    @Test @DisplayName("有序凭据独立落库，旧任务按单项读取，替换和撤销清除旧候选")
+    void credentialCandidatesAreOwnedAndReplacedTogether() {
+        ScheduledTaskInsertRow task = sample("候选任务", 1_000L);
+        mapper.insert(task);
+        mapper.upsertCredential(task.getId(), "fixture-plugin", "fixture-credential", "a", "{}",
+                "primary-secret", null, 2_000L);
+        assertThat(mapper.findCredentialCandidates(task.getId(), "fixture-plugin", "fixture-credential"))
+                .extracting(top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue::secret)
+                .containsExactly("primary-secret");
+        var candidates = List.of(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("a", "primary-secret"),
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("b", "backup-secret"));
+        mapper.replaceCredentialCandidates(task.getId(), candidates);
+        var saved = mapper.findCredentialCandidates(task.getId(), "fixture-plugin", "fixture-credential");
+        assertThat(saved).isEqualTo(candidates);
+        assertThat(mapper.findCredentialCandidates(task.getId(), "different", "fixture-credential")).isEmpty();
+        assertThat(mapper.deleteCredential(task.getId(), "different", "fixture-credential")).isZero();
+        assertThat(mapper.findCredentialCandidates(task.getId(), "fixture-plugin", "fixture-credential")).isEqualTo(candidates);
+        mapper.upsertCredential(task.getId(), "fixture-plugin", "fixture-credential", "c", "{}",
+                "replacement-secret", null, 3_000L);
+        assertThat(mapper.findCredentialCandidates(task.getId(), "fixture-plugin", "fixture-credential"))
+                .extracting(top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue::secret)
+                .containsExactly("replacement-secret");
+        assertThat(saved).isEqualTo(candidates);
+        mapper.replaceCredentialCandidates(task.getId(), List.of(
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("c", "replacement-secret")));
+        assertThat(mapper.deleteCredential(task.getId(), "fixture-plugin", "fixture-credential")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM scheduled_task_credential_candidates", Integer.class)).isZero();
+    }
+
     @Test
     @DisplayName("新任务显式写 storageVersion=1，并按中性来源和定义字段往返")
     void insertsCanonicalTaskProjection() {

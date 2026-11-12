@@ -896,18 +896,41 @@
         .userscript-card-head {
             flex-wrap: wrap;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 8px;
             margin-bottom: 4px;
         }
 
         .userscript-card-title {
             font-size: 0.8125rem;
+            flex: 1 1 12rem;
+            min-width: 0;
         }
 
         .userscript-card-version {
-            font-size: 0.6875rem;
-            color: var(--muted-2);
+            display: grid;
+            overflow-wrap: anywhere;
+            gap: 2px;
+            margin-inline-start: auto;
+            max-width: 100%;
+            text-align: end;
+            font-size: 0.75rem;
+            line-height: 1.5;
+            font-variant-numeric: tabular-nums;
+            color: var(--muted);
+        }
+
+        .userscript-card-version [data-state="update-available"] {
+            color: color-mix(in srgb, var(--status-yellow) 50%, var(--text));
+            font-weight: 600;
+        }
+
+        .userscript-card-version [data-state="detected"] {
+            color: color-mix(in srgb, var(--status-green) 60%, var(--text));
+        }
+
+        .userscript-card-version [data-state="covered"] {
+            color: color-mix(in srgb, var(--primary-strong) 60%, var(--text));
         }
 
         .userscript-card-desc {

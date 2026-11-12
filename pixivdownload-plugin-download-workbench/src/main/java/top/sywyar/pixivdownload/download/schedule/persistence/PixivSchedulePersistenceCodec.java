@@ -60,6 +60,11 @@ public final class PixivSchedulePersistenceCodec {
         return LEGACY_SOURCE_ALIASES;
     }
 
+    public boolean isPersonalSource(String sourceType, String definitionJson) {
+        return "my-bookmarks".equals(sourceType) || "follow-latest".equals(sourceType)
+                || parseObject(definitionJson, "definition JSON").path("source").path("myPixiv").asBoolean(false);
+    }
+
     /** 为新建、编辑或旧数据迁移生成同一份正式定义信封。 */
     public ScheduledTaskDefinition createDefinition(long taskId,
                                                     String taskName,

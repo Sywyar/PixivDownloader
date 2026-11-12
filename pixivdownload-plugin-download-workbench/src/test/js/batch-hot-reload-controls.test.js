@@ -5,7 +5,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
+const SETTINGS_SOURCE = ['settings-context.js', 'batch-settings.js'].map(name => fs.readFileSync(path.join(STATIC, name), 'utf8')).join('\n');
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SEARCH_SOURCE = fs.readFileSync(path.join(STATIC, 'modes', 'search.js'), 'utf8');
 const modeSource = files => files

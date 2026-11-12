@@ -37,6 +37,18 @@ public interface ScheduledCredentialHandle extends AutoCloseable {
      */
     char[] copySecret();
 
+    /**
+     * 有序候选的独立副本，首项与 copySecret 一致；调用方须关闭每一项。
+     * 候选只用于来源协议允许的请求重试，不能改变计划的原账号或重放写入。
+     * @return 有序候选，旧单凭据实现返回至多一项
+     */
+    default java.util.List<ScheduledCredentialCandidate> copyCandidates() {
+        char[] value = copySecret();
+        try { return value.length == 0 ? java.util.List.of()
+                : java.util.List.of(new ScheduledCredentialCandidate(accountKey(), value)); }
+        finally { java.util.Arrays.fill(value, '\0'); }
+    }
+
     @Override
     void close();
 }

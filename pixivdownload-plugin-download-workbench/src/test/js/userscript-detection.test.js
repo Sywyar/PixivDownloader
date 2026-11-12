@@ -69,11 +69,85 @@ test('沙箱窗口代理下响应实际版本，多合一只覆盖其包含的�
     assert.deepEqual([...found.get('artwork-java')], ['3.4.5-fixture']);
     assert.equal(h.api.has('experience-toolbox'), true);
     assert.equal(h.api.has('artwork-local'), false);
-    const text = h.api.describe('artwork-java', found, (key, _, vars) => key + ':' + vars.version);
+    const text = h.api.describe('artwork-java', '3.4.5-fixture', found, (key, _, vars) => key + ':' + vars.version)
+        .map(line => line.text).join('\n');
     assert.match(text, /userscripts.detected:3.4.5-fixture/);
     assert.match(text, /userscripts.covered:7.8.9-test/);
     assert.equal(h.timers.size, 0);
     assert.equal(h.listeners.get('pagehide').size, 0);
+});
+
+test('版本摘要合并相同版本，保留差异、检测阶段和独立脚本的覆盖关系', () => {
+    const {api} = browser();
+    const translate = (key, _, vars) => ({key, version: vars.version});
+    const describe = (id, version, found) => JSON.parse(JSON.stringify(api.describe(id, version, found, translate)));
+    const expected = (state, version) => ({state, text: {
+        key: 'batch:userscripts.' + state, ...(version ? {version} : {})
+    }});
+    const available = expected('available-version', '4.5.6-fixture');
+    assert.deepEqual(describe('artwork-java', '4.5.6-fixture', null), [expected('detecting'), available]);
+    assert.deepEqual(describe('artwork-java', '4.5.6-fixture', new Map()), [expected('not-detected'), available]);
+    const found = new Map([['artwork-java', new Set(['4.5.6-fixture'])]]);
+    assert.deepEqual(describe('artwork-java', '4.5.6-fixture', found), [expected('detected', '4.5.6-fixture')]);
+    found.set('artwork-java', new Set(['4.5.6-fixture+host-example.test']));
+    assert.deepEqual(describe('artwork-java', '4.5.6-fixture', found), [
+        expected('detected', '4.5.6-fixture+host-example.test'), available
+    ]);
+    found.set('all-in-one', new Set(['4.5.6-fixture']));
+    assert.deepEqual(describe('user-batch', '4.5.6-fixture', found), [
+        expected('covered', '4.5.6-fixture'), available
+    ]);
+    assert.deepEqual(describe('artwork-local', '4.5.6-fixture', found), [expected('not-detected'), available]);
+    found.set('artwork-java', new Set(['4.5.6-fixture', '7.8.9-fixture']));
+    assert.deepEqual(describe('artwork-java', '4.5.6-fixture', found), [
+        expected('detected', '4.5.6-fixture, 7.8.9-fixture'),
+        expected('covered', '4.5.6-fixture'), available
+    ]);
+    assert.deepEqual(describe('artwork-local', '', new Map()), [expected('not-detected')]);
+});
+
+test('版本摘要按数值与预发布编号标出更新，不能把较旧版本误报为更新', () => {
+    const {api} = browser();
+    const describe = (available, installed) => Array.from(api.describe('artwork-java', available,
+        new Map([['artwork-java', new Set(installed)]]), key => key), line => line.state);
+    for (const [older, newer] of [
+        ['4.9.8', '4.10.0'], ['4.5.6', '5.0.0'], ['4.5.6-alpha.10', '4.5.6-beta.1'],
+        ['4.5.6-beta.9', '4.5.6-rc.1'], ['4.5.6-rc.2', '4.5.6-rc.10'],
+        ['4.5.6-rc.10', '4.5.6'], ['4.5.6', '4.5.7-alpha.1'],
+        ['9007199254740992.0.0', '9007199254740993.0.0']
+    ]) {
+        assert.deepEqual(describe(newer, [older]), ['update-available', 'detected'], newer);
+        assert.deepEqual(describe(older, [newer]), ['detected', 'older-version'], older);
+    }
+    assert.deepEqual(describe('4.5.6', ['4.5.6']), ['detected']);
+    assert.deepEqual(describe('4.5', ['4.5.0']), ['detected', 'available-version']);
+    assert.deepEqual(describe('4.5.6', ['4.05.006']), ['detected', 'available-version']);
+    assert.deepEqual(describe('4.5.6-beta', ['4.5.6-beta.0']), ['detected', 'available-version']);
+    assert.deepEqual(describe('6.0.0', ['4.5.6', '5.0.0']), ['update-available', 'detected']);
+    assert.deepEqual(describe('3.0.0', ['4.5.6', '5.0.0']), ['detected', 'older-version']);
+});
+
+test('未知格式、多个版本排序冲突及多合一覆盖不会猜测可更新', () => {
+    const {api} = browser();
+    for (const versions of [
+        ['4.0.0', '6.0.0'], ['4.0.0', '5.0.0'], ['custom'], [''],
+        ['4.0.0', 'unknown'], ['4.0.0+build.1'], ['4.0.0.1'], ['4.0.0-rc2'],
+        ['4.0.0-nightly.20260101'], ['<img src=x onerror=alert(1)>']
+    ]) {
+        const lines = api.describe('artwork-java', '5.0.0',
+            new Map([['artwork-java', new Set(versions)]]), key => key);
+        assert.deepEqual(Array.from(lines, line => line.state), ['detected', 'available-version']);
+    }
+    for (const available of ['custom', '', undefined]) {
+        const lines = api.describe('artwork-java', available,
+            new Map([['artwork-java', new Set(['4.0.0'])]]), key => key);
+        assert.ok(lines.every(line => !['update-available', 'older-version'].includes(line.state)));
+    }
+    const found = new Map([['all-in-one', new Set(['1.0.0'])]]);
+    assert.deepEqual(Array.from(api.describe('artwork-java', '9.0.0', found, key => key),
+        line => line.state), ['covered', 'available-version']);
+    assert.deepEqual(Array.from(api.describe('all-in-one', '9.0.0', found, key => key),
+        line => line.state), ['update-available', 'detected']);
 });
 
 test('安装点击的旧记录不构成检测结果，超时后释放监听器', async () => {

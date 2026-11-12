@@ -19,7 +19,7 @@ begin
   Candidate := Unquote(Path);
   Result :=
     (Candidate <> '') and
-    (DirExists(Candidate) or FileExists(PathWithTrailingBackslash(Candidate) + '{#AppExeName}'));
+    FileExists(PathWithTrailingBackslash(Candidate) + '{#AppExeName}');
 end;
 
 function QueryMachineStringValue(const SubKeyName, ValueName: String; var Value: String): Boolean;
@@ -74,7 +74,6 @@ end;
 procedure ResolveExistingInstallation;
 var
   InnoInstallDir: String;
-  FallbackLocation: String;
   InstalledVersion: String;
 begin
   if ExistingInstallationResolved then
@@ -90,9 +89,15 @@ begin
   InnoInstallDir := '';
   QueryMachineStringValue(InnoUninstallRegistryKey, 'InstallLocation', InnoInstallDir);
   QueryMachineStringValue(InnoUninstallRegistryKey, 'UninstallString', ExistingUninstallCommand);
+  RegisteredInstallDir := Unquote(InnoInstallDir);
+  if RegisteredInstallDir = '' then
+  begin
+    QueryMachineStringValue(AppRegistryKey, 'InstallLocation', RegisteredInstallDir);
+    RegisteredInstallDir := Unquote(RegisteredInstallDir);
+  end;
 
-  if IsUsableInstallDir(InnoInstallDir) then
-    ExistingInstallDir := Unquote(InnoInstallDir);
+  if IsUsableInstallDir(RegisteredInstallDir) then
+    ExistingInstallDir := RegisteredInstallDir;
 
   FindLegacyMsiProductCode(LegacyMsiProductCode);
 
@@ -100,28 +105,57 @@ begin
     (ExistingUninstallCommand <> '') or
     (LegacyMsiProductCode <> '');
 
-  if ExistingInstallationFound and (ExistingInstallDir = '') then
-  begin
-    FallbackLocation := '';
-    if QueryMachineStringValue(AppRegistryKey, 'InstallLocation', FallbackLocation) and IsUsableInstallDir(FallbackLocation) then
-      ExistingInstallDir := Unquote(FallbackLocation);
-  end;
-
   if ExistingUninstallCommand <> '' then
   begin
     InstalledVersion := '';
     if QueryMachineStringValue(InnoUninstallRegistryKey, 'DisplayVersion', InstalledVersion) then
       ShowMaintenancePage := CompareText(Trim(InstalledVersion), '{#AppVersion}') = 0;
   end;
+  ExistingLocationMissing := (ExistingInstallationFound or (RegisteredInstallDir <> '')) and
+    not IsUsableInstallDir(RegisteredInstallDir);
+  if ExistingLocationMissing then
+  begin
+    ShowMaintenancePage := False;
+    Log('Registered installation files not found; location confirmation required.');
+  end;
 end;
 
 function GetDefaultInstallDir(Param: String): String;
 begin
   ResolveExistingInstallation;
-  if ExistingInstallDir <> '' then
+  if ExistingLocationMissing and (RegisteredInstallDir <> '') then
+    Result := RegisteredInstallDir
+  else if ExistingInstallDir <> '' then
     Result := ExistingInstallDir
   else
     Result := ExpandConstant('{autopf}\{#AppName}');
+end;
+
+function ConfirmInstallationDirectory(AllowPrompt: Boolean): String;
+var Target: String;
+begin
+  Result := '';
+  Target := WizardDirValue;
+  if not ExistingLocationMissing or IsUsableInstallDir(Target) or
+    (CompareText(ConfirmedInstallDir, Target) = 0) then exit;
+  if WizardSilent then
+  begin
+    if ExpandConstant('{param:DIR|}') <> '' then exit;
+    Result := CustomMessage('InstallationLocationSilent');
+  end
+  else
+  begin
+    if AllowPrompt then
+      if MsgBox(FmtMessage(CustomMessage('InstallationLocationReinstall'), [Target]),
+        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      begin
+        ConfirmedInstallDir := Target;
+        Log('Reinstallation directory confirmed.');
+        exit;
+      end;
+    Result := CustomMessage('InstallationLocationRequired');
+  end;
+  Log('Installation location requires an explicit selection.');
 end;
 
 function SplitCommandLine(const CommandLine: String; var FileName, Params: String): Boolean;

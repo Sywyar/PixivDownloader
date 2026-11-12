@@ -260,9 +260,12 @@ class NovelDownloadServiceTest {
     @Test
     @DisplayName("落盘失败只发布失败终态，不产生完成事件")
     void reportsPublicationFailure() throws Exception {
-        doThrow(new java.io.IOException("publication failed"))
+        doThrow(new java.io.IOException("internal-probe C:/private/novel token=private-value"))
                 .when(workAssets).publishFiles(any(), anyLong(), any(), any());
         assertThat(service.downloadBlocking(txtRequest(90L, null), null)).isFalse();
+        assertThat(service.getStatus(90L).getErrorMessage())
+                .isEqualTo(NOVEL_MESSAGES.get("error.unexpected"))
+                .doesNotContain("internal-probe", "private-value", "IOException");
         var events = org.mockito.ArgumentCaptor.forClass(
                 top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
         verify(downloadLifecycle, times(2)).publish(events.capture());

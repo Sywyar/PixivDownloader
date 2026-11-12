@@ -65,7 +65,7 @@
                     <i class="fa-solid fa-puzzle-piece"></i><span data-i18n="seg.installed">已安装</span>
                 </span>
             </div>
-            <button class="pm-btn pm-btn--teal" id="refreshBtn">
+            <button class="pm-btn pm-btn--gray" id="refreshBtn">
                 <i class="fa-solid fa-rotate"></i><span data-i18n="refresh">刷新</span>
             </button>
             <button class="pm-btn pm-btn--primary" id="installBtn">
@@ -86,24 +86,14 @@
         </div>
     </div>
 
-    <div class="pm-recovery pm-security-notice">
-        <i class="fa-solid fa-shield-halved"></i>
-        <div>
-            <div class="pm-recovery-title" data-i18n="security.notice.title">插件执行与签名说明</div>
-            <div class="pm-recovery-desc" data-i18n="security.notice.desc">宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。</div>
-        </div>
-    </div>
-
-    <!-- 概览统计（信息区，由 JS 据后端状态填充） -->
-    <div class="pm-stats" id="pm-stats"></div>
-
     <!-- 工具栏：筛选标签 + 搜索 -->
     <div class="pm-toolbar">
         <div class="pm-tabs" id="pm-tabs"></div>
         <div class="pm-toolbar-search">
             <div class="pm-search">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="pm-search-input" data-i18n-placeholder="search.placeholder"
+                <input type="search" id="pm-search-input" data-i18n-placeholder="search.placeholder"
+                       data-i18n-aria-label="search.placeholder" aria-label="搜索插件名称或标签…"
                        placeholder="搜索插件名称或标签…" autocomplete="off">
             </div>
             <span class="pm-result-count" id="pm-result-count"></span>
@@ -115,6 +105,13 @@
     <div id="pm-state-host">
         <div class="pm-state"><i class="fa-solid fa-spinner fa-spin"></i><span data-i18n="status.loading">正在加载插件状态…</span></div>
     </div>
+
+    <details class="pm-security-notice accordion accordion-item pixiv-disclosure">
+        <summary class="accordion-button collapsed">
+            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span data-i18n="security.notice.title">插件执行与签名说明</span>
+        </summary>
+        <div class="accordion-body" data-i18n="security.notice.desc">宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。</div>
+    </details>
 
     <!-- 免责声明 -->
     <div class="pm-disclaimer" data-i18n="disclaimer">

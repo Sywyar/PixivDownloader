@@ -26,9 +26,14 @@
     /* ============================================================
        API
     ============================================================ */
+    let cookieInputFormat = null;
+    function getCookieInputFmt() {
+        return cookieInputFormat || getCookieFmt();
+    }
+
     function setCookieFmt(fmt) {
         const normalized = normalizeCookieFormat(fmt);
-        storeSet('pixiv_cookie_fmt', normalized);
+        cookieInputFormat = normalized;
         ['header', 'json', 'netscape'].forEach(f => {
             const button = document.getElementById('fmt-' + f);
             if (button) button.classList.toggle('active', f === normalized);
@@ -43,15 +48,32 @@
         }
     }
 
+    function setCookieInputValue(raw, fmt) {
+        fmt = normalizeCookieFormat(fmt);
+        if (fmt === 'netscape' && raw.trim()) {
+            const result = validateAndParseCookie(raw, fmt);
+            if (!result.ok) {
+                setCookieStatus(result.errorMessage, 'error');
+                return;
+            }
+            // 原生密码框会删除换行；填入前转换，保留隐藏凭据及原生编辑行为。
+            raw = parseCookieToHeaderString(raw, fmt);
+            fmt = 'header';
+        }
+        const input = document.getElementById('cookie-input');
+        if (input) input.value = raw;
+        setCookieFmt(fmt);
+    }
+
     function getCookieInputHeaderString() {
         const input = document.getElementById('cookie-input');
         const raw = input ? input.value.trim() : getStoredCookie('pixiv');
-        return parseCookieToHeaderString(raw, getCookieFmt());
+        return parseCookieToHeaderString(raw, input ? getCookieInputFmt() : getCookieFmt());
     }
 
     /** 当前输入框 Cookie 是否含 PHPSESSID（登录态）。先归一化为 header 串以兼容 JSON / Netscape 格式。 */
     function cookieHasPhpsessid() {
-        return /(?:^|;\s*)PHPSESSID=/.test(getCookieInputHeaderString());
+        return window.PixivCredentials?.has() || /(?:^|;\s*)PHPSESSID=/.test(getCookieInputHeaderString());
     }
 
     /**
@@ -134,18 +156,11 @@
                         args: {message: {key: 'cookie.error.invalid-json', fallback: '需要 JSON 对象格式 {"key":"value",...}'}}});
                 headerString = Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
             } else if (fmt === 'netscape') {
-                const lines = raw.split('\n')
-                    .filter(l => l.trim() && !l.trim().startsWith('#'))
-                    .map(l => {
-                        const p = l.split('\t');
-                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
-                    })
-                    .filter(Boolean);
-                if (!lines.length) {
+                headerString = parseCookieToHeaderString(raw, fmt);
+                if (!headerString) {
                     return invalidResult({key: 'cookie.error.parse-failed', fallback: '格式解析失败：{message}',
                         args: {message: {key: 'cookie.error.invalid-netscape', fallback: '未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）'}}});
                 }
-                headerString = lines.join('; ');
             } else {
                 headerString = raw.trim();
             }
@@ -171,6 +186,8 @@
     }
 
     function pixivHeader() {
+        const selected = window.PixivCredentials?.headers();
+        if (selected) return selected;
         const c = getCookie();
         return c ? {'X-Acquisition-Credential': c} : {};
     }
@@ -197,7 +214,7 @@
     }
 
     function hasPixivCookie() {
-        return !!getCookie().trim();
+        return window.PixivCredentials?.has() || !!getCookie().trim();
     }
 
     let cookieSaveInProgress = false;
@@ -211,7 +228,12 @@
             .map(node => [node, node.disabled]);
         controls.forEach(([node]) => { node.disabled = true; });
         try {
-            await persistStoreEntries({pixiv_cookie: raw});
+            if (isAdmin) await window.PixivCredentials.savePrimary(raw, getCookieInputFmt());
+            else {
+                const entries = {pixiv_cookie: raw};
+                if (raw != null) entries.pixiv_cookie_fmt = getCookieInputFmt();
+                await persistStoreEntries(entries);
+            }
             return true;
         } catch {
             // 传输和存储错误可能含凭据，只展示固定的本地化错误。
@@ -228,15 +250,13 @@
     ------------------------------------------------------------------ */
     const COOKIE_SYNC_SIGNAL = '__pixiv_cookie_sync__';
 
-    function applyImportedCookie(snapshot) {
+    async function applyImportedCookie(snapshot) {
         serverState['pixiv_cookie'] = snapshot.cookie;
         serverState['pixiv_cookie_fmt'] = snapshot.fmt;
         if (snapshot.syncAt) serverState['pixiv_cookie_sync_at'] = snapshot.syncAt;
-        setCookieFmt(snapshot.fmt);
-        const input = document.getElementById('cookie-input');
-        if (input) input.value = snapshot.cookie;
-        applyCookieDependentUi();
-        const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(snapshot.cookie);
+        if (isAdmin && window.PixivCredentials) await window.PixivCredentials.savePrimary(snapshot.cookie, snapshot.fmt);
+        setCookieInputValue(isAdmin && window.PixivCredentials ? '' : snapshot.cookie, snapshot.fmt);
+        const hasPhp = cookieHasPhpsessid();
         if (hasPhp) {
             setCookieStatus({key: 'status.cookie-imported', fallback: '已从 Pixiv 自动导入并保存 Cookie'}, 'success');
         } else {
@@ -267,7 +287,7 @@
         startCookieSync(win, baselineSyncAt, cur => {
             serverState['pixiv_cookie_sync_at'] = cur.syncAt;
             if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
-                applyImportedCookie(cur);
+                void applyImportedCookie(cur).catch(() => setCookieStatus({key: 'batch:credentials.failed'}, 'error'));
             } else {
                 setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'error');
             }

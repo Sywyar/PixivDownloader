@@ -156,6 +156,29 @@ class ArtworkDownloadExecutorTest {
         return completion.getValue();
     }
 
+    @Test
+    @DisplayName("后台下载失败保留终态与进度事件但不将内部诊断写入用户状态")
+    void downloadFailureDoesNotExposeInternalDetails() {
+        stubSuccessfulUgoiraDownload(true);
+        when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
+                .thenThrow(new IllegalStateException("internal-probe C:/private/download token=private-value"));
+        var other = new DownloadRequest.Other();
+        other.setUgoira(true);
+        other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+        other.setUgoiraDelays(List.of(100));
+
+        artworkDownloadExecutor.downloadImages(12345L, "test", List.of(other.getUgoiraZipUrl()),
+                "https://www.pixiv.net/", other, null, null);
+
+        DownloadStatus status = artworkDownloadExecutor.getDownloadStatus(12345L);
+        assertThat(status.isCompleted()).isTrue();
+        assertThat(status.isFailed()).isTrue();
+        assertThat(status.getErrorMessage()).isEqualTo(MESSAGES.get(Locale.getDefault(), "error.unexpected"));
+        assertThat(MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                .doesNotContain("internal-probe", "private-value", "IllegalStateException");
+        verify(eventPublisher, atLeastOnce()).publishEvent(any(DownloadProgressEvent.class));
+    }
+
     private void stubSuccessfulUgoiraDownload(boolean flatFolder) {
         lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
         lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(flatFolder);
@@ -1582,7 +1605,8 @@ class ArtworkDownloadExecutorTest {
             DownloadStatus status = artworkDownloadExecutor.getDownloadStatus(62345L);
             assertThat(status.isCompleted()).isTrue();
             assertThat(status.isFailed()).isTrue();
-            assertThat(status.getErrorMessage()).isEqualTo("history failed");
+            assertThat(status.getErrorMessage()).isEqualTo(MESSAGES.get(Locale.getDefault(), "error.unexpected"))
+                    .doesNotContain("history failed");
             verify(artworkDownloadStatistics, never()).recordCompleted(anyInt());
             verify(artworkDownloadStatistics).recordFailed();
         }

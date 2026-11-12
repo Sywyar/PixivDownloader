@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.system.ApplicationHome;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.gui.GuiLauncher;
+import top.sywyar.pixivdownload.startup.DistributionLauncher;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.File;
@@ -129,10 +130,14 @@ public final class ApplicationRestartService {
         if (arguments == null) throw new IllegalStateException("Application entry arguments are unavailable");
         String executable = ProcessHandle.current().info().command()
                 .orElseThrow(() -> new IllegalStateException("Application executable is unavailable"));
+        var vmArguments = new ArrayList<>(ManagementFactory.getRuntimeMXBean().getInputArguments());
+        if (Boolean.getBoolean("pixivdownload.distribution.launcher") && !vmArguments.contains(DistributionLauncher.JVM_MARKER)) {
+            vmArguments.add(DistributionLauncher.JVM_MARKER);
+        }
         return new ProcessBuilder(restartCommand(
                 executable,
                 arguments,
-                ManagementFactory.getRuntimeMXBean().getInputArguments(),
+                vmArguments,
                 new ApplicationHome(GuiLauncher.class).getSource(),
                 System.getProperty("java.class.path")
         )).directory(Path.of("").toAbsolutePath().toFile()).inheritIO();
@@ -150,8 +155,11 @@ public final class ApplicationRestartService {
         String name = Path.of(executable).getFileName().toString().toLowerCase(Locale.ROOT);
         if (List.of("java", "javaw", "java.exe", "javaw.exe").contains(name)) {
             // Windows 的 ProcessHandle.Info 不提供 arguments；使用 JVM 参数和入口捕获的应用参数。
-            command.addAll(vmArguments);
-            if (source != null && source.isFile() && source.getName().endsWith(".jar")) {
+            boolean distribution = vmArguments.contains(DistributionLauncher.JVM_MARKER);
+            command.addAll(vmArguments.stream().filter(argument -> !distribution || !argument.startsWith("-XX:AOT")).toList());
+            if (distribution) {
+                command.addAll(List.of("-cp", classPath, DistributionLauncher.class.getName(), "run"));
+            } else if (source != null && source.isFile() && source.getName().endsWith(".jar")) {
                 command.add("-jar");
                 command.add(source.getAbsolutePath());
             } else {

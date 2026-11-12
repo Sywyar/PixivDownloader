@@ -14,6 +14,10 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.List;
+import top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialCandidate;
+import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials;
 
 /** 宿主在复合租约内读取并在整轮结束清零的凭证材料；每次插件调用仍取得独立句柄副本。 */
 final class ScheduleCredentialMaterial implements AutoCloseable {
@@ -21,15 +25,42 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
     private static final int MAX_PERCENT_DECODE_ROUNDS = 16;
 
     private char[] secret;
-    private final ScheduleCredentialEchoGuard echoGuard;
+    private final List<ScheduleCredentialEchoGuard> echoGuards;
+    private final List<ScheduledCredentialCandidate> candidates;
     private final String reference;
     private String accountKey;
 
     ScheduleCredentialMaterial(String secret, String reference, String accountKey) {
-        this.secret = secret == null ? new char[0] : secret.toCharArray();
-        this.echoGuard = new ScheduleCredentialEchoGuard(this.secret);
+        this(secret == null || secret.isBlank() ? List.of() : List.of(new ScheduledCredentialValue(accountKey, secret)), reference, accountKey);
+    }
+
+    ScheduleCredentialMaterial(List<ScheduledCredentialValue> values, String reference, String accountKey) {
+        this.secret = values.isEmpty() ? new char[0] : values.getFirst().secret().toCharArray();
+        this.candidates = values.stream().map(value -> {
+            char[] temporary = value.secret().toCharArray();
+            try { return new ScheduledCredentialCandidate(value.accountKey(), temporary); }
+            finally { Arrays.fill(temporary, '\0'); }
+        }).toList();
+        this.echoGuards = candidates.stream().map(candidate -> {
+            char[] temporary = candidate.copySecret();
+            try { return new ScheduleCredentialEchoGuard(temporary); }
+            finally { Arrays.fill(temporary, '\0'); }
+        }).toList();
         this.reference = reference;
         this.accountKey = accountKey;
+    }
+
+    <T, X extends Throwable> T call(java.util.function.BooleanSupplier cancelled, ScopedValue.CallableOp<T, X> action) throws X {
+        List<String> values;
+        synchronized (this) {
+            values = secret.length == 0 ? List.of() : candidates.stream().map(candidate -> {
+                char[] temporary = candidate.copySecret();
+                try { return new String(temporary); }
+                finally { Arrays.fill(temporary, '\0'); }
+            }).toList();
+        }
+        if (values.isEmpty()) return action.call();
+        return new AcquisitionCredentials(values).withCancellation(cancelled).call(action);
     }
 
     synchronized boolean isPresent() {
@@ -41,7 +72,7 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
     }
 
     boolean containsEcho(String candidate) {
-        return echoGuard.matches(candidate);
+        return echoGuards.stream().anyMatch(guard -> guard.matches(candidate));
     }
 
     /**
@@ -49,7 +80,7 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
      * 最多重复解码固定轮数，超过上限仍可继续解码的输入按可疑材料 fail-closed。
      */
     boolean containsEchoInPercentEncodedText(String candidate) {
-        if (echoGuard.matchesSubstring(candidate)) {
+        if (echoGuards.stream().anyMatch(guard -> guard.matchesSubstring(candidate))) {
             return true;
         }
         if (candidate == null || candidate.isEmpty()) {
@@ -66,7 +97,7 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
             if (decoded.equals(current)) {
                 return false;
             }
-            if (echoGuard.matchesSubstring(decoded)) {
+            if (echoGuards.stream().anyMatch(guard -> guard.matchesSubstring(decoded))) {
                 return true;
             }
             current = decoded;
@@ -171,19 +202,20 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
     }
 
     synchronized ScheduledCredentialHandle openHandle() {
-        return new Handle(Arrays.copyOf(secret, secret.length), reference, accountKey);
+        return new Handle(Arrays.copyOf(secret, secret.length), reference, accountKey, candidates);
     }
 
     synchronized void revoke() {
         Arrays.fill(secret, '\0');
         secret = new char[0];
         accountKey = null;
+        candidates.forEach(ScheduledCredentialCandidate::close);
     }
 
     @Override
     public synchronized void close() {
         revoke();
-        echoGuard.close();
+        echoGuards.forEach(ScheduleCredentialEchoGuard::close);
     }
 
     private static final class Handle implements ScheduledCredentialHandle {
@@ -191,9 +223,11 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
         private char[] secret;
         private final String reference;
         private final String accountKey;
+        private final List<ScheduledCredentialCandidate> candidates;
 
-        private Handle(char[] secret, String reference, String accountKey) {
+        private Handle(char[] secret, String reference, String accountKey, List<ScheduledCredentialCandidate> candidates) {
             this.secret = secret;
+            this.candidates = copyCandidates(candidates);
             this.reference = reference;
             this.accountKey = accountKey;
         }
@@ -218,10 +252,21 @@ final class ScheduleCredentialMaterial implements AutoCloseable {
             return Arrays.copyOf(secret, secret.length);
         }
 
+        private static List<ScheduledCredentialCandidate> copyCandidates(List<ScheduledCredentialCandidate> values) {
+            return values.stream().map(candidate -> {
+                char[] temporary = candidate.copySecret();
+                try { return new ScheduledCredentialCandidate(candidate.accountKey(), temporary); }
+                finally { Arrays.fill(temporary, '\0'); }
+            }).toList();
+        }
+        @Override public synchronized List<ScheduledCredentialCandidate> copyCandidates() {
+            return secret.length == 0 ? List.of() : copyCandidates(candidates);
+        }
         @Override
         public synchronized void close() {
             Arrays.fill(secret, '\0');
             secret = new char[0];
+            candidates.forEach(ScheduledCredentialCandidate::close);
         }
     }
 }

@@ -174,6 +174,94 @@ class ScheduleServiceTest {
                 EMPTY_POLICY_STATE, null);
     }
 
+    private ScheduleService serviceWithCredentialPolicy(String owner, String policyId, boolean fixed) {
+        var registry = new FakeScheduleCapabilityAccess();
+        var policy = org.mockito.Mockito.mock(ScheduledCredentialPolicy.class);
+        when(policy.policyId()).thenReturn(policyId);
+        when(policy.isBindingFixed(anyString(), anyString())).thenReturn(fixed);
+        registry.publish(new ScheduleCapabilityOwner(owner, owner, 1L),
+                List.of(), List.of(), List.of(), List.of(policy), List.of());
+        return newService(new ScheduleRunState(), registry);
+    }
+
+    @Test
+    @DisplayName("固定凭证在探活或数据库写入前拒绝替换")
+    void fixedBindingRejectsReplacementBeforeProbe() throws Exception {
+        stubBindingIdentity();
+        when(credentialBindingLease.isBindingFixed()).thenReturn(true);
+        when(store.findById(20L)).thenReturn(task(
+                20L, true, null, null, null, null, "12345", EMPTY_POLICY_STATE, true));
+
+        assertThatThrownBy(() -> newService().bindCredential(20L, "replacement", ACTIVATION_TOKEN))
+                .isInstanceOfSatisfying(ScheduleManagementException.class, failure ->
+                        assertThat(failure.messageCode()).isEqualTo("schedule.error.credential-fixed"));
+
+        verify(credentialBindingLease, never()).probe(anyString());
+        verify(credentialBindingLease).close();
+        verify(store).findById(20L);
+        org.mockito.Mockito.verifyNoMoreInteractions(store);
+    }
+
+    @Test
+    @DisplayName("固定凭证拒绝清除，策略缺席时也保留原绑定")
+    void fixedOrUnavailablePolicyPreservesBinding() {
+        when(store.findById(20L)).thenReturn(task(
+                20L, true, null, null, null, null, "12345", EMPTY_POLICY_STATE, true));
+        assertThatThrownBy(() -> serviceWithCredentialPolicy("fixture-owner", "pixiv-cookie", true)
+                .revokeCredential(20L))
+                .isInstanceOfSatisfying(ScheduleManagementException.class, failure ->
+                        assertThat(failure.messageCode()).isEqualTo("schedule.error.credential-fixed"));
+        assertThatThrownBy(() -> newService().revokeCredential(20L))
+                .isInstanceOfSatisfying(ScheduleManagementException.class, failure ->
+                        assertThat(failure.messageCode()).isEqualTo("schedule.error.credential-policy-unavailable"));
+        verify(store, never()).removeCredential(anyLong(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("多个候选逐项探活后按顺序与任务版本一起绑定，页面后续选择不改副本")
+    void bindsIndependentOrderedCandidates() throws Exception {
+        String first = "PHPSESSID=12345_primary";
+        String second = "PHPSESSID=67890_backup";
+        var selected = new java.util.ArrayList<>(List.of(first, second));
+        var scope = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(selected);
+        selected.clear();
+        stubBindingIdentity();
+        when(store.findById(7L)).thenReturn(task(7L));
+        when(credentialBindingLease.probeCandidates(List.of(first, second)))
+                .thenReturn(List.of(cleanBinding("12345"), cleanBinding("67890")));
+        var expected = List.of(
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("12345", first),
+                new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("67890", second));
+        when(store.bindCredentials(eq(7L), eq(STATE_VERSION), eq("fixture-owner"), eq("pixiv-cookie"),
+                eq(EMPTY_POLICY_STATE), eq(expected), eq("scheduled-task:7:credential"), anyLong()))
+                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
+
+        scope.run(() -> newService().bindCredential(7L, first, ACTIVATION_TOKEN));
+
+        verify(store).bindCredentials(eq(7L), eq(STATE_VERSION), eq("fixture-owner"), eq("pixiv-cookie"),
+                eq(EMPTY_POLICY_STATE), eq(expected), eq("scheduled-task:7:credential"), anyLong());
+        verify(credentialBindingLease, never()).probe(anyString());
+        assertThat(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials.current()).isNull();
+    }
+
+    @Test
+    @DisplayName("备用凭据失效或风险保护拒绝时整组候选均不写入")
+    void rejectsUnusableBackupWithoutReplacingTaskCredentials() throws Exception {
+        var selected = List.of("PHPSESSID=12345_primary", "PHPSESSID=67890_backup");
+        stubBindingIdentity();
+        when(store.findById(7L)).thenReturn(task(7L));
+        when(credentialBindingLease.probeCandidates(selected)).thenReturn(List.of(cleanBinding("12345"),
+                new ScheduledCredentialBindResult(ScheduledCredentialProbeResult.invalid("fixture.invalid"),
+                        EMPTY_POLICY_STATE, null)));
+        var scope = new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials(selected);
+        assertThatThrownBy(() -> scope.run(() -> newService().bindCredential(7L, selected.getFirst(), ACTIVATION_TOKEN)))
+                .isInstanceOf(ScheduleManagementException.class);
+        verify(store, never()).bindCredentials(anyLong(), anyLong(), anyString(), anyString(),
+                anyString(), any(), anyString(), anyLong());
+        verify(store, never()).bindCredential(anyLong(), anyLong(), anyString(), anyString(), any(),
+                anyString(), anyString(), anyString(), anyLong());
+    }
+
     private static ScheduledCredentialBindResult warnedBinding(
             String accountKey, long modifiedAt, String excerpt) {
         return new ScheduledCredentialBindResult(
@@ -579,10 +667,10 @@ class ScheduleServiceTest {
         when(store.findById(5L)).thenReturn(task(
                 5L, true, null, ScheduleSuspendReason.CREDENTIAL,
                 "PIXIV_COOKIE_INVALID", null, "12345", EMPTY_POLICY_STATE, true));
-        when(store.findCredentialSecret(
+        when(store.findCredentialCandidates(
                 5L, "fixture-owner",
                 "pixiv-cookie"))
-                .thenReturn(cookie);
+                .thenReturn(List.of(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("12345", cookie)));
 
         assertThatThrownBy(() -> newService().bindCredential(
                 5L, "  " + cookie + "  ", ACTIVATION_TOKEN))
@@ -606,10 +694,10 @@ class ScheduleServiceTest {
                 6L, true, null, ScheduleSuspendReason.CREDENTIAL,
                 "PIXIV_COOKIE_INVALID", null, "12345", policyState, true);
         when(store.findById(6L)).thenReturn(current);
-        when(store.findCredentialSecret(
+        when(store.findCredentialCandidates(
                 6L, "fixture-owner",
                 "pixiv-cookie"))
-                .thenReturn("PHPSESSID=12345_old; other=x");
+                .thenReturn(List.of(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("12345", "PHPSESSID=12345_old; other=x")));
         when(store.bindCredential(
                 eq(6L), eq(STATE_VERSION), eq("fixture-owner"),
                 eq("pixiv-cookie"),
@@ -646,10 +734,10 @@ class ScheduleServiceTest {
                 61L, true, null, null, null, null,
                 "12345", oldAccountState, true);
         when(store.findById(61L)).thenReturn(current);
-        when(store.findCredentialSecret(
+        when(store.findCredentialCandidates(
                 61L, "fixture-owner",
                 "pixiv-cookie"))
-                .thenReturn("PHPSESSID=12345_old; other=x");
+                .thenReturn(List.of(new top.sywyar.pixivdownload.core.schedule.ScheduledCredentialValue("12345", "PHPSESSID=12345_old; other=x")));
         when(store.bindCredential(
                 eq(61L), eq(STATE_VERSION), eq("fixture-owner"),
                 eq("pixiv-cookie"),
@@ -788,7 +876,7 @@ class ScheduleServiceTest {
 
         newService().bindCredential(11L, cookie, ACTIVATION_TOKEN);
 
-        verify(store, times(2)).findCredentialSecret(11L, owner, policyId);
+        verify(store, times(2)).findCredentialCandidates(11L, owner, policyId);
         verify(store).bindCredential(
                 eq(11L), eq(STATE_VERSION), eq(owner), eq(policyId),
                 eq("external-account"), eq(policyState), eq(cookie),
@@ -826,7 +914,7 @@ class ScheduleServiceTest {
                 "pixiv-cookie"))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCredential(20L);
+        serviceWithCredentialPolicy("fixture-owner", "pixiv-cookie", false).revokeCredential(20L);
 
         verify(store).removeCredential(
                 20L, STATE_VERSION, "fixture-owner",
@@ -836,7 +924,7 @@ class ScheduleServiceTest {
     @Test
     @DisplayName("revokeCookie：按任务记录的外部 owner 与 policy 身份执行 CAS 删除")
     void revokeCookieUsesPersistedExternalCredentialIdentity() {
-        String owner = "example.schedule-source";
+        String owner = "example-schedule-source";
         String policyId = "credential.policy.v1";
         when(store.findById(21L)).thenReturn(task(
                 21L, true, null, null, null, null,
@@ -844,7 +932,7 @@ class ScheduleServiceTest {
         when(store.removeCredential(21L, STATE_VERSION, owner, policyId))
                 .thenReturn(OptionalLong.of(STATE_VERSION + 1));
 
-        newService().revokeCredential(21L);
+        serviceWithCredentialPolicy(owner, policyId, false).revokeCredential(21L);
 
         verify(store).removeCredential(21L, STATE_VERSION, owner, policyId);
         verify(store, never()).removeCredential(
@@ -1075,7 +1163,7 @@ class ScheduleServiceTest {
         }
         status.set(tooLargeTogether);
         assertThat(service.queue(4L).items().get(0).liveStatus()).isEmpty();
-        verify(store, never()).findCredentialSecret(
+        verify(store, never()).findCredentialCandidates(
                 anyLong(), anyString(), anyString());
 
         assertThat(ScheduleCapabilityTestFixture.withdraw(capabilityRegistry, publication)

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.common;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.experimental.UtilityClass;
+import top.sywyar.pixivdownload.config.InstanceCookies;
 
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -49,10 +50,11 @@ public class UuidUtils {
      * 返回 null 表示请求方未提供 UUID。
      */
     public static String extractExistingUuid(HttpServletRequest request) {
+        String cookieName = InstanceCookies.name(request, "pixiv_user_id");
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName())) {
+                if (cookieName.equals(c.getName())) {
                     UUID uuid = parseUuidV4(c.getValue());
                     if (uuid != null) {
                         return uuid.toString();

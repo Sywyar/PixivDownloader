@@ -41,7 +41,11 @@ window.PixivMediaSettings = (() => {
         }
         const classic = !!container.closest('#download-settings-card');
         const rowClass = classic ? 'setting-item' : 'media-format-row';
-        if (!classic && !container.closest('[data-schedule-settings]')) {
+        if (container.closest('.ab-settings')) {
+            const title = translated('h3', 'media.settings.title');
+            title.className = 'media-settings-title';
+            container.append(title);
+        } else if (!classic && !container.closest('[data-schedule-settings]')) {
             const scope = translated('p', 'media.settings.scope');
             scope.className = 'media-settings-scope';
             container.append(scope);
@@ -107,6 +111,7 @@ window.PixivMediaSettings = (() => {
             if (!classic) {
                 const help = translated('small', 'media.' + field.name + '.help');
                 row.append(help);
+                if (container.closest('.ab-settings')) window.PixivBatch.settings.attachHint(label, help);
             }
             container.append(row);
             refresh();
@@ -151,6 +156,7 @@ window.PixivMediaSettings = (() => {
                 help.id = input.id + '-help';
                 input.setAttribute('aria-describedby', help.id);
                 row.append(help);
+                if (container.closest('.ab-settings')) window.PixivBatch.settings.attachHint(label, help);
             }
             container.append(row);
         }

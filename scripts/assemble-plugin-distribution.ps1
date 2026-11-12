@@ -301,13 +301,20 @@ try {
         # element on Windows PowerShell 5.1 (the bare-object quirk only affects pipeline input).
         $manifestJson = ConvertTo-Json @($manifest) -Depth 5
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
-        Write-Step "Writing launch scripts"
+        Write-Step "Preparing extracted application and launch scripts"
+        . (Join-Path $PSScriptRoot 'distribution-aot.ps1')
+        $null = Expand-DistributionApplication -Java 'java' -Jar (Join-Path $OutputDir $coreJarName) -Destination (Join-Path $OutputDir 'app')
+        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $OutputDir 'app') -Recurse -File) {
+            $relative = $file.FullName.Substring($OutputDir.Length + 1).Replace('\', '/')
+            $sumLines += "$(Get-Sha256Hex $file.FullName)  $relative"
+        }
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $Utf8NoBom)
         $runBat = @'
 @echo off
 setlocal
 set "APP_HOME=%~dp0"
 cd /d "%APP_HOME%" || exit /b 1
-java -Dfile.encoding=UTF-8 "-Dpixivdownload.plugins-dir=%APP_HOME%plugins" -jar "%APP_HOME%PixivDownload-VERSION.jar" %*
+java -Dfile.encoding=UTF-8 "-Dpixivdownload.plugins-dir=%APP_HOME%plugins" -cp "%APP_HOME%app\PixivDownload-VERSION.jar" top.sywyar.pixivdownload.startup.DistributionLauncher run %*
 exit /b %ERRORLEVEL%
 '@
         $runBat = $runBat.Replace("PixivDownload-VERSION.jar", $coreJarName)
@@ -324,7 +331,8 @@ cd "$APP_HOME"
 exec java \
   -Dfile.encoding=UTF-8 \
   "-Dpixivdownload.plugins-dir=$APP_HOME/plugins" \
-  -jar "$APP_HOME/PixivDownload-VERSION.jar" \
+  -cp "$APP_HOME/app/PixivDownload-VERSION.jar" \
+  top.sywyar.pixivdownload.startup.DistributionLauncher run \
   "$@"
 '@
         $runSh = $runSh.Replace("PixivDownload-VERSION.jar", $coreJarName)
@@ -354,7 +362,7 @@ exec java \
         Write-Host "Launch       : run.bat (Windows) / sh run.sh (Linux/macOS) from the distribution directory"
     }
     Write-Host ""
-    Write-Host "Run: cd `"$OutputDir`" && java -jar $coreJarName"
+    if ($CoreShellOnly) { Write-Host "Run: cd `"$OutputDir`" && java -jar $coreJarName" }
 } finally {
     Pop-Location
 }

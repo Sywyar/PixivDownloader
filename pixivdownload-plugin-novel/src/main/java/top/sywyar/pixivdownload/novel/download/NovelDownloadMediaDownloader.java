@@ -136,6 +136,9 @@ final class NovelDownloadMediaDownloader {
             }
             log.warn("novel cover download non-2xx: {}", coverUrl);
             return null;
+        } catch (java.util.concurrent.CancellationException
+                 | top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException stopped) {
+            throw stopped;
         } catch (Exception e) {
             log.warn("novel cover download failed: {} — {}", coverUrl, e.getMessage());
             return null;
@@ -171,6 +174,9 @@ final class NovelDownloadMediaDownloader {
             }
             log.warn("novel embed image non-2xx: novelId={}, id={}", novelId, imageId);
             return null;
+        } catch (java.util.concurrent.CancellationException
+                 | top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException stopped) {
+            throw stopped;
         } catch (Exception e) {
             log.warn("novel embed image download failed: novelId={}, id={}, url={} — {}",
                     novelId, imageId, url, e.getMessage());

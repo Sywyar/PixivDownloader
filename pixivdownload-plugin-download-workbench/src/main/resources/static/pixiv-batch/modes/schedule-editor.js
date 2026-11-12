@@ -4,7 +4,7 @@
         if (!runtime || typeof runtime.captureForMode !== 'function') {
             throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
         }
-        return runtime.captureForMode(state.mode, scheduleSourceContext());
+        return withSettingsDraft(() => runtime.captureForMode(state.mode, scheduleSourceContext()));
     }
     function scheduleSourceErrorMessage(error) {
         if (error && error.code === 'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE') {
@@ -22,6 +22,7 @@
     }
 
     async function submitScheduleTask() {
+        if (document.getElementById('sch-cookie')?._credentialChoice) return;
         const editingToken = scheduleEditingToken;
         const editing = editingToken != null;
         if ((scheduleEditingId != null) !== editing
@@ -52,7 +53,7 @@
         }
         // 单独代理 / 单独凭证的输入先行校验（创建与编辑共用一套规则）。
         const prevTask = editing ? scheduleTaskById(editingToken.taskId) : null;
-        const ov = readScheduleOverrideInputs('sch', snap.sourceType, {task: prevTask});
+        const ov = readScheduleOverrideInputs('sch', snap.sourceType, {...scheduleSourceContext(), task: prevTask});
         const ovError = await validateScheduleOverrideInputs(ov, prevTask, snap.sourceType);
         if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
         if (ovError) {
@@ -164,6 +165,14 @@
     }
 
     function resetScheduleForm() {
+        if (scheduleSettingsDraft) {
+            const originalFilters = scheduleSettingsDraft.manualFilters;
+            scheduleSettingsDraft = null;
+            renderSettings();
+            setSearchFiltersUI(originalFilters);
+            searchState.currentFilters = originalFilters;
+            mountDownloadProfiles();
+        }
         scheduleEditingId = null;
         scheduleEditingToken = null;
         scheduleEditingQuickSource = null;
@@ -217,6 +226,9 @@
         const el = document.getElementById(inputId);
         if (!el) return;
         const p = presentation || {};
+        el._credentialChoice?.abort();
+        el._savedCredentialSelection = null;
+        if (el._clearSavedCredential) el.removeEventListener('input', el._clearSavedCredential);
         el.value = '';
         if (el.dataset) delete el.dataset.useSavedCredential;
         el.placeholder = bound
@@ -233,18 +245,53 @@
         const report = inputId === 'sch-ov-cookie' ? setScheduleOverrideStatus : setScheduleFormStatus;
         const task = inputId === 'sch-ov-cookie'
             ? scheduleTaskById(Number((document.getElementById('schedule-override-modal') || {}).dataset?.taskId))
-            : null;
+            : scheduleEditingId == null ? null : scheduleTaskById(scheduleEditingId);
         const preview = task ? null : currentScheduleSourcePreview();
         const sourceType = task ? (task.sourceType) : (preview && preview.sourceType);
         const capabilities = scheduleCredentialCapabilities(sourceType, {task, mode: state.mode});
+        if (capabilities.credentialReadOnly) {
+            report(capabilities.presentation.credentialHint, 'info');
+            return;
+        }
         if (!capabilities.supportsCredential) {
             report(bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证'), 'error');
             return;
         }
         const p = capabilities.presentation || {};
+        if (el._credentialChoice) return;
+        const controller = new AbortController();
+        el._credentialChoice = controller;
+        report(bt('quick.loading', '加载中…'), 'info');
+        const previousValue = el.value;
+        const session = inputId === 'sch-ov-cookie' ? scheduleOverrideSession : scheduleEditingToken;
+        const cancel = () => controller.abort();
+        el.addEventListener('input', cancel, {once: true});
+        let selected;
+        try {
+            selected = await scheduleSourceRuntime().selectSavedCredential(sourceType, {
+                task, mode: inputId === 'sch-cookie' ? state.mode : '', signal: controller.signal});
+            if (controller.signal.aborted
+                || session !== (inputId === 'sch-ov-cookie' ? scheduleOverrideSession : scheduleEditingToken)
+                || el.value !== previousValue) return;
+            if (!selected) { report(''); return; }
+        } catch (e) {
+            if (!controller.signal.aborted) report(e.message || bt('schedule.error.no-credential'), 'error');
+            return;
+        } finally {
+            el.removeEventListener('input', cancel);
+            el._credentialChoice = null;
+        }
         el.value = '';
+        el._savedCredentialSelection = selected;
+        if (el._clearSavedCredential) el.removeEventListener('input', el._clearSavedCredential);
+        el._clearSavedCredential = () => {
+            const draft = el.value;
+            setScheduleCookieInput(inputId, task && scheduleTaskCredentialPolicy(task).bound, p);
+            el.value = draft;
+        };
+        el.addEventListener('input', el._clearSavedCredential, {once: true});
         if (el.dataset) el.dataset.useSavedCredential = 'true';
-        el.placeholder = p.savedSelectionPlaceholder
+        el.placeholder = selected.label || p.savedSelectionPlaceholder
             || `•••••••• · ${p.savedCredentialLabel
                 || bt('schedule.action.use-saved-credential', '使用当前保存的凭证')}`;
         report(bt('schedule.status.saved-credential-selected',
@@ -268,16 +315,18 @@
         const credentialInput = document.getElementById(`${prefix}-cookie`);
         const credentialValue = ((credentialInput || {}).value || '').trim();
         return {
+            singleCredential: capabilities.singleCredential,
             supportsProxy: capabilities.supportsProxy,
-            supportsCredential: capabilities.supportsCredential,
+            supportsCredential: capabilities.supportsCredential && !capabilities.credentialReadOnly,
             presentation: capabilities.presentation,
             proxyChecked: capabilities.supportsProxy
                 && !!(document.getElementById(`${prefix}-proxy-enabled`) || {}).checked,
             proxyValue: ((document.getElementById(`${prefix}-proxy`) || {}).value || '').trim(),
-            credentialChecked: capabilities.supportsCredential
+            credentialChecked: capabilities.supportsCredential && !capabilities.credentialReadOnly
                 && !!(document.getElementById(`${prefix}-cookie-enabled`) || {}).checked,
             credentialValue,
-            useSavedCredential: capabilities.supportsCredential && !credentialValue
+            savedCredentialSelection: credentialInput?._savedCredentialSelection,
+            useSavedCredential: capabilities.supportsCredential && !capabilities.credentialReadOnly && !credentialValue
                 && !!(credentialInput && credentialInput.dataset
                     && credentialInput.dataset.useSavedCredential === 'true')
         };
@@ -286,6 +335,9 @@
     // 代理由宿主校验 host:port；凭证格式完全交给当前来源 contribution。
     // 留空只能表示保持已绑定凭证，或使用来源已保存凭证。
     async function validateScheduleOverrideInputs(ov, prevTask, sourceType) {
+        if (ov.singleCredential && !ov.credentialChecked && !scheduleTaskCredentialPolicy(prevTask).bound) {
+            return bt('batch:credentials.account-required');
+        }
         if (ov.proxyChecked && !isValidProxyHostPort(ov.proxyValue)) {
             return bt('schedule.error.proxy-format', '代理格式无效，应为 host:port（例如 127.0.0.1:7890）');
         }
@@ -365,7 +417,8 @@
         } else if (ov.supportsCredential && ov.credentialChecked && ov.useSavedCredential) {
             let result;
             try {
-                result = await runtime.bindSavedCredential(sourceType, taskId, {task: prevTask});
+                result = await runtime.bindSavedCredential(sourceType, taskId,
+                    {task: prevTask, savedCredentialSelection: ov.savedCredentialSelection});
             } catch (e) {
                 result = {ok: false, error: bt('schedule.error.authorize', '授权失败')};
             }
@@ -432,14 +485,19 @@
             return;
         }
         let restored;
+        if (scheduleSettingsDraft) resetScheduleForm();
+        scheduleSettingsDraft = {settings: structuredClone(state.settings),
+            manualFilters: structuredClone(getSearchFiltersFromUI()), profileId: ''};
         try {
-            restored = runtime.restoreTask(task, scheduleSourceContext());
+            restored = withSettingsDraft(() => runtime.restoreTask(task, scheduleSourceContext()));
         } catch (e) {
+            resetScheduleForm();
             setScheduleCardTip(id,
                 bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'), 'error');
             return;
         }
         if (!restored || typeof restored !== 'object') {
+            resetScheduleForm();
             setScheduleCardTip(id,
                 bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'), 'error');
             return;
@@ -455,6 +513,8 @@
             activationToken
         });
         scheduleEditingId = taskId;
+        renderSettings();
+        mountDownloadProfiles();
         document.getElementById('sch-name').value = task.name || '';
         document.getElementById('sch-trigger').value = task.triggerKind || 'interval';
         document.getElementById('sch-interval').value = task.intervalMinutes || 1440;

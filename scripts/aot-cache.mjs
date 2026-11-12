@@ -41,7 +41,8 @@ function digestTree(directory) {
 function javaIdentity(javaHome) {
     const home = fs.realpathSync(javaHome);
     const release = fs.readFileSync(path.join(home, 'release'), 'utf8');
-    if (!/^JAVA_VERSION="25(?:[.+"-])/m.test(release)) throw new Error('AOT cache requires an existing JDK 25');
+    if (Number(/^JAVA_VERSION="(\d+)(?:[.+"-])/m.exec(release)?.[1]) < 25
+        || !/^JAVA_VERSION="\d+(?:[.+"-])/m.test(release)) throw new Error('AOT cache requires an existing JDK 25 or newer');
     const executable = path.join(home, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
     const vm = process.platform === 'win32' ? 'bin/server/jvm.dll'
         : process.platform === 'darwin' ? 'lib/server/libjvm.dylib' : 'lib/server/libjvm.so';
@@ -128,8 +129,12 @@ export async function prepareCache({ jar, javaHome, cacheDir }) {
         await runJava(java.executable, [...isolated, '-jar', extracted, '--setup', '--username=aot-training',
             `--password=${randomUUID()}`, '--mode=solo', '--proxy-enabled=false'], { cwd: training, env, training: true });
         console.log('AOT prepare: training and assembling cache');
-        await runJava(java.executable, [...isolated, `-XX:AOTCacheOutput=${cache}`, '-Dspring.context.exit=onRefresh',
+        const configuration = path.join(training, 'application.aot.config');
+        await runJava(java.executable, [...isolated, '-XX:AOTMode=record', `-XX:AOTConfiguration=${configuration}`, '-Dspring.context.exit=onRefresh',
             '-jar', extracted, '--no-gui', '--server.port=0'], { cwd: training, env, training: true });
+        // 显式启动组装 JVM，避免 Windows 自动组装时损坏非 ASCII 路径。
+        await runJava(java.executable, [...isolated, '-XX:AOTMode=create', `-XX:AOTConfiguration=${configuration}`,
+            `-XX:AOTCache=${cache}`, '-jar', extracted], { cwd: training, env, training: true });
         if (sha256(source) !== sourceSha256 || !isDeepStrictEqual(javaIdentity(javaHome), java)) {
             throw new Error('Application or JDK changed during training');
         }
@@ -172,7 +177,7 @@ export function validateCache({ jar, javaHome, cacheDir }) {
 export async function main(args = process.argv.slice(2)) {
     const command = args.shift();
     if (!command || command === '--help') {
-        console.log('Usage: node scripts/aot-cache.mjs <prepare|run|key> --jar <boot.jar> [--java-home <JDK25>] [--cache-dir <directory>] [--plugins-dir <directory>] [--instance-dir <directory>] [--strict] [-- <application args>]');
+        console.log('Usage: node scripts/aot-cache.mjs <prepare|run|key> --jar <boot.jar> [--java-home <JDK25+>] [--cache-dir <directory>] [--plugins-dir <directory>] [--instance-dir <directory>] [--strict] [-- <application args>]');
         console.log('JDK: --java-home overrides JAVA_HOME. Maven supplies its selected JDK toolchain as JAVA_HOME.');
         console.log('Prepare reuses a verified cache or creates a new directory. Run uses the current instance directory and configuration. --strict rejects JVM cache fallback; use it for verification.');
         return;
@@ -182,7 +187,7 @@ export async function main(args = process.argv.slice(2)) {
         'plugins-dir': { type: 'string' }, 'instance-dir': { type: 'string' }, strict: { type: 'boolean' },
     } });
     const javaHome = values['java-home'] ?? process.env.JAVA_HOME;
-    if (!javaHome) throw new Error('Select an existing JDK 25 with --java-home or JAVA_HOME; Maven users can register it in ~/.m2/toolchains.xml.');
+    if (!javaHome) throw new Error('Select an existing JDK 25 or newer with --java-home or JAVA_HOME; configure toolchains.xml for Maven builds using the project JDK 25 toolchain.');
     if (!['prepare', 'run', 'key'].includes(command) || !values.jar || (command !== 'key' && !values['cache-dir'])
         || (command !== 'run' && (values.strict || positionals.length || values['plugins-dir'] || values['instance-dir']))) throw new Error('Invalid arguments; use --help');
     if (command === 'key') {

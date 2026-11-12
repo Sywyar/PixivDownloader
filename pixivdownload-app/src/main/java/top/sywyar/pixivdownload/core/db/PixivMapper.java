@@ -115,14 +115,15 @@ public class PixivMapper {
     private List<ArtworkRecord> artworks(Expression where, int limit) {
         var projection = fields(ARTWORKS, "artwork_id", "title", "folder", "count", "extensions", "time", "moved",
                 "move_folder", "move_time", "r18", "is_ai", "author_id", "description", "file_name", "file_author_name_id",
-                "series_id", "series_order", "deleted", "upload_time", "is_original");
+                "series_id", "series_order", "deleted", "source_upload_time", "is_original", "create_time", "update_time", "reupload_time");
         return select(ARTWORKS, projection, where, List.of(), limit, 0).stream().map(row -> new ArtworkRecord(
                 (Long) row.get("artwork_id"), (String) row.get("title"), (String) row.get("folder"), countValue(row.get("count")),
                 (String) row.get("extensions"), (Long) row.get("time"), Boolean.TRUE.equals(booleanValue(row.get("moved"))),
                 (String) row.get("move_folder"), (Long) row.get("move_time"), integer(row.get("r18")), booleanValue(row.get("is_ai")),
                 (Long) row.get("author_id"), (String) row.get("description"), (Long) row.get("file_name"), (Long) row.get("file_author_name_id"),
                 (Long) row.get("series_id"), (Long) row.get("series_order"), Boolean.TRUE.equals(booleanValue(row.get("deleted"))),
-                (Long) row.get("upload_time"), booleanValue(row.get("is_original")))).toList();
+                (Long) row.get("source_upload_time"), booleanValue(row.get("is_original")), (Long) row.get("create_time"),
+                (Long) row.get("update_time"), (Long) row.get("reupload_time"))).toList();
     }
     public ArtworkRecord findById(long artworkId) { return artworks(id(artworkId), 1).stream().findFirst().orElse(null); }
     public List<ArtworkRecord> findByIds(Collection<Long> ids) { return ids.isEmpty() ? List.of() : artworks(in(ARTWORKS, "artwork_id", ids), Integer.MAX_VALUE); }

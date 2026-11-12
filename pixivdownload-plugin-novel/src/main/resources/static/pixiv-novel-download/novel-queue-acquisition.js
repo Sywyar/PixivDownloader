@@ -3,7 +3,7 @@
 if (!window.PixivBatch || !window.PixivBatch.queueTypes) return;
 window.PixivBatch.queueTypes.registerSubmodule(function (shared) {
 function novelAcquisitionCredentialHeaders(credential = getCookie()) {
-    return credential ? {'X-Acquisition-Credential': credential} : {};
+    return window.PixivCredentials?.headers() || (credential ? {'X-Acquisition-Credential': credential} : {});
 }
 
 function novelPreviewRequestInit() {
@@ -59,7 +59,7 @@ function formatNovelSearchStats(metric, stats) {
 
 function requireNovelQuickSession(loader) {
     return function () {
-        if (!cookieHasPhpsessid()) {
+        if (window.PixivCredentials ? !window.PixivCredentials.accountSelection() : !cookieHasPhpsessid()) {
             throw new Error(bt('quick.error.no-cookie', '请先保存含 PHPSESSID 的 Cookie'));
         }
         return loader.apply(this, arguments);
@@ -88,7 +88,7 @@ async function novelPreviewJson(path, hookContext) {
     const data = await response.json().catch(() => ({}));
     assertNovelActivation();
     if (!response.ok || data.error) {
-        throw new Error(data.error || data.message || `HTTP ${response.status}`);
+        throw Object.assign(new Error(data.error || data.message || `HTTP ${response.status}`), {code: data.code});
     }
     return data;
 }
@@ -130,7 +130,7 @@ const novelQueueId = item => 'n' + String(item.id);
 // —— 数据抓取（取得侧；不可用时宿主不调用，故不会产生小说请求）——
 async function getNovelBookmarkCountForSearch(novelId) {
     const data = await apiGet(`/api/pixiv/novel/${encodeURIComponent(novelId)}/bookmark-count`);
-    if (data.error) throw new Error(data.error);
+    if (data.error) throw Object.assign(new Error(data.error), {code: data.code});
     return data;
 }
 
@@ -343,7 +343,12 @@ const NOVEL_DESCRIPTOR = {
         }
     },
     // 小说设置卡（格式 / 合订）；宿主按模式 + kind 显隐。
-    settings: {'novel-settings-card': {cardId: 'novel-settings-card'}},
+    settings: {'novel-settings-card': {cardId: 'novel-settings-card',
+        profileSettings: settings => ({
+            novelFormat: ['txt', 'html', 'epub'].includes(settings.novelFormat) ? settings.novelFormat : 'txt',
+            mergeNovelSeries: settings.mergeNovelSeries === true,
+            mergeNovelFormat: ['txt', 'html', 'epub'].includes(settings.mergeNovelFormat) ? settings.mergeNovelFormat : 'epub'
+        })}},
     acquisition: {
         user: {
             dataSource: {
@@ -469,9 +474,11 @@ const NOVEL_DESCRIPTOR = {
                 order: 10
             },
             pageSize: QUICK_PAGE_SIZE_NOVEL,
-            requestInit: novelPreviewRequestInit,
+            requestInit() { return {headers: window.PixivCredentials?.accountHeaders() || novelAcquisitionCredentialHeaders()}; },
             account: {
-                credentialMissing() { return !cookieHasPhpsessid(); },
+                credentialMissing() { return window.PixivCredentials ? !window.PixivCredentials.accountSelection() : !cookieHasPhpsessid(); },
+                credentialIdentity() { return window.PixivCredentials?.accountIdentity(); },
+                mountCredential(root, options) { return window.PixivCredentials?.mountAccount(root, options); },
                 missingHint() {
                     return bt('quick.account.hint-no-cookie',
                         '未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie');

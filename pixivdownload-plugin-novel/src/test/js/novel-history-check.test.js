@@ -55,7 +55,7 @@ test('小说下载完成保存消息键，重新渲染不保留下载时语言',
 
 for (const [scenario, expectedStatus] of [
     ['history', 'skipped'], ['filter', 'skipped'], ['already-downloaded', 'skipped'],
-    ['completed', 'completed'], ['backend-failed', 'failed'], ['timeout', 'failed'], ['exception', 'failed']
+    ['completed', 'completed'], ['backend-failed', 'failed'], ['cancelled', 'paused'], ['timeout', 'failed'], ['exception', 'failed']
 ]) {
     test(`小说下载 ${scenario} 在保存终态后刷新队列`, async () => {
         const events = [];
@@ -83,7 +83,8 @@ for (const [scenario, expectedStatus] of [
                     return {ok: true, json: async () => ({downloaded: true, deleted: false})};
                 }
                 assert.equal(url, '/api/novel/status/42');
-                return {ok: true, json: async () => ({completed: true, failed: scenario === 'backend-failed'})};
+                return {ok: true, json: async () => ({completed: true, failed: scenario === 'backend-failed',
+                    cancelled: scenario === 'cancelled'})};
             }
         };
         vm.createContext(context);
@@ -100,5 +101,49 @@ for (const [scenario, expectedStatus] of [
             assert.equal(event.status, expectedStatus);
             assert.equal(event.endTime, item.endTime);
         }
+    });
+}
+
+for (const format of ['txt', 'html', 'epub']) {
+    test(`小说 ${format} 的生成阶段来自轮询，保存完成保留最终步骤，重试清除上轮数据`, async () => {
+        const shared = {novelAcquisitionCredentialHeaders: () => ({})}, snapshots = [];
+        const item = {id: 'n7', status: 'downloading', novelStage: 'saving', novelFormat: 'old',
+            novelText: {done: 100, total: 100}, novelCover: {done: 100, total: 100}, downloadedCount: 1};
+        const statuses = [{stage: 'downloading-images', embeddedDone: 1, embeddedTotal: 2},
+            {stage: 'downloading-cover', coverDownloadedBytes: 20, coverTotalBytes: 100},
+            {stage: 'writing', format}, {stage: 'saving', format}, {stage: 'completed', completed: true}];
+        const context = {
+            window: {PixivBatch: {queueTypes: {registerSubmodule: init => init(shared)}, pathActions: {
+                submit: async (url, body) => {
+                    assert.equal(body.other.format, format);
+                    return {res: {ok: true, status: 200}, data: {}};
+                }, handleError: () => false
+            }}},
+            BASE: '', state: {settings: {novelFormat: format}}, isAdmin: false, STATUS_TIMEOUT_MS: 10000,
+            bt: key => key, getCookie: () => '', setCurrent() {}, updateStats() {}, saveQueue() {},
+            renderQueue: () => snapshots.push(JSON.parse(JSON.stringify(item))),
+            setTimeout: callback => setTimeout(callback, 0), clearTimeout,
+            evaluateDownloadFilterSkip: () => null, refreshBatchCollections: async () => ({collectionId: null}),
+            defaultNovelTranslateLang: () => 'fixture',
+            fetchJsonWithProgress: async (url, options, onProgress) => {
+                assert.equal(item.novelStage, 'text');
+                assert.equal(item.novelCover, null);
+                assert.equal(item.novelText, null);
+                assert.equal(item.downloadedCount, 0);
+                onProgress(50, 100);
+                return {ok: true, json: async () => ({title: 'Novel'})};
+            },
+            fetch: async () => ({ok: true, json: async () => statuses.shift()})
+        };
+        vm.createContext(context);
+        vm.runInContext(fs.readFileSync(path.join(__dirname,
+            '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'), 'utf8'), context);
+        await shared.processNovelItem(item, {assertActive() {}, signal: new AbortController().signal});
+        const writing = snapshots.find(row => row.novelStage === 'writing');
+        assert.equal(writing.novelFormat, format);
+        assert.equal(writing.novelCover, null);
+        assert.equal(item.status, 'completed');
+        assert.equal(item.novelStage, 'saving');
+        assert.equal(item.novelFormat, format);
     });
 }

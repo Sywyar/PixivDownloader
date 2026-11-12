@@ -103,6 +103,60 @@ class CoreWorkQueryServiceTest {
         dataSource.destroy();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = WorkType.class, names = {"ARTWORK", "NOVEL"})
+    @DisplayName("历史记录时间用于展示、日期筛选与分页，无需来源元数据或完成时间")
+    void usesHistoricalRecordTimeThroughoutGallery(WorkType type) {
+        long recordedAt = 1700000000000L;
+        for (long id = 1; id <= 3; id++) {
+            long time = recordedAt + id * 60000;
+            if (type == WorkType.ARTWORK) insertArtwork(id, time, null);
+            else insertNovel(id, time, null, null);
+        }
+        var metadata = new CoreWorkMetadataRepository(() -> true, pixivDatabase,
+                novelMetadataRepository, authorService,
+                mock(top.sywyar.pixivdownload.series.MangaSeriesService.class));
+        var query = WorkQuery.builder(type).sort("date").order("desc").size(1)
+                .downloadTimeRange(recordedAt + 60000, recordedAt + 180000).build();
+        var first = service.search(query);
+        assertThat(first.totalElements()).isEqualTo(2);
+        assertThat(ids(first.content())).containsExactly(2L);
+        assertThat(metadata.find(type, 2L).orElseThrow().downloadTime()).isEqualTo(recordedAt + 120000);
+        var next = service.search(WorkQuery.builder(type).sort("date").order("desc").page(1).size(1)
+                .downloadTimeRange(recordedAt + 60000, recordedAt + 180000).build());
+        assertThat(ids(next.content())).containsExactly(1L);
+        assertThat(metadata.find(type, 1L).orElseThrow().downloadTime()).isEqualTo(recordedAt + 60000);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(WorkType.class)
+    @DisplayName("多日期范围取交集，分页计数与批量结果一致且排除缺失日期")
+    void intersectsDateRanges(WorkType type) {
+        String table = type == WorkType.ARTWORK ? "artworks" : "novels";
+        String key = type == WorkType.ARTWORK ? "artwork_id" : "novel_id";
+        for (long id = 1; id <= 5; id++) {
+            if (type == WorkType.ARTWORK) insertArtwork(id, id * 100, null);
+            else insertNovel(id, id * 100, null, null);
+        }
+        jdbc.update("UPDATE " + table + " SET source_upload_time=100, create_time=200, update_time=300, reupload_time=400");
+        jdbc.update("UPDATE " + table + " SET create_time=201 WHERE " + key + "=1");
+        jdbc.update("UPDATE " + table + " SET source_upload_time=101 WHERE " + key + "=3");
+        jdbc.update("UPDATE " + table + " SET update_time=NULL WHERE " + key + "=4");
+        var query = WorkQuery.builder(type).size(1).sort("date").order("asc")
+                .uploadTimeRange(100L, 101L).downloadTimeRange(100L, 501L)
+                .sourceTimeRanges(200L, 201L, 300L, 301L, 400L, 401L).build();
+        var first = service.search(query);
+        assertThat(first.totalElements()).isEqualTo(2);
+        assertThat(ids(first.content())).containsExactly(2L);
+        assertThat(ids(service.searchAll(query))).containsExactly(2L, 5L);
+        assertThat(ids(service.searchAll(query.withDownloadTimeRange(500L, 501L)
+                .withUploadTimeRange(100L, 101L).withSourceTimeField("uploadTime")))).containsExactly(5L);
+        assertThat(ids(service.searchAll(query.withSourceTimeRanges(null, null, 300L, 301L, 400L, 401L))))
+                .containsExactly(1L, 2L, 5L);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> query.withSourceTimeRanges(20L, 10L, null, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private void insertArtwork(long id, long time, Long authorId) {
         pixivDatabase.insertArtwork(InsertArtworkArgument.builder()
                 .artworkId(id)
@@ -497,6 +551,49 @@ class CoreWorkQueryServiceTest {
             assertThat(result.page()).isZero();
             assertThat(result.size()).isEqualTo(24);
             assertThat(result.totalPages()).isEqualTo(1);
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.NullSource
+        @org.junit.jupiter.params.provider.ValueSource(strings = {"date"})
+        @DisplayName("小说空排序与日期排序均支持空库，并按记录时间升降序查询")
+        void shouldDefaultNullNovelSortToRecordTime(String sort) {
+            var query = WorkQuery.builder(WorkType.NOVEL).sort(sort).build();
+            assertThat(service.searchAll(query)).isEmpty();
+            assertThat(service.search(query).content()).isEmpty();
+
+            insertNovel(11L, 300L, null, null);
+            insertNovel(12L, 100L, null, null);
+            insertNovel(13L, 200L, null, null);
+
+            assertThat(ids(service.searchAll(query))).containsExactly(11L, 13L, 12L);
+            assertThat(ids(service.search(query).content())).containsExactly(11L, 13L, 12L);
+            var ascending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("asc").build();
+            assertThat(ids(service.searchAll(ascending))).containsExactly(12L, 13L, 11L);
+            assertThat(ids(service.search(ascending).content())).containsExactly(12L, 13L, 11L);
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.CsvSource({
+                "uploadTime, source_upload_time",
+                "createTime, create_time",
+                "updateTime, update_time",
+                "reuploadTime, reupload_time"
+        })
+        @DisplayName("小说显式时间排序按所选字段升降序，缺失值置后且同值按 ID 升序")
+        void shouldKeepNovelSourceTimeSortSemantics(String sort, String column) {
+            for (long id : List.of(13L, 12L, 14L, 11L)) {
+                insertNovel(id, id * 100L, null, null);
+            }
+            jdbc.update("UPDATE novels SET " + column + " = 200 WHERE novel_id IN (11, 13)");
+            jdbc.update("UPDATE novels SET " + column + " = 100 WHERE novel_id = 12");
+
+            var ascending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("asc").build();
+            var descending = WorkQuery.builder(WorkType.NOVEL).sort(sort).order("desc").build();
+            assertThat(ids(service.searchAll(ascending))).containsExactly(12L, 11L, 13L, 14L);
+            assertThat(ids(service.searchAll(descending))).containsExactly(11L, 13L, 12L, 14L);
+            assertThat(ids(service.search(ascending).content())).containsExactly(12L, 11L, 13L, 14L);
+            assertThat(ids(service.search(descending).content())).containsExactly(11L, 13L, 12L, 14L);
         }
 
         @Test

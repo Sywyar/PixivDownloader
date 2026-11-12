@@ -14,7 +14,7 @@ import java.util.List;
  * 计划任务「过度访问警告」检测 + cookie 存活探测（共享，仅服务端调度用）。
  *
  * <p>一次站内信读取两用：既判定 Pixiv 是否发来「过度访问」警告（需暂停同账号计划任务避免删号），
- * 也作为绑定 cookie 的存活探测——读不到（4xx / 登录重定向）即 cookie 已死。
+ * 也作为绑定 cookie 的存活探测；只有明确的认证失败才判定失效。
  *
  * <p>判定「当前应处理的过度访问警告」需<b>同时</b>满足以下业务规则：
  * <ol>
@@ -57,6 +57,11 @@ public class OveruseWarningService {
         return check(cookie, null, now, true);
     }
 
+    /** 多候选运行时逐项检查，无法确认风险状态时保留失败。 */
+    public Result checkVerified(String cookie, Long ackWarningTime, long now) {
+        return check(cookie, ackWarningTime, now, true);
+    }
+
     private Result check(String cookie, Long ackWarningTime, long now, boolean strictProbe) {
         if (cookie == null || cookie.isBlank()) {
             return Result.cookieDead();
@@ -66,6 +71,9 @@ public class OveruseWarningService {
             body = pixivFetchService.fetchMessageThreads(cookie);
         } catch (PixivFetchService.PixivFetchException e) {
             return Result.cookieDead();
+        } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException e) {
+            if (e.retryAfterMillis() == 0) return Result.cookieDead();
+            throw e;
         } catch (Exception e) {
             if (strictProbe) {
                 throw new CredentialProbeException(e);

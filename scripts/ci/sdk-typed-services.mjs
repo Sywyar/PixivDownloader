@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,9 @@ verifyLegacyPlugin(legacy);
 assert.ok(destination && !fs.existsSync(destination), 'Expected seven paths and a new work directory');
 assert.ok(destination.startsWith(path.join(repo, 'target') + path.sep), 'Work directory must belong to target');
 fs.mkdirSync(destination, {recursive:true});
+const credentialKeyFile = path.join(destination, 'credential-protection.key');
+fs.writeFileSync(credentialKeyFile, randomBytes(32).toString('base64'), {mode:0o600, flag:'wx'});
+const environment = {...process.env, PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE:credentialKeyFile};
 const frozen = new Map();
 const hash = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function copy(source, target) {
@@ -23,7 +26,7 @@ function copy(source, target) {
   frozen.set(target, hash(target));
 }
 function run(command, args, cwd = repo) {
-  const result = spawnSync(command, args, {cwd, stdio:'inherit', windowsHide:true});
+  const result = spawnSync(command, args, {cwd, env:environment, stdio:'inherit', windowsHide:true});
   assert.equal(result.status, 0, `${command} failed: ${result.error?.message ?? result.status}`);
 }
 copy(hostJar, path.join(destination, 'host.jar'));

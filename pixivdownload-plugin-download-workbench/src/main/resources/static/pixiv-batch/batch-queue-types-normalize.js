@@ -183,7 +183,8 @@
         const allowed = Object.freeze({
             __proto__: null,
             accept: {name: 'Accept', maxLength: 256},
-            'x-acquisition-credential': {name: 'X-Acquisition-Credential', maxLength: 16384}
+            'x-acquisition-credential': {name: 'X-Acquisition-Credential', maxLength: 16384},
+            'x-acquisition-credentials': {name: 'X-Acquisition-Credentials', maxLength: 520}
         });
         const append = (name, headerValue) => {
             const key = text(name);

@@ -21,6 +21,40 @@ class WorkMetadataImportTest {
     private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
     @Test
+    @DisplayName("历史下载记录时间原样保留，来源日期按原始字段分别补齐")
+    void doesNotGuessMissingDates() throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("independent-times.db"));
+        var document = new WorkMetaCurator(mapper).curateNovel(3,
+                mapper.readTree("{\"id\":3,\"createDate\":\"2020-01-01T00:00:00Z\"}"), "forward").document();
+        document.put("schemaVersion", 1);
+        ((tools.jackson.databind.node.ObjectNode) document.path("normalized")).put("uploadTime", 1577836800000L);
+        String snapshot = document.toString();
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            DatabaseInitializer.prepareOffline(connection, target);
+            sql.executeUpdate("INSERT INTO novels(novel_id,title,folder,count,extensions,time,upload_time) VALUES(3,'novel','{0}',1,'txt',123,456)");
+            try (var update = connection.prepareStatement("UPDATE novels SET metadata_json=?")) {
+                update.setString(1, snapshot); update.executeUpdate();
+            }
+            assertThat(WorkMetadataImport.run(connection, target, directory.toString(), true, null).imported()).isEqualTo(1);
+            try (var row = sql.executeQuery("SELECT create_time FROM novels")) {
+                assertThat(row.next()).isTrue(); assertThat(row.getObject(1)).isNull();
+            }
+            sql.close();
+            assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, null).imported()).isEqualTo(1);
+            assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, null).imported()).isZero();
+            try (var query = connection.createStatement();
+                 var row = query.executeQuery("SELECT time,upload_time,source_upload_time,create_time,metadata_json FROM novels")) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getLong(1)).isEqualTo(123L);
+                assertThat(row.getLong(2)).isEqualTo(456L);
+                assertThat(row.getObject(3)).isNull();
+                assertThat(row.getLong(4)).isEqualTo(1577836800000L);
+                assertThat(row.getString(5)).isEqualTo(snapshot);
+            }
+        }
+    }
+
+    @Test
     @DisplayName("回填预导入完整投影小说，并保留插画强制联网的取值边界")
     void preimportProjectsNovelsOnlyAndFormalImportRepairsArtwork() throws Exception {
         var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("preimport.db"));
@@ -37,12 +71,12 @@ class WorkMetadataImportTest {
         }
         try (var connection = target.openConnection()) {
             assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, false, null).imported()).isEqualTo(2);
-            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT upload_time,metadata_json FROM novels")) {
+            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT source_upload_time,metadata_json FROM novels")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getLong(1)).isEqualTo(1580698800000L);
                 assertThat(mapper.readTree(row.getString(2))).isEqualTo(mapper.readTree(novel.toString()));
             }
-            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT upload_time FROM artworks")) {
+            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT source_upload_time FROM artworks")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getObject(1)).isNull();
             }
@@ -70,19 +104,19 @@ class WorkMetadataImportTest {
         }
         try (var connection = target.openConnection()) {
             assertThat(WorkMetadataImport.run(connection, target, directory.toString(), true, null).imported()).isEqualTo(1);
-            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT upload_time FROM novels")) {
+            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT source_upload_time FROM novels")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getObject(1)).isNull();
             }
             assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, null).imported()).isEqualTo(1);
-            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT upload_time,metadata_json FROM novels")) {
+            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT source_upload_time,metadata_json FROM novels")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getLong(1)).isEqualTo(1580698800000L);
                 assertThat(row.getString(2)).isEqualTo(snapshot);
             }
-            try (var sql = connection.createStatement()) { sql.executeUpdate("UPDATE novels SET upload_time=1234"); }
+            try (var sql = connection.createStatement()) { sql.executeUpdate("UPDATE novels SET source_upload_time=1234"); }
             assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, null).imported()).isZero();
-            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT upload_time FROM novels")) {
+            try (var sql = connection.createStatement(); var row = sql.executeQuery("SELECT source_upload_time FROM novels")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getLong(1)).isEqualTo(1234L);
             }
@@ -107,7 +141,7 @@ class WorkMetadataImportTest {
                     directory.toString(), false, null)).isInstanceOf(java.sql.SQLException.class);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-            try (var row = sql.executeQuery("SELECT metadata_json,upload_time FROM novels")) {
+            try (var row = sql.executeQuery("SELECT metadata_json,source_upload_time FROM novels")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getString(1)).isNull();
                 assertThat(row.getObject(2)).isNull();
@@ -119,7 +153,7 @@ class WorkMetadataImportTest {
             assertThat(WorkMetadataImport.run(connection, target, directory.toString(), false, null).imported()).isEqualTo(1);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT upload_time FROM novels")) {
+             var row = sql.executeQuery("SELECT source_upload_time FROM novels")) {
             assertThat(row.next()).isTrue();
             assertThat(row.getLong(1)).isEqualTo(1580698800000L);
         }
@@ -138,7 +172,7 @@ class WorkMetadataImportTest {
         Files.writeString(source, document.toPrettyString());
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
             DatabaseInitializer.prepareOffline(connection, target);
-            sql.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,moved,move_folder,upload_time) "
+            sql.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,moved,move_folder,source_upload_time) "
                     + "VALUES(1,'existing','absent',1,'jpg',1,1,'{0}/moved',1234)");
         }
         var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
@@ -147,7 +181,7 @@ class WorkMetadataImportTest {
         assertThat(JsonToSqliteMigration.run(options, null).migrated()).isZero();
         assertThat(source).exists();
         try (var connection = target.openConnection(); var sql = connection.createStatement();
-             var row = sql.executeQuery("SELECT metadata_json,upload_time,title FROM artworks")) {
+             var row = sql.executeQuery("SELECT metadata_json,source_upload_time,title FROM artworks")) {
             assertThat(row.next()).isTrue();
             assertThat(mapper.readTree(row.getString(1))).isEqualTo(mapper.readTree(document.toString()));
             assertThat(row.getLong(2)).isEqualTo(1234);

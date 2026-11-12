@@ -16,7 +16,7 @@ import java.util.Set;
 
 /**
  * 作品 meta 归一化器（捕获 meta 的唯一 curation 规范化器）：把一份捕获到的 Pixiv 原始 body
- * （计划任务后端抓取 / 前端转发）归一化成可入库的快照文档（schemaVersion=1）与列投影值。
+ * （计划任务后端抓取 / 前端转发）归一化成可入库的快照文档（schemaVersion=2）与列投影值。
  *
  * <p><b>后端是「剪枝 + 白名单」权威</b>：无论来源是否可信，都在此独立剪一遍——剥掉 C 类
  * （计数族 / 会话私有 {@code bookmarkData}/{@code likeData} / 巨型噪声 {@code userIllusts}/{@code zoneConfig}/…），
@@ -31,7 +31,7 @@ import java.util.Set;
 public class WorkMetaCurator {
 
     /**快照顶层 schema 版本。 */
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
 
     /**快照文档序列化后的总上限（字节）；超限<b>拒绝整份快照</b>，绝不落出 {@code raw} 残缺的半成品。 */
     private static final int MAX_DOCUMENT_BYTES = 256 * 1024;
@@ -59,7 +59,7 @@ public class WorkMetaCurator {
         if (snapshot == null || !snapshot.isObject()
                 || !snapshot.path("schemaVersion").isIntegralNumber()
                 || !snapshot.path("schemaVersion").canConvertToInt()
-                || snapshot.path("schemaVersion").asInt() != SCHEMA_VERSION
+                || (snapshot.path("schemaVersion").asInt() < 1 || snapshot.path("schemaVersion").asInt() > SCHEMA_VERSION)
                 || !type.name().equals(snapshot.path("workType").asString())
                 || !snapshot.path("workId").isIntegralNumber()
                 || !snapshot.path("workId").canConvertToLong()
@@ -81,16 +81,21 @@ public class WorkMetaCurator {
         ObjectNode pruned = prune(raw, COMMON_STRIP);
         if (type == WorkType.NOVEL) NOVEL_EXTRA_STRIP.forEach(pruned::remove);
         document.set("raw", pruned);
-        JsonNode normalized = document.path("normalized");
-        JsonNode time = normalized.path("uploadTime");
-        Long uploadTime = time.isIntegralNumber() && time.canConvertToLong() && time.longValue() > 0
-                ? time.longValue() : null;
-        if (uploadTime == null) {
-            uploadTime = (type == WorkType.ARTWORK
-                    ? curateArtwork(id, raw, null, "backfill")
-                    : curateNovel(id, raw, "backfill")).uploadTime();
-        }
-        return new CuratedWorkMeta(uploadTime, boolOrNull(normalized, "isOriginal"), document);
+        // 旧版本曾混用创建和更新时间；重投影只采用原始字段，保留来源与捕获时刻。
+        Long upload = sourceUploadTime(type, raw);
+        Long created = parseEpochMillis(raw, "createDate");
+        Long updated = parseEpochMillis(raw, "updateDate");
+        Long reuploaded = parseEpochMillis(raw, "reuploadDate");
+        ObjectNode normalized = (ObjectNode) document.path("normalized");
+        for (String field : new String[]{"uploadTime", "createTime", "updateTime", "reuploadTime"}) normalized.remove(field);
+        putEpoch(normalized, "uploadTime", upload);
+        putEpoch(normalized, "createTime", created);
+        putEpoch(normalized, "updateTime", updated);
+        putEpoch(normalized, "reuploadTime", reuploaded);
+        document.put("schemaVersion", SCHEMA_VERSION);
+        if (estimateBytes(document) > MAX_DOCUMENT_BYTES) throw new IllegalArgumentException("INVALID_WORK_METADATA");
+        return new CuratedWorkMeta(upload, boolOrNull(normalized, "isOriginal"), document,
+                created, updated, reuploaded);
     }
 
     /**
@@ -102,7 +107,7 @@ public class WorkMetaCurator {
      * @param source     捕获来源（{@code schedule}/{@code forward}/{@code backfill}）
      */
     public CuratedWorkMeta curateArtwork(long workId, JsonNode illustBody, JsonNode pagesBody, String source) {
-        Long uploadTime = parseEpochMillis(illustBody, "uploadDate", "createDate");
+        Long uploadTime = sourceUploadTime(WorkType.ARTWORK, illustBody);
         Boolean isOriginal = boolOrNull(illustBody, "isOriginal");
 
         ObjectNode normalized = normalizeCommonFields(illustBody, uploadTime, isOriginal);
@@ -117,11 +122,7 @@ public class WorkMetaCurator {
      * 归一化小说捕获 meta。{@code novelBody} = {@code /ajax/novel/{id}} 的 body（非空）。
      */
     public CuratedWorkMeta curateNovel(long workId, JsonNode novelBody, String source) {
-        Long uploadTime = parseEpochMillis(novelBody, "uploadDate", "createDate", "updateDate");
-        if (uploadTime == null) {
-            // 小说兼容 uploadTimestamp（前端转发的 body 可能只带它）：epoch 毫秒/秒数字或 ISO 字符串，类型安全。
-            uploadTime = parseFlexibleEpochMillis(novelBody.path("uploadTimestamp"));
-        }
+        Long uploadTime = sourceUploadTime(WorkType.NOVEL, novelBody);
         Boolean isOriginal = boolOrNull(novelBody, "isOriginal");
 
         ObjectNode normalized = normalizeCommonFields(novelBody, uploadTime, isOriginal);
@@ -131,11 +132,19 @@ public class WorkMetaCurator {
         return assemble(WorkType.NOVEL, workId, source, normalized, raw, uploadTime, isOriginal);
     }
 
+    private Long sourceUploadTime(WorkType type, JsonNode body) {
+        Long uploaded = parseEpochMillis(body, "uploadDate");
+        if (uploaded == null && type == WorkType.NOVEL)
+            uploaded = parseFlexibleEpochMillis(body.path("uploadTimestamp"));
+        return uploaded;
+    }
+
     private ObjectNode normalizeCommonFields(JsonNode body, Long uploadTime, Boolean isOriginal) {
         ObjectNode normalized = objectMapper.createObjectNode();
         putEpoch(normalized, "uploadTime", uploadTime);
         putEpoch(normalized, "createTime", parseEpochMillis(body, "createDate"));
         putEpoch(normalized, "reuploadTime", parseEpochMillis(body, "reuploadDate"));
+        putEpoch(normalized, "updateTime", parseEpochMillis(body, "updateDate"));
         putBool(normalized, "isOriginal", isOriginal);
         putBool(normalized, "isUnlisted", boolOrNull(body, "isUnlisted"));
         putTitleCaptionTranslation(normalized, body);
@@ -159,9 +168,11 @@ public class WorkMetaCurator {
         if (estimateBytes(doc) > MAX_DOCUMENT_BYTES) {
             log.warn("Metadata snapshot for {} {} exceeds {} bytes; rejecting snapshot (column projection kept)",
                     workType, workId, MAX_DOCUMENT_BYTES);
-            return new CuratedWorkMeta(uploadTime, isOriginal, null);
+            return new CuratedWorkMeta(uploadTime, isOriginal, null,
+                    parseEpochMillis(raw, "createDate"), parseEpochMillis(raw, "updateDate"), parseEpochMillis(raw, "reuploadDate"));
         }
-        return new CuratedWorkMeta(uploadTime, isOriginal, doc);
+        return new CuratedWorkMeta(uploadTime, isOriginal, doc,
+                parseEpochMillis(raw, "createDate"), parseEpochMillis(raw, "updateDate"), parseEpochMillis(raw, "reuploadDate"));
     }
 
     /** 深拷贝 body 并剔除给定 C 类键；非对象 body 退化为空对象。 */

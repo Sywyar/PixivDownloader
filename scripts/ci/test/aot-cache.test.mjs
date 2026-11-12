@@ -63,6 +63,18 @@ test('缓存标识复用相同 JAR 字节并随 JDK 或程序内容变化', t =>
     assert.equal(result.stdout.trim(), cacheKey(options));
 });
 
+test('AOT 运行时接受 JDK 25 及更新版本，仍拒绝旧版或无效版本', t => {
+    const options = fixture(t);
+    for (const version of ['25.0.5', '26', '27-ea']) {
+        fs.writeFileSync(path.join(options.javaHome, 'release'), `JAVA_VERSION="${version}"\n`);
+        assert.match(cacheKey(options), /^[a-f0-9]{64}$/);
+    }
+    for (const version of ['24.0.2', '17', 'unknown']) {
+        fs.writeFileSync(path.join(options.javaHome, 'release'), `JAVA_VERSION="${version}"\n`);
+        assert.throws(() => cacheKey(options), /JDK 25 or newer/);
+    }
+});
+
 test('缓存校验接受相同内容，拒绝保留大小和时间的应用、JDK 与缓存变更', t => {
     const options = fixture(t);
     assert.equal(validateCache(options).jar, path.join(options.cacheDir, 'application/host.jar'));

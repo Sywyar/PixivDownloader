@@ -16,6 +16,7 @@ public class DownloadStatus {
     private boolean failed;
     private volatile boolean cancelled;
     private String errorMessage;
+    private String errorCode;
     private String folderName;
     private String downloadPath;
     private int successCount;

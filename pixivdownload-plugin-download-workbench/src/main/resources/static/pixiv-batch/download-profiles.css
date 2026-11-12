@@ -1,0 +1,188 @@
+.download-profiles,
+.download-credentials {
+    --download-text: var(--exp-text, var(--text));
+    --download-muted: var(--exp-secondary-text, var(--muted));
+    --download-surface: var(--exp-surface, var(--surface));
+    --download-secondary: var(--exp-secondary-surface, var(--control-muted-bg));
+    --download-line: var(--exp-separator, var(--line));
+    --download-accent: var(--exp-link, var(--accent));
+    min-width: 0;
+    color: var(--download-text);
+}
+.download-profiles { margin-block: .25rem 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--download-line); }
+.download-profiles-heading,
+.credential-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; margin-bottom: .75rem; }
+.download-profiles-heading > label,
+.credential-toolbar h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.credential-toolbar h3 { color: var(--download-muted); font-size: .8125rem; font-weight: 500; }
+.download-profiles-modified { color: var(--download-muted); font-size: .8125rem; }
+.download-profiles-picker,
+.download-profiles-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.download-profiles-picker select { flex: 1 1 14rem; }
+.download-profiles select,
+.download-credentials :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--layout-control-height, 2.5rem);
+    padding: .6rem .75rem;
+    color: var(--download-text);
+    background: var(--download-surface);
+    border: 1px solid var(--download-line);
+    border-radius: .5rem;
+    font: inherit;
+}
+.download-profiles :is(button, summary),
+.download-credentials :is(button, summary) { font: inherit; font-size: .875rem; font-weight: 500; line-height: 1.4; }
+.download-profiles button,
+.download-credentials button { min-height: var(--layout-control-height, 2.5rem); padding: .5rem .8rem; white-space: normal; }
+.download-profiles .btn-gray,
+.download-credentials .btn-gray { color: var(--download-text); background: var(--download-secondary); border: 1px solid var(--download-line); }
+.download-profiles :is(button, input, select, summary):focus-visible,
+.download-credentials :is(button, input, select, textarea, summary, a):focus-visible { outline: 2px solid var(--download-accent); outline-offset: 3px; }
+.download-profiles-status,
+.download-profiles-help,
+.download-credentials p { margin-block: .6rem; color: var(--download-muted); font-size: .8125rem; line-height: 1.6; overflow-wrap: anywhere; }
+.download-profiles-status:empty { display: none; }
+.download-profiles-status[data-tone="error"],
+.credential-missing { color: var(--exp-error, var(--status-red)); }
+.download-profiles-status[data-tone="success"] { color: var(--exp-success, var(--download-text)); }
+.download-profiles-management summary { display: list-item; width: fit-content; min-height: 1.5rem; padding-block: .4rem; color: var(--download-muted); cursor: pointer; }
+.download-profiles-management .download-profiles-actions { padding-top: .5rem; }
+.download-credentials { max-width: var(--layout-form-wide); margin-block: .25rem .75rem; }
+.credential-list { position: relative; margin-block: 1rem; }
+.credential-entry.is-leaving { position: absolute; inset-inline: 0; pointer-events: none; }
+.credential-list:empty { display: none; }
+.credential-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem 1rem; padding: .875rem .75rem; border-inline-start: 3px solid transparent; }
+.credential-entry + .credential-entry { border-top: 1px solid var(--download-line); }
+.credential-entry[data-preferred="true"] { background: var(--download-secondary); border-inline-start-color: var(--download-accent); border-radius: .625rem; }
+.credential-entry[data-preferred="true"] + .credential-entry { border-top-color: transparent; }
+.credential-entry > label { display: flex; align-items: center; gap: .625rem; min-width: 0; cursor: pointer; }
+.credential-entry input[type="checkbox"] { flex: none; width: 1.125rem; height: 1.125rem; margin: 0; accent-color: var(--download-accent); }
+.credential-rank { flex: none; min-width: .75rem; font-size: .75rem; font-variant-numeric: tabular-nums; color: var(--download-muted); text-align: center; }
+.credential-caption { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .625rem; min-width: 0; overflow-wrap: anywhere; }
+.credential-caption > :first-child { font-size: 1rem; font-weight: 600; }
+.credential-state { color: var(--download-muted); font-size: .6875rem; line-height: 1.4; padding: .15rem .4rem; border: 1px solid var(--download-line); border-radius: .3rem; }
+.credential-entry[data-preferred="true"] .credential-state { color: var(--download-text); border-color: var(--download-accent); }
+.credential-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
+.download-credentials .credential-row-actions > :is(.button, .btn),
+.download-credentials :is(.button, .btn).credential-refresh { color: var(--download-muted); background: transparent; border-color: transparent; box-shadow: none; }
+.download-credentials .credential-row-actions > :is(.button, .btn):hover,
+.download-credentials :is(.button, .btn).credential-refresh:hover { color: var(--download-text); background: var(--download-secondary); }
+.download-credentials .credential-move { padding-inline: .5rem; min-width: 2.25rem; }
+.download-credentials .credential-more { display: grid; place-items: center; min-width: 2.25rem; padding: .25rem .5rem; font-size: 1.25rem; }
+.credential-popover { position: fixed; inset: auto; margin: 0; box-sizing: border-box; max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); overflow: auto; padding: .375rem; color: var(--download-text); background: var(--download-surface); border: 1px solid var(--download-line); border-radius: .75rem; box-shadow: var(--motion-shadow-lift); }
+.credential-menu { min-width: 9rem; }
+.download-credentials .credential-menu button { display: block; width: 100%; text-align: start; border-color: transparent; background: transparent; }
+.download-credentials .credential-menu button:hover { background: var(--download-secondary); }
+.credential-hint-icon { display: inline-grid; flex: none; place-items: center; width: 1rem; height: 1rem; border: 1.5px solid currentColor; border-radius: 50%; font-size: .75rem; line-height: 1; font-weight: 700; }
+.download-credentials .credential-delete,
+.download-profiles .credential-delete { color: var(--exp-error, var(--status-red)); }
+.download-credentials .credential-empty { padding: 1.25rem; text-align: center; background: var(--download-secondary); border-radius: .625rem; }
+.credential-editor-dialog { box-sizing: border-box; width: min(36rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); margin: auto; padding: 1.25rem; color: var(--download-text); background: var(--download-surface); border: 1px solid var(--download-line); border-radius: .875rem; box-shadow: var(--motion-shadow-lift); }
+.credential-editor-dialog::backdrop { background: var(--scrim, var(--overlay-bg, color-mix(in srgb, CanvasText 50%, transparent))); }
+.credential-editor-dialog.ab-modal-root { width: fit-content; padding: 0; }
+.credential-editor-dialog .ab-modal { width: min(36rem, calc(100vw - 2rem - 2px)); }
+.credential-editor-dialog .ab-modal-foot { padding: .75rem 1.25rem; border-top: 1px solid var(--download-line); }
+.credential-editor-dialog .ab-modal-foot .download-profiles-actions { justify-content: flex-end; }
+.credential-picker-body { min-width: 0; }
+.credential-picker-list { display: grid; gap: .5rem; }
+.credential-picker-row { display: flex; align-items: center; gap: .75rem; padding: .875rem; border: 1px solid var(--download-line); border-radius: .625rem; cursor: pointer; transition: background var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out); }
+.credential-picker-row:has(:checked) { background: var(--download-secondary); border-color: var(--download-accent); }
+.credential-picker-row input { flex: 0 0 auto; width: 1.125rem; height: 1.125rem; margin: 0; accent-color: var(--download-accent); }
+.credential-account { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; max-width: 36rem; margin-block: 1.25rem .75rem; }
+.credential-account label { font-weight: 600; }
+.credential-account select { flex: 1 1 12rem; min-width: 0; width: auto; }
+.credential-account [role="status"]:empty { display: none; }
+.credential-account [role="status"] { flex-basis: 100%; }
+.credential-picker-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.credential-picker:not(.ab-modal-root)[open] { display: flex; flex-direction: column; gap: 1rem; }
+.credential-picker:not(.ab-modal-root) > h2 { margin: 0; font-size: 1.25rem; }
+.credential-picker:not(.ab-modal-root) > .credential-picker-body { overflow-y: auto; min-height: 0; }
+.credential-picker > .download-profiles-actions { flex: none; justify-content: flex-end; }
+.credential-editor { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 4.5rem); margin: 0; }
+.credential-editor-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .25rem; }
+.ab-modal-root .credential-editor { max-height: none; }
+.ab-modal-root .credential-editor-body { overflow: visible; }
+.credential-editor h4 { margin: 0 0 1rem; font-size: 1.0625rem; font-weight: 600; }
+.credential-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(9rem, .6fr); gap: 1rem; }
+.credential-editor label { display: grid; gap: .4rem; font-size: .8125rem; font-weight: 500; margin-bottom: .875rem; }
+.credential-editor .download-profiles-actions { margin-top: .75rem; }
+.credential-editor > .download-profiles-actions:last-child { justify-content: flex-end; padding-top: .75rem; border-top: 1px solid var(--download-line); }
+.credential-secret { resize: vertical; }
+.credential-secret.is-masked { -webkit-text-security: disc; }
+.credential-guide-link { margin-inline-start: auto; padding-block: .5rem; color: var(--download-accent); font-size: .8125rem; }
+.credential-acquisition { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--download-line); }
+.credential-acquisition > summary { min-height: var(--layout-control-height, 2.5rem); color: var(--download-text); cursor: pointer; }
+.credential-acquisition-content { padding-block: .5rem .25rem; }
+.credential-acquisition-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.credential-acquisition-heading p { flex: 1 1 14rem; margin: 0; }
+.download-credentials .credential-acquisition-heading button { color: var(--download-accent); background: var(--download-secondary); border: 1px solid var(--download-line); }
+.credential-import-setup { margin-top: .875rem; padding-inline-start: .75rem; border-inline-start: 2px solid var(--download-line); }
+.credential-import-setup p { margin-block: .375rem; }
+.credential-import-caution { display: flex; align-items: flex-start; gap: .5rem; margin-top: .875rem; color: var(--download-muted); }
+.credential-import-caution .credential-hint-icon { margin-top: .2rem; }
+.credential-import-caution p { margin: 0; }
+.download-profiles [hidden],
+.download-credentials [hidden],
+#cookie-card > .cookie-fmt[hidden] { display: none !important; }
+@media (max-width: 37.5em) {
+    .credential-entry { grid-template-columns: minmax(0, 1fr); }
+    .credential-row-actions { justify-content: flex-end; }
+    .credential-fields { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .download-profiles-picker select { flex-basis: 100%; }
+    .credential-toolbar { align-items: flex-start; }
+}
+@media (prefers-contrast: more) {
+    .download-profiles,
+    .download-credentials { --download-line: var(--download-text); --download-muted: var(--download-text); }
+}
+
+/* 状态、折叠内容与浮层沿用全站动效令牌，原生开关仍可随时反向操作。 */
+.download-profiles :is(button, summary),
+.download-credentials :is(button, summary),
+.credential-entry,
+.credential-state {
+    transition: color var(--motion-fast) var(--motion-ease-standard), background-color var(--motion-fast) var(--motion-ease-standard),
+        border-color var(--motion-fast) var(--motion-ease-standard), opacity var(--motion-fast) var(--motion-ease-standard), transform var(--motion-fast) var(--motion-ease-standard);
+}
+:is(.download-profiles, .download-credentials) button:not(:disabled):active { transform: scale(.97); }
+.credential-entry { transition: background-color var(--motion-med) var(--motion-ease-out), border-color var(--motion-med) var(--motion-ease-out), opacity var(--motion-fast) var(--motion-ease-out); }
+.download-profiles-modified,
+.download-profiles-status:not(:empty),
+.credential-empty:not([hidden]) { animation: pixiv-motion-fade-in var(--motion-fast) var(--motion-ease-out); }
+:is(.download-profiles-management, .credential-acquisition) { interpolate-size: allow-keywords; }
+:is(.download-profiles-management, .credential-acquisition)::details-content {
+    block-size: 0; opacity: 0; overflow: clip;
+    transition: block-size var(--motion-med) var(--motion-ease-out), opacity var(--motion-fast) var(--motion-ease-out), content-visibility var(--motion-med) allow-discrete;
+}
+:is(.download-profiles-management, .credential-acquisition)[open]::details-content { block-size: auto; opacity: 1; }
+:is(.download-profiles-management, .credential-acquisition) > summary { display: flex; align-items: center; gap: .4rem; list-style: none; }
+:is(.download-profiles-management, .credential-acquisition) > summary::-webkit-details-marker { display: none; }
+:is(.download-profiles-management, .credential-acquisition) > summary::before { content: '›'; display: inline-block; font-size: 1.2em; transition: transform var(--motion-fast) var(--motion-ease-out); }
+:is(.download-profiles-management, .credential-acquisition)[open] > summary::before { transform: rotate(90deg); }
+.credential-popover {
+    opacity: 0; transform: translateY(-4px) scale(.98); transform-origin: top right;
+    transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out), display var(--motion-fast) allow-discrete, overlay var(--motion-fast) allow-discrete;
+}
+.credential-popover:popover-open { opacity: 1; transform: none; }
+.credential-editor-dialog:not(.ab-modal-root) {
+    opacity: 0; transform: translateY(8px) scale(.99);
+    transition: opacity var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out), display var(--motion-fast) allow-discrete, overlay var(--motion-fast) allow-discrete;
+}
+.credential-editor-dialog:not(.ab-modal-root)[open] { opacity: 1; transform: none; }
+.credential-editor-dialog::backdrop { opacity: 0; transition: opacity var(--motion-fast) var(--motion-ease-out), display var(--motion-fast) allow-discrete, overlay var(--motion-fast) allow-discrete; }
+.credential-editor-dialog[open]::backdrop { opacity: 1; }
+@starting-style {
+    .credential-popover:popover-open { opacity: 0; transform: translateY(-4px) scale(.98); }
+    .credential-editor-dialog:not(.ab-modal-root)[open] { opacity: 0; transform: translateY(8px) scale(.99); }
+    .credential-editor-dialog[open]::backdrop { opacity: 0; }
+    .credential-entry { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    :is(.download-profiles, .download-credentials) *,
+    :is(.download-profiles, .download-credentials) *::before,
+    :is(.download-profiles-management, .credential-acquisition)::details-content,
+    .credential-editor-dialog, .credential-editor-dialog::backdrop { animation: none !important; transition: none !important; }
+    :is(.download-profiles, .download-credentials) button:not(:disabled):active { transform: none; }
+}

@@ -5,6 +5,9 @@
     if (!queueTypes || typeof queueTypes.registerUiModule !== 'function') return;
 
     queueTypes.registerUiModule(function (context) {
+        global.PixivDownloadProfiles?.registerSettings(context, {
+            novelAutoTranslate: false, novelTranslateLang: '', novelTranslateSeg: 0
+        }, settings => Number.isSafeInteger(settings.novelTranslateSeg) && settings.novelTranslateSeg >= 0);
         var unbindSettings = function () {};
 
         function targetGrid() {
@@ -30,7 +33,7 @@
                 '<label for="s-novel-translate-seg" data-i18n="translate:batch.translate-seg-label">Segment size:</label>' +
                 '<input type="number" id="s-novel-translate-seg" class="novel-translate-input novel-translate-input--number" min="0" step="500" value="0">' +
                 '</div>' +
-                '<div class="setting-item" id="s-novel-translate-hint" style="display:none;grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
+                '<div class="setting-item" id="s-novel-translate-hint" data-setting-hint-for="s-novel-translate-seg" style="display:none;grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
                 ' data-i18n="translate:batch.translate-glossary-hint">Auto-translation uses the default term glossary. Segment size 0 translates the whole chapter at once.</div>';
             while (wrapper.firstChild) {
                 grid.appendChild(wrapper.firstChild);

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
@@ -17,6 +18,10 @@ import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 
 import java.util.List;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -218,6 +223,37 @@ class ScriptControllerTest {
         String original = SCRIPT_CONTENT.replace("// @pixiv-presence-bootstrap", "");
         assertEquals(original, UserscriptPresenceInstaller.apply(original, "third-party",
                 "http://localhost:6999/api/scripts/third-party.user.js"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://localhost:7000", "http://127.0.0.1:8123", "http://[::1]:8124",
+            "https://example.com:8443", "https://EXAMPLE.com:443/downloads"})
+    @DisplayName("真实导入脚本安装响应限定当前端口，两版页面都能只读响应实际版本")
+    void importScriptRespondsOnInstalledPages(String base, @TempDir Path temp) throws Exception {
+        Path classes = Path.of(System.getProperty("pixiv-batch-downloader-import.plugin.classes"));
+        String source = Files.readString(classes.resolve("userscripts/pixiv-batch-downloader-import.user.js"));
+        String id = "pixiv-batch-downloader-import";
+        when(userscriptCatalog.scripts()).thenReturn(List.of(new UserscriptArtifact(id, id, "", "", source)));
+        URI uri = URI.create(base);
+        String installUrl = base + "/api/scripts/" + id + ".user.js";
+        String installed = mockMvc.perform(get(URI.create(installUrl))
+                        .contextPath(uri.getPath())
+                        .with(request -> { request.setServerPort(uri.getPort()); return request; }))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String expectedUrl = installUrl.replace(":443/", "/");
+        assertTrue(installed.contains("// @updateURL    " + expectedUrl));
+        assertTrue(installed.contains("// @downloadURL  " + expectedUrl));
+        Path script = temp.resolve("installed.user.js");
+        Files.writeString(script, installed);
+        Path output = temp.resolve("presence.log");
+        Process process = new ProcessBuilder("node", "src/test/resources/userscript-presence-check.cjs",
+                script.toString(), base, id).redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        try {
+            assertTrue(process.waitFor(30, TimeUnit.SECONDS), "脚本检测回归未结束");
+            assertEquals(0, process.exitValue(), Files.readString(output));
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
+        }
     }
 
     @ParameterizedTest

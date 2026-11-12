@@ -10,8 +10,8 @@ import java.util.List;
  * 筛选维度可组合），调用方负责传入已归一化的值：
  *
  * <ul>
- *   <li>{@code sort}：插画 {@code date / uploadTime / artworkId / imgs / status / authorId / tags / series}；
- *       小说核心元数据 {@code date / uploadTime / novelId / series}。来源私有排序不得交给核心查询服务，
+ *   <li>{@code sort}：插画 {@code date / uploadTime / createTime / updateTime / reuploadTime / artworkId / imgs / status / authorId / tags / series}；
+ *       小说核心元数据 {@code date / uploadTime / createTime / updateTime / reuploadTime / novelId / series}。来源私有排序不得交给核心查询服务，
  *       由所属插件截获并在核心中性筛选结果上完成</li>
  *   <li>{@code order}：{@code asc / desc}</li>
  *   <li>{@code searchType}：{@code all / title / author / id / authorId / desc / tag / tagExact}；
@@ -44,10 +44,17 @@ import java.util.List;
  * @param optionalAuthorIds 可选匹配的作者标识
  * @param seriesIds 必须匹配的系列标识
  * @param excludedSeriesIds 必须排除的系列标识
- * @param uploadedFrom 上传时间下界（epoch 毫秒，含边界）；null 表示不限
- * @param uploadedBefore 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
+ * @param uploadedFrom 所选来源时间下界（epoch 毫秒，含边界）；null 表示不限
+ * @param uploadedBefore 所选来源时间上界（epoch 毫秒，不含边界）；null 表示不限
+ * @param sourceTimeField 来源时间字段，uploadTime / createTime / updateTime / reuploadTime，默认 uploadTime
  * @param downloadedFrom 下载时间下界（epoch 毫秒，含边界）；null 表示不限
  * @param downloadedBefore 下载时间上界（epoch 毫秒，不含边界）；null 表示不限
+ * @param createdFrom 创建时间下界（epoch 毫秒，含边界）；null 表示不限
+ * @param createdBefore 创建时间上界（epoch 毫秒，不含边界）；null 表示不限
+ * @param updatedFrom 更新时间下界（epoch 毫秒，含边界）；null 表示不限
+ * @param updatedBefore 更新时间上界（epoch 毫秒，不含边界）；null 表示不限
+ * @param reuploadedFrom 重新上传时间下界（epoch 毫秒，含边界）；null 表示不限
+ * @param reuploadedBefore 重新上传时间上界（epoch 毫秒，不含边界）；null 表示不限
  * @param restriction 访客可见性限制；null 表示无限制
  */
 public record WorkQuery(
@@ -74,7 +81,125 @@ public record WorkQuery(
         Long uploadedFrom,
         Long uploadedBefore,
         Long downloadedFrom,
+        Long downloadedBefore,
+        String sourceTimeField,
+        Long createdFrom,
+        Long createdBefore,
+        Long updatedFrom,
+        Long updatedBefore,
+        Long reuploadedFrom,
+        Long reuploadedBefore) {
+    /**
+     * 创建使用指定来源时间字段且未设置额外日期范围的查询。
+     * @param workType 作品媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量
+     * @param sort 排序字段
+     * @param order 排序方向
+     * @param search 搜索文本
+     * @param searchType 搜索字段范围
+     * @param r18 年龄分级筛选
+     * @param ai AI 生成标记筛选
+     * @param formats 文件扩展名筛选
+     * @param collectionIds 收藏夹标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 排除的系列标识
+     * @param restriction 访客可见性限制
+     * @param uploadedFrom 所选来源时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param uploadedBefore 所选来源时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param downloadedFrom 下载时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param downloadedBefore 下载时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param sourceTimeField 来源时间字段
+     */
+    public WorkQuery(
+        WorkType workType,
+        int page,
+        int size,
+        String sort,
+        String order,
+        String search,
+        String searchType,
+        String r18,
+        String ai,
+        List<String> formats,
+        List<Long> collectionIds,
+        List<Long> tagIds,
+        List<Long> excludedTagIds,
+        List<Long> optionalTagIds,
+        List<Long> authorIds,
+        List<Long> excludedAuthorIds,
+        List<Long> optionalAuthorIds,
+        List<Long> seriesIds,
+        List<Long> excludedSeriesIds,
+        WorkRestriction restriction,
+        Long uploadedFrom,
+        Long uploadedBefore,
+        Long downloadedFrom,
+        Long downloadedBefore,
+        String sourceTimeField) {
+        this(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds, tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, null, null, null, null, null, null);
+    }
+
+    /**
+     * 创建按上传时间和下载时间筛选的查询。
+     * @param workType 作品媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量
+     * @param sort 排序字段
+     * @param order 排序方向
+     * @param search 搜索文本
+     * @param searchType 搜索字段范围
+     * @param r18 年龄分级筛选
+     * @param ai AI 生成标记筛选
+     * @param formats 文件扩展名筛选
+     * @param collectionIds 收藏夹标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 排除的系列标识
+     * @param restriction 访客可见性限制
+     * @param uploadedFrom 上传时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param uploadedBefore 上传时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param downloadedFrom 下载时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param downloadedBefore 下载时间上界，epoch 毫秒，不含边界；null 表示不限
+     */
+    public WorkQuery(WorkType workType,
+        int page,
+        int size,
+        String sort,
+        String order,
+        String search,
+        String searchType,
+        String r18,
+        String ai,
+        List<String> formats,
+        List<Long> collectionIds,
+        List<Long> tagIds,
+        List<Long> excludedTagIds,
+        List<Long> optionalTagIds,
+        List<Long> authorIds,
+        List<Long> excludedAuthorIds,
+        List<Long> optionalAuthorIds,
+        List<Long> seriesIds,
+        List<Long> excludedSeriesIds,
+        WorkRestriction restriction,
+        Long uploadedFrom,
+        Long uploadedBefore,
+        Long downloadedFrom,
         Long downloadedBefore) {
+        this(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds, tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, "uploadTime");
+    }
+
 
     /**
      * 创建不限制上传与下载时间范围的查询。
@@ -133,8 +258,8 @@ public record WorkQuery(
      * @param seriesIds 必须匹配的系列标识
      * @param excludedSeriesIds 必须排除的系列标识
      * @param restriction 访客可见性限制；null 表示无限制
-     * @param uploadedFrom 上传时间下界（epoch 毫秒，含边界）；null 表示不限
-     * @param uploadedBefore 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param uploadedFrom 所选来源时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param uploadedBefore 所选来源时间上界（epoch 毫秒，不含边界）；null 表示不限
      */
     public WorkQuery(WorkType workType, int page, int size, String sort, String order, String search,
                      String searchType, String r18, String ai, List<String> formats, List<Long> collectionIds,
@@ -157,7 +282,7 @@ public record WorkQuery(
     public WorkQuery withUploadTimeRange(Long from, Long before) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
-                seriesIds, excludedSeriesIds, restriction, from, before, downloadedFrom, downloadedBefore);
+                seriesIds, excludedSeriesIds, restriction, from, before, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
     }
 
     /**
@@ -169,7 +294,7 @@ public record WorkQuery(
     public WorkQuery withDownloadTimeRange(Long from, Long before) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
-                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, from, before);
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, from, before, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
     }
 
     /**
@@ -195,12 +320,15 @@ public record WorkQuery(
      * @param seriesIds 系列标识集合
      * @param excludedSeriesIds 已排除项系列标识集合
      * @param restriction 访问限制
-     * @param uploadedFrom 上传时间下界（epoch 毫秒，含边界）；null 表示不限
-     * @param uploadedBefore 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param uploadedFrom 所选来源时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param uploadedBefore 所选来源时间上界（epoch 毫秒，不含边界）；null 表示不限
      * @param downloadedFrom 下载时间下界（epoch 毫秒，含边界）；null 表示不限
      * @param downloadedBefore 下载时间上界（epoch 毫秒，不含边界）；null 表示不限
      */
     public WorkQuery {
+        sourceTimeField = sourceTimeField == null || sourceTimeField.isBlank() ? "uploadTime" : sourceTimeField;
+        if (!java.util.Set.of("uploadTime", "createTime", "updateTime", "reuploadTime").contains(sourceTimeField))
+            throw new IllegalArgumentException("INVALID_SOURCE_TIME_FIELD");
         if ((downloadedFrom != null && downloadedFrom <= 0) || (downloadedBefore != null && downloadedBefore <= 0)
                 || (downloadedFrom != null && downloadedBefore != null && downloadedFrom >= downloadedBefore)) {
             throw new IllegalArgumentException("INVALID_DOWNLOAD_TIME_RANGE");
@@ -209,6 +337,9 @@ public record WorkQuery(
                 || (uploadedFrom != null && uploadedBefore != null && uploadedFrom >= uploadedBefore)) {
             throw new IllegalArgumentException("INVALID_UPLOAD_TIME_RANGE");
         }
+        validateTimeRange(createdFrom, createdBefore);
+        validateTimeRange(updatedFrom, updatedBefore);
+        validateTimeRange(reuploadedFrom, reuploadedBefore);
         formats = copyOrNull(formats);
         collectionIds = copyOrNull(collectionIds);
         tagIds = copyOrNull(tagIds);
@@ -219,6 +350,40 @@ public record WorkQuery(
         optionalAuthorIds = copyOrNull(optionalAuthorIds);
         seriesIds = copyOrNull(seriesIds);
         excludedSeriesIds = copyOrNull(excludedSeriesIds);
+    }
+
+    /**
+     * 指定来源时间范围对应的字段，下载时间范围保持独立。
+     * @param field 来源时间字段
+     * @return 更新字段后的查询
+     */
+    public WorkQuery withSourceTimeField(String field) {
+        return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, field, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+    }
+
+    /**
+     * 同时设置创建、更新与重新上传时间范围；各维度取交集。
+     * @param createdFrom 创建时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param createdBefore 创建时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param updatedFrom 更新时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param updatedBefore 更新时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @param reuploadedFrom 重新上传时间下界，epoch 毫秒，含边界；null 表示不限
+     * @param reuploadedBefore 重新上传时间上界，epoch 毫秒，不含边界；null 表示不限
+     * @return 更新日期范围后的查询
+     */
+    public WorkQuery withSourceTimeRanges(Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
+        return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore,
+                sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+    }
+
+    private static void validateTimeRange(Long from, Long before) {
+        if ((from != null && from <= 0) || (before != null && before <= 0)
+                || (from != null && before != null && from >= before))
+            throw new IllegalArgumentException("INVALID_UPLOAD_TIME_RANGE");
     }
 
     private static <T> List<T> copyOrNull(List<T> list) {
@@ -238,6 +403,7 @@ public record WorkQuery(
     /** 构造助手：默认值与画廊查询归一化结果一致（首页 24 条、time 倒序、不限分级 / AI）。 */
     public static final class Builder {
         private final WorkType workType;
+        private Long createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore;
         private int page = 0;
         private int size = 24;
         private String sort = "date";
@@ -261,6 +427,14 @@ public record WorkQuery(
         private Long uploadedBefore;
         private Long downloadedFrom;
         private Long downloadedBefore;
+        private String sourceTimeField = "uploadTime";
+
+        /**
+         * 设置来源日期筛选的语义，默认使用上传时间。
+         * @param field 来源时间字段
+         * @return 当前构建器
+         */
+        public Builder sourceTimeField(String field) { this.sourceTimeField = field; return this; }
 
         private Builder(WorkType workType) {
             this.workType = workType;
@@ -424,12 +598,32 @@ public record WorkQuery(
             return this;
         }
 
+        /**
+         * 设置同时生效的其他来源日期范围。
+         * @param createdFrom 创建时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param createdBefore 创建时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @param updatedFrom 更新时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param updatedBefore 更新时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @param reuploadedFrom 重新上传时间下界，epoch 毫秒，含边界；null 表示不限
+         * @param reuploadedBefore 重新上传时间上界，epoch 毫秒，不含边界；null 表示不限
+         * @return 当前构建器
+         */
+        public Builder sourceTimeRanges(Long createdFrom, Long createdBefore, Long updatedFrom, Long updatedBefore, Long reuploadedFrom, Long reuploadedBefore) {
+            this.createdFrom = createdFrom;
+            this.createdBefore = createdBefore;
+            this.updatedFrom = updatedFrom;
+            this.updatedBefore = updatedBefore;
+            this.reuploadedFrom = reuploadedFrom;
+            this.reuploadedBefore = reuploadedBefore;
+            return this;
+        }
+
         /** {@return 构建的查询} */
         public WorkQuery build() {
             return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai,
                     formats, collectionIds, tagIds, excludedTagIds, optionalTagIds,
                     authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds,
-                    restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore);
+                    restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
         }
     }
 }

@@ -15,6 +15,8 @@
 // @connect      i.pximg.net
 // @connect      www.pixiv.net
 // @connect      localhost
+// @connect      127.0.0.1
+// @connect      ::1
 // @connect      YOUR_SERVER_HOST
 // @run-at       document-end
 // @pixiv-presence-page /pixiv-batch.html
@@ -26,8 +28,26 @@
     // @pixiv-presence-bootstrap
 
     /* ========== 配置 ========== */
+    // >>> SHARED:installed-server.js
+    function installedServer() {
+        const info = typeof GM_info !== 'undefined' ? GM_info
+            : typeof GM !== 'undefined' ? GM.info : null;
+        for (const address of [info?.script?.downloadURL, info?.script?.updateURL, info?.scriptUpdateURL]) {
+            try {
+                const url = new URL(address);
+                const route = url.pathname.match(/^(.*)\/api\/scripts\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\.user\.js|\/install)$/);
+                if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+                    && !url.search && !url.hash && route) {
+                    return url.origin + route[1];
+                }
+            } catch (_) { /* 直接从源码安装时可能没有后端安装地址。 */ }
+        }
+        return 'http://localhost:6999';
+    }
+    // <<< SHARED:installed-server.js
+    const DEFAULT_SERVER = installedServer();
     const KEY_SERVER_URL = 'pixiv_server_base';
-    let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
+    let serverBase = GM_getValue(KEY_SERVER_URL, DEFAULT_SERVER).replace(/\/$/, '');
 
     /* ========== PixivPanelState: 跨脚本共享的面板展开/收起状态 ==========
      * 所有 Pixiv 用户脚本共用同一个折叠状态：localStorage 权威 + BroadcastChannel +
@@ -4615,7 +4635,7 @@
             }
             if (this.elements.serverBaseInput) {
                 this.elements.serverBaseInput.addEventListener('change', (e) => {
-                    serverBase = e.target.value.trim().replace(/\/$/, '') || 'http://localhost:6999';
+                    serverBase = e.target.value.trim().replace(/\/$/, '') || DEFAULT_SERVER;
                     GM_setValue(KEY_SERVER_URL, serverBase);
                 });
             }

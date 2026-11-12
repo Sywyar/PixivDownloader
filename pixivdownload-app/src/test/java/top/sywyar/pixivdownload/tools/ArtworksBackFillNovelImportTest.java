@@ -94,6 +94,7 @@ class ArtworksBackFillNovelImportTest {
                 assertThat(jdbc.queryForObject("SELECT series_id FROM novels WHERE novel_id=42", Long.class)).isEqualTo(500L);
                 assertThat(jdbc.queryForObject("SELECT series_order FROM novels WHERE novel_id=42", Long.class)).isEqualTo(3L);
                 assertThat(jdbc.queryForObject("SELECT raw_content FROM novels WHERE novel_id=42", String.class)).isEqualTo(stored);
+                assertThat(jdbc.queryForObject("SELECT time FROM novels WHERE novel_id=42", Long.class)).isPositive();
                 var controllerType = loader.loadClass("top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController");
                 Object controller = controllerType.getConstructors()[0].newInstance(null, null, null, novels,
                         mock(WorkAssetService.class), mock(WorkVisibilityService.class), TestI18nBeans.appMessages());

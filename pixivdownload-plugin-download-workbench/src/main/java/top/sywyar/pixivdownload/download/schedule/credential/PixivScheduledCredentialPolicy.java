@@ -64,6 +64,11 @@ public final class PixivScheduledCredentialPolicy implements ScheduledCredential
     }
 
     @Override
+    public boolean isBindingFixed(String sourceType, String definitionJson) {
+        return persistenceCodec.isPersonalSource(sourceType, definitionJson);
+    }
+
+    @Override
     public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context)
             throws ScheduledExecutionException {
         if (context.purpose() == ScheduledCredentialContext.Purpose.BIND) {

@@ -178,6 +178,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
 
     async function applyPageLanguageViews() {
         applyStaticPageTranslations();
+        window.PixivCredentials?.refresh();
         if (window.PixivBatch && window.PixivBatch.modeControls
             && typeof window.PixivBatch.modeControls.renderSupportedImportSources === 'function') {
             window.PixivBatch.modeControls.renderSupportedImportSources(true);
@@ -349,7 +350,10 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         const init = Object.assign({}, requestInit || {});
         init.headers = Object.assign({}, pixivHeader(), init.headers || {});
         const res = await fetch(BASE + path, init);
-        return res.json();
+        const data = await res.json();
+        if (data?.code === 'ACQUISITION_CREDENTIALS_UNAVAILABLE')
+            throw Object.assign(new Error(data.error), {code: data.code});
+        return data;
     }
 
     async function checkBackend() {

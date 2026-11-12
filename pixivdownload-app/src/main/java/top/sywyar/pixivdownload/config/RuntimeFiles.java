@@ -114,6 +114,16 @@ public final class RuntimeFiles {
         return configDirectory().resolve(PLUGIN_CREDENTIAL_DIR).resolve(safePathToken(pluginId, "pluginId") + ".properties");
     }
 
+    /** 安装实例的受保护凭据密钥，不随环境归档迁移。 */
+    public static Path pluginCredentialKeyPath() {
+        return configDirectory().resolve("credentials.key");
+    }
+
+    /** 密钥初始化与旧信封迁移共用的跨进程锁。 */
+    public static Path pluginCredentialKeyLockPath() {
+        return configDirectory().resolve("credentials.key.lock");
+    }
+
     /** 导入暂存、目标备份和中断恢复记录；不作为普通缓存清理。 */
     public static Path environmentTransferDirectory() {
         return dataDirectory().resolve("environment-transfers");
@@ -128,6 +138,8 @@ public final class RuntimeFiles {
     public static Path stateDirectory() {
         return resolveDirectory(STATE_DIR_PROPERTY, DEFAULT_STATE_DIR);
     }
+
+    public static Path aotCacheDirectory() { return stateDirectory().resolve("aot"); }
 
     public static Path resolvePluginStateDirectory(String pluginId) {
         return resolvePluginDirectory(stateDirectory(), pluginId);

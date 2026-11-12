@@ -78,6 +78,11 @@ final class LegacySchemaBaseline {
                         column("move_time", "INTEGER", false, null, 0),
                         column("deleted", "INTEGER", true, "0", 0),
                         column("upload_time", "INTEGER", false, null, 0),
+                                column("source_upload_time", "INTEGER", false, null, 0),
+                                column("time_projection_version", "INTEGER", true, "0", 0),
+                                column("create_time", "INTEGER", false, null, 0),
+                                column("update_time", "INTEGER", false, null, 0),
+                                column("reupload_time", "INTEGER", false, null, 0),
                         column("is_original", "INTEGER", false, null, 0),
                         column("file_name_max_length", "INTEGER", true, "180", 0),
                         column("metadata_json", "TEXT", false, null, 0)
@@ -86,7 +91,11 @@ final class LegacySchemaBaseline {
                         uniqueConstraint("time"),
                         explicitIndex("idx_artworks_author_time", false, "author_id", "time"),
                         explicitIndex("idx_artworks_series_order", false, "series_id", "series_order"),
-                                explicitIndex("idx_artworks_upload_time", false, "upload_time", "artwork_id")
+                                explicitIndex("idx_artworks_upload_time", false, "upload_time", "artwork_id"),
+                                explicitIndex("idx_artworks_source_upload_time", false, "source_upload_time", "artwork_id"),
+                                explicitIndex("idx_artworks_create_time", false, "create_time", "artwork_id"),
+                                explicitIndex("idx_artworks_update_time", false, "update_time", "artwork_id"),
+                                explicitIndex("idx_artworks_reupload_time", false, "reupload_time", "artwork_id")
                 )
         ));
 
@@ -352,6 +361,11 @@ final class LegacySchemaBaseline {
                         column("file_base_name", "TEXT", false, null, 0),
                         column("deleted", "INTEGER", true, "0", 0),
                         column("upload_time", "INTEGER", false, null, 0),
+                                column("source_upload_time", "INTEGER", false, null, 0),
+                                column("time_projection_version", "INTEGER", true, "0", 0),
+                                column("create_time", "INTEGER", false, null, 0),
+                                column("update_time", "INTEGER", false, null, 0),
+                                column("reupload_time", "INTEGER", false, null, 0),
                         column("file_name_max_length", "INTEGER", true, "180", 0),
                         column("metadata_json", "TEXT", false, null, 0)
                 ),
@@ -359,7 +373,11 @@ final class LegacySchemaBaseline {
                         uniqueConstraint("time"),
                         explicitIndex("idx_novels_author_id", false, "author_id"),
                         explicitIndex("idx_novels_series_order", false, "series_id", "series_order"),
-                                explicitIndex("idx_novels_upload_time", false, "upload_time", "novel_id")
+                                explicitIndex("idx_novels_upload_time", false, "upload_time", "novel_id"),
+                                explicitIndex("idx_novels_source_upload_time", false, "source_upload_time", "novel_id"),
+                                explicitIndex("idx_novels_create_time", false, "create_time", "novel_id"),
+                                explicitIndex("idx_novels_update_time", false, "update_time", "novel_id"),
+                                explicitIndex("idx_novels_reupload_time", false, "reupload_time", "novel_id")
                 )
         ));
 
@@ -601,6 +619,17 @@ final class LegacySchemaBaseline {
                         column("attempts", "INTEGER", true, "0", 0),
                         column("first_seen_time", "INTEGER", false, null, 0),
                         column("last_attempt_time", "INTEGER", false, null, 0)
+                ),
+                List.of()
+        ));
+
+        tables.put("scheduled_task_credential_candidates", new TableSpec(
+                "scheduled_task_credential_candidates",
+                List.of(
+                        column("task_id", "INTEGER", true, null, 1),
+                        column("position", "INTEGER", true, null, 2),
+                        column("account_key", "TEXT", false, null, 0),
+                        column("secret", "TEXT", true, null, 0)
                 ),
                 List.of()
         ));
