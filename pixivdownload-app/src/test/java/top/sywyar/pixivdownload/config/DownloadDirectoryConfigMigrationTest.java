@@ -17,6 +17,19 @@ class DownloadDirectoryConfigMigrationTest {
     @TempDir Path temp;
 
     @Test
+    @DisplayName("迁移前的无效模板说明配置位置，且不改写原文件")
+    void migrationFailureRetainsSettingLocation() throws Exception {
+        Path file = temp.resolve("config.yaml");
+        String original = "download.root-folder: private-directory/{unknown}/{artwork_id}\n";
+        Files.writeString(file, original, StandardCharsets.UTF_8);
+        var failure = assertThrows(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class,
+                () -> DownloadDirectoryConfigMigration.migrate(file));
+        assertEquals("download.root-folder", failure.configurationKey());
+        assertEquals("unknown", failure.variable());
+        assertEquals(original, Files.readString(file, StandardCharsets.UTF_8));
+    }
+
+    @Test
     @DisplayName("旧相对根和非扁平 User 布局迁移后保留，重复执行不覆盖主动清空")
     void migratesRelativeRootAndPreservesClearedOverride() throws Exception {
         Path file = temp.resolve("config.yaml");

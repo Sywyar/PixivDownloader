@@ -12,6 +12,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WorkDirectoryTemplateTest {
     @Test
+    @DisplayName("配置校验保留位置和未知变量，异常不包含完整目录")
+    void retainsConfigurationLocation() {
+        var failure = assertThrows(DirectoryTemplateException.class,
+                () -> WorkDirectoryTemplate.parse("private-directory/{unknown}/{artwork_id}", "download.mode-templates.user"));
+        assertEquals("download.mode-templates.user", failure.configurationKey());
+        assertEquals("unknown-variable", failure.reason());
+        assertEquals("unknown", failure.variable());
+        assertInstanceOf(DirectoryTemplateException.class, failure.getCause());
+        assertTrue(failure.getMessage().contains("download.mode-templates.user"));
+        assertTrue(failure.getMessage().contains("{unknown}"));
+        assertFalse(failure.getMessage().contains("private-directory"));
+    }
+
+    @Test
     @DisplayName("最终目录使用标准变量拼写直接展开")
     void resolvesFinalDirectory() {
         var template = WorkDirectoryTemplate.parse("pixiv-download/{author_name}/{artwork_id}/pages");

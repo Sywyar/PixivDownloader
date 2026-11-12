@@ -166,6 +166,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution> coreConfigGroups() {
         return DesktopCoreConfigCatalog.groups();
     }
+    @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution> coreConfigSections() {
+        return DesktopCoreConfigCatalog.sections();
+    }
     @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution> coreConfigFields() {
         return DesktopCoreConfigCatalog.fields(this);
     }

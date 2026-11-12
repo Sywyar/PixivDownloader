@@ -27,9 +27,11 @@ class DesktopPageLayoutTest {
                 });
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
+                    case "message" -> args[0];
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "mediaTools" -> List.of(new DesktopMediaTool(identity, description));
                     case "mediaTool" -> source;
-                    case "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "resolveLocale" -> {
                         var locale = new DesktopUiHost.UiLocale("en-US", "English", "en");
                         yield new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));

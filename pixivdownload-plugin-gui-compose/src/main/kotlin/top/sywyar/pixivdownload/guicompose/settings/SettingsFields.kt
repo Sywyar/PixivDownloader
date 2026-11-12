@@ -13,6 +13,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -108,7 +110,7 @@ private fun SettingsContent(
                 }
             }
         }
-        is Form -> node.rows().forEach { row -> key(row.id()) { SettingsRow(row, workspace, secrets, text, emit) } }
+        is Form -> node.rows().forEach { row -> key(row.id()) { SettingsRow(row, workspace, secrets, text, emit, node.formStyle() == FormStyle.DIRECTORY_OVERRIDES) } }
         is Text -> CupertinoText(
             text(node.text()),
             fontSize = if (node.style() == TextStyle.HEADING) 14.sp else 12.sp,
@@ -138,11 +140,14 @@ private fun SettingsRow(
     secrets: MutableMap<String, Pair<Long, TextFieldValue>>,
     text: (TextToken) -> String,
     emit: (Event) -> Unit,
+    directoryOverride: Boolean = false,
 ) {
     val palette = LocalExperiencePalette.current
     val requester = remember { BringIntoViewRequester() }
+    val inputFocus = remember { FocusRequester() }
     val located = remember { Animatable(0f) }
     val control = row.content()
+    val override = if (directoryOverride) control as? Dock else null
     val rowTargets = listOf(row.id()) + descendants(control).mapNotNull {
         when (it) { is Toggle -> it.bindingId(); is TextInput -> it.bindingId(); is Choice -> it.bindingId(); else -> null }
     }.map { "$it.row" }.toList()
@@ -154,6 +159,7 @@ private fun SettingsRow(
     LaunchedEffect(workspace.locatedRow(), invalid) {
         if (workspace.locatedRow() in rowTargets) {
             requester.bringIntoView()
+            if (primaryInput?.enabled() == true) inputFocus.requestFocus()
             located.snapTo(1f)
             located.animateTo(0f, tween(1400, 200))
         }
@@ -163,9 +169,11 @@ private fun SettingsRow(
         .then(if (invalid) Modifier.border(1.dp, palette.error, RoundedCornerShape(8.dp)) else Modifier)) {
         val fieldAction = control is Dock && (control.center() as? TextInput)?.inputKind() == InputKind.TEXT &&
             control.end() is Button
-        val stacked = theme != null || control is Container || (control is Dock && !fieldAction) ||
+        val stacked = if (override != null) maxWidth < 560.dp else
+            theme != null || control is Container || (control is Dock && !fieldAction) ||
             primaryInput?.inputKind() == InputKind.MULTILINE || maxWidth < if (textEntry) 600.dp else 390.dp
         val controlWidth = when {
+            override != null -> (maxWidth - 160.dp).coerceAtLeast(180.dp)
             control is Toggle -> 44.dp
             fieldAction -> (maxWidth * .72f).coerceAtMost(640.dp)
             textEntry -> (maxWidth * .6f).coerceAtMost(480.dp)
@@ -176,22 +184,32 @@ private fun SettingsRow(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 val help = listOfNotNull(row.help()?.let(text), (row.trailing() as? Text)?.text()?.let(text))
                     .filter(String::isNotBlank).distinct().joinToString("\n")
-                SettingsFieldLabel(text(row.label()), help, row.id() + ".label")
+                if (override != null) SettingsControl(override.start()!!, secrets, text, emit, Modifier.weight(1f))
+                else SettingsFieldLabel(text(row.label()), help, row.id() + ".label")
                 if (dirty) Box(Modifier.size(5.dp).background(palette.link, RoundedCornerShape(3.dp)).semantics {
                     contentDescription = text(settingsText("modified"))
                 })
             }
         }
         @Composable fun input(modifier: Modifier = Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (theme != null) ThemeChoices(theme, text, emit)
+            Column(modifier.focusRequester(inputFocus), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (override != null) Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SettingsControl(override.center()!!, secrets, text, emit, Modifier.weight(1f))
+                    SettingsButton(override.end() as Button, text) {
+                        emit(Event(EventType.ACTIVATE, override.end()!!.id(), Value.empty()))
+                    }
+                }
+                else if (theme != null) ThemeChoices(theme, text, emit)
                 else SettingsControl(control, secrets, text, emit, Modifier.fillMaxWidth())
             }
         }
         Column(Modifier.fillMaxWidth()) {
-            if (stacked) Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (stacked) Column(Modifier.fillMaxWidth().padding(vertical = if (override != null) 8.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 label(); input(Modifier.fillMaxWidth())
-            } else Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 12.dp),
+            } else Row(Modifier.fillMaxWidth().heightIn(min = if (override != null) 52.dp else 64.dp).padding(vertical = if (override != null) 6.dp else 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 Box(Modifier.weight(1f)) { label() }
                 input(Modifier.width(controlWidth))

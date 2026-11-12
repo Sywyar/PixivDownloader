@@ -43,7 +43,7 @@ public final class DownloadDirectoryConfigMigration implements EnvironmentPostPr
                     String root = configured == null || configured.isBlank() ? RuntimeFiles.DEFAULT_DOWNLOAD_ROOT : configured;
                     boolean flat = Boolean.parseBoolean(editor.read("download.user-flat-folder"));
                     boolean alreadyTemplate = root.indexOf('{') >= 0 || root.indexOf('}') >= 0;
-                    String base = (alreadyTemplate ? WorkDirectoryTemplate.parse(root).fixedPrefix().toString() : root)
+                    String base = (alreadyTemplate ? WorkDirectoryTemplate.parse(root, "download.root-folder").fixedPrefix().toString() : root)
                             .replace('\\', '/').replaceAll("/+$", "") + "/";
                     var values = new LinkedHashMap<String, String>();
                     values.put("download.root-folder", alreadyTemplate ? root : base + "{artwork_id}");
@@ -54,7 +54,7 @@ public final class DownloadDirectoryConfigMigration implements EnvironmentPostPr
                                 mode == DownloadAcquisitionMode.USER_PROFILE && !flat && !alreadyTemplate
                                         ? base + "{username}/{R18}/{artwork_id}" : "");
                     }
-                    WorkDirectoryTemplate.parse(values.get("download.root-folder"));
+                    WorkDirectoryTemplate.parse(values.get("download.root-folder"), "download.root-folder");
                     values.put(VERSION_KEY, CURRENT_VERSION);
                     editor.writeAll(values);
                     LOG.info("Download directory configuration migrated: version={}", CURRENT_VERSION);

@@ -99,7 +99,8 @@ public final class ConfigFieldRegistry {
                 .filter(ConfigFieldSpec::contributesGroupVisibility)
                 .flatMap(field -> groupKeys(field.groupId(), field.group()).stream())
                 .collect(java.util.stream.Collectors.toSet());
-        List<GuiConfigSectionSpec> sections = contributions.sections();
+        List<GuiConfigSectionSpec> sections = new ArrayList<>(coreSections());
+        sections.addAll(contributions.sections());
         Set<String> groupsWithSections = sections.stream()
                 .filter(GuiConfigSectionSpec::contributesGroupVisibility)
                 .flatMap(section -> groupKeys(section.groupId(), section.group()).stream())
@@ -115,6 +116,38 @@ public final class ConfigFieldRegistry {
                 sections,
                 contributions.diagnostics()
         );
+    }
+
+    private static List<GuiConfigSectionSpec> coreSections() {
+        return SwingHost.host().coreConfigSections().stream().map(section -> {
+            var group = coreGroupSpecs().stream().filter(item -> item.id().equals(section.groupId())).findFirst().orElseThrow();
+            return new GuiConfigSectionSpec(
+                    null,
+                    section.sectionId(),
+                    group.id(),
+                    group.label(),
+                    group.order(),
+                    message(section.titleKey()),
+                    message(section.helpKey()),
+                    "",
+                    "",
+                    "",
+                    "",
+                    List.of(),
+                    section.layout(),
+                    section.order(),
+                    section.fieldLayouts().stream().map(layout -> new GuiConfigFieldLayoutSpec(
+                            layout.fieldKey(),
+                            layout.cardId(),
+                            layout.cardLabelKey().isBlank() ? "" : message(layout.cardLabelKey()),
+                            layout.order()
+                    )).toList(),
+                    List.of(),
+                    List.of(),
+                    false,
+                    true
+            );
+        }).toList();
     }
 
     private static boolean shouldShowGroup(

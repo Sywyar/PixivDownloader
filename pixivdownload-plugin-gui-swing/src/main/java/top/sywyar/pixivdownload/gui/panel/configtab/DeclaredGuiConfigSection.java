@@ -71,6 +71,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     private final String group;
     private final List<GuiConfigSectionSpec> sections;
     private final List<PresetState> presetStates = new ArrayList<>();
+    private final List<DirectoryTemplatesEditor> directoryEditors = new ArrayList<>();
 
     DeclaredGuiConfigSection(ConfigSectionContext ctx, String group, List<GuiConfigSectionSpec> sections) {
         this.ctx = ctx;
@@ -86,6 +87,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
     @Override
     public JComponent build() {
         presetStates.clear();
+        directoryEditors.clear();
         JPanel content = ctx.newContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         Set<String> rendered = new LinkedHashSet<>();
@@ -94,7 +96,11 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             addSectionNotices(content, section);
             addSectionHeader(content, section);
             addPresetCombo(content, section, null);
-            if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER) {
+            if (section.layout() == GuiConfigSectionLayout.DIRECTORY_TEMPLATES) {
+                var editor = new DirectoryTemplatesEditor(ctx, section, fieldsFor(section, rendered));
+                directoryEditors.add(editor);
+                content.add(editor);
+            } else if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER) {
                 Map<String, List<GuiConfigFieldLayoutSpec>> layoutsByCard = layoutsByCard(section);
                 if (!layoutsByCard.isEmpty()) {
                     addCardSwitcher(content, section, rendered, layoutsByCard);
@@ -119,6 +125,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     @Override
     public void onValuesLoaded() {
+        directoryEditors.forEach(DirectoryTemplatesEditor::valuesLoaded);
         for (PresetState state : presetStates) {
             GuiConfigPresetSpec selected = resolvePreset(state);
             if (selected == null) {
@@ -135,6 +142,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     @Override
     public void afterEnabledStates() {
+        directoryEditors.forEach(DirectoryTemplatesEditor::refreshVisibility);
         for (PresetState state : presetStates) {
             Object selected = state.combo().getSelectedItem();
             if (selected instanceof GuiConfigPresetSpec preset) {
@@ -451,9 +459,8 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             ConfigFieldSpec spec = ctx.findSpec(layout.fieldKey());
             String owner = effectiveOwner(layout.ownerPluginId(), section);
             if (spec != null
-                    && owner != null
-                    && owner.equals(spec.ownerPluginId())
-                    && section.ownerPluginIds().contains(owner)
+                    && ((section.pluginId() == null && spec.ownerPluginId() == null)
+                        || (owner != null && owner.equals(spec.ownerPluginId()) && section.ownerPluginIds().contains(owner)))
                     && rendered.add(spec.key())) {
                 fields.add(spec);
             }

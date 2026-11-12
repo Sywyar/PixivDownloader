@@ -33,6 +33,7 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
     LocalArtworkImportPanel(DesktopUiContext context) {
         this.context = context;
         setOpaque(false); setLayout(new BorderLayout());
+        setAlignmentX(Component.LEFT_ALIGNMENT);
         entry = button("title"); scan = button("scan"); start = button("start"); cancel = button("cancel"); browse = button("browse");
         refresh = new JCheckBox(message("refresh"));
         entry.setName("tools.local-import"); add(entry, BorderLayout.WEST);

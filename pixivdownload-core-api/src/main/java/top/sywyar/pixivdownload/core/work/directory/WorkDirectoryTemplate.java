@@ -72,6 +72,20 @@ public final class WorkDirectoryTemplate {
         }
     }
 
+    /**
+     * 校验配置中的模板，失败时保留配置项位置，不携带完整路径。
+     * @param template 最终目录模板
+     * @param configurationKey 所属配置项
+     * @return 已解析的不可变模板
+     */
+    public static WorkDirectoryTemplate parse(String template, String configurationKey) {
+        try {
+            return parse(template);
+        } catch (DirectoryTemplateException failure) {
+            throw new DirectoryTemplateException(configurationKey, failure);
+        }
+    }
+
     /** @return 第一个变量之前的固定路径，保留相对或绝对属性 */
     public Path fixedPrefix() { return prefix; }
 

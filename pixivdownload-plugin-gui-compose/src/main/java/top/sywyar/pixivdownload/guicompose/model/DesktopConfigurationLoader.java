@@ -65,6 +65,7 @@ final class DesktopConfigurationLoader {
 
     synchronized void load() {
         model.clearActionChoices();
+        model.directoryRows.clear();
         List<ConfigField> fields = new ArrayList<>();
         Map<String, GuiConfigGroupContribution> groups = new LinkedHashMap<>();
         host.coreConfigGroups().forEach(group -> groups.put(
@@ -181,6 +182,15 @@ final class DesktopConfigurationLoader {
         Map<FieldKey, ConfigField> trustedFields = new LinkedHashMap<>();
         fields.forEach(field -> trustedFields.put(field.key(), field));
         Map<String, ConfigSection> sections = new LinkedHashMap<>();
+        for (var declaration : host.coreConfigSections()) {
+            var section = configSection(
+                    new PluginConfig(null, null, "", List.of(), List.of()),
+                    declaration,
+                    groups,
+                    trustedFields
+            );
+            if (section != null) sections.put(section.id(), section);
+        }
         Set<String> conflictedSections = new LinkedHashSet<>();
         for (PluginConfig plugin : plugins) {
             for (GuiConfigContribution contribution : plugin.contributions()) {

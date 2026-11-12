@@ -14,6 +14,21 @@ import static org.mockito.Mockito.*;
 class NovelDirectorySettingsTest {
     @TempDir Path temp;
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"download.novel-directory-template", "download.novel-mode-templates.user"})
+    @DisplayName("小说目录配置错误保留默认或模式位置及未知变量")
+    void reportsInvalidSetting(String key) {
+        String invalid = "private-directory/{unknown}/novel-{artwork_id}";
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class,
+                () -> new NovelDirectorySettings(key.equals(NovelDirectorySettings.ROOT_KEY) ? invalid : NovelDirectorySettings.DEFAULT_TEMPLATE,
+                        key.equals(NovelDirectorySettings.ROOT_KEY) ? Map.of() : Map.of("user", invalid)));
+        assertThat(failure.configurationKey()).isEqualTo(key);
+        assertThat(failure.reason()).isEqualTo("unknown-variable");
+        assertThat(failure.variable()).isEqualTo("unknown");
+        assertThat(failure.getMessage()).contains(key, "{unknown}").doesNotContain("private-directory");
+    }
+
     @Test @DisplayName("保留宿主旧根和空 User 覆盖，重复启动不覆盖小说自有配置")
     void preservesRootAndExplicitEmptyOverride() throws Exception {
         var host = mock(DownloadSettings.class);

@@ -110,6 +110,9 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     List<GuiConfigFieldContribution> coreConfigFields();
 
+    /** @return 宿主字段的语义组合；字段与保存仍使用原有配置目录 */
+    default List<GuiConfigSectionContribution> coreConfigSections() { return List.of(); }
+
     /**
      * 取得指定插件的配置读写端口。
      *

@@ -115,6 +115,11 @@ class NovelPluginContributionTest {
     @DisplayName("小说后端专属文案由插件资源成对持有")
     void backendOutputMessagesAreOwnedByPlugin() throws Exception {
         Set<String> expectedKeys = Set.of(
+                "directory-template.required", "directory-template.syntax", "directory-template.unknown-variable",
+                "directory-template.unavailable-variable", "directory-template.invalid-variable",
+                "directory-template.missing-variable", "directory-template.path", "directory-template.occupied",
+                "directory-template.unknown-mode", "directory-template.unsafe-path",
+                "directory-template.traversal", "directory-template.identity",
                 "error.unexpected",
                 "novel.download.status.completed",
                 "novel.download.status.in-progress",
@@ -192,24 +197,36 @@ class NovelPluginContributionTest {
         var contribution = plugin.guiConfigContributions().get(0);
 
         assertThat(contribution.groups()).isEmpty();
-        assertThat(contribution.sections()).isEmpty();
-        assertThat(contribution.fields())
-                .extracting(field -> field.key())
-                .containsExactly(
-                        NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY);
+        assertThat(contribution.sections()).singleElement().satisfies(section -> {
+            assertThat(section.layout()).isEqualTo(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout.DIRECTORY_TEMPLATES);
+            assertThat(section.fieldLayouts()).extracting(layout -> layout.fieldKey())
+                    .containsExactlyInAnyOrderElementsOf(contribution.fields().stream()
+                            .filter(field -> field.type() == GuiConfigFieldType.DIRECTORY_TEMPLATE)
+                            .map(field -> field.key()).toList());
+        });
+        assertThat(contribution.fields()).filteredOn(field -> field.key().equals(NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY))
+                .singleElement().satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
+                    assertThat(field.minValue()).isEqualTo(1);
+                });
         assertThat(contribution.fields()).allSatisfy(field -> {
             assertThat(field.groupId()).isEqualTo(GuiConfigGroups.DOWNLOAD);
             assertThat(field.i18nNamespace()).isEqualTo(NovelPlugin.ID);
-            assertThat(field.type()).isEqualTo(GuiConfigFieldType.INT);
-            assertThat(field.defaultValue()).isEqualTo("10");
-            assertThat(field.minValue()).isEqualTo(1);
-            assertThat(field.maxValue()).isNull();
             assertThat(field.sensitive()).isFalse();
             assertThat(field.effect()).isEqualTo(GuiConfigEffect.BACKEND_RESTART);
         });
 
         Properties chinese = loadProperties("/i18n/web/novel.properties");
         Properties english = loadProperties("/i18n/web/novel_en.properties");
+        assertThat(plugin.i18n()).anySatisfy(bundle -> {
+            assertThat(bundle.namespace()).isEqualTo(NovelPlugin.ID);
+            assertThat(bundle.baseName()).isEqualTo("i18n.web.novel");
+        });
+        assertThat(contribution.sections()).allSatisfy(section -> {
+            assertThat(english).containsKeys(section.titleKey(), section.helpKey());
+            section.fieldLayouts().stream().filter(layout -> !layout.cardLabelKey().isBlank())
+                    .forEach(layout -> assertThat(english).containsKey(layout.cardLabelKey()));
+        });
         assertThat(contribution.fields()).allSatisfy(field -> {
             assertThat(chinese).containsKeys(field.labelKey(), field.helpKey());
             assertThat(english).containsKeys(field.labelKey(), field.helpKey());

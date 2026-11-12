@@ -29,6 +29,7 @@ class ConfigFieldRegistryTest {
                 (proxy, method, args) -> switch (method.getName()) {
                     case "coreConfigGroups" -> List.of(new GuiConfigGroupContribution("sample", "gui.config.group.download", 1));
                     case "coreConfigFields" -> List.of(field);
+                    case "coreConfigSections" -> List.of();
                     case "message" -> messages.get(args[0]);
                     case "resolveLocale" -> {
                         var locale = new DesktopUiHost.UiLocale("en-US", "English", "en");

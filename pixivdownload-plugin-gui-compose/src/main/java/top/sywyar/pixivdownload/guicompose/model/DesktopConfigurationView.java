@@ -431,6 +431,10 @@ final class DesktopConfigurationView {
         String category = groupCategories.get(field.spec().groupId());
         if (category != null) formValues.put("settings.category", category);
         for (ConfigSection section : model.configSections) {
+            if (section.layout() == GuiConfigSectionLayout.DIRECTORY_TEMPLATES
+                    && section.layouts().stream().skip(1).anyMatch(layout -> layout.field().equals(field.key()))) {
+                model.directoryRows.add(field.key());
+            }
             if (section.layout() != GuiConfigSectionLayout.CARD_SWITCHER) continue;
             section.layouts().stream().filter(layout -> layout.field().equals(field.key()))
                     .filter(layout -> layout.cardId() != null).findFirst().ifPresent(layout ->
@@ -541,6 +545,19 @@ final class DesktopConfigurationView {
             Map<String, Runnable> nextActions
     ) {
         String base = "config.section." + safeId(section.id());
+        if (section.layout() == GuiConfigSectionLayout.DIRECTORY_TEMPLATES
+                && section.actions().isEmpty() && section.presets().isEmpty()
+                && section.layouts().stream().allMatch(layout -> fields.field(layout.field()) != null
+                    && fields.field(layout.field()).spec().type() == GuiConfigFieldType.DIRECTORY_TEMPLATE)) {
+            return new DesktopDirectoryTemplatesView(model, fields).build(
+                    section,
+                    rendered,
+                    locked,
+                    nextBindings,
+                    nextSelections,
+                    nextActions
+            );
+        }
         List<DesktopUiNode> nodes = new ArrayList<>();
         if (section.layout() != GuiConfigSectionLayout.CARD_SWITCHER) {
             nodes.addAll(configNoticeNodes(base, section.notices(), null));

@@ -1665,6 +1665,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     enum FormStyle {
         /** 紧凑标签与控件。 */ COMPACT,
         /** 响应式标签宽度。 */ RESPONSIVE,
+        /** 目录覆盖列表，行内包含模式选择、模板与移除动作。 */ DIRECTORY_OVERRIDES,
         /** 只读键值呈现。 */ KEY_VALUE
     }
     /** 逻辑方向。 */

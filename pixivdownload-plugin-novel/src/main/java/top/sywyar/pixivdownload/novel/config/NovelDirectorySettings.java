@@ -25,10 +25,10 @@ public final class NovelDirectorySettings {
     private final Map<String, String> overrides;
 
     public NovelDirectorySettings(String root, Map<String, String> overrides) {
-        WorkDirectoryTemplate.parse(root);
+        WorkDirectoryTemplate.parse(root, ROOT_KEY);
         overrides.forEach((mode, template) -> {
             DownloadAcquisitionMode.fromCode(mode);
-            if (!template.isBlank()) WorkDirectoryTemplate.parse(template);
+            if (!template.isBlank()) WorkDirectoryTemplate.parse(template, MODE_PREFIX + mode);
         });
         this.root = root;
         this.overrides = Map.copyOf(overrides);

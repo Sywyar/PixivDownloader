@@ -462,6 +462,59 @@ class SettingsWorkspaceTest {
         } finally { subscription.close(); model.close() }
     }
 
+    @Test
+    @DisplayName("目录覆盖在完整设置页支持增删、模式选择、保存及浅深色窄窗口")
+    fun directoryTemplateList() {
+        for (theme in listOf("light", "dark")) runComposeUiTest(
+            effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
+        ) {
+            val stored = mutableMapOf<String, String>()
+            val model = DirectoryTemplateSettingsTest.model(stored, false)
+            var snapshot by mutableStateOf(model.snapshot())
+            var narrow by mutableStateOf(false)
+            val subscription = model.subscribeSnapshots { snapshot = it }
+            try {
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(1f, if (narrow) 1.3f else 1f)) {
+                        PixivDownloaderTheme(theme) {
+                            Box(Modifier.size(if (narrow) 530.dp else 1050.dp, 650.dp)
+                                .background(LocalExperiencePalette.current.surface)) {
+                                SettingsWorkspace(workspace(snapshot), ::resolve, { model.dispatch(snapshot, it) })
+                            }
+                        }
+                    }
+                }
+                onNodeWithText(resolve(TextToken.key("gui.config.group.download"))).performClick()
+                onNodeWithTag("config.app.fixture.user.input").assertIsDisplayed()
+                onNodeWithTag("config.app.fixture.series.input").assertDoesNotExist()
+                capture("directories-$theme-wide")
+                onNodeWithTag("config.section.fixture-directories.add").performClick()
+                onNodeWithContentDescription("fixture.series").assertIsFocused()
+                onNodeWithContentDescription("fixture.series").performScrollTo().performTextReplacement("pictures/{series_id}/{artwork_id}")
+                assertTrue(stored.isEmpty())
+                onNodeWithTag("config.app.fixture.series.mode").performClick()
+                onAllNodesWithText(resolve(TextToken.key("gui.config.directory.mode.series"))).onLast().performClick()
+                onNodeWithTag("config.save").performClick()
+                waitUntil(timeoutMillis = 5000) { !model.busy() && stored.containsKey("fixture.series") }
+                assertEquals("pictures/{series_id}/{artwork_id}", stored["fixture.series"])
+                model.dispatch(model.snapshot(), Event(EventType.ACTIVATE, "config.restart.later", Value.empty()))
+                runOnIdle { narrow = true }
+                onNodeWithTag("config.app.fixture.series.input").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("config.app.fixture.series.remove").assertIsDisplayed()
+                capture("directories-$theme-narrow")
+                onNodeWithTag("config.app.fixture.series.remove").performClick()
+                onNodeWithTag("config.app.fixture.series.input").assertDoesNotExist()
+                assertEquals("pictures/{series_id}/{artwork_id}", stored["fixture.series"])
+                onNodeWithTag("config.save").performClick()
+                waitUntil(timeoutMillis = 5000) { !model.busy() && stored["fixture.series"] == "" }
+                assertEquals("", stored["fixture.series"])
+            } finally {
+                subscription.close()
+                model.close()
+            }
+        }
+    }
+
     private fun createModel(stored: MutableMap<String, String>): ComposeDesktopUiModel {
         val fields = listOf(
             GuiConfigFieldContribution("download.root-folder", GuiConfigGroups.DOWNLOAD, "Download folder", "Folder for new downloads",

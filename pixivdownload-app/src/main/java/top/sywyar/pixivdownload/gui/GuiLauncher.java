@@ -451,14 +451,14 @@ public class GuiLauncher {
      * 使行为可预测、可诊断，而不是静默消失。
      */
     private static void handleFatalGuiBootstrapFailure(Throwable t) {
-        logStartupFailure(t);
+        String diag = logStartupFailure(t);
         try {
             DesktopUiDialogs.show(
                     null,
                     message("gui.launcher.dialog.startup-error.title"),
                     message("gui.launcher.dialog.startup-error.with-log.message",
-                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()),
-                    t);
+                            diag != null ? diag : safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()),
+                    null);
         } catch (Throwable dialogFailure) {
             log.error(logMessage("gui.launcher.log.startup.failed.generic",
                     safeMessage(dialogFailure)), dialogFailure);
@@ -581,14 +581,14 @@ public class GuiLauncher {
                 message("gui.launcher.dialog.startup-error.title"),
                 message("gui.launcher.dialog.startup-error.with-log.message",
                         userMessage, Path.of(LOG_LATEST).toAbsolutePath()),
-                error
+                null
         );
     }
 
     private static String logStartupFailure(Throwable t) {
         String diag = diagnoseStartupError(t);
         if (diag != null) {
-            log.error(logMessage("gui.launcher.log.startup.failed.diagnostic", diag), t);
+            log.error(logMessage("gui.launcher.log.startup.failed.diagnostic", diagnoseStartupError(t, true)), t);
         } else {
             log.error(logMessage("gui.launcher.log.startup.failed.generic", safeMessage(t)), t);
         }
@@ -600,8 +600,21 @@ public class GuiLauncher {
      * 未识别的异常返回 null，由调用方按通用错误处理。
      */
     private static String diagnoseStartupError(Throwable error) {
+        return diagnoseStartupError(error, false);
+    }
+
+    private static String diagnoseStartupError(Throwable error, boolean forLog) {
         Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        String diagnostic = null;
         for (Throwable cause = error; cause != null && visited.add(cause); cause = cause.getCause()) {
+            if (cause instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure) {
+                String detail = diagnosticMessage(forLog, "directory-template." + failure.reason(),
+                        "{" + failure.variable() + "}");
+                return failure.configurationKey().isEmpty() ? detail : diagnosticMessage(forLog,
+                        "gui.launcher.diagnostic.directory-template", failure.configurationKey(), detail);
+            }
+            // 先保留关键词诊断，异常链中的明确业务原因优先。
+            if (diagnostic != null) continue;
             String name = cause.getClass().getName();
             String msg = cause.getMessage() == null ? "" : cause.getMessage();
             String low = msg.toLowerCase(Locale.ROOT);
@@ -611,18 +624,21 @@ public class GuiLauncher {
                     || low.contains("address already in use")
                     || low.contains("failed to bind")) {
                 String port = extractPort(msg);
-                String portHint = port == null ? message("gui.launcher.diagnostic.port.placeholder") : port;
+                String portHint = port == null ? diagnosticMessage(forLog, "gui.launcher.diagnostic.port.placeholder") : port;
                 if (port == null) {
-                    return message("gui.launcher.diagnostic.port-in-use.without-port", portHint, msg);
+                    diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.port-in-use.without-port", portHint, msg);
+                } else {
+                    diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.port-in-use.with-port", port, portHint, msg);
                 }
-                return message("gui.launcher.diagnostic.port-in-use.with-port", port, portHint, msg);
+                continue;
             }
 
             if ((cause instanceof NoSuchFileException
                     || cause instanceof FileNotFoundException
                     || low.contains("nosuchfileexception"))
                     && hasAny(low, "ssl", "cert", "key", "pem", "jks", "store", "p12", "pkcs12")) {
-                return message("gui.launcher.diagnostic.ssl-file-not-found", msg);
+                diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.ssl-file-not-found", msg);
+                continue;
             }
 
             if (name.endsWith("UnrecoverableKeyException")
@@ -630,7 +646,8 @@ public class GuiLauncher {
                     || low.contains("password was incorrect")
                     || low.contains("wrong password")
                     || low.contains("given final block not properly padded")) {
-                return message("gui.launcher.diagnostic.ssl-password-invalid", msg);
+                diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.ssl-password-invalid", msg);
+                continue;
             }
 
             if (name.endsWith("CertificateException")
@@ -640,7 +657,8 @@ public class GuiLauncher {
                     || low.contains("unable to read")
                     || (low.contains("keystore") && low.contains("not"))
                     || low.contains("invalid keystore format")) {
-                return message("gui.launcher.diagnostic.ssl-invalid-format", msg);
+                diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.ssl-invalid-format", msg);
+                continue;
             }
 
             if (name.contains("yaml")
@@ -649,16 +667,21 @@ public class GuiLauncher {
                     || msg.contains("ScannerException")
                     || msg.contains("ParserException")
                     || msg.contains("mapping values")) {
-                return message("gui.launcher.diagnostic.config-yaml-invalid", msg);
+                diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.config-yaml-invalid", msg);
+                continue;
             }
 
             if (cause instanceof AccessDeniedException
                     || low.contains("permission denied")
                     || msg.contains("拒绝访问")) {
-                return message("gui.launcher.diagnostic.permission-denied", msg);
+                diagnostic = diagnosticMessage(forLog, "gui.launcher.diagnostic.permission-denied", msg);
             }
         }
-        return null;
+        return diagnostic;
+    }
+
+    private static String diagnosticMessage(boolean forLog, String code, Object... args) {
+        return forLog ? logMessage(code, args) : message(code, args);
     }
 
     /**

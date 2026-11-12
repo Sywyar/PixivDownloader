@@ -64,6 +64,7 @@ final class DesktopConfigurationController {
     volatile Set<FieldKey> storedCredentialFields = Set.of();
     volatile List<ConfigField> configFields = List.of();
     volatile List<ConfigSection> configSections = List.of();
+    final Set<FieldKey> directoryRows = new LinkedHashSet<>();
     volatile boolean debugUnlocked;
     volatile Map<String, ConfigField> fieldBindings = Map.of();
     volatile String configNotice = "";
