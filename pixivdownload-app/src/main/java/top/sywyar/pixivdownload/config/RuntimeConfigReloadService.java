@@ -18,7 +18,6 @@ import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.core.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
@@ -54,7 +53,6 @@ public class RuntimeConfigReloadService {
     private static final Pattern SAFE_CONFIG_KEY = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
     private static final String RUNTIME_CONFIG_PROPERTY_SOURCE = "pixivdownloadRuntimeConfig";
 
-    private final DownloadConfig downloadConfig;
     private final MultiModeConfig multiModeConfig;
     private final GuestInviteConfig guestInviteConfig;
     private final SetupProperties setupProperties;
@@ -76,7 +74,6 @@ public class RuntimeConfigReloadService {
     public synchronized ReloadResult reloadHotConfig(List<String> changedKeys) throws IOException {
         List<String> requestedChangedKeys = normalizeChangedKeys(changedKeys);
         Binder binder = loadBinder();
-        DownloadConfig nextDownload = bind(binder, "download", DownloadConfig::new, DownloadConfig.class);
         MultiModeConfig nextMultiMode = bind(binder, "multi-mode", MultiModeConfig::new, MultiModeConfig.class);
         GuestInviteConfig nextGuestInvite = bind(binder, "guest-invite", GuestInviteConfig::new, GuestInviteConfig.class);
         SetupProperties nextSetup = bind(binder, "setup", SetupProperties::new, SetupProperties.class);
@@ -89,7 +86,6 @@ public class RuntimeConfigReloadService {
         ScheduleConfig nextSchedule = bind(binder, "schedule", ScheduleConfig::new, ScheduleConfig.class);
 
         Set<String> applied = new LinkedHashSet<>();
-        applyDownloadConfig(nextDownload, applied);
         applyMultiModeConfig(nextMultiMode, applied);
         applyGuestInviteConfig(nextGuestInvite, applied);
         applySetupConfig(nextSetup, applied);
@@ -143,14 +139,6 @@ public class RuntimeConfigReloadService {
 
     private <T> T bind(Binder binder, String prefix, Supplier<T> fallback, Class<T> type) {
         return binder.bind(prefix, Bindable.of(type)).orElseGet(fallback);
-    }
-
-    private void applyDownloadConfig(DownloadConfig next, Set<String> applied) {
-        applyIfChanged(applied,
-                "download.user-flat-folder",
-                downloadConfig.isUserFlatFolder(),
-                next.isUserFlatFolder(),
-                () -> downloadConfig.setUserFlatFolder(next.isUserFlatFolder()));
     }
 
     private void applyScheduleConfig(ScheduleConfig next, Set<String> applied) {

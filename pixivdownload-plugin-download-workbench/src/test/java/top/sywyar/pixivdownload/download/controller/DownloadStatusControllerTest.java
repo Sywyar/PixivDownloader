@@ -53,6 +53,25 @@ class DownloadStatusControllerTest {
     @DisplayName("GET /api/download/status/{artworkId}")
     class GetDownloadStatusTests {
 
+        @Test @DisplayName("目录错误在轮询请求语言下展开，保留稳定错误码")
+        void directoryErrorUsesRequestLocale() throws Exception {
+            var task = new DownloadStatus(12345L, "title", 1);
+            task.setFailed(true);
+            task.setCompleted(true);
+            task.setErrorCode("directory-template.missing-variable");
+            task.setErrorMessageKey(task.getErrorCode());
+            task.setErrorMessageArgs(new Object[]{"username"});
+            when(requestOwnerIdentityResolver.resolve(any())).thenReturn(RequestOwnerIdentity.adminScope());
+            when(artworkDownloadExecutor.getDownloadStatus(12345L)).thenReturn(task);
+            for (Locale locale : List.of(Locale.US, Locale.JAPAN)) {
+                String reason = MESSAGES.get(locale, task.getErrorCode(), "username");
+                mockMvc.perform(get("/api/download/status/12345").locale(locale))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.errorCode").value(task.getErrorCode()))
+                        .andExpect(jsonPath("$.message").value(containsString(reason)));
+            }
+        }
+
         @Test
         @DisplayName("已存在的下载任务应返回状态")
         void shouldReturnDownloadStatus() throws Exception {

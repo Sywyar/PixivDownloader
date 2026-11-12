@@ -41,4 +41,11 @@ public enum DownloadAcquisitionMode {
     public String code() {
         return code;
     }
+
+    /** 从明确的来源代码解析模式；没有来源信息时不猜测作品所属模式。 */
+    public static DownloadAcquisitionMode fromCode(String code) {
+        if (code == null || code.isBlank()) return null;
+        for (var mode : values()) if (mode.code.equals(code)) return mode;
+        throw new IllegalArgumentException("Unknown download acquisition mode");
+    }
 }

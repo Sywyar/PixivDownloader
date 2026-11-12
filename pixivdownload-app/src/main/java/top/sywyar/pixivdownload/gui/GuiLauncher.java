@@ -280,7 +280,7 @@ public class GuiLauncher {
                     serverPort = Integer.parseInt(portStr.trim());
                 }
                 if (rootStr != null && !rootStr.isBlank()) {
-                    rootFolder = rootStr.trim();
+                    rootFolder = RuntimeFiles.normalizeRootFolder(rootStr);
                 }
             } catch (Exception e) {
                 log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));

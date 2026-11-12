@@ -140,7 +140,10 @@
             }
             const kind = sourceType === SOURCE.USER_REQUEST
                 ? 'illust' : (state.settings.userKind === 'novel' ? 'novel' : 'illust');
-            return {source: {userId}, kind, label: ''};
+            const saved = parseParams(context.editingTask)?.source;
+            const username = String(userState.userId || '') === String(userId) && userState.username
+                ? String(userState.username) : String(saved?.userId || '') === String(userId) ? String(saved.username || '') : '';
+            return {source: {userId, username}, kind, label: ''};
         }
         if (sourceType === SOURCE.SEARCH) {
             const word = ((document.getElementById('search-word') || {}).value || '').trim();
@@ -235,6 +238,7 @@
                 ...existing,
                 kind: selected.kind,
                 source: {...existing.source, ...selected.source,
+                    ...(!context.editingTask ? {acquisitionMode: context.mode === QUICK_FETCH_MODE ? 'quick' : context.mode} : {}),
                     ...(context.mode === QUICK_FETCH_MODE && sourceType !== SOURCE.FOLLOW_LATEST ? {myPixiv: true} : {})},
                 filters,
                 download: {...existing.download, ...snapshotDownload()},

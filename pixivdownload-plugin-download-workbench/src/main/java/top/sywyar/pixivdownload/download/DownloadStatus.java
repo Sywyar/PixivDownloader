@@ -17,6 +17,8 @@ public class DownloadStatus {
     private volatile boolean cancelled;
     private String errorMessage;
     private String errorCode;
+    private String errorMessageKey;
+    private Object[] errorMessageArgs = new Object[0];
     private String folderName;
     private String downloadPath;
     private int successCount;
@@ -85,5 +87,11 @@ public class DownloadStatus {
             return new Object[]{String.valueOf(currentImageIndex + 1), String.valueOf(totalImages)};
         }
         return new Object[0];
+    }
+
+    /** 在请求或订阅语言下展开受控错误，任务本身保留 key 和参数。 */
+    public Object[] getStatusMessageArgs(top.sywyar.pixivdownload.i18n.MessageResolver messages, java.util.Locale locale) {
+        return failed && errorMessageKey != null
+                ? new Object[]{messages.get(locale, errorMessageKey, errorMessageArgs)} : getStatusMessageArgs();
     }
 }

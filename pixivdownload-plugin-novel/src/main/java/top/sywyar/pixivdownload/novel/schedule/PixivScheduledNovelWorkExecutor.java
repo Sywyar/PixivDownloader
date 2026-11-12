@@ -231,6 +231,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         PixivNovelMetadata.SeriesMetadata series = fetchSeriesBestEffort(
                 context.task(), metadata.seriesId(), cookie);
         NovelDownloadRequest request = createRequest(metadata, series, definition.download(), cookie);
+        request.getOther().setAcquisitionMode(definition.source().path("acquisitionMode").asString(null));
+        request.getOther().setUsername(definition.source().path("username").asString(null));
         request.getOther().setPathOverflowAction(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED")
                 .orElse(definition.download().pathOverflowAction().name()));
         context.cancellation().throwIfCancellationRequested();

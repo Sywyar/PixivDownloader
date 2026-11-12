@@ -8,18 +8,18 @@ import java.nio.file.Path;
 public interface CollectionDownloadRootResolver {
 
     /**
-     * 收藏夹不存在或未配置独立目录时返回 {@code defaultRoot}。
+     * 同次读取下载目录与收藏夹名称；收藏夹不存在或未配置独立目录时使用 {@code defaultRoot}。
      *
      * @param collectionId 合集标识
      * @param defaultRoot 默认值根目录
-     * @return 方法返回的 {@code Path} 实例
+     * @return 本次下载使用的目录与命名快照
      */
-    Path resolveDownloadRoot(long collectionId, Path defaultRoot);
+    Context resolve(long collectionId, Path defaultRoot);
 
     /**
-     * 查询下载命名使用的收藏夹名称。
-     * @param collectionId 收藏夹标识
-     * @return 当前名称；收藏夹不存在时返回 null
+     * 收藏夹目录与名称的同次读取结果。
+     * @param root 有效下载根目录
+     * @param name 当前名称；收藏夹不存在时为 null
      */
-    String collectionName(long collectionId);
+    record Context(Path root, String name) {}
 }

@@ -216,6 +216,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
         ScheduleTaskSnapshot.Download download = snapshot.download();
         DownloadRequest.Other other = new DownloadRequest.Other();
+        other.setAcquisitionMode(snapshot.source().path("acquisitionMode").asString(null));
+        other.setUsername(snapshot.source().path("username").asString(null));
         other.setAuthorId(meta.authorId());
         other.setAuthorName(meta.authorName());
         other.setXRestrict(meta.xRestrict());

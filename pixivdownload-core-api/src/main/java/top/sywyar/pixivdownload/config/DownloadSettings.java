@@ -7,18 +7,22 @@ package top.sywyar.pixivdownload.config;
 public interface DownloadSettings {
 
     /**
-     * 返回根目录目录。
+     * 返回默认目录模板的固定前缀，供旧数据探测、归档和路径编解码使用。
      *
-     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     * @return 保留相对或绝对属性的固定路径；不含作品变量
      */
     String getRootFolder();
 
     /**
-     * 判断用户扁平目录目录是否满足条件。
+     * 取得本次来源模式的最终作品目录模板；模式未配置或为空时使用默认模板。
      *
-     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     * @param mode 取得模式的稳定代码；缺少来源信息时传 null
+     * @return 完整目录模板，不含隐式追加层级
      */
-    boolean isUserFlatFolder();
+    String directoryTemplate(String mode);
+
+    /** @return 已配置的模式覆盖快照；空值表示使用默认模板 */
+    java.util.Map<String, String> directoryOverrides();
 
     /**
      * 返回最大值并发。

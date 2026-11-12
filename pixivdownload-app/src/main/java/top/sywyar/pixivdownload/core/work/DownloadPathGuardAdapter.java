@@ -13,6 +13,17 @@ import java.nio.file.Path;
  */
 @Component
 public class DownloadPathGuardAdapter implements DownloadPathGuard {
+    private final top.sywyar.pixivdownload.core.asset.DownloadDirectories directories;
+
+    public DownloadPathGuardAdapter(top.sywyar.pixivdownload.core.asset.DownloadDirectories directories) {
+        this.directories = directories;
+    }
+
+    @Override
+    public void prepareDirectory(top.sywyar.pixivdownload.core.work.model.WorkType type, long id, Path directory)
+            throws java.io.IOException {
+        directories.prepare(type, id, directory);
+    }
 
     @Override
     public DownloadPathLimits limits(Path directory) {

@@ -8,7 +8,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "artwork-id",
         "numeric": true,
         "download": true,
-        "importing": true
+        "importing": true,
+        "directory": true,
+        "directoryOptional": false
     },
     {
         "id": "artworkTitle",
@@ -16,7 +18,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "artwork-title",
         "numeric": false,
         "download": true,
-        "importing": true
+        "importing": true,
+        "directory": true,
+        "directoryOptional": false
     },
     {
         "id": "authorId",
@@ -24,7 +28,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "author-id",
         "numeric": true,
         "download": true,
-        "importing": true
+        "importing": true,
+        "directory": true,
+        "directoryOptional": false
     },
     {
         "id": "authorName",
@@ -32,7 +38,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "author-name",
         "numeric": false,
         "download": true,
-        "importing": true
+        "importing": true,
+        "directory": true,
+        "directoryOptional": false
     },
     {
         "id": "collectionName",
@@ -40,7 +48,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "collection-name",
         "numeric": false,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
     },
     {
         "id": "collectionId",
@@ -48,7 +58,29 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "collection-id",
         "numeric": true,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
+    },
+    {
+        "id": "seriesId",
+        "token": "series_id",
+        "label": "series-id",
+        "numeric": true,
+        "download": false,
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
+    },
+    {
+        "id": "username",
+        "token": "username",
+        "label": "username",
+        "numeric": false,
+        "download": false,
+        "importing": false,
+        "directory": true,
+        "directoryOptional": false
     },
     {
         "id": "timestamp",
@@ -56,7 +88,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "timestamp",
         "numeric": true,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "page",
@@ -64,7 +98,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "page",
         "numeric": true,
         "download": true,
-        "importing": true
+        "importing": true,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "count",
@@ -72,7 +108,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "count",
         "numeric": true,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "ai",
@@ -80,7 +118,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "ai",
         "numeric": false,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "ai+",
@@ -88,7 +128,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "ai-plus",
         "numeric": false,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "R18",
@@ -96,7 +138,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "r18",
         "numeric": false,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": true,
+        "directoryOptional": true
     },
     {
         "id": "R18+",
@@ -104,7 +148,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "r18-plus",
         "numeric": false,
         "download": true,
-        "importing": false
+        "importing": false,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "extension",
@@ -112,7 +158,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "extension",
         "numeric": false,
         "download": false,
-        "importing": true
+        "importing": true,
+        "directory": false,
+        "directoryOptional": false
     },
     {
         "id": "name",
@@ -120,7 +168,9 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "label": "name",
         "numeric": false,
         "download": false,
-        "importing": true
+        "importing": true,
+        "directory": false,
+        "directoryOptional": false
     }
 ].map(Object.freeze));
 // END GENERATED WORK FILE VARIABLES

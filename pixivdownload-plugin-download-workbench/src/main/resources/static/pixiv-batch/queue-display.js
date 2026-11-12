@@ -44,9 +44,9 @@ function queueStatusText(status) {
     }[status] || status;
 }
 
-function queueAcquisitionMode(source) {
+function queueAcquisitionMode(source, fallback = 'single-import') {
     const normalizedSource = String(source || '').trim();
-    if (normalizedSource === QUICK_FETCH_MODE
+    if (normalizedSource === 'quick' || normalizedSource === QUICK_FETCH_MODE
         || normalizedSource.startsWith(QUICK_FETCH_MODE + '-')) return 'quick';
     if (normalizedSource === SINGLE_IMPORT_MODE
         || normalizedSource.startsWith(SINGLE_IMPORT_MODE + '-')) return 'single-import';
@@ -54,7 +54,12 @@ function queueAcquisitionMode(source) {
     if (normalizedSource === 'search' || normalizedSource.startsWith('search-')) return 'search';
     if (normalizedSource === 'series' || normalizedSource.startsWith('series-')) return 'series';
     if (normalizedSource === 'schedule' || normalizedSource.startsWith('schedule-')) return 'schedule';
-    return 'single-import';
+    return fallback;
+}
+
+function queueDownloadMode(source) {
+    const mode = queueAcquisitionMode(source, null);
+    return mode === 'schedule' ? null : mode;
 }
 
 function queueSourceText(source) {

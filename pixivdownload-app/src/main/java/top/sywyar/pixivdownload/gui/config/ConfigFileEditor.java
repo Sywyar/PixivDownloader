@@ -110,6 +110,7 @@ public class ConfigFileEditor {
         synchronized (WRITE_LOCK) {
             String safeKey = requireSafeKey(key);
             String safeValue = requireSafeValue(value);
+            top.sywyar.pixivdownload.core.appconfig.DownloadConfig.validateValue(safeKey, safeValue);
             List<String> lines = new ArrayList<>(readLines());
             boolean found = false;
             for (int i = 0; i < lines.size(); i++) {
@@ -371,7 +372,10 @@ public class ConfigFileEditor {
         }
         Map<String, String> safe = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : values.entrySet()) {
-            safe.put(requireSafeKey(entry.getKey()), requireSafeValue(entry.getValue()));
+            String key = requireSafeKey(entry.getKey());
+            String value = requireSafeValue(entry.getValue());
+            top.sywyar.pixivdownload.core.appconfig.DownloadConfig.validateValue(key, value);
+            safe.put(key, value);
         }
         return safe;
     }

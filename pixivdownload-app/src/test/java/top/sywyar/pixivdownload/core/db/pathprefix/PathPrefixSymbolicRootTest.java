@@ -249,7 +249,7 @@ class PathPrefixSymbolicRootTest {
         @DisplayName("绝对 root 时符号根不启用，但 {0} 引用仍可解析")
         void shouldStayInactiveButResolvableWithAbsoluteRoot() {
             DownloadConfig absConfig = new DownloadConfig();
-            absConfig.setRootFolder(tempDir.resolve("abs-root").toString());
+            absConfig.setRootFolder(tempDir.resolve("abs-root").toString() + "/{artworkId}");
             PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
             absCodec.init();
 
@@ -342,7 +342,7 @@ class PathPrefixSymbolicRootTest {
         @BeforeEach
         void setUpAbsoluteRoot() {
             absConfig = new DownloadConfig();
-            absConfig.setRootFolder(tempDir.resolve("abs-root").toString());
+            absConfig.setRootFolder(tempDir.resolve("abs-root").toString() + "/{artworkId}");
             absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
             absCodec.init();
         }

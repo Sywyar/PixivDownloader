@@ -30,6 +30,7 @@ class LocalWorkFileImporterTest {
     private Path source;
     private Path output;
     private ExternalWorkFiles externalFiles;
+    private top.sywyar.pixivdownload.core.asset.DownloadDirectories directories;
     private top.sywyar.pixivdownload.author.AuthorMapper authorMapper;
     private top.sywyar.pixivdownload.author.AuthorService authors;
     private final List<DownloadEvent> events = new ArrayList<>();
@@ -48,13 +49,14 @@ class LocalWorkFileImporterTest {
                 registry.contributions(), registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         settings = new DownloadConfig();
-        settings.setRootFolder(output.toString());
+        settings.setRootFolder(output.toString() + "/{artworkId}");
         var codec = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), settings, TestI18nBeans.appMessages());
         codec.init();
         database = new PixivDatabase(new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         database.init();
         history = new ArtworkDownloadHistoryAdapter(database);
         externalFiles = new ExternalWorkFiles(DatabaseProviderTestFixtures.main(dataSource), codec, initializer);
+        directories = new top.sywyar.pixivdownload.core.asset.DownloadDirectories(DatabaseProviderTestFixtures.main(dataSource), codec, initializer);
         authorMapper = new top.sywyar.pixivdownload.author.AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         authors = new top.sywyar.pixivdownload.author.AuthorService(authorMapper, database,
                 org.mockito.Mockito.mock(org.springframework.web.client.RestTemplate.class),
@@ -69,7 +71,7 @@ class LocalWorkFileImporterTest {
                 null, null, List.of(), source, paths, null);
     }
     private LocalWorkFileImporter importer(ArtworkDownloadHistory target) {
-        return new LocalWorkFileImporter(target, database, externalFiles, new DataSourceTransactionManager(dataSource), lifecycle, authors::observe);
+        return new LocalWorkFileImporter(target, database, externalFiles, new DataSourceTransactionManager(dataSource), lifecycle, authors::observe, directories);
     }
     @Test @DisplayName("纯本地登记保存文件引用，未知元数据保持为空且重复执行不覆盖")
     void importsLocalFactsWithoutMetadata() throws Exception {

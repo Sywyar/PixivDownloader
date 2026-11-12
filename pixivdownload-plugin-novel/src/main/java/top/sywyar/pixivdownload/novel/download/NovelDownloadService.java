@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivBookmarkActions;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
-import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.runtime.download.queue.QueueStatusRetention;
@@ -82,7 +81,7 @@ public class NovelDownloadService implements NovelDownloader {
 
     private final WorkAssetService workAssets;
     private final RuntimePathProvider runtimePaths;
-    private final DownloadSettings downloadConfig;
+    private final top.sywyar.pixivdownload.novel.config.NovelDirectorySettings downloadConfig;
     private final WorkFileNameCatalog workFileNameCatalog;
     private final DownloadPathGuard downloadPathGuard;
     private final NovelDatabase novelDatabase;
@@ -105,7 +104,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker;
 
-    public NovelDownloadService(DownloadSettings downloadConfig,
+    public NovelDownloadService(top.sywyar.pixivdownload.novel.config.NovelDirectorySettings downloadConfig,
                                 WorkFileNameCatalog workFileNameCatalog,
                                 DownloadPathGuard downloadPathGuard,
                                 NovelDatabase novelDatabase,
@@ -209,24 +208,31 @@ public class NovelDownloadService implements NovelDownloader {
     private FilePlan filePlan(NovelDownloadRequest request) {
         NovelDownloadRequest.Other other = request.getOther() == null
                 ? new NovelDownloadRequest.Other() : request.getOther();
-        validateUserDownloadFolder(other);
-        Path root = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
-        Path directory = root;
-        if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
-            directory = directory.resolve(downloadPathGuard.requireSafeDirectoryName(other.getUsername()));
-            if (other.getXRestrict() == 2) directory = directory.resolve("R18G");
-            else if (other.getXRestrict() == 1) directory = directory.resolve("R18");
-        }
-        directory = directory.resolve("novel-" + request.getNovelId()).normalize();
+        var directoryTemplate = top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(
+                downloadConfig.directoryTemplate(other.directoryMode()));
+        var collection = other.getCollectionId() == null
+                ? new CollectionDownloadRootResolver.Context(directoryTemplate.fixedPrefix(), null)
+                : collectionDownloadRootResolver.resolve(other.getCollectionId(), directoryTemplate.fixedPrefix());
+        Path root = collection.root().toAbsolutePath().normalize();
+        String collectionName = collection.name();
+        Long collectionId = collectionName == null ? null : other.getCollectionId();
+        var values = new java.util.HashMap<String, String>();
+        values.put("artworkId", String.valueOf(request.getNovelId()));
+        values.put("artworkTitle", request.getTitle());
+        values.put("authorId", other.getAuthorId() == null ? null : other.getAuthorId().toString());
+        values.put("authorName", other.getAuthorName());
+        values.put("username", other.getUsername());
+        values.put("collectionId", collectionId == null ? null : collectionId.toString());
+        values.put("collectionName", collectionName);
+        values.put("seriesId", other.getSeriesId() == null ? null : other.getSeriesId().toString());
+        values.put("R18", other.getXRestrict() == 2 ? "R18G" : other.getXRestrict() == 1 ? "R18" : "");
+        Path directory = directoryTemplate.resolve(root, values);
         downloadPathGuard.requireWithinRoot(root, directory);
         long preferred = other.getUploadTimestamp() != null ? EpochMillisNormalizer.normalize(other.getUploadTimestamp())
                 : other.getFileNameTimestamp() == null ? System.currentTimeMillis()
                 : EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
         long timestamp = novelDatabase.getUniqueTime(preferred);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
-        String collectionName = other.getCollectionId() == null ? null
-                : collectionDownloadRootResolver.collectionName(other.getCollectionId());
-        Long collectionId = collectionName == null ? null : other.getCollectionId();
         var supported = downloadPathGuard.pathSupport(directory);
         List<String> fixed = new java.util.ArrayList<>();
         fixed.add("0".repeat(WorkAssetService.PUBLICATION_TEMPORARY_NAME_LENGTH));
@@ -314,7 +320,7 @@ public class NovelDownloadService implements NovelDownloader {
             Path downloadRoot = plan.root();
             Path downloadPath = plan.directory();
             downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
-            Files.createDirectories(downloadPath);
+            downloadPathGuard.prepareDirectory(WorkType.NOVEL, novelId, downloadPath);
             status.setDownloadPath(downloadPath.toString());
             ensureNotCancelled(status);
 
@@ -482,7 +488,12 @@ public class NovelDownloadService implements NovelDownloader {
             throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
-            status.fail(e instanceof DownloadPathRejectedException
+            if (e instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException directory) {
+                status.setErrorCode("directory-template." + directory.reason());
+                status.setErrorMessageKey(status.getErrorCode());
+                status.setErrorMessageArgs(new Object[]{directory.variable()});
+                status.fail(null);
+            } else status.fail(e instanceof DownloadPathRejectedException
                     ? messages.get("download.path.segment.invalid", other.getUsername())
                     : messages.get("error.unexpected"));
         } finally {
@@ -657,12 +668,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    public void validateUserDownloadFolder(NovelDownloadRequest.Other other) {
-        if (other != null && other.isUserDownload() && other.getUsername() != null) {
-            downloadPathGuard.requireSafeDirectoryName(other.getUsername());
-        }
-    }
-
     /**
      * 在所有 owner 中查找首个匹配 novelId 的下载状态。
      * 仅用于 admin / solo 路径——multi 模式下两个用户并发下载同一小说时返回任意一方，不保证稳定性。
@@ -681,14 +686,6 @@ public class NovelDownloadService implements NovelDownloader {
 
     private String statusKey(Long novelId, String ownerUuid) {
         return (ownerUuid == null ? "admin" : ownerUuid) + ":" + novelId;
-    }
-
-    private Path resolveEffectiveDownloadRoot(NovelDownloadRequest.Other other) {
-        Path defaultRoot = Paths.get(downloadConfig.getRootFolder());
-        if (other != null && other.getCollectionId() != null) {
-            return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
-        }
-        return defaultRoot;
     }
 
     private void ensureNotCancelled(NovelDownloadStatus status) {

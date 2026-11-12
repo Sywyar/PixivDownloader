@@ -49,7 +49,8 @@ public class DownloadStatusController {
         log.info("artworkId: {},totalImages: {},downloadedCount: {}", artworkId, status.getTotalImages(), status.getDownloadedCount());
         return ResponseEntity.ok(DownloadStatusResponse.builder()
                 .success(true)
-                .message(messages.get(status.getStatusMessageCode(), status.getStatusMessageArgs()))
+                .message(messages.get(status.getStatusMessageCode(), status.getStatusMessageArgs(messages,
+                        org.springframework.context.i18n.LocaleContextHolder.getLocale())))
                 .artworkId(artworkId)
                 .title(status.getTitle())
                 .totalImages(status.getTotalImages())

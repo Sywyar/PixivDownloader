@@ -44,8 +44,16 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "debug.enabled: false", "config.template.debug.enabled.comment");
         appendBlankLine(config);
 
-        appendSetting(config, messages, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
-        appendSetting(config, messages, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
+        appendSetting(config, messages, "download.root-folder: " + top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE,
+                "config.template.download.root-folder.comment");
+        config.append(DownloadDirectoryConfigMigration.VERSION_KEY).append(": ")
+                .append(DownloadDirectoryConfigMigration.CURRENT_VERSION).append("\n");
+        for (var mode : top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.values()) {
+            appendSetting(config, messages, "download.mode-templates." + mode.code() + ": "
+                    + (mode == top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.USER_PROFILE
+                    ? top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_USER_TEMPLATE : ""),
+                    "config.template.download.mode-templates.comment");
+        }
         appendSetting(config, messages, "local-import.presets: '[]'", "config.template.local-import.presets.comment");
         appendSetting(config, messages, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
         appendSetting(config, messages, "ffmpeg.executable-path: \"\"", "config.template.ffmpeg.executable-path.comment");

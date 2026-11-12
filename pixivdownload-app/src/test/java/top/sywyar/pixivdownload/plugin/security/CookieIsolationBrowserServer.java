@@ -79,7 +79,7 @@ public final class CookieIsolationBrowserServer {
         Files.createDirectories(root);
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, root.resolve("config").toString());
         System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, root.resolve("state").toString());
-        var config = new DownloadConfig(); config.setRootFolder(root.resolve("works").toString());
+        var config = new DownloadConfig(); config.setRootFolder(root.resolve("works").toString() + "/{artworkId}");
         var messages = TestI18nBeans.appMessages();
         var setup = new SetupService(config, JsonMapper.builderWithJackson2Defaults().build(), new DefaultApplicationArguments(), messages);
         if (!setup.isSetupComplete()) setup.init("cookie-fixture", "cookie-fixture-password", args.length > 2 ? args[2] : "solo");

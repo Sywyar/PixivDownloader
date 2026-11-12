@@ -59,6 +59,7 @@ class ConfigItemTemplateCoverageGuardTest {
      * </ul>
      */
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
+            "download.directory-template-version", // 内部迁移标记，不是用户选项。
             "app.language", "app.theme", "app.config-menu-expand-all", "app.gui-provider",
             "plugin-catalog.repositories", "database.engine",
             "multi-mode.quota.enabled", "multi-mode.quota.max-artworks", "multi-mode.quota.reset-period-hours",

@@ -320,7 +320,8 @@ public final class RuntimeFiles {
     }
 
     public static void prepareRuntimeFiles(String rootFolder, boolean recoverPendingDeletes) {
-        resolveConfigYamlPath();
+        DownloadDirectoryConfigMigration.migrate(resolveConfigYamlPath());
+        rootFolder = normalizeRootFolder(rootFolder);
         resolveImageClassifierPath(rootFolder);
         resolveSetupConfigPath(rootFolder);
         if (recoverPendingDeletes) {
@@ -357,6 +358,9 @@ public final class RuntimeFiles {
             return DEFAULT_DOWNLOAD_ROOT;
         }
         String value = rootFolder.trim();
+        if (value.indexOf('{') >= 0 || value.indexOf('}') >= 0) {
+            return top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(value).fixedPrefix().toString();
+        }
         if (value.matches("(?i)^[a-z]:($|[^/\\\\].*)")) {
             throw new IllegalArgumentException("download root must not be drive-relative: " + value);
         }

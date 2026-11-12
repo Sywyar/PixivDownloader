@@ -196,7 +196,7 @@ class PathPrefixMigrationServiceTest {
     @DisplayName("符号根未启用（绝对 root）时对 id 0 的改写应报 unknown-id")
     void shouldRejectSymbolicRootUpdateWhenInactive(@TempDir Path absRoot) {
         DownloadConfig absConfig = new DownloadConfig();
-        absConfig.setRootFolder(absRoot.toString());
+        absConfig.setRootFolder(absRoot.toString() + "/{artworkId}");
         PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
         absCodec.init();
         PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS, absConfig,
@@ -232,7 +232,7 @@ class PathPrefixMigrationServiceTest {
     void shouldPinSymbolicRootToItsOwnResolutionByForceCreatingRow() {
         // root 设为已存在的相对目录 target → 符号根启用且解析路径真实存在，满足 validatePath
         DownloadConfig relConfig = new DownloadConfig();
-        relConfig.setRootFolder("target");
+        relConfig.setRootFolder("target" + "/{artworkId}");
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
@@ -254,7 +254,7 @@ class PathPrefixMigrationServiceTest {
     void shouldStopEncodingAsSymbolicRootAfterPin() {
         // root 设为已存在的相对目录 target → 符号根启用且解析路径真实存在，满足 validatePath
         DownloadConfig relConfig = new DownloadConfig();
-        relConfig.setRootFolder("target");
+        relConfig.setRootFolder("target" + "/{artworkId}");
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,

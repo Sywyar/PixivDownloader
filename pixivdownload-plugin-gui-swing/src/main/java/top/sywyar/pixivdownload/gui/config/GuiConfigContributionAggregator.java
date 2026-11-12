@@ -1132,7 +1132,7 @@ public final class GuiConfigContributionAggregator {
             case PORT -> FieldType.PORT;
             case BOOL -> FieldType.BOOL;
             case INT -> FieldType.INT;
-            case STRING, TIME, PASSWORD -> FieldType.STRING;
+            case STRING, TIME, PASSWORD, DIRECTORY_TEMPLATE -> FieldType.STRING;
             case PATH_TEMPLATES -> FieldType.PATH_TEMPLATES;
             case ENUM -> FieldType.ENUM;
             case MULTI_ENUM -> FieldType.MULTI_ENUM;
@@ -1140,6 +1140,14 @@ public final class GuiConfigContributionAggregator {
     }
 
     private static ConfigFieldSpec.Validator validator(GuiConfigFieldContribution field) {
+        if (field.type() == GuiConfigFieldType.DIRECTORY_TEMPLATE) {
+            return value -> {
+                try {
+                    top.sywyar.pixivdownload.guiswing.SwingHost.host().validateDirectoryTemplate(value);
+                    return null;
+                } catch (java.io.IOException invalid) { return invalid.getMessage(); }
+            };
+        }
         if (field.type() == GuiConfigFieldType.PORT) {
             return value -> {
                 try {

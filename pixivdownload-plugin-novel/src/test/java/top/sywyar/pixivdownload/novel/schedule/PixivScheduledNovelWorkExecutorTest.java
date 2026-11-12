@@ -187,25 +187,30 @@ class PixivScheduledNovelWorkExecutorTest {
         verifyNoInteractions(pixivAjaxProxyClient, novelDownloader);
     }
 
-    @Test
-    @DisplayName("珍藏集 mixed 定义可执行其中的小说作品")
-    void collectionMixedDefinitionExecutesNovelWork() throws Exception {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @ValueSource(strings = {"user", "series", "quick"})
+    @DisplayName("珍藏集小说执行保留显式来源和来源用户名，旧计划仍使用默认模板")
+    void collectionMixedDefinitionExecutesNovelWork(String mode) throws Exception {
         when(pixivAjaxProxyClient.get(any(URI.class), isNull()))
                 .thenReturn(minimalNovelResponse());
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
         ScheduledTaskDefinition collectionTask = task(
                 "collection",
                 """
-                        {"kind":"mixed","source":{"collectionId":"42"},"filters":{},
+                        {"kind":"mixed","source":{"collectionId":"42","username":"source reader","acquisitionMode":%s},"filters":{},
                          "download":{"redownloadDeleted":false}}
-                        """);
+                        """.formatted(mode == null ? "null" : "\"" + mode + "\""));
 
         ScheduledWorkResult result = executor().execute(
                 work("123"),
                 context(collectionTask, ScheduledNetworkRoute.direct(), null).context());
 
         assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
-        verify(novelDownloader).downloadBlocking(any(), isNull());
+        var captured = ArgumentCaptor.forClass(NovelDownloadRequest.class);
+        verify(novelDownloader).downloadBlocking(captured.capture(), isNull());
+        assertThat(captured.getValue().getOther().directoryMode()).isEqualTo(mode);
+        assertThat(captured.getValue().getOther().getUsername()).isEqualTo("source reader");
     }
 
     @Test

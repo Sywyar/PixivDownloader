@@ -238,6 +238,21 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     void validateCoreConfigValue(String key, String value) throws java.io.IOException;
 
     /**
+     * 校验非空的最终作品目录模板，供所有配置 owner 与桌面 provider 共用。
+     * @param value 模板原文，空值留给字段的必填或回退语义处理
+     * @throws java.io.IOException 模板无效，消息可直接展示
+     */
+    void validateDirectoryTemplate(String value) throws java.io.IOException;
+
+    /**
+     * 目录迁移确认后保存默认模板的新固定前缀，保留作品模板后缀与独立模式覆盖。
+     * @param root 用户确认的新固定目录
+     * @return 已保存的默认模板
+     * @throws java.io.IOException 配置读取或保存失败
+     */
+    String saveDownloadTemplateRoot(String root) throws java.io.IOException;
+
+    /**
      * 从宿主拥有的配置文件读取结构化插件仓库。
      *
      * @param configFile 宿主拥有的配置文件

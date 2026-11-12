@@ -14,6 +14,8 @@ public enum GuiConfigFieldType {
     INT,
     /** 普通字符串输入。 */
     STRING,
+    /** 最终作品目录模板；单行输入，空值是否允许由字段必填规则决定。 */
+    DIRECTORY_TEMPLATE,
     /** 本地路径模板集合，包含名称、模板和启用状态。 */
     PATH_TEMPLATES,
     /** 本地时间输入（HH:mm）。 */

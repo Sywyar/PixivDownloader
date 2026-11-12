@@ -121,9 +121,9 @@ class CollectionServiceTest {
             when(collectionMapper.findById(7L)).thenReturn(
                     new Collection(7L, "First", null, null, 0, 1, 0, 0),
                     new Collection(7L, "Renamed", null, null, 0, 1, 0, 0), null);
-            assertThat(adapter.collectionName(7L)).isEqualTo("First");
-            assertThat(adapter.collectionName(7L)).isEqualTo("Renamed");
-            assertThat(adapter.collectionName(7L)).isNull();
+            assertThat(adapter.resolve(7L, tempDir).name()).isEqualTo("First");
+            assertThat(adapter.resolve(7L, tempDir).name()).isEqualTo("Renamed");
+            assertThat(adapter.resolve(7L, tempDir).name()).isNull();
         }
 
         @Test

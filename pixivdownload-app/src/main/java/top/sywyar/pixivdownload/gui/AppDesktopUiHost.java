@@ -257,6 +257,29 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String requireSafeConfigValue(String value)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeValue(value);}
     @Override public void validateCoreConfigValue(String key, String value) throws IOException {
         if (FfmpegLocator.CONFIG_KEY.equals(key)) FfmpegLocator.validateConfiguredPath(value);
+        try {
+            top.sywyar.pixivdownload.core.appconfig.DownloadConfig.validateValue(key, value);
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure) {
+            throw new IOException(message("directory-template." + failure.reason(), failure.variable()), failure);
+        }
+    }
+    @Override public void validateDirectoryTemplate(String value) throws IOException {
+        try {
+            if (value != null && !value.isBlank()) top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(value);
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure) {
+            throw new IOException(message("directory-template." + failure.reason(), failure.variable()), failure);
+        }
+    }
+    @Override public String saveDownloadTemplateRoot(String root) throws IOException {
+        String[] saved = new String[1];
+        applicationConfig.withWriteLock(() -> {
+            String current = applicationConfig.read("download.root-folder");
+            if (current == null) current = top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE;
+            saved[0] = top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(current)
+                    .withFixedPrefix(RuntimeFiles.normalizeRootFolder(root));
+            applicationConfig.write("download.root-folder", saved[0]);
+        });
+        return saved[0];
     }
     private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
         return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
@@ -601,7 +624,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private String folderCheckRoot() throws IOException {
         String configured = applicationConfig.read("download.root-folder");
         return configured == null || configured.isBlank()
-                ? new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder() : configured;
+                ? new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder() : RuntimeFiles.normalizeRootFolder(configured);
     }
     @Override public ImageClassifierSettings loadImageClassifierSettings(String rootFolder) throws IOException {
         return desktopUiTools.loadImageClassifierSettings(rootFolder);

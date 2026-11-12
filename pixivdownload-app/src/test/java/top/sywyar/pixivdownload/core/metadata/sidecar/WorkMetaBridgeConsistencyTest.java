@@ -80,7 +80,7 @@ class WorkMetaBridgeConsistencyTest {
 
         // 作品目录置于下载根下 → 路径列走符号根 {0}，编码/解码可复现，快照 落点 == 读点
         DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setRootFolder(tempDir.toAbsolutePath().normalize().toString());
+        downloadConfig.setRootFolder(tempDir.toAbsolutePath().normalize().toString() + "/{artworkId}");
         PathPrefixCodec codec = new PathPrefixCodec(
                 new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), downloadConfig, TestI18nBeans.appMessages());
         codec.init();

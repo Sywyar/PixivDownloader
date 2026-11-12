@@ -217,21 +217,21 @@ class ConfigFileEditorTest {
     void replacingSingleQuotedValuesPreservesOnlyInlineComments() throws IOException {
         Path file = writeTemplate(
                 "# Paths",
-                "download.root-folder: 'D:/artist''s # old'  # 下载目录",
+                "sample.path: 'D:/artist''s # old'  # 下载目录",
                 "ffmpeg.executable-path: 'D:/tools#old/ffmpeg.exe'",
                 "server.port: 6999  # untouched");
         ConfigFileEditor editor = new ConfigFileEditor(file);
 
-        editor.write("download.root-folder", "D:/new");
+        editor.write("sample.path", "D:/new");
         editor.writeAll(Map.of("ffmpeg.executable-path", "D:/tools/ffmpeg.exe"));
 
         assertThat(Files.readAllLines(file, StandardCharsets.UTF_8)).containsExactly(
                 "# Paths",
-                "download.root-folder: D:/new  # 下载目录",
+                "sample.path: D:/new  # 下载目录",
                 "ffmpeg.executable-path: D:/tools/ffmpeg.exe",
                 "server.port: 6999  # untouched");
         Map<String, Object> parsed = new Yaml().load(Files.readString(file, StandardCharsets.UTF_8));
-        assertThat(parsed).containsEntry("download.root-folder", "D:/new")
+        assertThat(parsed).containsEntry("sample.path", "D:/new")
                 .containsEntry("ffmpeg.executable-path", "D:/tools/ffmpeg.exe");
     }
 

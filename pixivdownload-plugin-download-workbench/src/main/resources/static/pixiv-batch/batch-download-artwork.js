@@ -53,7 +53,7 @@
         return promise;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation, acquisitionMode) {
         assertProcessInvocation(invocation);
         const delayMs = getImageDelayMs();
         const {collectionId, collections} = await refreshBatchCollections(invocation);
@@ -72,6 +72,7 @@
         }, imageUrls.length);
         const other = {
             userDownload: isUserDownload,
+            acquisitionMode: acquisitionMode || null,
             username: username || '',
             authorId: normalizeAuthorId(authorId),
             authorName: authorName || null,

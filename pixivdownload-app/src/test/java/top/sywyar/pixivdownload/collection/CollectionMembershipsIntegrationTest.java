@@ -71,7 +71,7 @@ class CollectionMembershipsIntegrationTest {
             var main = DatabaseProviderTestFixtures.main(pool);
             var mapper = new CollectionMapper(main);
             var config = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
-            config.setRootFolder(directory.resolve("downloads").toString());
+            config.setRootFolder(directory.resolve("downloads").toString() + "/{artworkId}");
             var messages = TestI18nBeans.appMessages();
             var paths = new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec(
                     new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper(main), config, messages);

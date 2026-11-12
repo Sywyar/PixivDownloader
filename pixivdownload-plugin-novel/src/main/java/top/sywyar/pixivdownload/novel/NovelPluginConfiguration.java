@@ -209,7 +209,7 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NovelDownloadService novelDownloadService(
-            DownloadSettings downloadConfig,
+            top.sywyar.pixivdownload.novel.config.NovelDirectorySettings downloadConfig,
             WorkFileNameCatalog workFileNameCatalog,
             DownloadPathGuard downloadPathGuard,
             NovelDatabase novelDatabase,

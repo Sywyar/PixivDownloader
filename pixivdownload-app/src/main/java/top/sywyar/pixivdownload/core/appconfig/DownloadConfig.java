@@ -4,24 +4,57 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.config.DownloadSettings;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate;
+import jakarta.annotation.PostConstruct;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "download")
 public class DownloadConfig implements DownloadSettings {
-    private volatile String rootFolder = "pixiv-download";
+    public static final String DEFAULT_TEMPLATE = "pixiv-download/{artworkId}";
+    public static final String DEFAULT_USER_TEMPLATE = "pixiv-download/{username}/{R18}/{artworkId}";
+    private volatile String rootFolder = DEFAULT_TEMPLATE;
+    private Map<String, String> modeTemplates = new LinkedHashMap<>(Map.of("user", DEFAULT_USER_TEMPLATE));
 
     public String getRootFolder() {
-        return RuntimeFiles.normalizeRootFolder(rootFolder);
+        return WorkDirectoryTemplate.parse(rootFolder).fixedPrefix().toString();
     }
 
-    /**
-     * User 模式下载目录结构：
-     * false（默认）→ {rootFolder}/{username}/{artworkId}/
-     * true          → {rootFolder}/{artworkId}/（与批量导入单作品相同）
-     */
-    private volatile boolean userFlatFolder = false;
+    @Override public Map<String, String> directoryOverrides() { return Map.copyOf(modeTemplates); }
+
+    @Override
+    public String directoryTemplate(String mode) {
+        String override = mode == null ? null : modeTemplates.get(mode);
+        String selected = override == null || override.isBlank() ? rootFolder : override;
+        WorkDirectoryTemplate.parse(selected);
+        return selected;
+    }
+
+    @PostConstruct
+    public void validateTemplates() {
+        WorkDirectoryTemplate.parse(rootFolder);
+        modeTemplates.forEach((mode, value) -> {
+            boolean known = java.util.Arrays.stream(top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.values())
+                    .anyMatch(candidate -> candidate.code().equals(mode));
+            if (!known) throw new IllegalArgumentException("unknown download acquisition mode");
+            if (value != null && !value.isBlank()) WorkDirectoryTemplate.parse(value);
+        });
+    }
+
+    /** 设置保存与启动共用模板解析；空模式覆盖表示回退，不代表错误。 */
+    public static void validateValue(String key, String value) {
+        if ("download.root-folder".equals(key)) {
+            WorkDirectoryTemplate.parse(value);
+        } else if (key.startsWith("download.mode-templates.")) {
+            String mode = key.substring("download.mode-templates.".length());
+            if (java.util.Arrays.stream(top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.values())
+                    .noneMatch(candidate -> candidate.code().equals(mode)))
+                throw new top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException("unknown-mode", "");
+            if (value != null && !value.isBlank()) WorkDirectoryTemplate.parse(value);
+        }
+    }
 
     /**
      * 同时下载的图片 / 作品数上限。图片下载任务跑在专用的 {@code downloadTaskExecutor} 线程池上，

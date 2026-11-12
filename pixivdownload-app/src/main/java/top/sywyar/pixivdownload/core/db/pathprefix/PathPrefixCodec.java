@@ -250,7 +250,7 @@ public class PathPrefixCodec implements StoredPathCodec {
 
     /** 后端停止时，维护工具用当前数据库前缀和下载根建立只读编解码快照，不创建或修改前缀表。 */
     public static StoredPathCodec snapshot(String rootFolder, List<PathPrefix> prefixes) {
-        Path root = Path.of(rootFolder);
+        Path root = Path.of(top.sywyar.pixivdownload.config.RuntimeFiles.normalizeRootFolder(rootFolder));
         String symbolicRoot = stripTrailingSeparators(root.toAbsolutePath().normalize().toString());
         var paths = new HashMap<Long, String>();
         prefixes.forEach(prefix -> paths.put(prefix.id(), prefix.path()));

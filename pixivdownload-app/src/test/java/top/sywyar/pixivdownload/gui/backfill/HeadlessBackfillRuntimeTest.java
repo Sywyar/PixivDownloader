@@ -78,7 +78,7 @@ class HeadlessBackfillRuntimeTest {
                 context.registerBean(DesktopBackfillRunner.class, () -> runner, definition -> definition.setDependsOn("dataSource"));
                 context.registerBean(ProxyConfig.class, ProxyConfig::new);
                 var download = new DownloadConfig();
-                download.setRootFolder(directory.toString());
+                download.setRootFolder(directory.toString() + "/{artworkId}");
                 context.registerBean(DownloadConfig.class, () -> download);
                 context.addApplicationListener(new HeadlessBackfillStartup(application));
                 context.refresh();

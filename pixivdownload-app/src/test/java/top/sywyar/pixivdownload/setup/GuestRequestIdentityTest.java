@@ -72,7 +72,7 @@ class GuestRequestIdentityTest {
 
     private void start(String mode) throws Exception {
         DownloadConfig config = new DownloadConfig();
-        config.setRootFolder(tempDir.resolve("works").toString());
+        config.setRootFolder(tempDir.resolve("works").toString() + "/{artworkId}");
         setup = new SetupService(config, JsonMapper.builderWithJackson2Defaults().build(), new DefaultApplicationArguments(),
                 TestI18nBeans.appMessages());
         setup.init("fixture-admin", "fixture-password", mode);

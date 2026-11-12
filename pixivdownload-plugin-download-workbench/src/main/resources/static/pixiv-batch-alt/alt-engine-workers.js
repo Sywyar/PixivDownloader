@@ -246,7 +246,8 @@ async function processIllustItem(item, invocation) {
 
         item.xRestrict = xRestrict;
         item.isAi = isAi;
-        const isUserMode = item.source === 'user';
+        const acquisitionMode = queueDownloadMode(item.source);
+        const isUserMode = acquisitionMode === 'user';
         let urls, ugoiraData = null;
 
         item.lastMessage = bt('queue.message.fetching-images', '正在获取图片地址...');
@@ -283,7 +284,7 @@ async function processIllustItem(item, invocation) {
                 : null);
         const dlData = await sendDownload(
             item.id, urls, item.title,
-            isUserMode, item.username || state.username || state.userId,
+            isUserMode, item.username || '',
             item.authorId ?? fallbackAuthorId,
             item.authorName || fallbackAuthorName,
             xRestrict, isAi, ugoiraData,
@@ -292,7 +293,7 @@ async function processIllustItem(item, invocation) {
             seriesInfo,
             meta.illustType ?? null,
             meta.rawMetaJson || null,
-            invocation
+            invocation, acquisitionMode
         );
         assertProcessInvocation(invocation);
         if (dlData?.taskId) invocation.bindTask(dlData.taskId);

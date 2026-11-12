@@ -18,7 +18,6 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySourceService;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.narration.NarrationTtsConfig;
 import top.sywyar.pixivdownload.core.notification.NotificationConfig;
@@ -446,7 +445,6 @@ class RuntimeConfigReloadServiceTest {
                                                   ProxyConfig proxyConfig,
                                                   SslConfig sslConfig) {
         return new RuntimeConfigReloadService(
-                new DownloadConfig(),
                 new MultiModeConfig(),
                 new GuestInviteConfig(),
                 new SetupProperties(),

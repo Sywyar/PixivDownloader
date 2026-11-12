@@ -592,6 +592,7 @@ final class DesktopConfigurationLoader {
                     yield port >= 1 && port <= 65_535;
                 }
                 case PATH_TEMPLATES -> { host.parseLocalImportPresets(value); yield true; }
+                case DIRECTORY_TEMPLATE -> { host.validateDirectoryTemplate(value); yield true; }
                 case PATH_DIR, PATH_FILE, STRING, TIME, PASSWORD -> true;
             };
         } catch (Exception ignored) {

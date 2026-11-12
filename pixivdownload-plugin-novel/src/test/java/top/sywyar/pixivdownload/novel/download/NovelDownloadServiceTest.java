@@ -63,6 +63,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -77,7 +78,7 @@ class NovelDownloadServiceTest {
     Path tempDir;
 
     @Mock
-    private DownloadSettings downloadConfig;
+    private top.sywyar.pixivdownload.novel.config.NovelDirectorySettings downloadConfig;
     @Mock
     private WorkFileNameCatalog workFileNameCatalog;
     @Mock
@@ -121,8 +122,10 @@ class NovelDownloadServiceTest {
             return null;
         }).when(workAssets).publishFiles(any(), anyLong(), any(), any());
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-        lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+        lenient().when(downloadConfig.directoryTemplate(org.mockito.ArgumentMatchers.nullable(String.class))).thenAnswer(call ->
+                tempDir + ("user".equals(call.getArgument(0)) ? "/{username}/{R18}/novel-{artworkId}" : "/novel-{artworkId}"));
+        lenient().doAnswer(call -> { Files.createDirectories(call.getArgument(2)); return null; })
+                .when(downloadPathGuard).prepareDirectory(any(), anyLong(), any());
         lenient().when(taskScheduler.schedule(any(Runnable.class), any(Instant.class)))
                 .thenReturn(org.mockito.Mockito.mock(ScheduledFuture.class));
         service = newService(downloadTaskExecutor);
@@ -339,25 +342,45 @@ class NovelDownloadServiceTest {
     @Test
     @DisplayName("下载完成后应通过核心端口记录作者、收藏关系与游客目录")
     void shouldRecordCoreFactsThroughPorts() {
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collection_id}/{seriesId}/novel-{artworkId}");
         NovelDownloadRequest request = txtRequest(103L, null);
         request.getOther().setAuthorId(42L);
         request.getOther().setAuthorName("Writer");
         request.getOther().setCollectionId(7L);
+        request.getOther().setSeriesId(42L);
         request.getOther().setFileNameTemplate("{collection_name}_{collection_id}_{artwork_id}");
-        when(collectionDownloadRootResolver.collectionName(7L)).thenReturn("收藏😀/unsafe");
-        when(collectionDownloadRootResolver.resolveDownloadRoot(7L, tempDir)).thenReturn(tempDir);
+        when(collectionDownloadRootResolver.resolve(7L, tempDir)).thenReturn(
+                new CollectionDownloadRootResolver.Context(tempDir, "收藏😀/unsafe"));
         when(workCollectionMembership.addWork(WorkType.NOVEL, 7L, 103L)).thenReturn(true);
 
         boolean ok = service.downloadBlocking(request, "visitor-1");
 
         assertThat(ok).isTrue();
-        verify(collectionDownloadRootResolver).resolveDownloadRoot(7L, tempDir);
+        verify(collectionDownloadRootResolver).resolve(7L, tempDir);
         verify(authorObservationService).observe(42L, "Writer");
         verify(workCollectionMembership).addWork(WorkType.NOVEL, 7L, 103L);
-        assertThat(tempDir.resolve("novel-103/收藏😀_unsafe_7_103.txt")).exists();
+        assertThat(tempDir.resolve("收藏😀_unsafe/7/42/novel-103/收藏😀_unsafe_7_103.txt")).exists();
         verify(novelDatabase).saveFileBaseName(103L, "收藏😀_unsafe_7_103");
         verify(visitorDownloadQuotaService).recordFolder(
-                "visitor-1", tempDir.resolve("novel-103").toAbsolutePath().normalize());
+                "visitor-1", tempDir.resolve("收藏😀_unsafe/7/42/novel-103").toAbsolutePath().normalize());
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @ValueSource(longs = 42L)
+    @DisplayName("小说按元数据展开系列，缺省收藏夹与系列目录层可省略")
+    void optionalDirectoryContexts(Long seriesId) throws Exception {
+        when(downloadConfig.directoryTemplate(null)).thenReturn(tempDir + "/{collection_name}/{collectionId}/{series_id}/novel-{artworkId}");
+        var request = txtRequest(104L, null);
+        request.getOther().setSeriesId(seriesId);
+        request.getOther().setFileNameTemplate("{artwork_id}_{artwork_title}");
+
+        assertThat(service.downloadBlocking(request, null)).isTrue();
+        var folder = tempDir.resolve(seriesId == null ? "novel-104" : "42/novel-104");
+        assertThat(folder.resolve("104_标题.txt")).exists();
+        verify(downloadConfig).directoryTemplate(null);
+        verify(downloadPathGuard).prepareDirectory(WorkType.NOVEL, 104L, folder);
+        verifyNoInteractions(collectionDownloadRootResolver);
     }
 
     @Test
@@ -464,7 +487,6 @@ class NovelDownloadServiceTest {
         request.getOther().setAuthorId(42L);
         request.getOther().setAuthorName("Writer");
         request.getOther().setFileNameTemplate("{author_name}_{artwork_id}");
-        when(downloadPathGuard.requireSafeDirectoryName("reader")).thenReturn("reader");
         when(workFileNameCatalog.getOrCreateTemplateId("{author_name}_{artwork_id}"))
                 .thenReturn(17L);
         when(workFileNameCatalog.getOrCreateAuthorNameId("Writer")).thenReturn(23L);
@@ -474,7 +496,6 @@ class NovelDownloadServiceTest {
         assertThat(ok).isTrue();
         Path root = tempDir.toAbsolutePath().normalize();
         Path downloadPath = root.resolve("reader").resolve("novel-109");
-        verify(downloadPathGuard, times(2)).requireSafeDirectoryName("reader");
         verify(downloadPathGuard, times(2)).requireWithinRoot(root, downloadPath);
         verify(workFileNameCatalog).getOrCreateTemplateId("{author_name}_{artwork_id}");
         verify(workFileNameCatalog).getOrCreateAuthorNameId("Writer");

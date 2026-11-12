@@ -310,7 +310,7 @@ final class DesktopConfigurationFieldView {
                                 key("local-import.presets-count", host.parseLocalImportPresets(value).size()), help, DesktopUiNode.ButtonStyle.NORMAL, enabled),
                         new DesktopUiNode.Link(guide, guide + ".open", key("local-import.guide"), null, true));
             }
-            case PATH_DIR, PATH_FILE, STRING, PASSWORD -> new DesktopUiNode.TextInput(
+            case PATH_DIR, PATH_FILE, STRING, PASSWORD, DIRECTORY_TEMPLATE -> new DesktopUiNode.TextInput(
                     nodeId,
                     binding,
                     label,

@@ -1199,7 +1199,8 @@ final class DesktopToolsController {
     }
 
     void configurationSaved(Map<String, String> saved) {
-        if (saved.containsKey("download.root-folder")) inherit("tools.migration.root", saved.get("download.root-folder"));
+        if (saved.containsKey("download.root-folder"))
+            inherit("tools.migration.root", host.normalizeRootFolder(saved.get("download.root-folder")));
         if (saved.containsKey("proxy.enabled")) inherit("tools.backfill.proxy", saved.get("proxy.enabled"));
         if (saved.containsKey("proxy.host")) inherit("tools.backfill.proxy-host", saved.get("proxy.host"));
         if (saved.containsKey("proxy.port")) inherit("tools.backfill.proxy-port", saved.get("proxy.port"));

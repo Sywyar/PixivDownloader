@@ -23,7 +23,7 @@ public final class PathPrefixTransfer {
     private long remaining = 8 * 1024 * 1024;
 
     public PathPrefixTransfer(String downloadRoot) {
-        String root = Path.of(downloadRoot).toAbsolutePath().normalize().toString();
+        String root = Path.of(top.sywyar.pixivdownload.config.RuntimeFiles.normalizeRootFolder(downloadRoot)).toAbsolutePath().normalize().toString();
         reserve(root);
         paths.put(0L, root);
     }

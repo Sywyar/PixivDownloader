@@ -38,10 +38,11 @@ class CoreCollectionAdapterTest {
     void delegatesDownloadRootResolution() {
         Path fallback = Path.of("downloads");
         Path resolved = Path.of("collections", "one");
-        when(collectionService.resolveDownloadRoot(1L, fallback)).thenReturn(resolved);
+        when(collectionService.downloadContext(1L, fallback)).thenReturn(
+                new top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver.Context(resolved, "One"));
 
-        assertThat(adapter.resolveDownloadRoot(1L, fallback)).isSameAs(resolved);
-        verify(collectionService).resolveDownloadRoot(1L, fallback);
+        assertThat(adapter.resolve(1L, fallback).root()).isSameAs(resolved);
+        verify(collectionService).downloadContext(1L, fallback);
     }
 
     @Test

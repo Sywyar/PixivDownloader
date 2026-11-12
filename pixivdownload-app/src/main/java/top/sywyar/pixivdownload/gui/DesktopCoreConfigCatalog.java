@@ -118,23 +118,26 @@ final class DesktopCoreConfigCatalog {
         fields.add(core(
                 "download.root-folder",
                 GuiConfigGroups.DOWNLOAD,
-                GuiConfigFieldType.PATH_DIR,
-                "pixiv-download",
+                GuiConfigFieldType.DIRECTORY_TEMPLATE,
+                top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE,
                 GuiConfigEffect.PROCESS_RESTART,
                 null,
                 null,
                 order++
         ));
-        fields.add(core(
-                "download.user-flat-folder",
-                GuiConfigGroups.DOWNLOAD,
-                GuiConfigFieldType.BOOL,
-                "false",
-                GuiConfigEffect.HOT_RELOAD,
-                null,
-                null,
-                order++
-        ));
+        for (var mode : top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.values()) {
+            fields.add(core(
+                    "download.mode-templates." + mode.code(),
+                    GuiConfigGroups.DOWNLOAD,
+                    GuiConfigFieldType.DIRECTORY_TEMPLATE,
+                    mode == top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.USER_PROFILE
+                            ? top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_USER_TEMPLATE : "",
+                    GuiConfigEffect.PROCESS_RESTART,
+                    null,
+                    null,
+                    order++
+            ));
+        }
         fields.add(core("local-import.presets", GuiConfigGroups.DOWNLOAD, GuiConfigFieldType.PATH_TEMPLATES,
                 "[]", GuiConfigEffect.BACKEND_RESTART, null, null, order++));
         fields.add(core(

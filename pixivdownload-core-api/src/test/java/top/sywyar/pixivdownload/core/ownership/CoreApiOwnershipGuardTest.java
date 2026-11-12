@@ -159,6 +159,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
                     types("top.sywyar.pixivdownload.core.work.filename", "WorkTemplateVariables"),
+                    types("top.sywyar.pixivdownload.core.work.directory", "WorkDirectoryTemplate", "DirectoryTemplateException"),
                     types("top.sywyar.pixivdownload.core.work.importing", "WorkFileImporter", "WorkFileImportHandler", "WorkFileImportRequest", "LocalWorkFileImportRequest"),
                     types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler", "FileTransactionService"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
@@ -213,6 +214,7 @@ class CoreApiOwnershipGuardTest {
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
             "top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables$Variable",
+            "top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver$Context",
             "top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest$Source",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool",
@@ -558,10 +560,10 @@ class CoreApiOwnershipGuardTest {
         assertRecordShape(ArtworkDownloadCompletion.class,
                 List.of("artworkId", "title", "folder", "imageCount", "extensions", "recordTime",
                         "restriction", "aiGenerated", "authorId", "description", "fileNameTemplate",
-                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags", "fileNameMaxLength"),
+                        "normalizedAuthorName", "seriesId", "seriesOrder", "tags", "fileNameMaxLength", "fileNames"),
                 List.of(long.class, String.class, Path.class, int.class, Set.class, long.class,
                         int.class, boolean.class, Long.class, String.class, String.class,
-                        String.class, Long.class, Long.class, List.class, int.class));
+                        String.class, Long.class, Long.class, List.class, int.class, List.class));
         assertRecordShape(DownloadPathLimits.class,
                 List.of("componentLength", "pathLength", "utf8Bytes"),
                 List.of(int.class, int.class, boolean.class));
@@ -657,6 +659,7 @@ class CoreApiOwnershipGuardTest {
                 .containsExactlyInAnyOrder(
                         "public limits(java.nio.file.Path):top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
                         "public pathSupport(java.nio.file.Path):java.util.function.Predicate",
+                        "public abstract prepareDirectory(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.nio.file.Path):void",
                         "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
                         "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathRejectedException.class)).isEmpty();
@@ -669,7 +672,7 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(WorkCollectionMembership.class))
                 .containsExactly("public abstract addWork(top.sywyar.pixivdownload.core.work.model.WorkType,long,long):boolean");
         assertThat(publicDeclaredMethodSignatures(CollectionDownloadRootResolver.class))
-                .containsExactly("public abstract resolveDownloadRoot(long,java.nio.file.Path):java.nio.file.Path");
+                .containsExactly("public abstract resolve(long,java.nio.file.Path):top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver$Context");
         assertThat(publicDeclaredMethodSignatures(VisitorDownloadQuotaService.class))
                 .containsExactlyInAnyOrder(
                         "public abstract checkAndReserve(java.lang.String,int):top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation",

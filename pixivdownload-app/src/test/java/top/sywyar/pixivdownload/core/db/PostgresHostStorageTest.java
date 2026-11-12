@@ -324,7 +324,7 @@ class PostgresHostStorageTest {
     @DisplayName("文件发布遇到数据库失败时恢复旧文件，重试提交后保留新文件与记录")
     void filePublicationRollsBackAndRetries() throws Exception {
         var config = new DownloadConfig();
-        config.setRootFolder(directory.toString());
+        config.setRootFolder(directory.toString() + "/{artworkId}");
         var paths = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool())), config,
                 TestI18nBeans.appMessages());
         paths.init();

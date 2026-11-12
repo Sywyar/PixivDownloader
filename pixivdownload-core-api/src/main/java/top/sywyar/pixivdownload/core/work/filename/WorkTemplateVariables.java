@@ -19,25 +19,29 @@ public final class WorkTemplateVariables {
      * @param numeric 是否只包含十进制数字
      * @param download 是否支持下载命名
      * @param importing 是否支持本地反向解析
+     * @param directory 是否支持最终作品目录
+     * @param directoryOptional 是否允许目录变量为空
      */
-    public record Variable(String id, String token, String label, boolean numeric, boolean download, boolean importing) {}
+    public record Variable(String id, String token, String label, boolean numeric, boolean download, boolean importing, boolean directory, boolean directoryOptional) {}
 
     private static final List<Variable> VARIABLES = List.of(
-            new Variable("artworkId", "artwork_id", "artwork-id", true, true, true),
-            new Variable("artworkTitle", "artwork_title", "artwork-title", false, true, true),
-            new Variable("authorId", "author_id", "author-id", true, true, true),
-            new Variable("authorName", "author_name", "author-name", false, true, true),
-            new Variable("collectionName", "collection_name", "collection-name", false, true, false),
-            new Variable("collectionId", "collection_id", "collection-id", true, true, false),
-            new Variable("timestamp", "timestamp", "timestamp", true, true, false),
-            new Variable("page", "page", "page", true, true, true),
-            new Variable("count", "count", "count", true, true, false),
-            new Variable("ai", "ai", "ai", false, true, false),
-            new Variable("ai+", "ai+", "ai-plus", false, true, false),
-            new Variable("R18", "R18", "r18", false, true, false),
-            new Variable("R18+", "R18+", "r18-plus", false, true, false),
-            new Variable("extension", "extension", "extension", false, false, true),
-            new Variable("name", "name", "name", false, false, true));
+            new Variable("artworkId", "artwork_id", "artwork-id", true, true, true, true, false),
+            new Variable("artworkTitle", "artwork_title", "artwork-title", false, true, true, true, false),
+            new Variable("authorId", "author_id", "author-id", true, true, true, true, false),
+            new Variable("authorName", "author_name", "author-name", false, true, true, true, false),
+            new Variable("collectionName", "collection_name", "collection-name", false, true, false, true, true),
+            new Variable("collectionId", "collection_id", "collection-id", true, true, false, true, true),
+            new Variable("seriesId", "series_id", "series-id", true, false, false, true, true),
+            new Variable("username", "username", "username", false, false, false, true, false),
+            new Variable("timestamp", "timestamp", "timestamp", true, true, false, false, false),
+            new Variable("page", "page", "page", true, true, true, false, false),
+            new Variable("count", "count", "count", true, true, false, false, false),
+            new Variable("ai", "ai", "ai", false, true, false, false, false),
+            new Variable("ai+", "ai+", "ai-plus", false, true, false, false, false),
+            new Variable("R18", "R18", "r18", false, true, false, true, true),
+            new Variable("R18+", "R18+", "r18-plus", false, true, false, false, false),
+            new Variable("extension", "extension", "extension", false, false, true, false, false),
+            new Variable("name", "name", "name", false, false, true, false, false));
     private static final Map<String, Variable> BY_NAME = VARIABLES.stream()
             .collect(Collectors.toUnmodifiableMap(v -> normalize(v.token()), Function.identity()));
 

@@ -234,6 +234,15 @@ public final class ConfigFieldRegistry {
     }
 
     private static ConfigFieldSpec.Validator coreValidator(GuiConfigFieldContribution field) {
+        if (field.type() == GuiConfigFieldType.DIRECTORY_TEMPLATE) {
+            return value -> {
+                try {
+                    SwingHost.host().validateCoreConfigValue(field.key(), value);
+                    SwingHost.host().validateDirectoryTemplate(value);
+                    return null;
+                } catch (java.io.IOException invalid) { return invalid.getMessage(); }
+            };
+        }
         if (field.type() == GuiConfigFieldType.PATH_DIR || field.type() == GuiConfigFieldType.PATH_FILE) {
             return value -> {
                 try {
