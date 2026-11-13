@@ -94,7 +94,7 @@ final class DesktopConfigurationView {
         return new DesktopUiNode.SettingsWorkspace(
                 "settings.workspace", categories, tabs, locations, model.pendingChanges(),
                 configFooterNodes(nextActions), formValues.getOrDefault("settings.located", ""),
-                model.invalidRow, model.credentialRevision);
+                model.invalidRow, model.credentialRevision, model.locationRevision);
     }
 
     private List<DesktopUiNode.Tab> configTabs(
@@ -383,14 +383,24 @@ final class DesktopConfigurationView {
             Map<String, Runnable> actions
     ) {
         Map<String, DesktopUiNode.SettingLocation> result = new LinkedHashMap<>();
-        for (DesktopUiNode.Tab tab : tabs) collectLocations(tab.content(), tab.id(), result, actions);
+        for (DesktopUiNode.Tab tab : tabs) collectLocations(tab.content(), tab.id(), List.of(), result, actions);
+        Map<FieldKey, List<TextToken>> sectionTerms = new LinkedHashMap<>();
+        for (ConfigSection section : model.configSections) {
+            for (ConfigLayout layout : section.layouts()) {
+                var terms = sectionTerms.computeIfAbsent(layout.field(), ignored -> new ArrayList<>());
+                if (section.title() != null) terms.add(section.title().token());
+                if (section.help() != null) terms.add(section.help().token());
+                if (layout.cardLabel() != null) terms.add(layout.cardLabel().token());
+            }
+        }
         for (ConfigField field : model.configFields) {
             String category = groupCategories.get(field.spec().groupId());
             if (category == null || !model.visible(field)) continue;
             String row = bindingId(field.key()) + ".row";
             addLocation(result, actions, row, category,
                     token(field.namespace(), field.spec().labelKey(), field.spec().key()),
-                    optionalToken(field.namespace(), field.spec().helpKey()), () -> locateField(field));
+                    optionalToken(field.namespace(), field.spec().helpKey()),
+                    sectionTerms.getOrDefault(field.key(), List.of()), () -> locateField(field));
         }
         return List.copyOf(result.values());
     }
@@ -398,18 +408,24 @@ final class DesktopConfigurationView {
     private void collectLocations(
             DesktopUiNode node,
             String category,
+            List<TextToken> context,
             Map<String, DesktopUiNode.SettingLocation> result,
             Map<String, Runnable> actions
     ) {
+        List<TextToken> terms;
+        if (node instanceof DesktopUiNode.Group group) {
+            terms = new ArrayList<>(context);
+            terms.add(group.title());
+        } else terms = context;
         if (node instanceof DesktopUiNode.Form form) {
             for (DesktopUiNode.FormRow row : form.rows()) {
-                addLocation(result, actions, row.id(), category, row.label(), row.help(), () -> {
+                addLocation(result, actions, row.id(), category, row.label(), row.help(), terms, () -> {
                     formValues.put("settings.category", category);
-                    formValues.put("settings.located", row.id());
+                    model.locateRow(row.id());
                 });
             }
         }
-        node.childNodes().forEach(child -> collectLocations(child, category, result, actions));
+        node.childNodes().forEach(child -> collectLocations(child, category, terms, result, actions));
     }
 
     private void addLocation(
@@ -419,12 +435,22 @@ final class DesktopConfigurationView {
             String category,
             TextToken label,
             TextToken help,
+            List<TextToken> searchTerms,
             Runnable locate
     ) {
         String id = row + ".locate";
         actions.put(id, () -> { locate.run(); owner.rebuild(); });
+        Set<TextToken> terms = new LinkedHashSet<>(searchTerms);
+        var rendered = result.get(row);
+        if (rendered != null) {
+            terms.add(rendered.label());
+            if (rendered.help() != null) terms.add(rendered.help());
+            terms.addAll(rendered.searchTerms());
+        }
+        terms.remove(label);
+        terms.remove(help);
         result.put(row, new DesktopUiNode.SettingLocation(row, category, label, help,
-                new DesktopUiNode.Button(id, id, label, null, ButtonStyle.NORMAL, true)));
+                new DesktopUiNode.Button(id, id, label, null, ButtonStyle.NORMAL, true), List.copyOf(terms)));
     }
 
     void locateField(ConfigField field) {
@@ -440,7 +466,7 @@ final class DesktopConfigurationView {
                     .filter(layout -> layout.cardId() != null).findFirst().ifPresent(layout ->
                             formValues.put("config.section." + safeId(section.id()) + ".card.selection", layout.cardId()));
         }
-        formValues.put("settings.located", bindingId(field.key()) + ".row");
+        model.locateRow(bindingId(field.key()) + ".row");
     }
 
     private static TextToken composeToken(String key) {

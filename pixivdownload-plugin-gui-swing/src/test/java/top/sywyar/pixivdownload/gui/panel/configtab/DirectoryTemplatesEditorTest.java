@@ -55,8 +55,8 @@ class DirectoryTemplatesEditorTest {
             editor.valuesLoaded();
             assertThat(inputs).containsOnlyKeys("root", "user", "series");
             inputs.get("root").setValue().accept("draft/{artwork_id}");
-            var help = descendants(editor).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
-                    .filter(area -> area.getText().equals("Template help")).findFirst().orElseThrow();
+            var help = (JPanel) descendants(editor).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                    .filter(area -> area.getText().equals("Template help")).findFirst().orElseThrow().getParent();
             var toggle = descendants(editor).filter(JToggleButton.class::isInstance).map(JToggleButton.class::cast)
                     .findFirst().orElseThrow();
             assertThat(help.isVisible()).isFalse();

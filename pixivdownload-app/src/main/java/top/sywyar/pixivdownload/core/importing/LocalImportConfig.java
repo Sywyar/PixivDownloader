@@ -12,7 +12,7 @@ public class LocalImportConfig {
     private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder()
             .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(tools.jackson.core.StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
-    private String presets = "[]";
+    private volatile String presets = "[]";
     public String getPresets() { return presets; }
     public void setPresets(String value) { parse(value); presets = value; }
     public List<Preset> entries() { return parse(presets); }

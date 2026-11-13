@@ -12,6 +12,23 @@ import static org.assertj.core.api.Assertions.*;
 class AppDesktopUiHostDirectoryTest {
     @TempDir Path temp;
 
+    @Test @DisplayName("工具页保存预设只修改预设键，校验失败保留原值")
+    void savesOnlyImportPresets() throws Exception {
+        var editor = new ConfigFileEditor(temp.resolve("config.yaml"));
+        editor.writeAll(Map.of("server.port", "8765", "local-import.presets", "[]"));
+        var host = new AppDesktopUiHost(0, editor.asConfigFile());
+        String value = host.formatLocalImportPresets(java.util.List.of(
+                new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset(
+                        temp.resolve("{artwork_id}") + "/")));
+        host.saveLocalImportPresets(value);
+        assertThat(editor.read("local-import.presets")).isEqualTo(value);
+        assertThat(editor.read("server.port")).isEqualTo("8765");
+        assertThatThrownBy(() -> host.saveLocalImportPresets("invalid")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(editor.read("local-import.presets")).isEqualTo(value);
+        host.saveLocalImportPresets("[]");
+        assertThat(editor.read("local-import.presets")).isEqualTo("[]");
+    }
+
     @Test @DisplayName("共享入口拒绝非独占模板，固定前缀迁移保留完整后缀和其它模式")
     void validatesAndMigratesPrefixOnly() throws Exception {
         var editor = new ConfigFileEditor(temp.resolve("config.yaml"));

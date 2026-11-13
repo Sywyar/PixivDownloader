@@ -183,26 +183,13 @@ internal fun ToolsOverview(
                     @Composable fun category(quick: Boolean) {
                         val indices = if (quick) listOf(2) else listOf(0, 1)
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                itemVerticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CupertinoText(
-                                    label(if (quick) "quick" else "utilities"),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = palette.secondaryText,
-                                    modifier = Modifier.semantics { heading() },
-                                )
-                                ComposeDesktopUiNodeRenderer.HintedTitle(label(if (quick) "quick-help" else "utilities-help")) {
-                                    CupertinoText(
-                                        label(if (quick) "quick-summary" else "utilities-summary"),
-                                        fontSize = 11.sp,
-                                        color = palette.secondaryText,
-                                    )
-                                }
-                            }
+                            CupertinoText(
+                                label(if (quick) "quick" else "utilities"),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = palette.secondaryText,
+                                modifier = Modifier.semantics { heading() },
+                            )
                             FlowRow(
                                 Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(20.dp),

@@ -168,8 +168,6 @@ final class DesktopCoreConfigCatalog {
                     order++
             ));
         }
-        fields.add(core("local-import.presets", GuiConfigGroups.DOWNLOAD, GuiConfigFieldType.PATH_TEMPLATES,
-                "[]", GuiConfigEffect.BACKEND_RESTART, null, null, order++));
         fields.add(core(
                 "download.max-concurrent",
                 GuiConfigGroups.DOWNLOAD,

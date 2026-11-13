@@ -9,15 +9,46 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.ArrayList;
 
-/** 设置草稿中的本地导入预设编辑器，确认弹窗只修改草稿。 */
-final class LocalImportPresetEditor extends JButton {
+/** 路径列表编辑器；工具入口独立保存，普通配置字段入口只修改草稿。 */
+public final class LocalImportPresetEditor extends JButton {
     private String value = "[]";
-    LocalImportPresetEditor(String initial) { setValue(initial); addActionListener(e -> edit()); }
+    private boolean persistent;
+    private Runnable afterSave;
+    LocalImportPresetEditor(String initial) { setValue(initial); addActionListener(e -> { if (persistent) loadSaved(); else edit(); }); }
+    /** 创建明确保存预设的工具入口。
+     * @param afterSave 保存成功后刷新相关工具状态
+     * @return 预设编辑按钮
+     */
+    public static JButton savedPresets(Runnable afterSave) {
+        var editor = new LocalImportPresetEditor("[]");
+        editor.persistent = true; editor.afterSave = afterSave;
+        editor.setText(message("presets"));
+        editor.setName("local-import.presets");
+        return editor;
+    }
+    private void loadSaved() {
+        setEnabled(false);
+        new SwingWorker<String, Void>() {
+            protected String doInBackground() throws Exception {
+                return SwingHost.context().host().applicationConfig().readAll(java.util.List.of("local-import.presets"))
+                        .getOrDefault("local-import.presets", "[]");
+            }
+            protected void done() {
+                setEnabled(true);
+                try { setValue(get()); edit(); }
+                catch (Exception failure) {
+                    org.slf4j.LoggerFactory.getLogger(LocalImportPresetEditor.class).error("Cannot load local import presets", failure);
+                    top.sywyar.pixivdownload.gui.GuiErrorDialog.show(LocalImportPresetEditor.this,
+                            message("presets"), message("presets-load-failed"));
+                }
+            }
+        }.execute();
+    }
     String value() { return value; }
     void setValue(String next) {
         int count = SwingHost.context().host().parseLocalImportPresets(next).size();
         String previous = value; value = next;
-        setText(message("presets-count", count));
+        setText(persistent ? message("presets") : message("presets-count", count));
         firePropertyChange("presetValue", previous, next);
     }
     private static String message(String key, Object... args) { return SwingHost.context().host().message("local-import." + key, args); }
@@ -37,9 +68,14 @@ final class LocalImportPresetEditor extends JButton {
         panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         var scroll = new JScrollPane(table); panel.add(scroll, BorderLayout.CENTER);
         var header = new JPanel(new BorderLayout(8, 6));
-        header.add(help(message("presets-save-help")), BorderLayout.NORTH);
+        header.add(help(message(persistent ? "presets-save-direct-help" : "presets-save-help")), BorderLayout.NORTH);
         var rules = new JToggleButton(host.message("gui.config.directory.variables"));
-        var explanation = help(message("preset-template-help", WorkTemplateVariables.importTokens()));
+        var explanation = new JPanel(new BorderLayout(0, 6));
+        explanation.setOpaque(false);
+        explanation.add(help(message("preset-template-help", WorkTemplateVariables.importTokens())), BorderLayout.NORTH);
+        var kind = help(message("template-kind-help"));
+        kind.setForeground(UIManager.getColor("Component.linkColor"));
+        explanation.add(kind, BorderLayout.CENTER);
         explanation.setVisible(false);
         rules.addActionListener(e -> { explanation.setVisible(rules.isSelected()); panel.revalidate(); panel.repaint(); });
         header.add(rules, BorderLayout.WEST); header.add(explanation, BorderLayout.SOUTH);
@@ -70,14 +106,33 @@ final class LocalImportPresetEditor extends JButton {
         var error = help(""); error.setVisible(false); error.setForeground(UIManager.getColor("Component.error.focusedBorderColor"));
         footer.add(error, BorderLayout.NORTH); footer.add(actions, BorderLayout.WEST);
         var confirmation = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var cancel = new JButton(message("cancel")); var apply = new JButton(message("apply"));
+        var cancel = new JButton(message("cancel")); var apply = new JButton(message(persistent ? "save" : "apply"));
         cancel.addActionListener(e -> dialog.dispose());
         apply.addActionListener(e -> {
             if (table.isEditing() && !table.getCellEditor().stopCellEditing()) return;
             try {
                 var entries = new ArrayList<Preset>();
                 for (int row = 0; row < model.getRowCount(); row++) entries.add(new Preset(text(model.getValueAt(row, 0))));
-                setValue(host.formatLocalImportPresets(entries)); dialog.dispose();
+                String encoded = host.formatLocalImportPresets(entries);
+                if (!persistent) { setValue(encoded); dialog.dispose(); }
+                else {
+                    apply.setEnabled(false); cancel.setEnabled(false); table.setEnabled(false); add.setEnabled(false); remove.setEnabled(false);
+                    dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+                    new SwingWorker<Void, Void>() {
+                        protected Void doInBackground() throws Exception { host.saveLocalImportPresets(encoded); return null; }
+                        protected void done() {
+                            try { get(); setValue(encoded); afterSave.run(); dialog.dispose(); }
+                            catch (Exception failure) {
+                                org.slf4j.LoggerFactory.getLogger(LocalImportPresetEditor.class).error("Cannot save local import presets", failure);
+                                error.setText(message("presets-save-failed")); error.setVisible(true);
+                            } finally {
+                                apply.setEnabled(true); cancel.setEnabled(true); table.setEnabled(true); update.run();
+                                dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+                                panel.revalidate(); panel.repaint();
+                            }
+                        }
+                    }.execute();
+                }
             } catch (RuntimeException invalid) {
                 error.setText(invalid instanceof VariableException variable
                         ? message("error." + variable.getMessage(), "{" + variable.variable() + "}")
@@ -89,7 +144,7 @@ final class LocalImportPresetEditor extends JButton {
         panel.add(footer, BorderLayout.SOUTH);
         dialog.setContentPane(panel); dialog.setSize(760, 480); dialog.setMinimumSize(new Dimension(520, 320));
         dialog.setLocationRelativeTo(this);
-        dialog.getRootPane().registerKeyboardAction(e -> dialog.dispose(), KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
+        dialog.getRootPane().registerKeyboardAction(e -> { if (apply.isEnabled()) dialog.dispose(); }, KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW);
         update.run(); dialog.setVisible(true); requestFocusInWindow();
     }
     private static JTextArea help(String text) {

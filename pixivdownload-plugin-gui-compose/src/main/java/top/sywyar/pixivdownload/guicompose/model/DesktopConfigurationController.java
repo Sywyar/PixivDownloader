@@ -75,6 +75,7 @@ final class DesktopConfigurationController {
     volatile boolean autoStartSupported;
     volatile boolean autoStartEnabled;
     volatile String invalidRow = "";
+    long locationRevision;
     volatile long credentialRevision;
     final Map<FieldKey, Long> credentialRevisions = new ConcurrentHashMap<>();
     final Set<FieldKey> clearedCoreCredentials = ConcurrentHashMap.newKeySet();
@@ -127,6 +128,11 @@ final class DesktopConfigurationController {
         configFields.stream().filter(field -> field.key().owner() == null && field.spec().key().equals(key))
                 .findFirst().ifPresent(view::locateField);
         invalidatePage();
+    }
+
+    void locateRow(String row) {
+        formValues.put("settings.located", row);
+        locationRevision++;
     }
 
     // 仅复用状态轮询之间的页面与绑定；交互、语言和来源换代由模型统一失效，不复制表单凭据。

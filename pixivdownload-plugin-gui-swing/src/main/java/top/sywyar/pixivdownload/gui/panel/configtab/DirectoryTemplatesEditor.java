@@ -4,9 +4,12 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.ConfigSnapshot;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
+import top.sywyar.pixivdownload.gui.GuiErrorDialog;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import javax.swing.*;
 import java.awt.*;
+import java.net.URI;
 import java.util.List;
 import java.util.*;
 
@@ -122,7 +125,26 @@ final class DirectoryTemplatesEditor extends JPanel {
         header.add(new JLabel(title), BorderLayout.CENTER);
         add(header);
         if (helpText == null || helpText.isBlank()) return;
-        var help = helpText(helpText);
+        var help = new JPanel(new BorderLayout(0, 6)) {
+            @Override public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        help.setOpaque(false);
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
+        help.add(helpText(helpText), BorderLayout.CENTER);
+        var host = ctx.desktopHost();
+        var guide = new JButton(host.message("gui.config.directory.guide"));
+        var shellAction = new SwingShellAction();
+        guide.addActionListener(event -> shellAction.run(
+                "gui-open-directory-template-guide",
+                () -> host.openExternalUri(URI.create(host.message("gui.config.directory.guide-url"))),
+                failure -> GuiErrorDialog.show(this, host.message("gui.dialog.error.title"),
+                        host.message("gui.error.open-browser", failure.getMessage()))));
+        var links = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
+        links.setOpaque(false);
+        links.add(guide);
+        help.add(links, BorderLayout.SOUTH);
         help.setVisible(false);
         var toggle = new JToggleButton(ctx.desktopHost().message("gui.config.directory.variables"));
         toggle.addActionListener(event -> {
@@ -145,6 +167,8 @@ final class DirectoryTemplatesEditor extends JPanel {
             component.getInputMap().put(KeyStroke.getKeyStroke("ESCAPE"), "close-help");
             component.getActionMap().put("close-help", close);
         }
+        help.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(KeyStroke.getKeyStroke("ESCAPE"), "close-help");
     }
 
     private static JTextArea helpText(String text) {

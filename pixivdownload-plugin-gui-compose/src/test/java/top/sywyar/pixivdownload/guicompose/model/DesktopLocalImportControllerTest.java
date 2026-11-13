@@ -10,6 +10,73 @@ import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DesktopLocalImportControllerTest {
+    @Test @DisplayName("工具页预设独立保存，失败保留编辑，取消不写入且保留其他设置草稿")
+    @SuppressWarnings("unchecked")
+    void savedPresetsWorkflow() throws Exception {
+        var stored = new HashMap<>(Map.of("local-import.presets", "original", "fixture.value", "saved"));
+        var fail = new AtomicBoolean(true);
+        var available = new AtomicBoolean(true);
+        var presets = new AtomicReference<>(List.of(new Preset("D:/{artwork_id}/")));
+        var draft = new AtomicReference<>(presets.get());
+        var field = new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution(
+                "fixture.value", "fixture", "Fixture", "", top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType.STRING,
+                "", 0, false, top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect.BACKEND_RESTART);
+        var service = java.lang.reflect.Proxy.newProxyInstance(LocalArtworkImports.class.getClassLoader(),
+                new Class<?>[]{LocalArtworkImports.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("presets")) return presets.get();
+                    throw new AssertionError(method.getName());
+                });
+        try (var model = DesktopConfigurationControllerTest.model(stored, Map.of(
+                "coreConfigFields", args -> List.of(field),
+                "coreConfigGroups", args -> List.of(new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution("fixture", "Fixture", 0)),
+                "localArtworkImports", args -> available.get() ? Optional.of(service) : Optional.empty(),
+                "parseLocalImportPresets", args -> presets.get(),
+                "formatLocalImportPresets", args -> { draft.set((List<Preset>) args[0]); return "updated"; },
+                "saveLocalImportPresets", args -> {
+                    if (fail.get()) throw new java.io.UncheckedIOException(new java.io.IOException("fixture write failure"));
+                    stored.put("local-import.presets", (String) args[0]); presets.set(draft.get()); return null;
+                }
+        ))) {
+            dispatch(model, DesktopUiNode.EventType.CHANGE, "config.app.fixture.value.input", "unsaved");
+            activate(model, "presets");
+            await(() -> model.isDialogOpen("import-presets") && !model.busy());
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.add", "");
+            dispatch(model, DesktopUiNode.EventType.CHANGE, "import-presets.field.1.template", "E:/{artwork_id}/");
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.apply", "");
+            await(() -> model.snapshot().document().dialogs().stream()
+                    .flatMap(dialog -> descendants(dialog.content()))
+                    .anyMatch(node -> node.id().equals("import-presets.error")));
+            assertEquals("original", stored.get("local-import.presets"));
+            assertEquals("E:/{artwork_id}/", draft.get().get(1).template());
+            fail.set(false);
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.apply", "");
+            await(() -> !model.isDialogOpen("import-presets"));
+            assertEquals("updated", stored.get("local-import.presets"));
+            assertEquals("saved", stored.get("fixture.value"));
+            assertTrue(model.snapshot().document().pages().stream().flatMap(page -> descendants(page.content())).filter(DesktopUiNode.TextInput.class::isInstance)
+                    .map(DesktopUiNode.TextInput.class::cast).anyMatch(input -> input.value().equals("unsaved")));
+            activate(model, "presets");
+            await(() -> model.isDialogOpen("import-presets") && !model.busy());
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.add", "");
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.dismiss", "");
+            assertEquals(2, presets.get().size());
+            assertEquals("updated", stored.get("local-import.presets"));
+            available.set(false);
+            model.rebuild();
+            activate(model, "presets");
+            await(() -> model.isDialogOpen("import-presets") && !model.busy());
+            assertTrue(DesktopMediaToolsControllerTest.nodes(model).noneMatch(node -> node.id().equals("local-import.scan")));
+            dispatch(model, DesktopUiNode.EventType.ACTIVATE, "import-presets.dismiss", "");
+        }
+    }
+    private static void dispatch(ComposeDesktopUiModel model, DesktopUiNode.EventType type, String id, String value) {
+        synchronized (model) { model.dispatch(model.snapshot(), new DesktopUiNode.Event(type, id,
+                type == DesktopUiNode.EventType.ACTIVATE ? DesktopUiNode.Value.empty() : DesktopUiNode.Value.text(value))); }
+    }
+    private static java.util.stream.Stream<DesktopUiNode> descendants(DesktopUiNode node) {
+        return java.util.stream.Stream.concat(java.util.stream.Stream.of(node),
+                node.childNodes().stream().flatMap(DesktopLocalImportControllerTest::descendants));
+    }
     @Test @DisplayName("真实工具页按 ID 预览、执行与取消，临时输入不回写配置")
     void toolsWorkflow() throws Exception {
         var request = new AtomicReference<Request>();

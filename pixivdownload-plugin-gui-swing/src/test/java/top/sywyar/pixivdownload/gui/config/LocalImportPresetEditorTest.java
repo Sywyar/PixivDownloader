@@ -17,17 +17,28 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class LocalImportPresetEditorTest {
-    @Test @DisplayName("原生路径编辑器提交正在编辑的单元格，取消保留原值，删除行不改变其余路径")
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("原生路径编辑器保留取消和单元格提交语义，工具入口独立保存")
     @SuppressWarnings("unchecked")
-    void editsPathsWithoutSavingConfiguration() throws Exception {
+    void editsPathsWithExplicitSave(boolean persistent) throws Exception {
         Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "需要桌面窗口环境");
         var labels = new Properties();
         try (var reader = Files.newBufferedReader(Path.of("../pixivdownload-app/src/main/resources/i18n/messages_en.properties"))) { labels.load(reader); }
         var original = List.of(new Preset("D:/作品/{artwork_id}/"), new Preset("E:/{artwork_id}/"), new Preset("F:/作者/{author_id}/{artwork_id}/"));
         var formatted = new AtomicReference<List<Preset>>();
+        var saved = new AtomicReference<String>();
+        var callback = new java.util.concurrent.atomic.AtomicInteger();
+        var config = Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.ConfigFile.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("readAll")) return Map.of("local-import.presets", "original");
+                    throw new AssertionError("Unexpected configuration operation: " + method.getName());
+                });
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
-                    case "parseLocalImportPresets" -> args[0].equals("original") ? original : formatted.get();
+                    case "parseLocalImportPresets" -> args[0].equals("[]") ? List.of() : args[0].equals("original") ? original : formatted.get();
+                    case "applicationConfig" -> config;
+                    case "saveLocalImportPresets" -> { saved.set((String) args[0]); yield null; }
                     case "formatLocalImportPresets" -> { formatted.set((List<Preset>) args[0]); yield "draft"; }
                     case "message" -> new MessageFormat(labels.getProperty(args[0].toString(), args[0].toString()), Locale.US).format(args[1]);
                     default -> throw new AssertionError("Unexpected host operation: " + method.getName());
@@ -36,7 +47,8 @@ class LocalImportPresetEditorTest {
                 List.of(), List::of, DesktopUiText::fallback, () -> "system"));
         var frame = new AtomicReference<JFrame>(); var entry = new AtomicReference<LocalImportPresetEditor>();
         SwingUtilities.invokeAndWait(() -> {
-            entry.set(new LocalImportPresetEditor("original"));
+            entry.set(persistent ? (LocalImportPresetEditor) LocalImportPresetEditor.savedPresets(callback::incrementAndGet)
+                    : new LocalImportPresetEditor("original"));
             frame.set(new JFrame("Preset editor verification"));
             frame.get().add(entry.get()); frame.get().setSize(700, 400); frame.get().setVisible(true);
         });
@@ -60,7 +72,7 @@ class LocalImportPresetEditorTest {
                     button(window, labels.getProperty("local-import.add")).doClick();
                     assertTrue(table.isEditing());
                     ((JTextField) table.getEditorComponent()).setText("G:/{artwork_id}/");
-                    var apply = button(window, labels.getProperty("local-import.apply"));
+                    var apply = button(window, labels.getProperty(persistent ? "local-import.save" : "local-import.apply"));
                     var dismiss = button(window, labels.getProperty("local-import.cancel"));
                     for (var action : List.of(apply, dismiss)) {
                         var bounds = SwingUtilities.convertRectangle(action.getParent(), action.getBounds(), window.getContentPane());
@@ -68,10 +80,14 @@ class LocalImportPresetEditorTest {
                     }
                     if (cancel) dismiss.doClick(); else apply.doClick();
                 });
-                if (cancel) { assertEquals("original", entry.get().value()); assertNull(formatted.get()); }
+                if (cancel) { assertEquals("original", entry.get().value()); assertNull(formatted.get()); assertNull(saved.get()); }
                 else {
+                    if (persistent) assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                        while (callback.get() == 0) Thread.sleep(20);
+                    });
                     assertEquals("draft", entry.get().value());
                     assertEquals(List.of(original.get(0), original.get(2), new Preset("G:/{artwork_id}/")), formatted.get());
+                    assertEquals(persistent ? "draft" : null, saved.get());
                 }
             }
         } finally { SwingUtilities.invokeAndWait(() -> frame.get().dispose()); }

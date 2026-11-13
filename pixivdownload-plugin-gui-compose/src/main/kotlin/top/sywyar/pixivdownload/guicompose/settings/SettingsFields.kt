@@ -94,15 +94,17 @@ private fun SettingsContent(
         } else ComposeDesktopUiNodeRenderer.Render(node, text, emit, Modifier.fillMaxWidth())
         is Group -> if (node.summary() != null) ComposeDesktopUiNodeRenderer.Render(node, text, emit, Modifier.fillMaxWidth()) else {
             var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
-            LaunchedEffect(workspace.locatedRow()) {
-                if (descendants(node).filterIsInstance<Form>().any { form -> form.rows().any { it.id() == workspace.locatedRow() } }) expanded = true
+            val consumedLocation = LocalConsumedSettingsLocation.current
+            LaunchedEffect(workspace.locationRevision()) {
+                if (consumedLocation.longValue != workspace.locationRevision() &&
+                    descendants(node).filterIsInstance<Form>().any { form -> form.rows().any { it.id() == workspace.locatedRow() } }) expanded = true
             }
             Column(Modifier.fillMaxWidth().padding(bottom = if (groupDepth > 0) 8.dp else 26.dp)) {
                 if (node.collapsible()) CupertinoButton({ expanded = !expanded }, contentPadding = PaddingValues(vertical = if (groupDepth > 0) 4.dp else 10.dp),
                     colors = CupertinoButtonDefaults.plainButtonColors(contentColor = palette.secondaryText)) {
                     CupertinoText((if (expanded) "▾  " else "▸  ") + text(node.title()), fontSize = 13.sp)
                 } else Box(Modifier.padding(bottom = 7.dp)) {
-                    ComposeDesktopUiNodeRenderer.GroupHeading(node, text) {
+                    ComposeDesktopUiNodeRenderer.GroupHeading(node, text, emit) {
                         CupertinoText(text(node.title()), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f).semantics { heading() })
                     }
@@ -149,6 +151,7 @@ private fun SettingsRow(
     val palette = LocalExperiencePalette.current
     val requester = remember { BringIntoViewRequester() }
     val inputFocus = remember { FocusRequester() }
+    val consumedLocation = LocalConsumedSettingsLocation.current
     val located = remember { Animatable(0f) }
     val control = row.content()
     val override = if (directoryOverride) control as? Dock else null
@@ -160,8 +163,9 @@ private fun SettingsRow(
     val primaryInput = descendants(control).filterIsInstance<TextInput>().firstOrNull()
     val theme = (control as? Choice)?.takeIf { it.bindingId() == "interface.theme" }
     val textEntry = primaryInput?.inputKind() in listOf(InputKind.TEXT, InputKind.FILE, InputKind.DIRECTORY, InputKind.PASSWORD)
-    LaunchedEffect(workspace.locatedRow(), invalid) {
-        if (workspace.locatedRow() in rowTargets) {
+    LaunchedEffect(workspace.locationRevision()) {
+        if (workspace.locatedRow() in rowTargets && consumedLocation.longValue != workspace.locationRevision()) {
+            consumedLocation.longValue = workspace.locationRevision()
             requester.bringIntoView()
             if (primaryInput?.enabled() == true) inputFocus.requestFocus()
             located.snapTo(1f)

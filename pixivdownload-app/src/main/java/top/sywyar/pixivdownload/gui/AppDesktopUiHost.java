@@ -35,6 +35,21 @@ import java.util.function.Supplier;
 /** 应用拥有的稳定桌面界面宿主契约实现。 */
 final class AppDesktopUiHost implements DesktopUiHost {
     @Override
+    public void saveLocalImportPresets(String value) throws IOException {
+        var entries = parseLocalImportPresets(value);
+        applicationConfig().withWriteLock(() -> {
+            applicationConfig().writeAll(Map.of("local-import.presets", value));
+            try {
+                BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.core.importing.LocalImportConfig.class)
+                        .setPresets(value);
+            } catch (IllegalStateException unavailable) {
+                // 后端未运行时，下一次启动从已保存配置读取。
+            }
+        });
+        org.slf4j.LoggerFactory.getLogger(AppDesktopUiHost.class)
+                .info("Local import presets saved: count={}", entries.size());
+    }
+    @Override
     public List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
         return top.sywyar.pixivdownload.core.importing.LocalImportConfig.parse(value);
     }

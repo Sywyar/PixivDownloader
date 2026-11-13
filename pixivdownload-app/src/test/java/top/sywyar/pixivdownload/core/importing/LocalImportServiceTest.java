@@ -82,6 +82,10 @@ class LocalImportServiceTest {
         assertThat(await(temporary.id(), Phase.READY).files()).isEqualTo(1);
         assertThat(service.items(temporary.id(), 0, 10)).extracting(Item::artworkId).containsExactly(43L);
         assertThat(config.entries()).containsExactly(first, second, first);
+        config.setPresets(tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(List.of(second)));
+        var updated = service.scan(new Request(List.of(), List.of(), false, ""));
+        assertThat(await(updated.id(), Phase.READY).files()).isEqualTo(1);
+        assertThat(service.items(updated.id(), 0, 10)).extracting(Item::artworkId).containsExactly(43L);
     }
 
     @Test @DisplayName("按模板逐层排除不匹配目录，不进入无关的深层树")

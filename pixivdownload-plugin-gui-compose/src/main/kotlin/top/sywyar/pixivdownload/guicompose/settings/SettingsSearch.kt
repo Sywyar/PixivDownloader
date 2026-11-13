@@ -29,6 +29,7 @@ internal fun searchSettings(
             label,
             categories[location.categoryId()].orEmpty(),
             location.help()?.let(text).orEmpty(),
+            location.searchTerms().joinToString("\n", transform = text),
             location.rowId(),
         )
         val matches = patterns.map { pattern -> fields.indexOfFirst { pattern.containsMatchIn(it) } }

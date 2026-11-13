@@ -19,6 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -26,6 +27,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
@@ -36,6 +40,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import io.github.robinpcrd.cupertino.*
 import io.github.robinpcrd.cupertino.theme.CupertinoTheme
 import top.sywyar.pixivdownload.guicompose.*
@@ -122,6 +133,7 @@ internal fun ToolField(
     error: String? = null,
     attempt: Int = 0,
     focusError: Boolean = false,
+    hintInTitle: Boolean = false,
 ) {
     val palette = LocalExperiencePalette.current
     val secret = node.inputKind() == InputKind.PASSWORD
@@ -151,7 +163,11 @@ internal fun ToolField(
         }
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        CupertinoText(label, Modifier.testTag("${node.id()}.label"), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            CupertinoText(label, Modifier.weight(1f, fill = false).testTag("${node.id()}.label"),
+                fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            if (hintInTitle && !help.isNullOrBlank()) FieldHint(label, help, node.id() + ".hint")
+        }
         Row(
             Modifier.fillMaxWidth().testTag("${node.id()}.field")
                 .graphicsLayer { translationX = with(density) { shake.value.dp.toPx() } }
@@ -188,7 +204,49 @@ internal fun ToolField(
             }
         }
         if (error != null) CupertinoText(error, fontSize = 11.sp, color = palette.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-        if (!help.isNullOrBlank()) CupertinoText(help, fontSize = 11.sp, color = palette.secondaryText)
+        if (!hintInTitle && !help.isNullOrBlank()) CupertinoText(help, fontSize = 11.sp, color = palette.secondaryText)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun FieldHint(label: String, help: String, tag: String) {
+    var visible by remember { mutableStateOf(false) }
+    var pinned by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val palette = LocalExperiencePalette.current
+    fun dismiss() { visible = false; pinned = false }
+    val position = remember { object : PopupPositionProvider {
+        override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize,
+                                       layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+            val x = anchorBounds.left.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+            val y = if (anchorBounds.bottom + popupContentSize.height <= windowSize.height)
+                anchorBounds.bottom else anchorBounds.top - popupContentSize.height
+            return IntOffset(x, y.coerceAtLeast(0))
+        }
+    } }
+    Box(Modifier.onPointerEvent(PointerEventType.Enter) {
+            if (it.changes.any { change -> change.type == PointerType.Mouse }) visible = true
+        }.onPointerEvent(PointerEventType.Exit) {
+            if (it.changes.any { change -> change.type == PointerType.Mouse }) visible = pinned
+        }
+        .onPreviewKeyEvent {
+            if (visible && it.type == KeyEventType.KeyDown && it.key == Key.Escape) {
+                dismiss(); true
+            } else false
+        }) {
+        if (visible) Popup(position, onDismissRequest = ::dismiss, properties = PopupProperties(focusable = false)) {
+            CupertinoSurface(Modifier.widthIn(max = 360.dp).testTag("$tag.popup"),
+                color = palette.surface, shadowElevation = 6.dp, shape = RoundedCornerShape(9.dp)) {
+                CupertinoText(help, Modifier.padding(12.dp), fontSize = 12.sp, color = palette.secondaryText)
+            }
+        }
+        CupertinoIconButton(
+            onClick = { pinned = !pinned; visible = pinned; focus.requestFocus() },
+            modifier = Modifier.size(28.dp).testTag(tag).focusRequester(focus),
+        ) {
+            DesktopIcon(Icons.Default.ErrorOutline, "$label. $help", Modifier.size(17.dp), tint = palette.link)
+        }
     }
 }
 

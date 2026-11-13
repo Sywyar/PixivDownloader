@@ -34,6 +34,71 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
     @Test
+    @DisplayName("清空搜索保留输入焦点，重复定位同一设置仍有效")
+    fun clearingSearchDoesNotReplayFieldFocus() = runComposeUiTest {
+        val model = DirectoryTemplateSettingsTest.model(mutableMapOf(), false)
+        var snapshot by mutableStateOf(model.snapshot())
+        val subscription = model.subscribeSnapshots { snapshot = it }
+        try {
+            setContent { PixivDownloaderTheme("dark") {
+                Box(Modifier.size(1050.dp, 650.dp)) {
+                    SettingsWorkspace(workspace(snapshot), ::resolve, { model.dispatch(snapshot, it) })
+                }
+            } }
+            onNodeWithTag("settings.category.download").performClick()
+            onNodeWithTag("config.app.fixture.user.remove").performClick()
+            val directory = onNodeWithContentDescription("fixture.directory")
+            directory.assertIsFocused()
+            val search = onNodeWithContentDescription(resolve(settingsKey("search")))
+            search.performClick().performTextInput("no matching setting")
+            search.performTextClearance()
+            search.assertIsFocused()
+            repeat(2) {
+                search.performTextInput("fixture.directory")
+                onNodeWithTag("config.app.fixture.directory.row.locate").performClick()
+                directory.assertIsFocused()
+                search.performClick().performTextInput("no matching setting")
+                search.performKeyInput { pressKey(Key.Escape) }
+                search.assertIsFocused()
+                assertEquals("", search.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+            }
+            directory.assertTextEquals(DirectoryTemplateSettingsTest.DEFAULT)
+            capture("search-cleared-focus")
+        } finally { subscription.close(); model.close() }
+    }
+
+    @Test
+    @DisplayName("搜索包含渲染后的默认目录标签、分组与未添加模式，并保持原字段名称可检索")
+    fun searchesDirectoryLabelsAndUnselectedModes() {
+        for (plugin in listOf(false, true)) runComposeUiTest {
+            val model = DirectoryTemplateSettingsTest.model(mutableMapOf(), plugin)
+            var snapshot by mutableStateOf(model.snapshot())
+            val subscription = model.subscribeSnapshots { snapshot = it }
+            val owner = if (plugin) "independent" else "app"
+            try {
+                setContent { PixivDownloaderTheme(if (plugin) "light" else "dark") {
+                    Box(Modifier.size(if (plugin) 530.dp else 1050.dp, 650.dp).background(LocalExperiencePalette.current.surface)) {
+                        SettingsWorkspace(workspace(snapshot), { token ->
+                            if (token.key() == "gui.config.directory.default") "默认目录" else resolve(token)
+                        }, { model.dispatch(snapshot, it) })
+                    }
+                } }
+                val search = onNodeWithContentDescription(resolve(settingsKey("search")))
+                search.performTextInput("默认目录")
+                onNodeWithTag("config.$owner.fixture.directory.row.locate").assertIsDisplayed()
+                capture("search-default-$owner")
+                search.performTextReplacement("fixture.directory")
+                onNodeWithTag("config.$owner.fixture.directory.row.locate").assertIsDisplayed()
+                search.performTextReplacement(resolve(TextToken.key("gui.config.directory.illustration")))
+                onNodeWithTag("config.$owner.fixture.directory.row.locate").assertIsDisplayed()
+                search.performTextReplacement(resolve(TextToken.key("gui.config.directory.mode.series")))
+                onNodeWithTag("config.$owner.fixture.series.row.locate").performClick()
+                onNodeWithContentDescription("fixture.series").assertIsFocused()
+            } finally { subscription.close(); model.close() }
+        }
+    }
+
+    @Test
     @DisplayName("浅深色窄窗口中的保存警告换行且不遮挡设置正文")
     fun savedWarningInCompactWindow() {
         for (theme in listOf("light", "dark")) runComposeUiTest(
@@ -469,7 +534,8 @@ class SettingsWorkspaceTest {
             effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
         ) {
             val stored = mutableMapOf<String, String>()
-            val model = DirectoryTemplateSettingsTest.model(stored, false)
+            val opened = java.util.concurrent.atomic.AtomicReference<java.net.URI>()
+            val model = DirectoryTemplateSettingsTest.model(stored, false, opened::set)
             var snapshot by mutableStateOf(model.snapshot())
             var narrow by mutableStateOf(false)
             val subscription = model.subscribeSnapshots { snapshot = it }
@@ -492,8 +558,13 @@ class SettingsWorkspaceTest {
                 onNodeWithTag("config.section.fixture-directories.help").assertDoesNotExist()
                 helpToggle.performClick()
                 onNodeWithTag("config.section.fixture-directories.help").assertIsDisplayed()
+                onNodeWithText(resolve(TextToken.key("gui.config.directory.guide"))).performScrollTo().performClick()
+                waitUntil(timeoutMillis = 5000) { opened.get() != null && !model.busy() }
+                assertEquals("https://example.test/templates", opened.get().toString())
+                assertTrue(stored.isEmpty())
                 capture("directories-$theme-help")
-                helpToggle.performKeyInput { pressKey(Key.Escape) }
+                onNodeWithText(resolve(TextToken.key("gui.config.directory.guide")))
+                    .performKeyInput { pressKey(Key.Escape) }
                 onNodeWithTag("config.section.fixture-directories.help").assertDoesNotExist()
                 helpToggle.assertIsFocused()
                 onNodeWithTag("config.section.fixture-directories.add").performClick()

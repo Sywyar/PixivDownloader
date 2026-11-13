@@ -57,6 +57,11 @@ class ImportPresetEditorInteractionTest {
                         }
                     }
                     runOnIdle { open() }
+                    onNodeWithText(labels.getProperty("gui.config.directory.variables")).performScrollTo().performClick()
+                    onNodeWithText(labels.getProperty("local-import.template-kind-help")).performScrollTo().assertIsDisplayed()
+                    val rulesImage = File("target/preset-ui/rules-$theme.png").apply { parentFile.mkdirs() }
+                    ImageIO.write(captureToImage().toAwtImage(), "png", rulesImage)
+                    onNodeWithText(labels.getProperty("gui.config.directory.variables")).performScrollTo().performClick()
                     row(1).performScrollTo().performMouseInput { click() }
                     mainClock.advanceTimeBy(1000)
                     row(1).assertIsSelected()

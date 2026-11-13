@@ -63,7 +63,7 @@ public final class HistoryImportService implements Source, AutoCloseable {
     }
 
     @Override public Description description() {
-        return new Description(text("history.title"), text("history.help"), false);
+        return new Description(text("history.title"), text("history.help"), false, text("history.recommendation"));
     }
     @Override public Optional<Completion> pendingCompletion() { return completions.pending(); }
     @Override public void acknowledgeCompletion(String id) { completions.acknowledge(id); }

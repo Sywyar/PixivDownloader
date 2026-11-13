@@ -204,6 +204,8 @@ class FileImportInteractionTest {
             top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Description(
                 top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.title")),
                 top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.help")),
+                true,
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.recommendation")),
             ),
         )))
         val localType = top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports::class.java
@@ -212,6 +214,7 @@ class FileImportInteractionTest {
         }
         val overrides = mapOf<String, Function<Array<Any>, Any>>(
             "localArtworkImports" to Function { java.util.Optional.of(localService) },
+            "parseLocalImportPresets" to Function { emptyList<Any>() },
             "fileImportTools" to Function { fixture.tools.get() },
             "fileImportTool" to Function { fixture.source },
             "message" to Function { messages.getProperty(it[0].toString(), it[0].toString()) },
@@ -224,6 +227,9 @@ class FileImportInteractionTest {
                         Box(Modifier.size(width.dp, height.dp).background(LocalExperiencePalette.current.surface)) {
                             ComposeDesktopUiNodeRenderer.Render(snapshot.document().pages().first { it.id() == "tools" }.content(),
                                 ::resolve, { model.dispatch(snapshot, it) })
+                            snapshot.document().dialogs().firstOrNull()?.let { dialog ->
+                                DocumentDialog(dialog, ::resolve, "Close", { model.dispatch(snapshot, it) }, snapshot.revision())
+                            }
                         }
                     }
                 }
@@ -246,10 +252,38 @@ class FileImportInteractionTest {
                 }
                 capture("tools.overview", "overview")
                 onNodeWithTag("tools.entry.local-import").performScrollTo().performClick()
-                onNodeWithTag("local-import.templates").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("local-import.templates").assertDoesNotExist()
+                onNodeWithTag("local-import.presets").performScrollTo().performClick()
+                waitUntilExactlyOneExists(hasText(messages.getProperty("local-import.save")), timeoutMillis = 5_000)
+                onNodeWithText(messages.getProperty("local-import.save")).assertIsDisplayed()
+                val presetImage = Path.of("target/tools-ui/presets-$width-${locale.language}.png")
+                ImageIO.write(captureToImage().toAwtImage(), "png", presetImage.toFile())
+                onNode(hasText(messages.getProperty("local-import.cancel")) and isEnabled()).performClick()
+                onNodeWithTag("local-import.templates").assertDoesNotExist()
+                capture("tools.import.workspace", "local-import-collapsed")
+                onNodeWithTag("local-import.options").assertTextContains(messages.getProperty("local-import.options-required"))
+                val missingTemplate = messages.getProperty("local-import.error.IMPORT_NO_TEMPLATES")
+                repeat(2) {
+                    onNodeWithTag("local-import.scan").assertIsEnabled().performClick()
+                    waitUntilExactlyOneExists(hasText(missingTemplate), timeoutMillis = 5_000)
+                    onNodeWithTag("local-import.templates").assertIsDisplayed().assertIsFocused()
+                    onNodeWithTag("local-import.templates.label").assertTextEquals(messages.getProperty("local-import.templates-required"))
+                    onNodeWithTag("local-import.templates.field").assert(
+                        SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Error, missingTemplate))
+                    capture("tools.import.workspace", "local-import-required")
+                    if (it == 0) {
+                        onNodeWithTag("local-import.options").performScrollTo().performClick()
+                        onNodeWithTag("local-import.templates").assertDoesNotExist()
+                    }
+                }
+                onNodeWithTag("local-import.templates").performTextInput("D:/{artwork_id}/")
+                onNodeWithText(missingTemplate).assertDoesNotExist()
+                onNodeWithTag("local-import.templates.field").assert(
+                    SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
                 capture("tools.import.workspace", "local-import")
                 onNodeWithTag("tools.import.sheet.close").performClick()
                 onNodeWithTag("tools.entry.$prefix").performScrollTo().performClick()
+                onNodeWithText(importer.getProperty("history.recommendation")).performScrollTo().assertIsDisplayed()
                 onNodeWithTag("$prefix.file").performScrollTo().performTextInput("/records.json")
                 onNodeWithTag("$prefix.root").performScrollTo().performTextInput("/original")
                 onNodeWithTag("$prefix.credential").performScrollTo().performTextInput("private-cookie")

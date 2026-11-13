@@ -38,12 +38,18 @@ class DirectoryTemplateSettingsTest {
     }
 
     static ComposeDesktopUiModel model(Map<String, String> stored, boolean plugin) {
+        return model(stored, plugin, ignored -> {});
+    }
+
+    static ComposeDesktopUiModel model(Map<String, String> stored, boolean plugin, java.util.function.Consumer<java.net.URI> open) {
         var groups = List.of(new GuiConfigGroupContribution(GuiConfigGroups.DOWNLOAD, "gui.config.group.download", 0));
         var sources = plugin ? List.of(new DesktopUiPluginSnapshot(
                 "independent", false, "independent", 1, false, null, "",
                 List.of(), List.of(new GuiConfigContribution(groups, fields(), List.of(section()))),
                 List.of(), List.of(), List.of())) : List.<DesktopUiPluginSnapshot>of();
         return DesktopConfigurationControllerTest.model(stored, Map.of(
+                "message", args -> "gui.config.directory.guide-url".equals(args[0]) ? "https://example.test/templates" : args[0],
+                "openExternalUri", args -> { open.accept((java.net.URI) args[0]); return null; },
                 "coreConfigFields", args -> plugin ? List.of() : fields(),
                 "coreConfigGroups", args -> groups,
                 "coreConfigSections", args -> plugin ? List.of() : List.of(section()),

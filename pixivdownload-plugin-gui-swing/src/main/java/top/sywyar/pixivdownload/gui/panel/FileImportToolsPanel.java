@@ -79,6 +79,11 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
             panel.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
             JPanel fields = new ScrollablePagePanel();
             fields.add(help(context.resolveText(tool.description().help())));
+            if (tool.description().recommendation() != null) {
+                var recommendation = help(context.resolveText(tool.description().recommendation()));
+                recommendation.setForeground(UIManager.getColor("Component.linkColor"));
+                fields.add(recommendation);
+            }
             fields.add(field("file", file, chooseFile));
             fields.add(field("root", root, chooseRoot));
             fields.add(help(context.host().message("gui.import.root-help")));

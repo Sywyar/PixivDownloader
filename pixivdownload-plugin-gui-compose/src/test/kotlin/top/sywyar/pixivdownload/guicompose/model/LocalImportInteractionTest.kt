@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.guicompose.model
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -67,6 +68,41 @@ class LocalImportInteractionTest {
                         val tool = DesktopMediaToolsControllerTest.nodes(model).filter { it.id() == "local-import" }.findFirst().get() as Group
                         FileImportWorkspace(tool, ::text, { model.dispatch(current, it) }, {})
                     }
+                }
+                onNodeWithTag("local-import.templates").assertDoesNotExist()
+                onNodeWithTag("local-import.scan").assertIsEnabled().performClick()
+                waitUntil(timeoutMillis = 5000) { captured.get() != null }
+                assertTrue(captured.get().templates().isEmpty())
+                assertTrue(captured.get().artworkIds().isEmpty())
+                assertEquals("", captured.get().selectedFile())
+                val compactImage = Path.of("target/tools-ui/local-import-default.png")
+                Files.createDirectories(compactImage.parent)
+                ImageIO.write(captureToImage().toAwtImage(), "png", compactImage.toFile())
+                onNodeWithTag("local-import.options").performScrollTo().performClick()
+                val hint = onNodeWithTag("local-import.templates.hint")
+                val templateInput = onNodeWithTag("local-import.templates")
+                onNodeWithTag("local-import.templates.hint.popup").assertDoesNotExist()
+                hint.performScrollTo().performMouseInput { moveTo(center) }
+                onNodeWithTag("local-import.templates.hint.popup").assertIsDisplayed()
+                val hintImage = Path.of("target/tools-ui/local-import-hint.png")
+                Files.createDirectories(hintImage.parent)
+                ImageIO.write(captureToImage().toAwtImage(), "png", hintImage.toFile())
+                templateInput.performMouseInput { moveTo(center) }
+                onNodeWithTag("local-import.templates.hint.popup").assertDoesNotExist()
+                hint.performMouseInput { click() }
+                templateInput.performMouseInput { moveTo(center) }
+                onNodeWithTag("local-import.templates.hint.popup").assertIsDisplayed()
+                hint.assertIsFocused()
+                hint.performKeyInput { pressKey(Key.Escape) }
+                onNodeWithTag("local-import.templates.hint.popup").assertDoesNotExist()
+                hint.performMouseInput { moveTo(center) }
+                waitUntil(timeoutMillis = 5000) {
+                    onAllNodesWithTag("local-import.templates.hint.popup").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithTag("local-import.templates.hint.popup").assertIsDisplayed()
+                templateInput.performMouseInput { moveTo(center) }
+                waitUntil(timeoutMillis = 5000) {
+                    onAllNodesWithTag("local-import.templates.hint.popup").fetchSemanticsNodes().isEmpty()
                 }
                 for (variable in listOf("foo", "ai")) {
                     val failure = VariableException(variable, variable == "ai")

@@ -10,7 +10,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
-/** Compose 工具页的临时表单；预设编辑和保存归设置页。 */
+/** 本地导入使用已保存路径，临时选项只作用于本次扫描。 */
 final class DesktopLocalImportController implements AutoCloseable {
     private static final String ID = "local-import";
     private final ComposeDesktopUiModel owner;
@@ -28,15 +28,23 @@ final class DesktopLocalImportController implements AutoCloseable {
         polling.scheduleWithFixedDelay(this::poll, 1, 1, TimeUnit.SECONDS);
     }
     List<DesktopUiNode> panels(Map<String, Runnable> actions) {
-        if (host.localArtworkImports().isEmpty()) return List.of();
+        if (host.localArtworkImports().isEmpty()) return List.of(new Group(ID, key("local-import.title"),
+                column(ID + ".body", List.of(
+                        text(ID + ".help", "local-import.help", TextStyle.SECONDARY),
+                        button("presets", true, actions, () -> owner.importPresets.openSaved(this::invalidate)),
+                        text(ID + ".unavailable", "gui.security.error.backend-unreachable", TextStyle.SECONDARY))), false));
         boolean editable = !busy && !running();
         List<DesktopUiNode> nodes = new ArrayList<>();
         nodes.add(new Text(ID + ".help", key("local-import.help"), TextStyle.SECONDARY, true, false));
         actions.put(ID + ".guide.open", () -> owner.openUri(host.message("local-import.guide-url")));
         nodes.add(new Link(ID + ".guide", ID + ".guide.open", key("local-import.guide"), null, true));
-        nodes.add(new TextInput(ID + ".templates", ID + ".templates", key("local-import.templates"), key("local-import.templates-help", WorkTemplateVariables.importTokens()), InputKind.MULTILINE, templates, 40, 2, editable));
+        nodes.add(button("presets", editable, actions, () -> owner.importPresets.openSaved(this::invalidate)));
+        var saved = source().presets();
+        nodes.add(new Text(ID + ".saved", key(!templates.isBlank() ? "local-import.temporary-help"
+                : saved.isEmpty() ? "local-import.saved-paths-empty" : "local-import.saved-paths-help", saved.size()),
+                saved.isEmpty() && templates.isBlank() ? TextStyle.WARNING : TextStyle.SECONDARY, true, false));
+        nodes.add(new TextInput(ID + ".templates", ID + ".templates", key(saved.isEmpty() ? "local-import.templates-required" : "local-import.templates"), key("local-import.templates-help", WorkTemplateVariables.importTokens()), InputKind.MULTILINE, templates, 40, 2, editable));
         if (templates.isBlank()) {
-            var saved = source().presets();
             if (!saved.isEmpty()) nodes.add(new Text(ID + ".preset-paths",
                     key("local-import.preset-paths", String.join("\n", saved.stream().map(Preset::template).toList())),
                     TextStyle.SECONDARY, true, true));
@@ -85,6 +93,11 @@ final class DesktopLocalImportController implements AutoCloseable {
     private void invalidate() { status = null; samples = List.of(); notice = null; }
     private void scan() {
         try {
+            if (templates.isBlank() && source().presets().isEmpty()) {
+                notice = key("local-import.error.IMPORT_NO_TEMPLATES");
+                owner.rebuild();
+                return;
+            }
             var request = new Request(templates.lines().map(String::strip).filter(s -> !s.isEmpty()).toList(),
                     ids.isBlank() ? List.of() : Arrays.stream(ids.strip().split("[\\s,;，；]+", -1)).map(Long::valueOf).toList(),
                     refresh, selectedFile.strip());

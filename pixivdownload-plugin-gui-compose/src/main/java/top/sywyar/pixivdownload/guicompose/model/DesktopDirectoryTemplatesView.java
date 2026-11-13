@@ -151,6 +151,12 @@ final class DesktopDirectoryTemplatesView {
                     }
                 }
         ));
+        String guide = base + ".guide";
+        actions.put(guide + ".open", () -> model.owner.openUri(model.host.message("gui.config.directory.guide-url")));
+        List<DesktopUiNode> help = new ArrayList<>();
+        if (defaultRow.help() != null) help.add(new DesktopUiNode.Text(
+                base + ".help.text", defaultRow.help(), DesktopUiNode.TextStyle.CAPTION, true, false));
+        help.add(new DesktopUiNode.Link(guide, guide + ".open", key("gui.config.directory.guide"), null, true));
         return new DesktopUiNode.Group(
                 base,
                 section.title() == null ? key("gui.config.directory.default") : section.title().token(),
@@ -158,11 +164,11 @@ final class DesktopDirectoryTemplatesView {
                 false,
                 null,
                 key("gui.config.directory.variables"),
-                defaultRow.help()
+                column(base + ".help.content", help)
         );
     }
 
     private void focus(FieldKey field) {
-        model.formValues.put("settings.located", bindingId(field) + ".row");
+        model.locateRow(bindingId(field) + ".row");
     }
 }

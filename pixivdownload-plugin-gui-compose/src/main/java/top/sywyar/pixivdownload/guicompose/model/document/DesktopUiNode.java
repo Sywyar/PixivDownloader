@@ -290,7 +290,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     /** 带标题的分组容器。 */
     record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary,
-                 TextToken helpTitle, TextToken help) implements DesktopUiNode {
+                 TextToken helpTitle, DesktopUiNode help) implements DesktopUiNode {
         public Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) {
             this(id, title, content, collapsible, summary, null, null);
         }
@@ -314,7 +314,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
         @Override public Kind kind() { return Kind.GROUP; }
         @Override public List<DesktopUiNode> childNodes() {
-            return summary == null ? List.of(content) : List.of(summary, content);
+            if (help == null) return summary == null ? List.of(content) : List.of(summary, content);
+            return summary == null ? List.of(content, help) : List.of(summary, content, help);
         }
     }
 
@@ -849,7 +850,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record SettingsWorkspace(String id, Choice categories, List<Tab> tabs,
                              List<SettingLocation> locations, List<SettingChange> changes,
                              List<DesktopUiNode> footer, String locatedRow, String invalidRow,
-                             long credentialRevision) implements DesktopUiNode {
+                             long credentialRevision, long locationRevision) implements DesktopUiNode {
         public SettingsWorkspace {
             id = requireId(id, "id");
             tabs = List.copyOf(tabs);
@@ -868,7 +869,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help, Button locate) {}
+    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help,
+                           Button locate, List<TextToken> searchTerms) {
+        public SettingLocation {
+            searchTerms = List.copyOf(searchTerms);
+        }
+    }
 
     /** 敏感字段只包含状态说明，不携带输入值或已存凭据。 */
     record SettingChange(String rowId, TextToken label, TextToken before, TextToken after, TextToken effect) {}
@@ -1698,6 +1704,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     enum TextStyle {
         /** 普通正文。 */ BODY,
         /** 强调正文。 */ EMPHASIS,
+        /** 信息提示，使用主题强调色。 */ INFO,
         /** 弱化正文。 */ SECONDARY,
         /** 项目符号正文。 */ BULLET,
         /** 小号说明文本。 */ CAPTION,

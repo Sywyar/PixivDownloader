@@ -70,6 +70,8 @@ final class DesktopFileImportController implements AutoCloseable {
         boolean editable = !owner.busy() && !s.busy && !s.running();
         List<DesktopUiNode> body = new ArrayList<>();
         body.add(new Text(s.id + ".help", token(s.tool.description().help()), TextStyle.SECONDARY, true, false));
+        if (s.tool.description().recommendation() != null) body.add(new Text(s.id + ".recommendation.help",
+                token(s.tool.description().recommendation()), TextStyle.INFO, true, false));
         body.add(input(s.id + ".file", s.id + ".file", "gui.import.file", null, InputKind.FILE_OR_DIRECTORY, s.file, editable));
         body.add(input(s.id + ".root", s.id + ".root", "gui.import.root", "gui.import.root-help", InputKind.DIRECTORY, s.root, editable));
         if (s.tool.description().requiresCredential()) body.add(new TextInput(s.id + ".credential", s.id + ".credential", key("gui.import.credential"),

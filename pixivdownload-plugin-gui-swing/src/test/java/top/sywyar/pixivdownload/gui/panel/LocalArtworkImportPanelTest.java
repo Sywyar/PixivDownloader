@@ -21,10 +21,11 @@ class LocalArtworkImportPanelTest {
         var phase = new AtomicReference<>(Phase.READY);
         var opened = new AtomicReference<java.net.URI>();
         var scanFailure = new AtomicReference<VariableException>();
+        var savedPaths = new AtomicReference<List<Preset>>(List.of());
         String guide = "https://sywyar.github.io/PixivDownloader/#/zh-hant/local-import";
         var captured = new AtomicReference<Request>(); var starts = new AtomicInteger(); UUID id = UUID.randomUUID();
         LocalArtworkImports service = new LocalArtworkImports() {
-            public List<Preset> presets() { return List.of(new Preset("D:/{artwork_id}/")); }
+            public List<Preset> presets() { return savedPaths.get(); }
             public Snapshot scan(Request value) {
                 assertFalse(SwingUtilities.isEventDispatchThread());
                 if (scanFailure.get() != null) throw scanFailure.get();
@@ -75,6 +76,20 @@ class LocalArtworkImportPanelTest {
         });
         try {
             SwingUtilities.invokeAndWait(() -> {
+                var template = (JTextArea) descendants(dialog.get()).filter(c -> "local-import.templates".equals(c.getName())).findFirst().orElseThrow();
+                assertFalse(template.isShowing());
+                assertTrue(button(dialog.get(), "scan").isEnabled());
+                button(dialog.get(), "scan").doClick();
+                assertNull(captured.get(), "缺少模板时不启动扫描");
+                assertTrue(template.isShowing());
+                assertEquals(2, ((javax.swing.border.LineBorder) template.getBorder()).getThickness());
+                assertTrue(descendants(dialog.get()).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                        .anyMatch(label -> label.getText().equals("local-import.error.IMPORT_NO_TEMPLATES[]")));
+                savedPaths.set(List.of(new Preset("D:/{artwork_id}/")));
+                template.setText("D:/{artwork_id}/"); template.setText("");
+                assertFalse(template.getBorder() instanceof javax.swing.border.LineBorder);
+                assertTrue(descendants(dialog.get()).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                        .anyMatch(label -> label.getText().equals("local-import.templates")));
                 var ids = (JTextArea) descendants(dialog.get()).filter(c -> "local-import.ids".equals(c.getName())).findFirst().orElseThrow();
                 ids.setText("42,43\n44"); button(dialog.get(), "guide").doClick();
             });

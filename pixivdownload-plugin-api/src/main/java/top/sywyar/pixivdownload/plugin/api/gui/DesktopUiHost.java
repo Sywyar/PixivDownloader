@@ -21,8 +21,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     default List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
         throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
     }
-    /** 校验并编码设置草稿；持久化仍由设置页统一保存。 */
+    /** 校验并编码预设草稿，不保存配置。 */
     default String formatLocalImportPresets(List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> presets) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
+    /** 保存已确认的本地导入预设，并供后续扫描使用；不提交其它配置草稿。
+     * @param value 经校验的路径预设 JSON
+     * @throws IOException 持久化失败
+     */
+    default void saveLocalImportPresets(String value) throws IOException {
         throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
     }
     /** {@return 活动文件导入能力；缺席时不显示入口} */
