@@ -31,6 +31,7 @@
 - **개발 참여**
   - [서드파티 플러그인 SDK](/ko/plugin-development)
   - [주 저장소 개발](/ko/development)
+  - [관리자 HTTP API](/ko/http-api)
 
 ---
 

@@ -31,6 +31,7 @@
 - **参与开发**
   - [第三方插件 SDK](/zh-cn/plugin-development)
   - [主仓库开发](/zh-cn/development)
+  - [管理员 HTTP API](/zh-cn/http-api)
 
 ---
 

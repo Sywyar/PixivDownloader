@@ -31,6 +31,7 @@
 - **開発への参加**
   - [サードパーティープラグイン SDK](/ja/plugin-development)
   - [主リポジトリの開発](/ja/development)
+  - [管理者 HTTP API](/ja/http-api)
 
 ---
 

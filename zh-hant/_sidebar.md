@@ -31,6 +31,7 @@
 - **參與開發**
   - [第三方外掛 SDK](/zh-hant/plugin-development)
   - [主儲存庫開發](/zh-hant/development)
+  - [管理員 HTTP API](/zh-hant/http-api)
 
 ---
 

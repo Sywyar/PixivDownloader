@@ -31,6 +31,7 @@
 - **Contribute**
   - [Third-party plugin SDK](/en/plugin-development)
   - [Main repository development](/en/development)
+  - [Administrator HTTP API](/en/http-api)
 
 ---
 
