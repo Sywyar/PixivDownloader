@@ -32,6 +32,7 @@
   - [サードパーティープラグイン SDK](/ja/plugin-development)
   - [主リポジトリの開発](/ja/development)
   - [管理者 HTTP API](/ja/http-api)
+  - [HTTP API と権限宣言の作成](/ja/http-api-development)
 
 ---
 

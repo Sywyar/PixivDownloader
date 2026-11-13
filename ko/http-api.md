@@ -1,6 +1,10 @@
-# 관리자 HTTP API
+# HTTP API 및 프로그램 권한
 
-외부 프로그램은 관리자 로그인 세션을 `X-Session-Token`으로 전달할 수 있습니다. 기존 세션 취소와 유지보수 모드 제한이 적용되는 사용자 세션이며, 별도 애플리케이션 키나 MCP 서버를 제공하지 않습니다. Pixiv 수집 자격 증명은 관리자 신원과 별도로 `X-Acquisition-Credential`로 보냅니다.
+외부 프로그램은 `Authorization: Bearer <프로그램-키>`를 사용할 수 있습니다. 보안 페이지의 '프로그램 액세스 키'에서 이름, 권한, 허용할 출발지 IP를 지정해 키를 만드세요. 전체 키는 한 번만 표시되며 서버에는 다이제스트만 저장됩니다. 기본 만료일은 없으며 권한과 출발지를 수정하거나 키를 폐기할 수 있습니다. 플러그인 전체를 선택해도 앞으로 추가될 권한은 포함되지 않습니다.
+
+출발지 제한에는 숫자 형식의 IPv4, IPv6 및 CIDR 네트워크를 사용할 수 있습니다. 제한 모드에서는 항목이 하나 이상 필요하며 '모든 출발지'는 직접 선택해야 합니다. 역방향 프록시를 사용하기 전에 신뢰할 프록시를 설정하세요. 키와 관리자 세션, 초대 인증 또는 GUI 인증을 함께 보내지 마세요. 수집용 인증 정보는 별도의 `X-Acquisition-Credential`로 전달합니다.
+
+관리자 세션은 계속 `X-Session-Token`으로 기존 API를 사용할 수 있습니다. 프로그램 키는 권한 카탈로그에 명시된 메서드와 경로에만 접근할 수 있습니다. 나머지 API는 기존의 관리자 직접 조작 또는 로컬 절차를 유지합니다. 키 관리와 관리자 인증 정보 변경에는 관리자 본인의 로그인이 필요합니다. 이 API는 MCP 서버를 제공하지 않습니다.
 
 Cookie를 사용하는 쓰기 요청에는 동일 출처 검사가 적용됩니다. 브라우저의 교차 출처 요청은 거부되며 플러그인 관리와 예약 작업 등에는 명시적인 동일 출처 신호도 필요합니다. `/api/gui/**`는 로컬 컴퓨터와 GUI token 제한을 유지합니다. 원격 프로그램은 아래 업무 API를 사용합니다. 플러그인 기능은 해당 플러그인과 종속 기능이 사용 가능한 경우에만 제공됩니다.
 
@@ -121,3 +125,91 @@ POST `/api/tools/backfill/tasks`의 본문 예시:
 오류에는 기계용 `code`와 번역된 `error`가 포함됩니다. 400은 잘못된 입력, 401/403은 인증·권한 거부, 404는 식별자 없음, 409는 사용 중·충돌·허용되지 않는 상태, 413은 본문 초과, 503은 기능 사용 불가입니다. 모든 비 2xx 응답을 자동 재시도하지 말고 업무 상태에 따라 처리하세요.
 
 GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반환된 `beforeTime`과 `beforeId`를 함께 보내 다음 페이지를 조회합니다. 저장된 종료 결과만 나열하며 진행 중 다운로드는 복원하지 않습니다. 개별 다운로드 중복 제거는 현재 프로세스의 보관 기간에만 적용됩니다. 알 수 없는 실행을 안전하게 다시 제출할 수 있다는 뜻은 아닙니다. 도구 기록과 배치 결과에는 별도 보관 규칙이 적용됩니다.
+## 프로그램 권한 목록
+
+관리자는 GET `/api/security/program-keys/permissions`로 현재 설치에서 유효한 카탈로그를 조회할 수 있습니다. 표는 내장 선언이며 외부 플러그인은 현재 카탈로그를 확인하세요. `*`는 경로 한 구간을 뜻합니다. 키에는 명시한 권한만 저장되며 플러그인이나 경로 와일드카드 권한은 지원하지 않습니다.
+
+공유 설정, 미디어 도구, 파일 가져오기에는 `core` 진입점 권한과 대상 플러그인의 같은 권한이 모두 필요합니다. 목록에는 허용된 대상만 표시됩니다. 개별 다운로드에는 `core:downloads.create`와 실제 다운로드 유형 소유 플러그인의 `downloads.create`가 필요합니다. 배치에는 `core:batches.create` 또는 `core:batches.resume`와 수집원 및 실행 계획에 포함된 모든 작품 플러그인의 `batches.execute`가 필요합니다. 수집원 목록은 `core:schedule.sources.read`로 조회합니다.
+
+프로그램은 자신이 만든 다운로드 작업과 배치만 조회, 취소, 관리할 수 있습니다. 관리자는 설치 전체를 관리할 수 있습니다. 배치는 프로세스당 하나이며 키를 늘려도 슬롯은 늘어나지 않습니다. 번역, 도구, 설정, 로그, 데이터베이스 및 환경 권한은 해당 플러그인 또는 설치에 적용되며 키별 전용 복사본이 아닙니다. 데이터베이스 마이그레이션과 환경 아카이브는 설치 전체에서 선택한 내용을 다룹니다.
+
+키 관리에는 관리자 세션이 필요합니다. GET `/api/security/program-keys`는 목록, GET `/permissions`는 카탈로그, 루트 경로의 POST는 생성, PUT `/{id}`는 편집, DELETE `/{id}`는 폐기입니다. 생성 시 `name`, `permissions`, `anyIp`, `networks`를 지정합니다. 편집은 `{"revision":1,"policy":{...}}`, 폐기는 `{"revision":1}`을 사용합니다. 조회한 수정 번호를 사용하고 충돌하면 다시 조회하세요. 생성 시 `key`와 한 번만 표시되는 `secret`이 반환되며 목록에는 비밀 값이나 다이제스트가 포함되지 않습니다.
+
+설치당 최대128개의 키를 보관합니다. 이름은80자, 권한은512개, 출발지 네트워크는64개까지이며 관리 요청 본문은128 KiB까지입니다. 마지막 사용 시각은 현재 프로세스에서 확인한 인증 성공을 기록합니다. 키 폐기는 새 요청을 차단하지만 이미 수락된 작업을 자동 취소하지 않습니다.
+
+시작 캐시는 GET `/api/tools/startup-cache`, POST `/api/tools/startup-cache/tasks`, POST `/api/tools/startup-cache/tasks/{id}/cancel`을 사용합니다. 시작 요청 본문은 `{}`입니다. 수락되었다고 학습이 성공한 것은 아니므로 상태를 계속 조회하세요.
+
+| 권한 | 용도 | 메서드 및 경로 |
+| --- | --- | --- |
+| `core:backfill.cancel` | 기록 보충 취소 | POST `/api/tools/backfill/tasks/*/cancel` |
+| `core:backfill.execute` | 기록 보충 실행 | POST `/api/tools/backfill/tasks` |
+| `core:backfill.read` | 기록 보충 대상 및 상태 조회 | GET `/api/tools/backfill/defaults`; GET `/api/tools/backfill/tasks/*`; GET `/api/tools/backfill/tasks/current`; POST `/api/tools/backfill/candidates` |
+| `core:batches.cancel` | 이 키의 배치 취소 | POST `/api/download/batches/*/cancel` |
+| `core:batches.create` | 백그라운드 배치 만들기 | POST `/api/download/batches` |
+| `core:batches.credentials` | 이 키의 배치 인증 정보 변경 | PUT `/api/download/batches/*/credentials` |
+| `core:batches.delete` | 이 키의 배치 기록 삭제 | DELETE `/api/download/batches/*` |
+| `core:batches.pause` | 이 키의 배치 일시 중지 | POST `/api/download/batches/*/pause` |
+| `core:batches.read` | 이 키의 배치 및 결과 조회 | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
+| `core:batches.resolve` | 이 키의 배치에서 확인 대기 항목 처리 | POST `/api/download/batches/*/resolve` |
+| `core:batches.resume` | 이 키의 배치 재개 또는 재시도 | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
+| `core:classifier.configure` | 이미지 분류 설정 변경 | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | 이미지 분류 디렉터리 삭제 | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | 이미지 분류 및 이미지 조회 | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | 분류된 이미지 이동 | POST `/api/tools/classifier/moves` |
+| `core:database.check` | 데이터베이스 연결 확인 | POST `/api/settings/database/check` |
+| `core:database.migrate` | 설치 전체의 데이터베이스 마이그레이션 | POST `/api/settings/database/migrations` |
+| `core:database.preview` | 설치 전체의 데이터베이스 마이그레이션 미리 보기 | POST `/api/settings/database/migration-previews` |
+| `core:database.read` | 데이터베이스 설정 및 마이그레이션 상태 조회 | GET `/api/settings/database/migration`; GET `/api/settings/database/providers`; GET `/api/settings/database/status`; GET `/api/settings/database` |
+| `core:directories.read` | 작품 디렉터리 확인 | GET `/api/tools/directories` |
+| `core:directories.write` | 작품 디렉터리 기록 변경 | POST `/api/tools/directories` |
+| `core:downloads.cancel` | 이 키의 다운로드 작업 취소 | POST `/api/download/tasks/*/cancel` |
+| `core:downloads.create` | 다운로드 작업 만들기 | POST `/api/download/tasks` |
+| `core:downloads.read` | 이 키의 다운로드 작업 조회 | GET `/api/download/tasks/*`; GET `/api/download/tasks/history`; GET `/api/download/tasks` |
+| `core:environment.export` | 전체 환경 아카이브 내보내기 | GET `/api/settings/environment/exports/*/archive`; POST `/api/settings/environment/exports` |
+| `core:environment.preview` | 전체 환경 복원 미리 보기 | POST `/api/settings/environment/preview` |
+| `core:environment.read` | 설치 및 환경 이전 상태 조회 | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
+| `core:environment.restore` | 전체 환경 복원 | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.install` | FFmpeg 설치 | POST `/api/tools/ffmpeg/tasks` |
+| `core:ffmpeg.read` | FFmpeg 상태 조회 | GET `/api/tools/ffmpeg` |
+| `core:file-import.acknowledge` | 파일 가져오기 결과 확인 | POST `/api/tools/file-import/completion/acknowledge` |
+| `core:file-import.cancel` | 파일 가져오기 취소 | POST `/api/tools/file-import/tasks/cancel` |
+| `core:file-import.execute` | 파일 가져오기 실행 | POST `/api/tools/file-import/tasks` |
+| `core:file-import.preview` | 파일 가져오기 미리 보기 | POST `/api/tools/file-import/previews` |
+| `core:file-import.read` | 파일 가져오기 도구 및 작업 조회 | GET `/api/tools/file-import/tasks/current`; GET `/api/tools/file-import` |
+| `core:logs.read` | 실행 로그 조회 | GET `/api/tools/logs/*` |
+| `core:media.cancel` | 미디어 처리 취소 | POST `/api/tools/media/tasks/cancel` |
+| `core:media.execute` | 미디어 처리 실행 | POST `/api/tools/media/tasks` |
+| `core:media.preview` | 미디어 처리 미리 보기 | POST `/api/tools/media/previews` |
+| `core:media.read` | 미디어 도구 및 작업 조회 | GET `/api/tools/media/tasks/current`; GET `/api/tools/media`; POST `/api/tools/media/capabilities` |
+| `core:paths.read` | 경로 접두사 조회 | GET `/api/tools/path-prefixes` |
+| `core:paths.write` | 경로 접두사 변경 | POST `/api/tools/path-prefixes/pin`; POST `/api/tools/path-prefixes` |
+| `core:repositories.read` | 플러그인 저장소 설정 조회 | GET `/api/settings/repositories` |
+| `core:repositories.write` | 플러그인 저장소 설정 변경 | PUT `/api/settings/repositories` |
+| `core:schedule.sources.read` | 배치 및 예약 작업의 수집원 목록 조회 | GET `/api/schedule/sources` |
+| `core:settings.read` | 설정 및 프리셋 읽기 | GET `/api/settings/presets`; GET `/api/settings` |
+| `core:settings.write` | 설정 검증 및 저장 | POST `/api/settings/validate`; POST `/api/settings` |
+| `core:startup-cache.cancel` | 시작 캐시 학습 취소 | POST `/api/tools/startup-cache/tasks/*/cancel` |
+| `core:startup-cache.execute` | 시작 캐시 학습 | POST `/api/tools/startup-cache/tasks` |
+| `core:startup-cache.read` | 시작 캐시 상태 보기 | GET `/api/tools/startup-cache` |
+| `core:system.check` | 네트워크 연결 확인 | POST `/api/admin/system/connectivity` |
+| `core:system.read` | 시스템 상태 조회 | GET `/api/admin/system` |
+| `core:system.reload` | 설정 다시 불러오기 | POST `/api/admin/system/reload` |
+| `core:system.restart` | 프로그램 다시 시작 | POST `/api/admin/system/restart` |
+| `core:tools.history.read` | 도구 실행 기록 조회 | GET `/api/tools/history` |
+| `translation:cancel` | 번역 작업 일시 중지 또는 취소 | POST `/api/translation/jobs/*/cancel`; POST `/api/translation/jobs/*/pause` |
+| `translation:delete` | 번역 작업 기록 삭제 | DELETE `/api/translation/jobs/*` |
+| `translation:execute` | 소설 및 시리즈 번역 시작 또는 재개 | POST `/api/translation/jobs/*/resume`; POST `/api/translation/jobs`; POST `/api/translation/novel`; POST `/api/translation/series` |
+| `translation:read` | 번역 상태, 언어 및 작업 보기 | GET `/api/translation/jobs/*`; GET `/api/translation/jobs`; GET `/api/translation/languages`; GET `/api/translation/status`; POST `/api/translation/language` |
+| `<plugin>:settings.read` | 설정 및 프리셋 읽기 | `core:settings.read` |
+| `<plugin>:settings.write` | 설정 검증 및 저장 | `core:settings.write` |
+| `<plugin>:media.read` | 미디어 도구 및 작업 조회 | `core:media.read` |
+| `<plugin>:media.preview` | 미디어 처리 미리 보기 | `core:media.preview` |
+| `<plugin>:media.execute` | 미디어 처리 실행 | `core:media.execute` |
+| `<plugin>:media.cancel` | 미디어 처리 취소 | `core:media.cancel` |
+| `<plugin>:file-import.read` | 파일 가져오기 도구 및 작업 조회 | `core:file-import.read` |
+| `<plugin>:file-import.preview` | 파일 가져오기 미리 보기 | `core:file-import.preview` |
+| `<plugin>:file-import.execute` | 파일 가져오기 실행 | `core:file-import.execute` |
+| `<plugin>:file-import.cancel` | 파일 가져오기 취소 | `core:file-import.cancel` |
+| `<plugin>:file-import.acknowledge` | 파일 가져오기 결과 확인 | `core:file-import.acknowledge` |
+| `<plugin>:downloads.create` | 다운로드 작업 만들기 | `core:downloads.create` |
+| `<plugin>:batches.execute` | 배치에서 이 플러그인의 수집원 및 작품 실행기 사용 허용 | `core:batches.create`, `core:batches.resume` |

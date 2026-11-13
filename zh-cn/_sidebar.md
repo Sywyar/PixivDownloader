@@ -32,6 +32,7 @@
   - [第三方插件 SDK](/zh-cn/plugin-development)
   - [主仓库开发](/zh-cn/development)
   - [管理员 HTTP API](/zh-cn/http-api)
+  - [编写 HTTP API 与权限声明](/zh-cn/http-api-development)
 
 ---
 

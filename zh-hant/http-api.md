@@ -1,6 +1,10 @@
-# 管理員 HTTP API
+# HTTP API 與程式權限
 
-外部程式可用管理員登入取得的 `X-Session-Token` 呼叫業務介面。這是人員工作階段，沿用撤銷與維護模式限制；這些介面不提供獨立應用程式金鑰或 MCP 服務。Pixiv 取得憑據透過 `X-Acquisition-Credential` 傳遞，與管理員身分分開。
+外部程式可使用 `Authorization: Bearer <程式金鑰>`。在安全頁面的「程式存取金鑰」建立金鑰，指定名稱、權限及允許的來源 IP。完整金鑰僅顯示一次，伺服器只儲存摘要。金鑰預設不過期，可編輯權限及來源範圍，也可撤銷。選取整個外掛只包含目前列出的權限，不包含未來新增權限。
+
+來源限制接受數值 IPv4、IPv6 及 CIDR 網段。受限模式至少填寫一項；「任何來源」需要明確選擇。使用反向代理前先設定可信代理。不要同時傳送程式金鑰、管理員工作階段、邀請碼或 GUI 憑證。擷取憑證仍透過獨立的 `X-Acquisition-Credential` 傳遞。
+
+管理員工作階段仍可透過 `X-Session-Token` 使用原有介面。程式金鑰只能存取權限目錄明確列出的方法及路徑，其他介面保留人類管理員或本機流程。金鑰管理及管理員憑證修改僅允許人類管理員。此 API 不提供 MCP 服務。
 
 使用 Cookie 的寫入請求須通過同源檢查；瀏覽器跨來源請求會被拒絕，外掛管理與計畫任務等入口還要求明確的同源訊號。`/api/gui/**` 保留本機與 GUI token 限制，遠端程式使用下列業務介面。外掛須處於活動狀態且依賴可用。
 
@@ -121,3 +125,91 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 錯誤包含機器 `code` 與本地化 `error`。400 為非法參數，401/403 為身分或權限拒絕，404 為身分不存在，409 為忙碌、衝突或狀態不允許，413 為本文超限，503 為能力不可用。按業務狀態處理，不將所有非 2xx 自動重試。
 
 GET `/api/download/tasks/history` 預設每頁 50 項、最多 200 項，以傳回的 `beforeTime` 與 `beforeId` 一起續頁。只列出已儲存終態，不恢復在途下載。單項下載去重限於目前程序的保留期間，查不到執行不代表可安全重投。工具歷史與批次結果各有保留規則。
+## 程式權限清單
+
+管理員可呼叫 GET `/api/security/program-keys/permissions` 取得目前安裝的權威目錄。下表列出內建宣告，外部外掛以目前目錄為準。`*` 表示一個路徑段。金鑰只儲存明確權限，不支援外掛或路徑萬用授權。
+
+共用設定、媒體工具及檔案匯入同時要求 `core` 入口權限和目標外掛的同名權限，目錄會依權限篩選目標。單項下載需要 `core:downloads.create` 及實際下載類型所屬外掛的 `downloads.create`。批次需要 `core:batches.create` 或 `core:batches.resume`，以及來源與完整執行計畫中每個作品外掛的 `batches.execute`。來源目錄使用 `core:schedule.sources.read`。
+
+程式只能查詢、取消及管理自己建立的下載任務和批次；管理員仍可管理整個安裝。每個程序仍共用一個批次，不會因金鑰增加而增加批次名額。翻譯、工具、設定、日誌、資料庫及環境權限作用於對應外掛或整個安裝，不是各金鑰的私有副本。資料庫遷移與環境封存包含整套安裝中選定的內容。
+
+金鑰管理僅供管理員工作階段：GET `/api/security/program-keys` 取得清單、GET `/permissions` 取得目錄、POST 根路徑建立、PUT `/{id}` 編輯、DELETE `/{id}` 撤銷。建立內容為 `name`、`permissions`、`anyIp`、`networks`；編輯使用 `{"revision":1,"policy":{...}}`，撤銷使用 `{"revision":1}`。請使用讀取時取得的修訂號；衝突後重新讀取，不覆蓋他人的修改。建立成功回傳 `key` 與一次性的 `secret`；清單不回傳秘密或摘要。
+
+每個安裝最多 128 個金鑰，每個名稱最多 80 個字元、512 項權限及 64 個來源網段；管理寫入內容最多 128 KiB。最近使用時間只記錄目前程序觀察到的成功驗證。撤銷會阻止新請求，不會自動取消已接納的任務。
+
+啟動快取使用 GET `/api/tools/startup-cache`、POST `/api/tools/startup-cache/tasks` 及 POST `/api/tools/startup-cache/tasks/{id}/cancel`；開始內容為 `{}`。接納不代表訓練成功，請繼續查詢狀態。
+
+| 權限 | 用途 | 方法與路徑 |
+| --- | --- | --- |
+| `core:backfill.cancel` | 取消記錄回填 | POST `/api/tools/backfill/tasks/*/cancel` |
+| `core:backfill.execute` | 執行記錄回填 | POST `/api/tools/backfill/tasks` |
+| `core:backfill.read` | 查看記錄回填候選與狀態 | GET `/api/tools/backfill/defaults`; GET `/api/tools/backfill/tasks/*`; GET `/api/tools/backfill/tasks/current`; POST `/api/tools/backfill/candidates` |
+| `core:batches.cancel` | 取消此金鑰的批次 | POST `/api/download/batches/*/cancel` |
+| `core:batches.create` | 建立背景批次 | POST `/api/download/batches` |
+| `core:batches.credentials` | 替換此金鑰的批次憑證 | PUT `/api/download/batches/*/credentials` |
+| `core:batches.delete` | 刪除此金鑰的批次記錄 | DELETE `/api/download/batches/*` |
+| `core:batches.pause` | 暫停此金鑰的批次 | POST `/api/download/batches/*/pause` |
+| `core:batches.read` | 查看此金鑰的批次與結果 | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
+| `core:batches.resolve` | 處理此金鑰批次的待確認項 | POST `/api/download/batches/*/resolve` |
+| `core:batches.resume` | 繼續或重試此金鑰的批次 | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
+| `core:classifier.configure` | 修改圖片分類設定 | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | 刪除圖片分類目錄 | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | 查看圖片分類與圖片 | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | 移動分類圖片 | POST `/api/tools/classifier/moves` |
+| `core:database.check` | 檢查資料庫連線 | POST `/api/settings/database/check` |
+| `core:database.migrate` | 遷移整套安裝的資料庫 | POST `/api/settings/database/migrations` |
+| `core:database.preview` | 預覽整套安裝的資料庫遷移 | POST `/api/settings/database/migration-previews` |
+| `core:database.read` | 查看資料庫設定與遷移狀態 | GET `/api/settings/database/migration`; GET `/api/settings/database/providers`; GET `/api/settings/database/status`; GET `/api/settings/database` |
+| `core:directories.read` | 檢查作品目錄 | GET `/api/tools/directories` |
+| `core:directories.write` | 修改作品目錄記錄 | POST `/api/tools/directories` |
+| `core:downloads.cancel` | 取消此金鑰的下載任務 | POST `/api/download/tasks/*/cancel` |
+| `core:downloads.create` | 建立下載任務 | POST `/api/download/tasks` |
+| `core:downloads.read` | 查看此金鑰的下載任務 | GET `/api/download/tasks/*`; GET `/api/download/tasks/history`; GET `/api/download/tasks` |
+| `core:environment.export` | 匯出完整環境封存檔 | GET `/api/settings/environment/exports/*/archive`; POST `/api/settings/environment/exports` |
+| `core:environment.preview` | 預覽完整環境還原 | POST `/api/settings/environment/preview` |
+| `core:environment.read` | 查看安裝與環境遷移狀態 | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
+| `core:environment.restore` | 還原完整環境 | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.install` | 安裝 FFmpeg | POST `/api/tools/ffmpeg/tasks` |
+| `core:ffmpeg.read` | 查看 FFmpeg 狀態 | GET `/api/tools/ffmpeg` |
+| `core:file-import.acknowledge` | 確認檔案匯入結果 | POST `/api/tools/file-import/completion/acknowledge` |
+| `core:file-import.cancel` | 取消檔案匯入 | POST `/api/tools/file-import/tasks/cancel` |
+| `core:file-import.execute` | 執行檔案匯入 | POST `/api/tools/file-import/tasks` |
+| `core:file-import.preview` | 預覽檔案匯入 | POST `/api/tools/file-import/previews` |
+| `core:file-import.read` | 查看檔案匯入工具與任務 | GET `/api/tools/file-import/tasks/current`; GET `/api/tools/file-import` |
+| `core:logs.read` | 讀取執行日誌 | GET `/api/tools/logs/*` |
+| `core:media.cancel` | 取消媒體處理 | POST `/api/tools/media/tasks/cancel` |
+| `core:media.execute` | 執行媒體處理 | POST `/api/tools/media/tasks` |
+| `core:media.preview` | 預覽媒體處理 | POST `/api/tools/media/previews` |
+| `core:media.read` | 查看媒體工具與任務 | GET `/api/tools/media/tasks/current`; GET `/api/tools/media`; POST `/api/tools/media/capabilities` |
+| `core:paths.read` | 查看路徑前綴 | GET `/api/tools/path-prefixes` |
+| `core:paths.write` | 修改路徑前綴 | POST `/api/tools/path-prefixes/pin`; POST `/api/tools/path-prefixes` |
+| `core:repositories.read` | 查看外掛儲存庫設定 | GET `/api/settings/repositories` |
+| `core:repositories.write` | 修改外掛儲存庫設定 | PUT `/api/settings/repositories` |
+| `core:schedule.sources.read` | 查看批次與計畫來源目錄 | GET `/api/schedule/sources` |
+| `core:settings.read` | 讀取設定與預設 | GET `/api/settings/presets`; GET `/api/settings` |
+| `core:settings.write` | 驗證與儲存設定 | POST `/api/settings/validate`; POST `/api/settings` |
+| `core:startup-cache.cancel` | 取消啟動快取訓練 | POST `/api/tools/startup-cache/tasks/*/cancel` |
+| `core:startup-cache.execute` | 訓練啟動快取 | POST `/api/tools/startup-cache/tasks` |
+| `core:startup-cache.read` | 檢視啟動快取狀態 | GET `/api/tools/startup-cache` |
+| `core:system.check` | 檢查網路連線 | POST `/api/admin/system/connectivity` |
+| `core:system.read` | 查看系統狀態 | GET `/api/admin/system` |
+| `core:system.reload` | 重新載入設定 | POST `/api/admin/system/reload` |
+| `core:system.restart` | 重新啟動程式 | POST `/api/admin/system/restart` |
+| `core:tools.history.read` | 查看工具執行歷程 | GET `/api/tools/history` |
+| `translation:cancel` | 暫停或取消翻譯工作 | POST `/api/translation/jobs/*/cancel`; POST `/api/translation/jobs/*/pause` |
+| `translation:delete` | 刪除翻譯工作紀錄 | DELETE `/api/translation/jobs/*` |
+| `translation:execute` | 開始或恢復小說與系列翻譯 | POST `/api/translation/jobs/*/resume`; POST `/api/translation/jobs`; POST `/api/translation/novel`; POST `/api/translation/series` |
+| `translation:read` | 檢視翻譯狀態、語言與工作 | GET `/api/translation/jobs/*`; GET `/api/translation/jobs`; GET `/api/translation/languages`; GET `/api/translation/status`; POST `/api/translation/language` |
+| `<plugin>:settings.read` | 讀取設定與預設 | `core:settings.read` |
+| `<plugin>:settings.write` | 驗證與儲存設定 | `core:settings.write` |
+| `<plugin>:media.read` | 查看媒體工具與任務 | `core:media.read` |
+| `<plugin>:media.preview` | 預覽媒體處理 | `core:media.preview` |
+| `<plugin>:media.execute` | 執行媒體處理 | `core:media.execute` |
+| `<plugin>:media.cancel` | 取消媒體處理 | `core:media.cancel` |
+| `<plugin>:file-import.read` | 查看檔案匯入工具與任務 | `core:file-import.read` |
+| `<plugin>:file-import.preview` | 預覽檔案匯入 | `core:file-import.preview` |
+| `<plugin>:file-import.execute` | 執行檔案匯入 | `core:file-import.execute` |
+| `<plugin>:file-import.cancel` | 取消檔案匯入 | `core:file-import.cancel` |
+| `<plugin>:file-import.acknowledge` | 確認檔案匯入結果 | `core:file-import.acknowledge` |
+| `<plugin>:downloads.create` | 建立下載任務 | `core:downloads.create` |
+| `<plugin>:batches.execute` | 允許批次呼叫此外掛的來源與作品執行器 | `core:batches.create`, `core:batches.resume` |

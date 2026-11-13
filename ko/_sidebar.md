@@ -32,6 +32,7 @@
   - [서드파티 플러그인 SDK](/ko/plugin-development)
   - [주 저장소 개발](/ko/development)
   - [관리자 HTTP API](/ko/http-api)
+  - [HTTP API 및 권한 선언 작성](/ko/http-api-development)
 
 ---
 

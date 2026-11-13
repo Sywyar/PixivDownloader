@@ -1,6 +1,10 @@
-# Administrator HTTP API
+# HTTP API and program permissions
 
-External programs can send an administrator login session in `X-Session-Token`. It remains a human session with the existing revocation and maintenance rules; these endpoints do not provide application keys or an MCP server. Send Pixiv acquisition credentials separately in `X-Acquisition-Credential`.
+External programs can use `Authorization: Bearer <program-key>`. Open **Program access keys** from the security page to create a named key with explicit permissions and allowed source IPs. The full key is shown once; the server stores its digest. Keys have no default expiry. You can edit permissions and sources or revoke a key. Selecting a plugin includes only its currently listed permissions, excluding future additions.
+
+Source restrictions accept numeric IPv4, IPv6 and CIDR networks. Restricted mode requires at least one entry; **Any source** is an explicit choice. Configure trusted proxies before using a reverse proxy. Do not combine a program key with administrator sessions, invitations or GUI credentials. Send acquisition credentials separately in `X-Acquisition-Credential`.
+
+Administrator sessions can still use existing endpoints through `X-Session-Token`. Program keys can access only methods and paths explicitly listed in the permission catalog. Other endpoints retain their human-administrator or local workflows. Key management and administrator credential changes require a human administrator. This API does not provide an MCP server.
 
 Cookie-authenticated writes require a same-origin check. Cross-origin browser requests are rejected; plugin management and scheduled-task endpoints also require an explicit same-origin signal. `/api/gui/**` retains its local-machine and GUI-token restrictions. Remote programs use the business endpoints below. Plugin capabilities require an active plugin and available dependencies.
 
@@ -121,3 +125,91 @@ Confirm database migration with the preview token. Environment restore takes a p
 Errors contain a machine `code` and localized `error`. 400 means invalid input, 401/403 authentication or authorization failure, 404 an unknown identity, 409 busy/conflicting/disallowed state, 413 an oversized body and 503 an unavailable capability. Handle the business state rather than retrying every non-2xx response.
 
 GET `/api/download/tasks/history` defaults to 50 items, at most 200. Pass both returned `beforeTime` and `beforeId` for the next page. It lists persisted terminal results and does not restore active downloads. Individual-download deduplication lasts only within the current process retention window. An unknown execution is not permission to resubmit safely. Tool history and batch results have separate retention rules.
+## Program permission list
+
+An administrator can read the authoritative catalog for the current installation with GET `/api/security/program-keys/permissions`. The table lists built-in declarations; consult the current catalog for external plugins. `*` represents one path segment. Keys store explicit permissions, not plugin or path wildcards.
+
+Shared settings, media tools and file imports require both the `core` entry permission and the same permission for the target plugin. Catalogs filter targets by these grants. Individual downloads require `core:downloads.create` plus `downloads.create` for the actual download-type owner. Batches require `core:batches.create` or `core:batches.resume`, plus `batches.execute` for the source and every work plugin in the execution plan. Read source metadata with `core:schedule.sources.read`.
+
+Programs can query, cancel and manage only their own download tasks and batches. Administrators retain installation-wide access. There is still one batch per process; more keys do not add batch slots. Translation, tools, settings, logs, databases and environment permissions apply to the corresponding plugin or installation, not private copies per key. Database migration and environment archives cover selected content across the installation.
+
+Key management requires an administrator session: GET `/api/security/program-keys` lists keys, GET `/permissions` reads the catalog, POST the root creates a key, PUT `/{id}` edits it and DELETE `/{id}` revokes it. Creation accepts `name`, `permissions`, `anyIp` and `networks`. Edits use `{"revision":1,"policy":{...}}`; revocation uses `{"revision":1}`. Use the revision returned by a read. Refresh after a conflict instead of overwriting another edit. Creation returns `key` and a one-time `secret`; lists return neither secrets nor digests.
+
+An installation supports at most 128 keys. Each key allows an 80-character name, 512 permissions and 64 source networks. Management bodies are limited to 128 KiB. Last-used time records successful authentication observed in the current process. Revocation blocks new requests without cancelling already accepted tasks.
+
+Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/startup-cache/tasks` and POST `/api/tools/startup-cache/tasks/{id}/cancel`. Start with `{}`. Acceptance does not establish successful training; keep reading status.
+
+| Permission | Purpose | Methods and paths |
+| --- | --- | --- |
+| `core:backfill.cancel` | Cancel record backfill | POST `/api/tools/backfill/tasks/*/cancel` |
+| `core:backfill.execute` | Run record backfill | POST `/api/tools/backfill/tasks` |
+| `core:backfill.read` | View record backfill candidates and status | GET `/api/tools/backfill/defaults`; GET `/api/tools/backfill/tasks/*`; GET `/api/tools/backfill/tasks/current`; POST `/api/tools/backfill/candidates` |
+| `core:batches.cancel` | Cancel this key's batches | POST `/api/download/batches/*/cancel` |
+| `core:batches.create` | Create background batches | POST `/api/download/batches` |
+| `core:batches.credentials` | Replace credentials for this key's batches | PUT `/api/download/batches/*/credentials` |
+| `core:batches.delete` | Delete this key's batch records | DELETE `/api/download/batches/*` |
+| `core:batches.pause` | Pause this key's batches | POST `/api/download/batches/*/pause` |
+| `core:batches.read` | Read this key's batches and results | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
+| `core:batches.resolve` | Resolve pending actions in this key's batches | POST `/api/download/batches/*/resolve` |
+| `core:batches.resume` | Resume or retry this key's batches | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
+| `core:classifier.configure` | Change image classification settings | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | Delete image classification folders | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | View image classification and images | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | Move classified images | POST `/api/tools/classifier/moves` |
+| `core:database.check` | Check database connections | POST `/api/settings/database/check` |
+| `core:database.migrate` | Migrate databases for the installation | POST `/api/settings/database/migrations` |
+| `core:database.preview` | Preview database migration for the installation | POST `/api/settings/database/migration-previews` |
+| `core:database.read` | Read database settings and migration status | GET `/api/settings/database/migration`; GET `/api/settings/database/providers`; GET `/api/settings/database/status`; GET `/api/settings/database` |
+| `core:directories.read` | Check artwork directories | GET `/api/tools/directories` |
+| `core:directories.write` | Change artwork directory records | POST `/api/tools/directories` |
+| `core:downloads.cancel` | Cancel this key's download tasks | POST `/api/download/tasks/*/cancel` |
+| `core:downloads.create` | Create download tasks | POST `/api/download/tasks` |
+| `core:downloads.read` | Read this key's download tasks | GET `/api/download/tasks/*`; GET `/api/download/tasks/history`; GET `/api/download/tasks` |
+| `core:environment.export` | Export a full environment archive | GET `/api/settings/environment/exports/*/archive`; POST `/api/settings/environment/exports` |
+| `core:environment.preview` | Preview a full environment restore | POST `/api/settings/environment/preview` |
+| `core:environment.read` | Read installation and environment transfer status | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
+| `core:environment.restore` | Restore a full environment | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.install` | Install FFmpeg | POST `/api/tools/ffmpeg/tasks` |
+| `core:ffmpeg.read` | View FFmpeg status | GET `/api/tools/ffmpeg` |
+| `core:file-import.acknowledge` | Acknowledge file import results | POST `/api/tools/file-import/completion/acknowledge` |
+| `core:file-import.cancel` | Cancel file imports | POST `/api/tools/file-import/tasks/cancel` |
+| `core:file-import.execute` | Run file imports | POST `/api/tools/file-import/tasks` |
+| `core:file-import.preview` | Preview file imports | POST `/api/tools/file-import/previews` |
+| `core:file-import.read` | Read file import tools and tasks | GET `/api/tools/file-import/tasks/current`; GET `/api/tools/file-import` |
+| `core:logs.read` | Read application logs | GET `/api/tools/logs/*` |
+| `core:media.cancel` | Cancel media processing | POST `/api/tools/media/tasks/cancel` |
+| `core:media.execute` | Run media processing | POST `/api/tools/media/tasks` |
+| `core:media.preview` | Preview media processing | POST `/api/tools/media/previews` |
+| `core:media.read` | Read media tools and tasks | GET `/api/tools/media/tasks/current`; GET `/api/tools/media`; POST `/api/tools/media/capabilities` |
+| `core:paths.read` | View path prefixes | GET `/api/tools/path-prefixes` |
+| `core:paths.write` | Change path prefixes | POST `/api/tools/path-prefixes/pin`; POST `/api/tools/path-prefixes` |
+| `core:repositories.read` | Read plugin repository settings | GET `/api/settings/repositories` |
+| `core:repositories.write` | Change plugin repository settings | PUT `/api/settings/repositories` |
+| `core:schedule.sources.read` | Read batch and schedule source catalogs | GET `/api/schedule/sources` |
+| `core:settings.read` | Read settings and presets | GET `/api/settings/presets`; GET `/api/settings` |
+| `core:settings.write` | Validate and save settings | POST `/api/settings/validate`; POST `/api/settings` |
+| `core:startup-cache.cancel` | Cancel startup cache training | POST `/api/tools/startup-cache/tasks/*/cancel` |
+| `core:startup-cache.execute` | Train the startup cache | POST `/api/tools/startup-cache/tasks` |
+| `core:startup-cache.read` | View startup cache status | GET `/api/tools/startup-cache` |
+| `core:system.check` | Check connectivity | POST `/api/admin/system/connectivity` |
+| `core:system.read` | View system status | GET `/api/admin/system` |
+| `core:system.reload` | Reload configuration | POST `/api/admin/system/reload` |
+| `core:system.restart` | Restart the application | POST `/api/admin/system/restart` |
+| `core:tools.history.read` | View tool history | GET `/api/tools/history` |
+| `translation:cancel` | Pause or cancel translation jobs | POST `/api/translation/jobs/*/cancel`; POST `/api/translation/jobs/*/pause` |
+| `translation:delete` | Delete translation job records | DELETE `/api/translation/jobs/*` |
+| `translation:execute` | Start or resume novel and series translation | POST `/api/translation/jobs/*/resume`; POST `/api/translation/jobs`; POST `/api/translation/novel`; POST `/api/translation/series` |
+| `translation:read` | View translation status, languages and jobs | GET `/api/translation/jobs/*`; GET `/api/translation/jobs`; GET `/api/translation/languages`; GET `/api/translation/status`; POST `/api/translation/language` |
+| `<plugin>:settings.read` | Read settings and presets | `core:settings.read` |
+| `<plugin>:settings.write` | Validate and save settings | `core:settings.write` |
+| `<plugin>:media.read` | Read media tools and tasks | `core:media.read` |
+| `<plugin>:media.preview` | Preview media processing | `core:media.preview` |
+| `<plugin>:media.execute` | Run media processing | `core:media.execute` |
+| `<plugin>:media.cancel` | Cancel media processing | `core:media.cancel` |
+| `<plugin>:file-import.read` | Read file import tools and tasks | `core:file-import.read` |
+| `<plugin>:file-import.preview` | Preview file imports | `core:file-import.preview` |
+| `<plugin>:file-import.execute` | Run file imports | `core:file-import.execute` |
+| `<plugin>:file-import.cancel` | Cancel file imports | `core:file-import.cancel` |
+| `<plugin>:file-import.acknowledge` | Acknowledge file import results | `core:file-import.acknowledge` |
+| `<plugin>:downloads.create` | Create download tasks | `core:downloads.create` |
+| `<plugin>:batches.execute` | Allow batches to use this plugin's sources and work executors | `core:batches.create`, `core:batches.resume` |
