@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
+import top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
 import top.sywyar.pixivdownload.transfer.archive.TransferArchive;
 
@@ -76,7 +77,11 @@ class ConfigurationTransferTest {
         var host = host();
         var configuration = new ConfigurationTransfer(host, List::of, new PluginCredentialStore(),
                 top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty());
-        configure("source", "server.port: 8123\nserver.ssl.key-store-password: unique-source-secret\ndownload.root-folder: D:/old/{artwork_id}\n");
+        String sourceTemplate = root.resolve("source-downloads/{artwork_id}").toString().replace('\\', '/');
+        String mappedRoot = root.resolve("mapped-downloads").toString().replace('\\', '/');
+        String mappedTemplate = mappedRoot + "/{artwork_id}";
+        configure("source", "server.port: 8123\nserver.ssl.key-store-password: unique-source-secret\ndownload.root-folder: "
+                + sourceTemplate + "\n");
         Path archive = root.resolve("encrypted");
         char[] password = "fixture-password".toCharArray();
         var codec = new TransferArchive();
@@ -91,17 +96,18 @@ class ConfigurationTransferTest {
             assertThat(changes.changes()).filteredOn(change -> change.key().equals(path))
                     .singleElement().satisfies(change -> assertThat(change.path()).isTrue());
             assertThatThrownBy(() -> configuration.render(preview, contents, changes, Set.of(path, secret),
-                    Map.of(path, "E:/new"), Files.createDirectory(root.resolve("invalid"))))
-                    .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+                    Map.of(path, mappedRoot), Files.createDirectory(root.resolve("invalid"))))
+                    .isInstanceOfSatisfying(DirectoryTemplateException.class,
+                            failure -> assertThat(failure.reason()).isEqualTo("identity"));
             assertThat(Files.readString(RuntimeFiles.peekConfigYamlPath()))
                     .contains("downloads/{artwork_id}").doesNotContain("unique-source-secret");
             var rendered = configuration.render(preview, contents, changes, Set.of(path, secret),
-                    Map.of(path, "E:/new/{artwork_id}"), Files.createDirectory(root.resolve("rendered")));
+                    Map.of(path, mappedTemplate), Files.createDirectory(root.resolve("rendered")));
             var transaction = new FileRestoreTransaction(root.resolve("run"), rendered.targets());
             transaction.prepare(rendered.replacements());
             transaction.commit();
             assertThat(Files.readString(RuntimeFiles.peekConfigYamlPath()))
-                    .contains("E:/new/{artwork_id}", "unique-source-secret", "server.port: 7001");
+                    .contains(mappedTemplate, "unique-source-secret", "server.port: 7001");
             assertThatThrownBy(() -> configuration.render(preview, contents, changes, Set.of(path), Map.of(),
                     Files.createDirectory(root.resolve("stale")))).hasMessage("transfer.target-changed");
         }
