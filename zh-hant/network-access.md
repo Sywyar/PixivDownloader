@@ -36,7 +36,7 @@
 
 | 擁有者 | 目標位址 | 用途與傳送內容 | 觸發與關閉方式 |
 | --- | --- | --- | --- |
-| 應用程式宿主（共用查詢與縮圖） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用請求提供的取得憑證；`/api/pixiv/thumbnail-proxy` 僅存取上述圖片網域，不帶 Cookie、不跟隨重新導向，單次上限 100 MiB | 頁面請求對應本地介面時觸發；停止相關預覽即可避免 |
+| 應用程式宿主（共用查詢與縮圖） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用請求提供的取得憑證；排程查詢 `/api/pixiv/user/{id}/meta/schedule` 使用本次排程的憑證與代理，已綁定的 secret 僅在伺服器端讀取。`/api/pixiv/thumbnail-proxy` 僅存取上述圖片網域，不帶 Cookie、不跟隨重新導向，單次上限 100 MiB | 頁面請求對應本地介面時觸發。儲存 User 來源的插畫或小說排程時，同一使用者已有有效名稱快照便沿用；新增、更換使用者或缺少名稱時查詢並儲存名字，查詢失敗則不儲存排程。停止相關預覽、不儲存這類排程即可避免對應請求 |
 | 應用程式宿主（中繼資料回填） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 先匯入已登記作品目錄的舊 `.meta.json` 並用本地中繼資料補缺，仍有缺少才不帶 Cookie 請求上述介面（單次上限 4 MiB；404 記入 `data/backfill/unreachable.json`，年齡限制回應會暫緩自動重試） | 桌面與無頭服務啟動就緒後，於背景自動回填，或從桌面工具頁 / 獨立 CLI 手動執行；讀取已儲存的全域代理（工具頁可單次暫時覆寫），可在工具頁或停止服務取消 |
 | `download-workbench` 外掛 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | 取得插畫/動圖/畫師/系列/搜尋/收藏夾/關注新作/約稿中繼資料（一般 JSON 上限 4 MiB，關注新作總頁數未知時，最多掃描 1,000 頁），以及開啟「自動收藏」後，在下載完成時新增收藏；依需求攜帶 Pixiv Cookie | 預覽、快速取得、下載、排程工作、收藏數篩選補查（每次最多並行 6 件）或系列簡介補查時觸發；停用外掛或關閉自動收藏可停止對應請求 |
 | `novel` 外掛 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 取得小說正文、系列（回應上限 1 MiB）、作者小說、收藏、搜尋結果及下載後自動收藏；預覽後緊接的下載，會透過綁定 owner 與憑證的 256 KiB 短期一次性票據，重用已驗證回應 | 小說預覽、合訂、搜尋、排程工作時觸發；停用 `novel` 外掛即停止 |
@@ -46,7 +46,7 @@
 
 此外，透過 SDK `DownloadTasks.submit` 或管理員 `POST /api/download/tasks` 提交任務時，同樣會呼叫對應外掛取得中繼資料與媒體；工作台在可見時每 2 秒輪詢同源 `GET /api/download/tasks`（終止狀態保留 5 分鐘）。
 
-多 Cookie 只對明確失效或上游 HTTP 401、429 依選擇順序嘗試，每次請求每項最多一次。429 按帳號冷卻至少 30 秒，並遵守更長的 Retry-After；一次中繼資料請求的候選共用 60 秒期限，媒體請求共用 600 秒期限。公開作品讀取可換帳號，帳號私有來源只使用首選帳號的候選，收藏寫入不切換或重播。403、404、驗證挑戰、網路錯誤、5xx 和本機限流不觸發換號。取消、插件停用和風險保護優先；沿用原代理，不增加輪詢或第三方服務，帶憑證請求不跟隨重新導向。
+多 Cookie 只對明確失效或上游 HTTP 401、429 依選擇順序嘗試，每次請求每項最多一次。429 按帳號冷卻至少 30 秒，並遵守更長的 Retry-After；一次中繼資料請求的候選共用 60 秒期限，媒體請求共用 600 秒期限。公開作品讀取及使用者名稱查詢可換帳號，帳號私有來源只使用首選帳號的候選，收藏寫入不切換或重播。403、404、驗證挑戰、網路錯誤、5xx 和本機限流不觸發換號。取消、插件停用和風險保護優先；沿用原代理，不增加輪詢或第三方服務，帶憑證請求不跟隨重新導向。
 
 ## 第三方與選用功能外掛
 

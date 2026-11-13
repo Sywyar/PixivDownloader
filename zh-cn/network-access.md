@@ -36,7 +36,7 @@
 
 | 所有者 | 目标地址 | 用途与发送内容 | 触发与关闭方式 |
 | --- | --- | --- | --- |
-| 应用宿主（共用查询与缩略图） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用请求提供的取得凭据；`/api/pixiv/thumbnail-proxy` 仅访问上述图片域，不带 Cookie、不跟随重定向，单次上限 100 MiB | 页面请求对应本地接口时触发；停止相关预览即可避免 |
+| 应用宿主（共用查询与缩略图） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用请求提供的取得凭据；计划查询 `/api/pixiv/user/{id}/meta/schedule` 使用本次计划的凭据和代理，已绑定的 secret 只在服务端读取。`/api/pixiv/thumbnail-proxy` 仅访问上述图片域，不带 Cookie、不跟随重定向，单次上限 100 MiB | 页面请求对应本地接口时触发。保存 User 来源的插画或小说计划时，同一用户已有有效名称快照则复用；新建、换用户或缺少名称时查询并保存名字，查询失败则不保存计划。停止相关预览、不保存此类计划即可避免对应请求 |
 | 应用宿主（元数据回填） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 先导入已登记作品目录的旧 `.meta.json` 并用本地元数据补缺，仍有缺失才无 Cookie 请求上述接口（单次上限 4 MiB；404 记入 `data/backfill/unreachable.json`，年龄限制响应暂缓自动重试） | 桌面与无头服务启动就绪后后台自动回填，或从桌面工具页 / 独立 CLI 手动运行；读取已保存的全局代理（工具页可单次临时覆盖），可在工具页或停止服务取消 |
 | `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | 获取插画/动图/画师/系列/搜索/收藏夹/关注新作/约稿元数据（普通 JSON 上限 4 MiB，关注新作未知总页数最多扫 1,000 页），以及开启「自动收藏」后在下载完成时添加收藏；按需携带 Pixiv Cookie | 预览、快捷获取、下载、计划任务、收藏数筛选补查（每次最多并行 6 件）或系列简介补查时触发；停用插件或关闭自动收藏可停止对应请求 |
 | `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 获取小说正文、系列（响应上限 1 MiB）、作者小说、收藏、搜索结果及下载后自动收藏；预览后紧随的下载通过绑定 owner 与凭据的 256 KiB 短期一次性票据复用已验证响应 | 小说预览、合订、搜索、计划任务时触发；禁用 `novel` 插件即停止 |
@@ -46,7 +46,7 @@
 
 此外，通过 SDK `DownloadTasks.submit` 或管理员 `POST /api/download/tasks` 提交任务时，同样调用对应插件获取元数据与媒体，工作台在可见时每 2 秒轮询同源 `GET /api/download/tasks`（终态保留 5 分钟）。
 
-多 Cookie 只对明确失效或上游 HTTP 401、429 按选择顺序尝试，每次请求每项最多一次。429 按账号冷却至少 30 秒，并遵守更长的 Retry-After；一次元数据请求的候选共用 60 秒期限，媒体请求共用 600 秒期限。公开作品读取可换账号，账号私有来源只使用首选账号的候选，收藏写入不切换或重放。403、404、验证挑战、网络错误、5xx 和本地限流不触发换号。取消、插件停用和风险保护优先；沿用原代理，不增加轮询或第三方服务，带凭证请求不跟随重定向。
+多 Cookie 只对明确失效或上游 HTTP 401、429 按选择顺序尝试，每次请求每项最多一次。429 按账号冷却至少 30 秒，并遵守更长的 Retry-After；一次元数据请求的候选共用 60 秒期限，媒体请求共用 600 秒期限。公开作品读取及用户名查询可换账号，账号私有来源只使用首选账号的候选，收藏写入不切换或重放。403、404、验证挑战、网络错误、5xx 和本地限流不触发换号。取消、插件停用和风险保护优先；沿用原代理，不增加轮询或第三方服务，带凭证请求不跟随重定向。
 
 ## 第三方与可选功能插件
 
