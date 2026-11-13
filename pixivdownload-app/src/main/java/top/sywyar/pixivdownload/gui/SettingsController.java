@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 
 import java.io.IOException;
 import java.util.List;
@@ -28,17 +29,31 @@ public final class SettingsController {
     public record Changes(List<SettingsApiService.Change> changes) {}
     public record FieldError(String code, String error, String owner, String key, String variable) implements ApiErrorResponse {}
 
-    @GetMapping public List<SettingsApiService.Field> fields() throws IOException { return settings.fields(); }
-    @GetMapping("/presets") public List<SettingsApiService.Preset> presets() throws IOException { return settings.presets(); }
+    @GetMapping public List<SettingsApiService.Field> fields(HttpServletRequest request) throws IOException {
+        return settings.fields().stream().filter(field -> ProgramAccess.permits(request, field.owner(), "settings.read")).toList();
+    }
+    @GetMapping("/presets") public List<SettingsApiService.Preset> presets(HttpServletRequest request) throws IOException {
+        return settings.presets().stream().filter(preset -> ProgramAccess.permits(request, preset.owner(), "settings.read")).toList();
+    }
 
     @PostMapping(value = "/validate", consumes = "application/json")
     public List<SettingsApiService.Saved> validate(HttpServletRequest request) throws IOException {
-        return settings.save(ToolApiRequests.read(request, Changes.class, BODY_LIMIT).changes(), true);
+        return settings.save(authorizedChanges(request), true);
     }
 
     @PostMapping(consumes = "application/json")
     public List<SettingsApiService.Saved> save(HttpServletRequest request) throws IOException {
-        return settings.save(ToolApiRequests.read(request, Changes.class, BODY_LIMIT).changes(), false);
+        return settings.save(authorizedChanges(request), false);
+    }
+
+    private List<SettingsApiService.Change> authorizedChanges(HttpServletRequest request) throws IOException {
+        var changes = ToolApiRequests.read(request, Changes.class, BODY_LIMIT).changes();
+        if (changes == null || changes.isEmpty()) throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+        for (var change : changes) {
+            if (change == null) throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+            ProgramAccess.require(request, change.owner(), "settings.write");
+        }
+        return changes;
     }
 
     @ExceptionHandler(IOException.class)

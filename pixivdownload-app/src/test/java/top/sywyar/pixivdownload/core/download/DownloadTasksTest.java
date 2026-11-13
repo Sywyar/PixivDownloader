@@ -196,4 +196,59 @@ class DownloadTasksTest {
         assertThat(lifecycle.snapshot(admin).tasks()).singleElement()
                 .satisfies(task -> assertThat(task.phase()).isEqualTo(DownloadEvent.Phase.FAILED));
     }
+
+    @Test @DisplayName("程序权限在处理器前检查，回执和幂等键按密钥隔离")
+    void programSubmissionsKeepReceiptOwnershipWithoutChangingProviderContract() {
+        install();
+        var grants = java.util.Set.of("core:downloads.create", "example:downloads.create");
+        var first = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), grants);
+        var second = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), grants);
+        var firstOwner = RequestOwnerIdentity.owner(first.id().toString());
+        var secondOwner = RequestOwnerIdentity.owner(second.id().toString());
+        var command = command();
+        for (var permissions : List.of(java.util.Set.of("core:downloads.create"), java.util.Set.of("example:downloads.create"))) {
+            var denied = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), permissions);
+            assertThatThrownBy(() -> lifecycle.submitForProgram(command, null, denied))
+                    .isInstanceOfSatisfying(DownloadTaskException.class,
+                            failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.FORBIDDEN));
+        }
+        assertThat(queue).isEmpty();
+        assertThat(events).isEmpty();
+        assertThat(lifecycle.snapshot(admin).tasks()).isEmpty();
+        var receipt = lifecycle.submitForProgram(command, null, first);
+        var other = lifecycle.submitForProgram(command, null, second);
+        var id = receipt.task().attempt().attemptId();
+        assertThat(other.task().attempt().attemptId()).isNotEqualTo(id);
+        assertThat(lifecycle.submitForProgram(command, null, first).duplicate()).isTrue();
+        assertThat(lifecycle.snapshot(firstOwner).tasks()).containsExactly(receipt.task());
+        assertThat(lifecycle.find(id, secondOwner)).isEmpty();
+        assertThat(lifecycle.cancel(id, secondOwner)).isEqualTo(DownloadTasks.CancelResult.NOT_FOUND);
+        assertThat(lifecycle.cancel(id, firstOwner)).isEqualTo(DownloadTasks.CancelResult.REQUESTED);
+        queue.forEach(Runnable::run);
+        assertThat(executions).hasValue(1);
+        assertThat(lifecycle.find(id, firstOwner).orElseThrow().phase()).isEqualTo(DownloadEvent.Phase.CANCELLED);
+        lifecycle.withdraw(owner);
+        assertThat(lifecycle.submissionOwners()).isEmpty();
+        assertThatThrownBy(() -> lifecycle.submitForProgram(command(), null, first))
+                .isInstanceOfSatisfying(DownloadTaskException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+        assertThat(lifecycle.find(other.task().attempt().attemptId(), secondOwner).orElseThrow().phase())
+                .isEqualTo(DownloadEvent.Phase.COMPLETED);
+    }
+
+    @Test @DisplayName("程序下载终态重载后仍按密钥身份隔离")
+    void persistedProgramReceiptRetainsOwner(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) {
+        var registry = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
+        var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), java.util.Set.of());
+        var reserved = registry.reserveForProgram(command(), null, program).task();
+        registry.register(reserved.attempt(), null, "example", "Title");
+        registry.update(new DownloadEvent(reserved.attempt(), DownloadEvent.Phase.COMPLETED));
+        var reloaded = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
+        var identity = RequestOwnerIdentity.owner(program.id().toString());
+        assertThat(reloaded.find(reserved.attempt().attemptId(), identity).orElseThrow().phase())
+                .isEqualTo(DownloadEvent.Phase.COMPLETED);
+        assertThat(reloaded.find(reserved.attempt().attemptId(), RequestOwnerIdentity.owner(UUID.randomUUID().toString()))).isEmpty();
+        assertThat(reloaded.history(null, 10, identity).tasks()).hasSize(1);
+        assertThat(reloaded.snapshot(identity).tasks()).isEmpty();
+    }
 }

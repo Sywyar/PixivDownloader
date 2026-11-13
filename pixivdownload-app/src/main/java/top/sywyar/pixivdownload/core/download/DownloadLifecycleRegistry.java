@@ -125,10 +125,38 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     public Receipt submit(DownloadSubmission submission, String credential, RequestOwnerIdentity owner) {
         if (!database.available()) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
         var reservation = tasks.reserve(submission, credential, owner);
-        if (reservation.duplicate()) return new Receipt(reservation.task(), true);
-        DownloadAttempt attempt = reservation.task().attempt();
         DownloadSubmissionHandler handler = snapshot.values().stream()
                 .map(c -> c.handlers().get(submission.workType())).filter(Objects::nonNull).findFirst().orElse(null);
+        return executeSubmission(submission, credential, owner, reservation, handler);
+    }
+
+    /** 当前具有提交能力的 owner，不保留插件对象。 */
+    public java.util.Set<String> submissionOwners() {
+        return snapshot.entrySet().stream().filter(entry -> !entry.getValue().handlers().isEmpty())
+                .map(entry -> entry.getKey().pluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    @Override
+    public Receipt submitForProgram(DownloadSubmission submission, String credential,
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity program) {
+        Objects.requireNonNull(program, "program");
+        if (!program.permits("core", "downloads.create"))
+            throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
+        var publication = snapshot.entrySet().stream()
+                .filter(entry -> entry.getValue().handlers().containsKey(submission.workType()))
+                .findFirst().orElseThrow(() -> new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE));
+        if (!program.permits(publication.getKey().pluginId(), "downloads.create"))
+            throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
+        if (!database.available()) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
+        var reservation = tasks.reserveForProgram(submission, credential, program);
+        return executeSubmission(submission, credential, RequestOwnerIdentity.owner(program.id().toString()),
+                reservation, publication.getValue().handlers().get(submission.workType()));
+    }
+
+    private Receipt executeSubmission(DownloadSubmission submission, String credential, RequestOwnerIdentity owner,
+                                      DownloadTaskRegistry.Reservation reservation, DownloadSubmissionHandler handler) {
+        if (reservation.duplicate()) return new Receipt(reservation.task(), true);
+        DownloadAttempt attempt = reservation.task().attempt();
         try {
             if (handler == null) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
             publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));

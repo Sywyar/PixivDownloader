@@ -61,6 +61,7 @@ public final class DownloadTaskRegistry {
         final byte[] fingerprint;
         QueueTaskTracker.Task task;
         DownloadEvent.Phase publishedPhase;
+        boolean programSubmission;
         boolean saved;
         boolean saving;
         boolean saveFailureLogged;
@@ -76,6 +77,16 @@ public final class DownloadTaskRegistry {
     Reservation reserve(DownloadSubmission command, String credential, RequestOwnerIdentity owner) {
         Objects.requireNonNull(owner, "owner");
         if (!owner.admin()) throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
+        return reserve(command, credential, owner, false);
+    }
+
+    Reservation reserveForProgram(DownloadSubmission command, String credential,
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity program) {
+        return reserve(command, credential, RequestOwnerIdentity.owner(program.id().toString()), true);
+    }
+
+    private Reservation reserve(DownloadSubmission command, String credential, RequestOwnerIdentity owner,
+                                boolean programSubmission) {
         expire();
         RequestKey key = new RequestKey(owner.ownerUuid(), command.requestId());
         byte[] fingerprint = fingerprint(command, credential);
@@ -93,6 +104,7 @@ public final class DownloadTaskRegistry {
             DownloadAttempt attempt = new DownloadAttempt(id, command.workType(), command.workId());
             Entry entry = new Entry(value(attempt, "", attempt.workId(), DownloadEvent.Phase.ACCEPTED),
                     owner.ownerUuid(), key, fingerprint);
+            entry.programSubmission = programSubmission;
             entries.put(id, entry);
             requests.put(key, id);
             return new Reservation(entry.value, false);
@@ -115,7 +127,8 @@ public final class DownloadTaskRegistry {
                 if (registration == null) {
                     Entry entry = entries.get(id);
                     if (entry != null) {
-                        if (!entry.value.attempt().equals(attempt) || !Objects.equals(entry.owner, owner)
+                        // 程序拥有宿主回执；旧类型处理器仍以安装范围登记业务下载。
+                        if (!entry.value.attempt().equals(attempt) || !(Objects.equals(entry.owner, owner) || entry.programSubmission && owner == null)
                                 || entry.task != null || entry.value.terminal())
                             throw new IllegalArgumentException("download task identity already registered");
                         entry.value = value(attempt, safeType, safeTitle, entry.value.phase());

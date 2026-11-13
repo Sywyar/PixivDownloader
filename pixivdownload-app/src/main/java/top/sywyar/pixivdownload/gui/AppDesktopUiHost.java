@@ -99,7 +99,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
             top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity identity) {
         return new DesktopMediaToolHistorySource(identity,
                 BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class).source(identity),
-                historyStore());
+                toolHistory);
     }
 
     private final DesktopUiLocalApiClient localApiClient;
@@ -111,16 +111,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private DatabaseTarget processDatabaseTarget;
     private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
-    private volatile DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private final DesktopToolHistory toolHistory = DesktopToolHistory.shared();
     private final Optional<top.sywyar.pixivdownload.startup.DesktopStartupCacheService> startupCache =
-            top.sywyar.pixivdownload.startup.DesktopStartupCacheService.create((result, started) -> {
-                ToolOutcome outcome = switch (result.state()) {
-                    case SUCCEEDED -> ToolOutcome.SUCCEEDED;
-                    case CANCELLED -> ToolOutcome.CANCELLED;
-                    default -> ToolOutcome.FAILED;
-                };
-                toolHistory.record(ToolId.STARTUP_CACHE, outcome, started, null, null, null, null);
-            });
+            StartupCacheOperations.service();
 
     @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache> startupCache() {
         return startupCache.map(value -> value);
@@ -370,15 +363,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }
     @Override public Optional<WindowStateSnapshot> loadWindowState() { return windowState.load(); }
     @Override public boolean saveWindowState(WindowStateSnapshot state) { return windowState.save(state); }
-    private DesktopToolHistory historyStore() {
-        if (BackendLifecycleManager.isRunning()) toolHistory = BackendLifecycleManager.requiredBean(DesktopToolHistory.class);
-        return toolHistory;
-    }
-
-    @Override public List<ToolHistoryEntry> toolHistory() { return historyStore().entries(); }
+    @Override public List<ToolHistoryEntry> toolHistory() { return toolHistory.entries(); }
     @Override public void recordToolHistory(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
             Integer processedCount, Integer changedCount, Integer failedCount, Path logPath) {
-        historyStore().record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount, logPath);
+        toolHistory.record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount, logPath);
     }
     @Override public Path pluginsDirectory() { return RuntimeFiles.pluginsDirectory(); }
     @Override public Path resolvePluginConfigPath(String id, String extension) { return RuntimeFiles.resolvePluginConfigPath(id, extension); }
@@ -527,7 +515,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public synchronized java.util.UUID startBackfill(BackfillOptions options, boolean automatic) throws Exception {
         if (migrationRunning) throw new IllegalStateException(message("gui.message.backend-busy"));
         var runner = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class);
-        var history = historyStore();
+        var history = toolHistory;
         var observation = new java.util.concurrent.atomic.AtomicReference<BackfillTask>();
         var mapped = map(options);
         var receipt = runner.start(automatic ? mapped.forStartup() : mapped, value -> {

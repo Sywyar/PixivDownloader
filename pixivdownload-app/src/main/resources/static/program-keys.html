@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="security:keys.title"></title>
+<script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-feedback.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
+<script src="/js/pixiv-theme.js"></script>
+<link rel="stylesheet" href="/css/pixiv-layout.css">
+<link rel="stylesheet" href="/vendor/fonts/fonts.css">
+<link rel="stylesheet" href="/css/lang-theme-switcher.css">
+<link rel="stylesheet" href="/css/pixiv-feedback.css">
+<link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+<link rel="stylesheet" href="/pixiv-invite-manage/pixiv-invite-manage.css">
+<link rel="stylesheet" href="/program-keys/program-keys.css">
+<script src="/js/pixiv-layout.js" defer></script>
+</head>
+<body class="layout-flow">
+<header class="layout-sticky topbar" data-layout-height="--layout-header-height">
+<h1 class="brand" data-i18n="security:keys.title"></h1>
+<a class="back-link" href="/home.html" data-i18n="security:back"></a>
+<div class="topbar-actions" id="langSwitcherAnchor"></div>
+</header>
+<main class="wrap keys-page">
+<p data-i18n="security:keys.description"></p>
+<p id="key-error" role="alert"></p>
+<section id="key-list-view">
+<div class="key-actions"><button id="key-create" type="button" data-i18n="security:create" disabled></button>
+<button id="key-refresh" type="button" data-i18n="security:refresh"></button></div>
+<div id="key-list" aria-live="polite"></div>
+</section>
+<form id="key-form" hidden>
+<h2 id="key-form-title"></h2>
+<label for="key-name" data-i18n="security:name"></label>
+<input id="key-name" maxlength="80" required autocomplete="off">
+<fieldset><legend data-i18n="security:permissions"></legend>
+<p class="key-help" data-i18n="security:permissions.help"></p>
+<div id="key-permissions"></div></fieldset>
+<fieldset><legend data-i18n="security:source"></legend>
+<label class="key-choice"><input type="radio" name="key-source" value="restricted" checked><span data-i18n="security:source.restricted"></span></label>
+<label class="key-choice"><input type="radio" name="key-source" value="any"><span data-i18n="security:source.any"></span></label>
+<label for="key-networks" data-i18n="security:source.addresses"></label>
+<textarea id="key-networks" rows="4" spellcheck="false" aria-describedby="key-network-help"></textarea>
+<p id="key-network-help" class="key-help" data-i18n="security:source.help"></p></fieldset>
+<p id="key-form-error" role="alert"></p>
+<div class="key-actions"><button type="button" id="key-cancel" data-i18n="security:cancel"></button>
+<button type="submit" id="key-save" data-i18n="security:review"></button></div>
+</form>
+<section id="key-created" hidden aria-labelledby="key-created-title">
+<h2 id="key-created-title" tabindex="-1" data-i18n="security:created.title"></h2>
+<p data-i18n="security:created.help"></p>
+<label for="key-secret" data-i18n="security:created.secret"></label>
+<textarea id="key-secret" rows="3" readonly spellcheck="false" autocomplete="off"></textarea>
+<div class="key-actions"><button id="key-copy" type="button" data-i18n="security:copy"></button>
+<button id="key-done" type="button" data-i18n="security:done"></button></div>
+<p id="key-copy-status" role="status"></p>
+</section>
+</main>
+<script src="/program-keys/keys-core.js"></script>
+<script src="/program-keys/keys-views.js"></script>
+<script src="/program-keys/keys-actions.js"></script>
+<script src="/program-keys/keys-init.js"></script>
+</body>
+</html>

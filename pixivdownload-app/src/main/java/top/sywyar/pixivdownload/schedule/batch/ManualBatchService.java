@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.schedule.execution.*;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.*;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
 
 /** 独立手动批次，只保留当前批次；不创建定时任务，不依赖浏览器保持连接。 */
 public final class ManualBatchService implements SmartLifecycle {
@@ -94,6 +95,10 @@ public final class ManualBatchService implements SmartLifecycle {
     }
 
     public synchronized View create(Request request, String credential) {
+        return create(request, credential, null);
+    }
+
+    public synchronized View create(Request request, String credential, ProgramIdentity program) {
         if (!running) throw new IllegalStateException("batch.stopping");
         database.requireAvailable();
         if (current != null) throw new IllegalStateException("batch.exists");
@@ -107,10 +112,34 @@ public final class ManualBatchService implements SmartLifecycle {
         if (request.proxy() != null && (request.proxy().length() > 512
                 || !request.proxy().isBlank() && top.sywyar.pixivdownload.config.OutboundProxyOverride.parse(request.proxy()) == null))
             throw new IllegalArgumentException();
-        Batch batch = new Batch(request, credential);
+        requireSource(request.sourceType(), program);
+        Batch batch = new Batch(request, credential, program);
         current = batch;
         launch(batch, false);
         return view(batch);
+    }
+
+    private void requireSource(String sourceType, ProgramIdentity program) {
+        if (program == null) return;
+        try (var planning = capabilities.prepareSource(sourceType).orElseThrow(
+                () -> new NoSuchElementException("batch.not-found"))) {
+            requirePermission(program, planning.owner().featurePluginId());
+        }
+    }
+
+    private static void requirePermission(ProgramIdentity program, String owner) {
+        if (program != null && !program.permits(owner, "batches.execute"))
+            throw new top.sywyar.pixivdownload.i18n.LocalizedException(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "auth.program.forbidden", "The program key does not grant this operation");
+    }
+
+    public synchronized void authorize(UUID id, ProgramIdentity program) {
+        if (program != null && !program.id().equals(require(id).programId))
+            throw new NoSuchElementException("batch.not-found");
+    }
+
+    public synchronized View current(ProgramIdentity program) {
+        return current == null || program != null && !program.id().equals(current.programId) ? null : view(current);
     }
 
     public synchronized View current() { return current == null ? null : view(current); }
@@ -132,8 +161,15 @@ public final class ManualBatchService implements SmartLifecycle {
     }
 
     public synchronized View resume(UUID id, boolean failedOnly) {
+        return resume(id, failedOnly, null);
+    }
+
+    public synchronized View resume(UUID id, boolean failedOnly, ProgramIdentity program) {
+        authorize(id, program);
         Batch batch = require(id);
         if (!running || active(batch) || batch.state == State.COMPLETED) throw new IllegalStateException("batch.not-idle");
+        requireSource(batch.request.sourceType(), program);
+        batch.program = program;
         if (failedOnly) {
             var retry = batch.ledger.retryRows(1, codec);
             if (retry.isEmpty()) throw new IllegalStateException("batch.no-failed-work");
@@ -203,6 +239,8 @@ public final class ManualBatchService implements SmartLifecycle {
             result = State.SUSPENDED; code = "schedule.error.source-publication-changed";
         } catch (ScheduleSourceUnavailableException | ScheduleExecutorUnavailableException failure) {
             result = State.SUSPENDED; code = "schedule.error.execution-capability-unavailable";
+        } catch (top.sywyar.pixivdownload.i18n.LocalizedException failure) {
+            result = State.FAILED; code = "auth.program.forbidden";
         } catch (ScheduleDefinitionException | IllegalArgumentException failure) {
             result = State.FAILED; code = "schedule.error.definition-invalid";
         } catch (Throwable failure) {
@@ -230,6 +268,7 @@ public final class ManualBatchService implements SmartLifecycle {
         database.requireAvailable();
         try (var planning = capabilities.prepareSource(batch.request.sourceType()).orElseThrow(
                 () -> new ScheduleSourceUnavailableException(batch.request.sourceType()))) {
+            requirePermission(batch.program, planning.owner().featurePluginId());
             if (!batch.request.activationToken().equals(planning.activationToken()))
                 throw new ScheduleSourcePublicationChangedException(batch.request.sourceType());
             if (!capabilities.activate(planning)) throw new ScheduleSourceUnavailableException(batch.request.sourceType());
@@ -249,6 +288,8 @@ public final class ManualBatchService implements SmartLifecycle {
         } catch (ScheduledExecutionException failure) {
             if (failure.category() == ScheduledFailure.Category.CANCELLED) throw ScheduledExecutionException.cancelled();
             throw new ScheduleDefinitionException("invalid batch source definition");
+        } catch (top.sywyar.pixivdownload.i18n.LocalizedException failure) {
+            throw failure;
         } catch (RuntimeException failure) {
             throw new ScheduleDefinitionException("invalid batch source definition");
         }
@@ -321,6 +362,8 @@ public final class ManualBatchService implements SmartLifecycle {
         final UUID id = UUID.randomUUID();
         final long created = System.currentTimeMillis();
         final Request request;
+        final UUID programId;
+        ProgramIdentity program;
         final ScheduleRunState runs = new ScheduleRunState();
         final BatchWorkLedger ledger = new BatchWorkLedger(json);
         final Map<ScheduledWorkKey, ScheduledPendingWork> pending = new LinkedHashMap<>();
@@ -336,10 +379,13 @@ public final class ManualBatchService implements SmartLifecycle {
         String code;
         int run;
 
-        Batch(Request request, String credential) {
+        Batch(Request request, String credential, ProgramIdentity program) {
             this.request = request;
+            this.program = program;
+            this.programId = program == null ? null : program.id();
             this.secrets = new ArrayList<>(credentialCandidates(credential));
-            this.engine = new ScheduleExecutionEngine(this, capabilities, runs, ledger, config, codec, routes, workers, concurrency, json, database);
+            this.engine = new ScheduleExecutionEngine(this, capabilities, runs, ledger, config, codec, routes, workers, concurrency, json, database,
+                    owner -> this.program == null || this.program.permits(owner, "batches.execute"));
         }
         ScheduledTask task(String policyOwner, String policy, String account, String policyState) {
             return new ScheduledTask(1L, request.name(), false, definition.sourceType(), owner, definition.definitionSchema(), definition.definitionVersion(),

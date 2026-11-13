@@ -16,6 +16,23 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class FileImportToolControllerTest {
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("程序不能用读取权限开始文件导入或向未授权来源传递凭据")
+    void deniesExecutionBeforeLookup() throws Exception {
+        var registry = mock(DesktopFileImportToolRegistry.class);
+        var messages = TestI18nBeans.appMessages();
+        var mvc = MockMvcBuilders.standaloneSetup(new FileImportToolController(registry,
+                new top.sywyar.pixivdownload.gui.ToolApiRequests(messages, mock(WebI18nService.class))))
+                .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages)).build();
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:file-import.execute", "independent-tool:file-import.read"));
+        mvc.perform(post("/api/tools/file-import/tasks").contentType("application/json")
+                .requestAttr(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
+                .content("{\"identity\":{\"pluginId\":\"independent-tool\",\"packageId\":\"independent-tool\",\"generation\":3,\"publication\":5},\"token\":\"preview\",\"credential\":\"private-value\"}"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(registry);
+    }
     @Test void acknowledgementCannotClearAReplacementCompletion() throws Exception {
         var registry = new DesktopFileImportToolRegistry();
         var source = mock(Source.class);

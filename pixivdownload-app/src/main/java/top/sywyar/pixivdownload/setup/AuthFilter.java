@@ -69,6 +69,7 @@ public class AuthFilter extends OncePerRequestFilter {
     private final ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider;
     private final GuestInviteService guestInviteService;
     private final GuiTokenProvider guiTokenProvider;
+    private final ProgramKeyService programKeys;
 
     // 一次请求只解析一次有效路由，公开、邀请、管理员与本地放行共享同一方法和特异性结论。
     // 派生清单仅用于静态资源限流分类，不参与授权。
@@ -91,7 +92,6 @@ public class AuthFilter extends OncePerRequestFilter {
      * 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件，请求侧读取其不可变快照）、
      * {@link StartupRouteRegistry}（{@code /redirect} 默认落点）与 {@link LandingRegistry}（GET 邀请兑换落点）。
      */
-    @Autowired
     public AuthFilter(SetupService setupService,
                       StaticResourceRateLimitService staticResourceRateLimitService,
                       RateLimitService rateLimitService,
@@ -104,6 +104,24 @@ public class AuthFilter extends OncePerRequestFilter {
                       StartupRouteRegistry startupRouteRegistry,
                       LandingRegistry landingRegistry,
                       NavigationRegistry navigationRegistry) {
+        this(setupService, staticResourceRateLimitService, rateLimitService, localeResolver, messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider, routeAccessRegistry, startupRouteRegistry, landingRegistry, navigationRegistry, null);
+    }
+
+    @Autowired
+    public AuthFilter(SetupService setupService,
+                      StaticResourceRateLimitService staticResourceRateLimitService,
+                      RateLimitService rateLimitService,
+                      AppLocaleResolver localeResolver,
+                      AppMessages messages,
+                      ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
+                      GuestInviteService guestInviteService,
+                      GuiTokenProvider guiTokenProvider,
+                      RouteAccessRegistry routeAccessRegistry,
+                      StartupRouteRegistry startupRouteRegistry,
+                      LandingRegistry landingRegistry,
+                      NavigationRegistry navigationRegistry,
+                      ProgramKeyService programKeys) {
+        this.programKeys = programKeys;
         this.setupService = setupService;
         this.staticResourceRateLimitService = staticResourceRateLimitService;
         this.rateLimitService = rateLimitService;
@@ -304,6 +322,37 @@ public class AuthFilter extends OncePerRequestFilter {
             } else {
                 res.sendRedirect("/maintenance.html");
             }
+            return;
+        }
+
+        // 显式程序凭据不回退会话、本机或匿名身份；业务权限仍绑定本次有效路由。
+        if (req.getHeader(HttpHeaders.AUTHORIZATION) != null) {
+            var headers = req.getHeaders(HttpHeaders.AUTHORIZATION);
+            String authorization = headers.nextElement();
+            if (headers.hasMoreElements() || authorization.length() > 128
+                    || !authorization.startsWith("Bearer ") || programKeys == null
+                    || SessionUtils.extractToken(req) != null || GuestInviteSession.isGuestRequest(req)
+                    || req.getHeader(GuiTokenProvider.HEADER_NAME) != null) {
+                sendJsonError(req, res, 401, "auth.program.invalid", "Program credentials are invalid or mixed with another identity");
+                return;
+            }
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity identity;
+            try { identity = programKeys.authenticate(authorization.substring(7), req.getRemoteAddr()); }
+            catch (IOException unavailable) {
+                sendJsonError(req, res, 503, "auth.program.unavailable", "Program key storage is unavailable");
+                return;
+            }
+            if (identity == null) {
+                sendJsonError(req, res, 401, "auth.program.invalid", "Program credentials or source IP are not accepted");
+                return;
+            }
+            var permission = resolvedRoute.map(route -> route.route().programPermissions().get(toHttpMethod(method))).orElse(null);
+            if (permission == null || !identity.permits(resolvedRoute.orElseThrow().pluginId(), permission.id())) {
+                sendJsonError(req, res, 403, "auth.program.forbidden", "This program key does not permit the requested operation");
+                return;
+            }
+            req.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity);
+            chain.doFilter(req, res);
             return;
         }
 

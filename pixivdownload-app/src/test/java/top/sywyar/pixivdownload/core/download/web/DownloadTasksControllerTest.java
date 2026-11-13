@@ -104,4 +104,32 @@ class DownloadTasksControllerTest {
                 .andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_INVALID"));
         verifyNoInteractions(tasks);
     }
+
+    @Test @DisplayName("程序 HTTP 回执使用密钥 owner，不借用管理员查询范围")
+    void programUsesItsOwnTaskScope() throws Exception {
+        var tasks = mock(DownloadTasks.class);
+        var identities = mock(RequestOwnerIdentityResolver.class);
+        var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(),
+                java.util.Set.of("core:downloads.create", "example:downloads.create", "core:downloads.read"));
+        var owner = RequestOwnerIdentity.owner(program.id().toString());
+        var command = new DownloadSubmission(UUID.randomUUID(), "example", "opaque/id", Map.of());
+        var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "opaque/id");
+        var task = new DownloadTaskSnapshot(attempt, "example", "Title", DownloadEvent.Phase.QUEUED, Instant.EPOCH, 1);
+        when(tasks.submitForProgram(command, null, program)).thenReturn(new DownloadTasks.Receipt(task, false));
+        when(tasks.snapshot(owner)).thenReturn(new DownloadTasks.Snapshot(UUID.randomUUID(), 1, List.of(task)));
+        when(tasks.cancel(attempt.attemptId(), owner)).thenReturn(DownloadTasks.CancelResult.REQUESTED);
+        var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
+        String attribute = top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE;
+        mvc.perform(post("/api/download/tasks").requestAttr(attribute, program).contentType(MediaType.APPLICATION_JSON)
+                .content(JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(command)))
+                .andExpect(status().isAccepted());
+        mvc.perform(get("/api/download/tasks").requestAttr(attribute, program))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.tasks[0].attempt.attemptId").value(attempt.attemptId().toString()));
+        mvc.perform(post("/api/download/tasks/" + attempt.attemptId() + "/cancel").requestAttr(attribute, program))
+                .andExpect(status().isOk());
+        verify(tasks).snapshot(owner);
+        verify(tasks).cancel(attempt.attemptId(), owner);
+        verify(tasks, never()).submit(any(), any(), any());
+        verifyNoInteractions(identities);
+    }
 }

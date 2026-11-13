@@ -33,6 +33,9 @@ public final class RepositorySettingsValidation {
      * 校验仓库 id：非空、非保留字（{@code official} / {@code configured}）、与<b>其它</b>仓库大小写归一后不重复。
      *
      * @param others 当前列表中除被编辑项以外的其它仓库（用于查重）
+     * @param id 待校验的仓库标识
+     * @param reservedIds 归一化后的保留标识
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateId(String id, List<RepositoryConfigEntry> others, java.util.Set<String> reservedIds) {
         String trimmed = id == null ? "" : id.trim();
@@ -56,6 +59,8 @@ public final class RepositorySettingsValidation {
     /**
      * 校验清单地址：必须是合法的<b>绝对 HTTPS</b> URL，且 host 非空。拒绝 http / file / jar / data / javascript /
      * 相对地址 / 空 host。
+     * @param manifestUrl 清单地址
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateManifestUrl(String manifestUrl) {
         return validateManifestUrl(manifestUrl, true);
@@ -64,6 +69,9 @@ public final class RepositorySettingsValidation {
     /**
      * 校验清单地址：严格 HTTPS 时仅允许 {@code https}；自定义档关闭严格 HTTPS 时允许 {@code http}/{@code https}。
      * 其它协议、相对地址与空 host 始终拒绝。
+     * @param manifestUrl 清单地址
+     * @param strictHttps 是否只接受 HTTPS
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateManifestUrl(String manifestUrl, boolean strictHttps) {
         String url = manifestUrl == null ? "" : manifestUrl.trim();
@@ -94,6 +102,8 @@ public final class RepositorySettingsValidation {
 
     /**
      * 校验代理策略：必须取领域模型支持的固定枚举。未知策略不静默降级。
+     * @param proxyPolicy 代理策略标识
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateProxyPolicy(String proxyPolicy) {
         String policy = proxyPolicy == null ? "" : proxyPolicy.trim();
@@ -110,6 +120,8 @@ public final class RepositorySettingsValidation {
 
     /**
      * 校验「超时覆盖」文本：留空 = 继承全局默认（通过）；非空必须是正数毫秒、不超过合理上限（防溢出 / 笔误）。
+     * @param raw 用户输入
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateTimeoutOverride(String raw) {
         return validatePositiveOptional(raw, MAX_TIMEOUT_MS);
@@ -117,6 +129,8 @@ public final class RepositorySettingsValidation {
 
     /**
      * 校验「大小上限覆盖」文本：留空 = 继承全局默认（通过）；非空必须是正数字节、不超过合理上限（防溢出 / 笔误）。
+     * @param raw 用户输入
+     * @return 错误文案 key，合法时为 null
      */
     public static String validateSizeOverride(String raw) {
         return validatePositiveOptional(raw, MAX_BYTES_LIMIT);
@@ -142,7 +156,11 @@ public final class RepositorySettingsValidation {
         return null;
     }
 
-    /** 把「覆盖」文本解析为长整（留空 / 非法 → 0 = 继承全局默认）。供编辑对话框落值到模型。 */
+    /**
+     * 把「覆盖」文本解析为长整（留空 / 非法 → 0 = 继承全局默认）。供编辑对话框落值到模型。
+     * @param raw 用户输入
+     * @return 正数覆盖值，无法解析时为 0
+     */
     public static long parseOverride(String raw) {
         String text = raw == null ? "" : raw.trim();
         if (text.isEmpty()) {

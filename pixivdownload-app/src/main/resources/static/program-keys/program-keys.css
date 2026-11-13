@@ -1,0 +1,23 @@
+.keys-page { max-width: var(--layout-form-max, 52rem); }
+.keys-page p { margin-block: .75rem; }
+.keys-page h2 { font-size: 1.125rem; margin-block: 1rem; }
+.keys-page button, .keys-page input, .keys-page textarea { font: inherit; color: var(--text); background: var(--control-bg); border: 1px solid var(--line); border-radius: .375rem; padding: .625rem .75rem; }
+.keys-page button { cursor: pointer; min-height: var(--layout-control-height); }
+.keys-page button:disabled { opacity: .55; cursor: default; }
+.keys-page :focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.keys-page input:not([type]), .keys-page textarea { width: 100%; margin-block: .5rem 1rem; }
+.keys-page textarea { resize: vertical; overflow-wrap: anywhere; }
+.keys-page fieldset { border: 0; border-top: 1px solid var(--line); padding-block: 1rem; margin-block: 1rem; min-width: 0; }
+.keys-page legend { font-weight: 600; padding-inline-end: .5rem; }
+.key-actions { display: flex; flex-wrap: wrap; gap: .625rem; margin-block: 1rem; }
+.key-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding-block: 1rem; border-bottom: 1px solid var(--line); }
+.key-row > div { min-width: 0; }
+.key-row p, .key-row strong, .key-help { overflow-wrap: anywhere; }
+.key-help, .key-row p { color: var(--text-secondary); font-size: .875rem; }
+.key-choice { display: flex; gap: .75rem; align-items: start; padding-block: .5rem; }
+.key-choice input { margin-top: .2rem; }
+.key-permission-group { padding-block: .75rem; border-bottom: 1px solid var(--line); }
+.key-permission-group summary { cursor: pointer; font-weight: 600; padding-block: .5rem; }
+#key-error, #key-form-error { color: var(--danger); overflow-wrap: anywhere; }
+#key-save, #key-create, #key-done { border-color: var(--brand); font-weight: 600; }
+@media (max-width: 37.5em) { .key-row { align-items: stretch; flex-direction: column; gap: .25rem; } }

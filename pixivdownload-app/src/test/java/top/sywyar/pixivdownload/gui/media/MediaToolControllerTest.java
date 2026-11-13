@@ -18,6 +18,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MediaToolControllerTest {
     private static final String ID = "{\"pluginId\":\"independent-tool\",\"packageId\":\"independent-tool\",\"generation\":3,\"publication\":5}";
 
+    @Test
+    @org.junit.jupiter.api.DisplayName("程序缺少目标插件执行权限时拒绝且不访问执行器")
+    void deniesOtherProviderBeforeLookup() throws Exception {
+        var registry = mock(DesktopMediaToolRegistry.class);
+        var messages = TestI18nBeans.appMessages();
+        var mvc = MockMvcBuilders.standaloneSetup(new MediaToolController(registry, mock(DesktopToolHistory.class),
+                new top.sywyar.pixivdownload.gui.ToolApiRequests(messages, mock(WebI18nService.class))))
+                .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages)).build();
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:media.execute", "another-tool:media.execute"));
+        mvc.perform(post("/api/tools/media/tasks").contentType("application/json")
+                .requestAttr(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
+                .content("{\"identity\":" + ID + ",\"token\":\"preview\"}"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(registry);
+    }
+
     @Test void unknownProviderUsesSameHttpAndDesktopExecutionAndOldOwnerIsRejected() throws Exception {
         var registry = new DesktopMediaToolRegistry();
         var owner = new ExternalCapabilityOwner("independent-tool", "independent-tool", 3, 5);

@@ -30,6 +30,16 @@ public class TranslationPlugin implements PixivFeaturePlugin {
     }
     public List<WebRouteContribution> routes() {
         return List.of(WebRouteContribution.admin("/api/translation/**"),
+                WebRouteContribution.admin("/api/translation/status").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/translation/languages").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/translation/language").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/translation/jobs").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"), HttpMethod.POST, new ProgramPermission("execute", "permission.execute"))),
+                WebRouteContribution.admin("/api/translation/jobs/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"), HttpMethod.DELETE, new ProgramPermission("delete", "permission.delete"))),
+                WebRouteContribution.admin("/api/translation/jobs/*/resume").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("execute", "permission.execute"))),
+                WebRouteContribution.admin("/api/translation/jobs/*/pause").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("cancel", "permission.cancel"))),
+                WebRouteContribution.admin("/api/translation/jobs/*/cancel").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("cancel", "permission.cancel"))),
+                WebRouteContribution.admin("/api/translation/novel").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("execute", "permission.execute"))),
+                WebRouteContribution.admin("/api/translation/series").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("execute", "permission.execute"))),
                 WebRouteContribution.visitorAndInvitedGuest("/pixiv-translation/**"));
     }
     public List<StaticResourceContribution> staticResources() {

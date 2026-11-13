@@ -9,5 +9,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.PARAMETER)
 public @interface RequestBodyLimit {
+    /**
+     * 返回该参数允许读取的最大字节数。
+     * @return 正文预算，单位为字节
+     */
     int value();
 }

@@ -318,7 +318,8 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     }
 
     public boolean isAdminLoggedIn(HttpServletRequest request) {
-        if (GuestInviteSession.isGuestRequest(request)) return false;
+        if (GuestInviteSession.isGuestRequest(request)
+                || ProgramAccess.identity(request).isPresent()) return false;
         String token = SessionUtils.extractToken(request);
         return token != null && isValidSession(token);
     }
@@ -328,7 +329,8 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
      * 用于下载状态、聚合 SSE 等需要在多用户场景下区分访问范围的端点。
      */
     public boolean hasAdminScope(HttpServletRequest request) {
-        return !GuestInviteSession.isGuestRequest(request)
+        return ProgramAccess.identity(request).isEmpty()
+                && !GuestInviteSession.isGuestRequest(request)
                 && (!"multi".equals(getMode()) || isAdminLoggedIn(request));
     }
 

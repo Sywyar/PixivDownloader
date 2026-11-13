@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.setup;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,9 +18,7 @@ import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer;
 
 import java.io.IOException;
 import java.net.IDN;
-import java.net.InetAddress;
 import java.net.URI;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -40,7 +41,7 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
             "X-Forwarded-Port",
             "X-Real-IP");
 
-    private final List<CidrBlock> trustedProxies;
+    private final List<IpNetwork> trustedProxies;
 
     public TrustedForwardedRequestFilter(
             @Value("${server.trusted-proxy-cidrs:}") String trustedProxyCidrs) {
@@ -151,7 +152,7 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
     }
 
     private boolean isTrustedProxy(String address) {
-        byte[] parsed = parseNumericAddress(normalizeForwardedAddress(address));
+        byte[] parsed = IpNetwork.parseNumericAddress(normalizeForwardedAddress(address));
         if (parsed == null) {
             return false;
         }
@@ -286,7 +287,7 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
     }
 
     private static String canonicalAddress(String value) {
-        byte[] address = parseNumericAddress(normalizeForwardedAddress(value));
+        byte[] address = IpNetwork.parseNumericAddress(normalizeForwardedAddress(value));
         if (address == null) {
             throw new IllegalArgumentException("Invalid forwarded client address");
         }
@@ -321,41 +322,15 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
         return address;
     }
 
-    private static byte[] parseNumericAddress(String value) {
-        if (!hasText(value) || value.indexOf('%') >= 0) {
-            return null;
-        }
-        if (value.matches("[0-9]{1,3}(?:\\.[0-9]{1,3}){3}")) {
-            String[] parts = value.split("\\.");
-            byte[] bytes = new byte[4];
-            for (int i = 0; i < parts.length; i++) {
-                int part = Integer.parseInt(parts[i]);
-                if (part > 255) {
-                    return null;
-                }
-                bytes[i] = (byte) part;
-            }
-            return bytes;
-        }
-        if (value.indexOf(':') < 0 || !value.matches("[0-9A-Fa-f:.]+")) {
-            return null;
-        }
-        try {
-            return InetAddress.getByName(value).getAddress();
-        } catch (UnknownHostException e) {
-            return null;
-        }
-    }
-
-    private static List<CidrBlock> parseTrustedProxies(String configured) {
+    private static List<IpNetwork> parseTrustedProxies(String configured) {
         if (!hasText(configured)) {
             return List.of();
         }
         String[] tokens = configured.split(",", -1);
-        List<CidrBlock> result = new ArrayList<>(tokens.length);
+        List<IpNetwork> result = new ArrayList<>(tokens.length);
         for (String token : tokens) {
             try {
-                result.add(CidrBlock.parse(nonEmpty(token)));
+                result.add(IpNetwork.parse(nonEmpty(token)));
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException("Invalid trusted proxy CIDR: " + token.trim(), e);
             }
@@ -445,48 +420,6 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
     }
 
     private record Origin(String scheme, String host, int port) {
-    }
-
-    private record CidrBlock(byte[] network, int prefixLength) {
-
-        static CidrBlock parse(String value) {
-            int slash = value.indexOf('/');
-            if (slash <= 0 || slash != value.lastIndexOf('/')) {
-                throw new IllegalArgumentException("CIDR prefix is required");
-            }
-            byte[] address = parseNumericAddress(value.substring(0, slash).trim());
-            if (address == null) {
-                throw new IllegalArgumentException("Invalid CIDR address");
-            }
-            int prefix;
-            try {
-                prefix = Integer.parseInt(value.substring(slash + 1).trim());
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Invalid CIDR prefix", e);
-            }
-            int bits = address.length * 8;
-            if (prefix < 0 || prefix > bits) {
-                throw new IllegalArgumentException("Invalid CIDR prefix");
-            }
-            byte[] network = address.clone();
-            for (int bit = prefix; bit < bits; bit++) {
-                network[bit / 8] &= (byte) ~(1 << (7 - bit % 8));
-            }
-            return new CidrBlock(network, prefix);
-        }
-
-        boolean contains(byte[] address) {
-            if (address.length != network.length) {
-                return false;
-            }
-            for (int bit = 0; bit < prefixLength; bit++) {
-                int mask = 1 << (7 - bit % 8);
-                if ((address[bit / 8] & mask) != (network[bit / 8] & mask)) {
-                    return false;
-                }
-            }
-            return true;
-        }
     }
 
     private static final class NormalizedRequest extends HttpServletRequestWrapper {

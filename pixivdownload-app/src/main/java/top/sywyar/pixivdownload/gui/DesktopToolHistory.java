@@ -27,7 +27,6 @@ import java.util.UUID;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity;
 
 /** 桌面维护工具终态历史的有界持久化。 */
-@org.springframework.stereotype.Component
 public final class DesktopToolHistory {
     static final int MAX_ENTRIES = 100;
     static final int MAX_FILE_BYTES = 256 * 1024;
@@ -44,10 +43,13 @@ public final class DesktopToolHistory {
     private List<ToolHistoryEntry> entries;
     private boolean writable = true;
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public DesktopToolHistory() {
-        this(top.sywyar.pixivdownload.config.RuntimeFiles.guiStateDirectory());
+    private static final class ProcessInstance {
+        private static final DesktopToolHistory HISTORY = new DesktopToolHistory(
+                top.sywyar.pixivdownload.config.RuntimeFiles.guiStateDirectory());
     }
+
+    /** 后端重启及离线桌面共用写入者，避免旧快照覆盖其它工具的终态。 */
+    static DesktopToolHistory shared() { return ProcessInstance.HISTORY; }
 
     DesktopToolHistory(Path guiStateDirectory) {
         file = guiStateDirectory.resolve(FILE_NAME);

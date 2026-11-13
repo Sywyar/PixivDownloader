@@ -87,6 +87,7 @@ class AuthFilterServletTest {
     private WebServer server;
     private byte[] image;
     private final PolicyController policyController = new PolicyController();
+    private ProgramKeyService programKeys;
 
     @BeforeAll
     void startServer() throws Exception {
@@ -105,9 +106,18 @@ class AuthFilterServletTest {
                 1L, "invited", true, false, false, true, Set.of(), true, Set.of(),
                 true, Set.of(), true, Set.of())));
         routes.register("core", new CorePlugin().routes());
+        var programPlugin = mock(top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin.class);
+        when(programPlugin.id()).thenReturn("program-fixture");
+        when(programPlugin.displayNamespace()).thenReturn("fixture");
+        when(programPlugin.displayName()).thenReturn("fixture");
+        var plugins = new PluginRegistry(List.of(programPlugin));
+        programKeys = new ProgramKeyService(tempDir.resolve("program-keys.json"), routes, plugins);
         AuthFilter auth = new AuthFilter(setup, staticLimits, limits, locale, TestI18nBeans.appMessages(),
                 new StaticListableBeanFactory().getBeanProvider(MaintenanceCoordinator.class),
-                invites, mock(GuiTokenProvider.class), routes);
+                invites, mock(GuiTokenProvider.class), routes,
+                new top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry(plugins),
+                new top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry(plugins),
+                new top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry(plugins), programKeys);
 
         Path file = tempDir.resolve("pixel.png");
         ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", file.toFile());
@@ -155,7 +165,8 @@ class AuthFilterServletTest {
             servletContext.addFilter("auth", auth)
                     .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, "/*");
             servletContext.addFilter("csrf", new CsrfProtectionFilter(locale, TestI18nBeans.appMessages(), routes))
-                    .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, "/api/policy/forwarded");
+                    .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true,
+                            "/api/policy/forwarded", "/api/policy/program");
         });
         server.start();
     }
@@ -316,6 +327,47 @@ class AuthFilterServletTest {
             } finally {
                 routes.unregister("policy");
             }
+        }
+    }
+
+    @Test
+    @DisplayName("真实代理、鉴权及来源过滤器阻止越界密钥请求且不执行业务")
+    void programKeyHonorsServletSecurityChain() throws Exception {
+        routes.register("program-fixture", List.of(WebRouteContribution.admin("/api/policy/program")
+                .withProgramPermissions(java.util.Map.of(HttpMethod.POST,
+                        new top.sywyar.pixivdownload.plugin.api.web.ProgramPermission("write", "write")))));
+        try {
+            var created = programKeys.create(new ProgramKeyStore.Policy("fixture",
+                    Set.of("program-fixture:write"), false, List.of("192.0.2.0/24")));
+            for (String[] scenario : List.of(
+                    new String[]{"192.0.2.10", "", "", "200"},
+                    new String[]{"198.51.100.10", "", "", "401"},
+                    new String[]{"192.0.2.10", "https://foreign.example", "", "403"},
+                    new String[]{"192.0.2.10", "", "pixiv_session=admin", "401"})) {
+                int before = policyController.calls.get();
+                var builder = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort()
+                                + "/test/api/policy/program"))
+                        .timeout(Duration.ofSeconds(10)).POST(HttpRequest.BodyPublishers.noBody())
+                        .header("Forwarded", "for=" + scenario[0] + ";proto=https;host=fixture.example")
+                        .header("Authorization", "Bearer " + created.secret());
+                if (!scenario[1].isEmpty()) builder.header("Origin", scenario[1]);
+                if (!scenario[2].isEmpty()) builder.header("Cookie", scenario[2]);
+                int status = Integer.parseInt(scenario[3]);
+                assertThat(client.send(builder.build(), HttpResponse.BodyHandlers.discarding()).statusCode())
+                        .isEqualTo(status);
+                assertThat(policyController.calls.get()).isEqualTo(before + (status == 200 ? 1 : 0));
+            }
+            programKeys.revoke(created.key().id(), created.key().revision());
+            int before = policyController.calls.get();
+            var revoked = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort()
+                            + "/test/api/policy/program"))
+                    .timeout(Duration.ofSeconds(10)).POST(HttpRequest.BodyPublishers.noBody())
+                    .header("Forwarded", "for=192.0.2.10;proto=https;host=fixture.example")
+                    .header("Authorization", "Bearer " + created.secret()).build();
+            assertThat(client.send(revoked, HttpResponse.BodyHandlers.discarding()).statusCode()).isEqualTo(401);
+            assertThat(policyController.calls.get()).isEqualTo(before);
+        } finally {
+            routes.unregister("program-fixture");
         }
     }
 

@@ -141,6 +141,9 @@ public final class RuntimeFiles {
 
     public static Path aotCacheDirectory() { return stateDirectory().resolve("aot"); }
 
+    /** 程序密钥摘要与授权；不包含秘密原文，不随环境归档导出。 */
+    public static Path programKeysPath() { return stateDirectory().resolve("program-keys.json"); }
+
     /** 可丢弃的插件扫描纯值缓存，不存放插件可执行副本。 */
     public static Path pluginScanCacheDirectory() { return stateDirectory().resolve("plugin-scan-cache"); }
 

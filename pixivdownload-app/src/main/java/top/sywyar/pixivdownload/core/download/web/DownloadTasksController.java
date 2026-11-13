@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.UUID;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 
 /** 宿主的管理员下载任务入口；业务类型与生命周期由 SDK 门面分派。 */
 @RestController
@@ -43,7 +44,7 @@ public final class DownloadTasksController {
 
     @PostMapping
     public ResponseEntity<?> submit(HttpServletRequest request) throws java.io.IOException {
-        var owner = admin(request);
+        var owner = authorizedOwner(request);
         if (request.getContentLengthLong() > MAX_COMMAND_BYTES)
             return failure(413, "INVALID", "error.request.param.invalid");
         byte[] bytes = request.getInputStream().readNBytes(MAX_COMMAND_BYTES + 1);
@@ -53,21 +54,23 @@ public final class DownloadTasksController {
         if (command == null) throw new IllegalArgumentException("download command is required");
         String credential = AcquisitionCredentialResolver.resolve(
                 request.getHeader(AcquisitionCredentialResolver.HEADER_NAME));
-        var result = tasks.submit(command, credential, owner);
+        var program = ProgramAccess.identity(request);
+        var result = program.isPresent() ? tasks.submitForProgram(command, credential, program.get())
+                : tasks.submit(command, credential, owner);
         return ResponseEntity.accepted().cacheControl(CacheControl.noStore())
                 .body(new ReceiptView(TaskView.from(result.task()), result.duplicate()));
     }
 
     @GetMapping
     public ResponseEntity<SnapshotView> snapshot(HttpServletRequest request) {
-        var snapshot = tasks.snapshot(admin(request));
+        var snapshot = tasks.snapshot(authorizedOwner(request));
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new SnapshotView(
                 snapshot.epoch(), snapshot.revision(), snapshot.tasks().stream().map(TaskView::from).toList()));
     }
 
     @GetMapping("/{taskId}")
     public ResponseEntity<?> find(@PathVariable UUID taskId, HttpServletRequest request) {
-        var value = tasks.find(taskId, admin(request));
+        var value = tasks.find(taskId, authorizedOwner(request));
         return value.isPresent() ? ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(TaskView.from(value.get()))
                 : failure(404, "NOT_FOUND", "download.status.not-found");
     }
@@ -77,7 +80,7 @@ public final class DownloadTasksController {
                                               @RequestParam(required = false) String beforeTime,
                                               @RequestParam(required = false) UUID beforeId,
                                               HttpServletRequest request) {
-        var owner = admin(request);
+        var owner = authorizedOwner(request);
         if ((beforeTime == null) != (beforeId == null) || limit < 1 || limit > 200) throw new IllegalArgumentException();
         var cursor = beforeTime == null ? null : new DownloadTasks.HistoryCursor(java.time.Instant.parse(beforeTime), beforeId);
         var page = tasks.history(cursor, limit, owner);
@@ -88,7 +91,7 @@ public final class DownloadTasksController {
 
     @PostMapping("/{taskId}/cancel")
     public ResponseEntity<?> cancel(@PathVariable UUID taskId, HttpServletRequest request) {
-        var result = tasks.cancel(taskId, admin(request));
+        var result = tasks.cancel(taskId, authorizedOwner(request));
         return switch (result) {
             case REQUESTED, TERMINAL -> ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new CancelResponse(result));
             case NOT_FOUND -> failure(404, "NOT_FOUND", "download.status.not-found");
@@ -96,9 +99,10 @@ public final class DownloadTasksController {
         };
     }
 
-    private RequestOwnerIdentity admin(HttpServletRequest request) {
-        var owner = identities.resolve(request);
-        if (!owner.admin()) throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
+    private RequestOwnerIdentity authorizedOwner(HttpServletRequest request) {
+        var owner = ProgramAccess.identity(request).map(program -> RequestOwnerIdentity.owner(program.id().toString()))
+                .orElseGet(() -> identities.resolve(request));
+        if (!owner.admin() && ProgramAccess.identity(request).isEmpty()) throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
         return owner;
     }
 

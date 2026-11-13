@@ -27,25 +27,37 @@ import static org.mockito.Mockito.*;
 
 @DisplayName("独立手动批次的真实引擎与生命周期")
 class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
-    private record Fixture(ManualBatchService service, String token) {}
+    private record Fixture(ManualBatchService service, String token, AtomicInteger probes) {}
 
     private Fixture service(ScheduledSourceExecutor source, ScheduledWorkExecutor work) {
+        return service(source, work, false);
+    }
+
+    private Fixture service(ScheduledSourceExecutor source, ScheduledWorkExecutor work, boolean separateWorkOwner) {
         var registry = new FakeScheduleCapabilityAccess();
-        publish(registry, bindingBundle(new ScheduleCapabilityOwner("fixture", "fixture-package", 1), source, work,
+        var probes = new AtomicInteger();
+        var bundle = bindingBundle(new ScheduleCapabilityOwner("fixture", "fixture-package", 1), source, work,
                 new top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy() {
                     @Override public String policyId() { return POLICY; }
                     @Override public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult probe(
                             top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext context) {
+                        probes.incrementAndGet();
                         return top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult.valid("account-1");
                     }
-                }, guard(context -> ScheduledGuardDecision.proceed())));
+                }, guard(context -> ScheduledGuardDecision.proceed()));
+        if (separateWorkOwner) {
+            publish(registry, ScheduleCapabilityTestFixture.bundle(bundle.owner(), bundle.sourceDescriptors(), bundle.sourceExecutors(),
+                    List.of(), bundle.credentialPolicies(), bundle.guards()));
+            publish(registry, ScheduleCapabilityTestFixture.bundle(new ScheduleCapabilityOwner("other-work", "other-work-package", 1),
+                    List.of(), List.of(), List.of(work), List.of(), List.of()));
+        } else publish(registry, bundle);
         var json = JsonMapper.builder().build();
         var service = new ManualBatchService(registry, mock(ScheduledTaskStore.class), new ScheduleRunState(),
                 mock(TransactionTemplate.class), new ScheduleConfig(), new ScheduleWorkPersistenceCodec(json),
                 new ScheduleNetworkRouteResolver(mock(OutboundProxySettings.class)), new SyncTaskExecutor(),
                 new ScheduleWorkConcurrencyLimiter(), json, () -> true);
         service.start();
-        return new Fixture(service, activationToken(registry));
+        return new Fixture(service, activationToken(registry), probes);
     }
 
     private ManualBatchService.Request request(String token) {
@@ -216,5 +228,39 @@ class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
             verify(source, never()).discover(any());
         } finally { service.stop(); }
         assertThatThrownBy(() -> service.create(request(fixture.token()), null)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test @DisplayName("批次来源未授权时不调用插件，完整计划拒绝未授权作品且不探活凭据")
+    void programChecksSourceAndEveryWorkOwnerBeforeCredentials() throws Exception {
+        var source = spy(sourceExecutor(1, context -> {
+            context.workSink().submit(work("program-work"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        }));
+        var worker = spy(workExecutor(context -> ScheduledWorkResult.completed()));
+        var fixture = service(source, worker, true);
+        var id = java.util.UUID.randomUUID();
+        var denied = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id, java.util.Set.of());
+        var sourceOnly = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id, java.util.Set.of("fixture:batches.execute"));
+        try {
+            assertThatThrownBy(() -> fixture.service().create(request(fixture.token()), "fixture-secret", denied))
+                    .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
+            assertThat(fixture.service().current()).isNull();
+            verify(source, never()).prepare(any());
+            var accepted = fixture.service().create(request(fixture.token()), "fixture-secret", sourceOnly);
+            var failed = awaitIdle(fixture.service());
+            assertThat(failed.code()).isEqualTo("auth.program.forbidden");
+            assertThat(fixture.probes()).hasValue(0);
+            verify(source, never()).discover(any());
+            verify(worker, never()).execute(any(), any());
+            var other = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(), sourceOnly.permissions());
+            assertThat(fixture.service().current(other)).isNull();
+            assertThatThrownBy(() -> fixture.service().authorize(accepted.id(), other)).isInstanceOf(java.util.NoSuchElementException.class);
+            var allowed = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id,
+                    java.util.Set.of("fixture:batches.execute", "other-work:batches.execute"));
+            fixture.service().resume(accepted.id(), false, allowed);
+            assertThat(awaitIdle(fixture.service()).state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            assertThat(fixture.probes().get()).isPositive();
+            verify(worker).execute(any(), any());
+        } finally { fixture.service().stop(); }
     }
 }

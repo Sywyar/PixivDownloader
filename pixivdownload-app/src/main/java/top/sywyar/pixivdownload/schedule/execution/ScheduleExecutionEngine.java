@@ -69,6 +69,7 @@ public final class ScheduleExecutionEngine {
     private final ScheduleWorkConcurrencyLimiter workConcurrencyLimiter;
     private final ObjectMapper objectMapper;
     private final ScheduleCredentialSupport credentialSupport;
+    private final java.util.function.Predicate<String> ownerAllowed;
 
     ScheduleExecutionEngine(
             ScheduledWorkStore store,
@@ -95,6 +96,23 @@ public final class ScheduleExecutionEngine {
             TaskExecutor workTaskExecutor,
             ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
             ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        this(store, registry, runState, runQueue, config, persistenceCodec, routeResolver,
+                workTaskExecutor, workConcurrencyLimiter, objectMapper, database, owner -> true);
+    }
+
+    public ScheduleExecutionEngine(
+            ScheduledWorkStore store,
+            ScheduleCapabilityAccess registry,
+            ScheduleRunState runState,
+            ScheduleRunQueue runQueue,
+            ScheduleConfig config,
+            ScheduleWorkPersistenceCodec persistenceCodec,
+            ScheduleNetworkRouteResolver routeResolver,
+            TaskExecutor workTaskExecutor,
+            ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
+            ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
+            java.util.function.Predicate<String> ownerAllowed) {
+        this.ownerAllowed = Objects.requireNonNull(ownerAllowed, "ownerAllowed");
         this.database = Objects.requireNonNull(database, "database");
         this.store = Objects.requireNonNull(store, "store");
         this.registry = Objects.requireNonNull(registry, "registry");
@@ -114,6 +132,7 @@ public final class ScheduleExecutionEngine {
         if (!database.available()) return false;
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         try (planning) {
+            if (planning != null) requireOwner(planning.owner().featurePluginId());
             if (planning == null || !registry.activate(planning)
                     || !matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
                 return false;
@@ -125,8 +144,9 @@ public final class ScheduleExecutionEngine {
             validateStoredCheckpoint(plan, task);
             ScheduleExecutionLease execution = registry.prepareExpansion(planning, plan).orElse(null);
             try (execution) {
-                return execution != null && registry.activate(execution)
-                        && !execution.cancellation().isCancellationRequested();
+                if (execution == null || !registry.activate(execution)) return false;
+                requireWorkOwners(execution);
+                return !execution.cancellation().isCancellationRequested();
             }
         } catch (Exception ignored) {
             return false;
@@ -171,6 +191,7 @@ public final class ScheduleExecutionEngine {
                 throw new ScheduleExecutorUnavailableException(
                         task.sourceType(), plan.requiredWorkTypes());
             }
+            requireWorkOwners(execution);
             planning.close();
             execution.cancellation().throwIfCancellationRequested();
             ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner()
@@ -300,6 +321,7 @@ public final class ScheduleExecutionEngine {
                 throw new ScheduleExecutorUnavailableException(
                         task.sourceType(), plan.requiredWorkTypes());
             }
+            requireWorkOwners(execution);
             ScheduledCancellation leaseCancellation = execution.cancellation();
             ScheduledCancellation cancellation = () -> !database.available() || leaseCancellation.isCancellationRequested()
                     || runState.isCancelRequested(task.id());
@@ -488,6 +510,7 @@ public final class ScheduleExecutionEngine {
             throws ScheduleSourceUnavailableException,
             ScheduleDefinitionException,
             ScheduledExecutionException {
+        requireOwner(planning.owner().featurePluginId());
         try {
             if (!registry.activate(planning)) {
                 planning.close();
@@ -538,6 +561,15 @@ public final class ScheduleExecutionEngine {
             throw pluginFailure("schedule.plan.capability-mismatch");
         }
         return new SourcePlan(definition, sourceExecutor, plan);
+    }
+
+    private void requireOwner(String owner) throws ScheduledExecutionException {
+        if (!ownerAllowed.test(owner)) throw new ScheduledExecutionException(
+                ScheduledFailure.Category.ACCESS_UNAVAILABLE, "auth.program.forbidden");
+    }
+
+    private void requireWorkOwners(ScheduleExecutionLease execution) throws ScheduledExecutionException {
+        for (var owner : execution.workExecutorOwners().values()) requireOwner(owner.featurePluginId());
     }
 
     private ScheduleExecutionLease prepareExecution(

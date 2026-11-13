@@ -13,7 +13,7 @@ import java.util.Map;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 /**
- * "安全"页：当前仅包含修改管理员密码的子面板。
+ * 安全页包含管理员密码与插件声明的安全管理入口。
  * 所有修改通过 POST /api/gui/change-password 走 GUI 令牌通道，
  * 不直接操作 setup_config.json，以确保运行中的后端会同步失效旧 session。
  */
@@ -27,6 +27,8 @@ public class SecurityPanel extends JPanel {
     private final JLabel statusLabel = secondaryLabel(message("gui.security.status.idle"));
 
     private volatile boolean submitting;
+    private final JPanel securityNavigation = new JPanel();
+    private final top.sywyar.pixivdownload.gui.SwingShellAction shellAction = new top.sywyar.pixivdownload.gui.SwingShellAction();
 
     public SecurityPanel(int serverPort) {
         buildUi();
@@ -38,12 +40,47 @@ public class SecurityPanel extends JPanel {
 
         JPanel content = new ScrollablePagePanel();
         content.add(buildChangePasswordCard());
+        securityNavigation.setOpaque(false);
+        securityNavigation.setLayout(new BoxLayout(securityNavigation, BoxLayout.Y_AXIS));
+        securityNavigation.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(securityNavigation);
+        refreshSecurityNavigation();
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing())
+                refreshSecurityNavigation();
+        });
         content.add(Box.createVerticalGlue());
 
         JScrollPane scrollPane = new JScrollPane(content);
         scrollPane.setBorder(null);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         add(scrollPane, BorderLayout.CENTER);
+    }
+
+    private void refreshSecurityNavigation() {
+        securityNavigation.removeAll();
+        for (var plugin : SwingHost.context().currentPluginSnapshots()) {
+            for (var navigation : plugin.navigation().stream()
+                    .filter(entry -> entry.placements().contains(top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements.DESKTOP_SECURITY_ACTIONS)
+                            && entry.visibleTo().isVisibleTo(top.sywyar.pixivdownload.plugin.api.web.Audience.ADMIN))
+                    .sorted(java.util.Comparator.comparingInt(top.sywyar.pixivdownload.plugin.api.web.NavigationContribution::priority)).toList()) {
+                var text = new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText(navigation.labelNamespace(),
+                        navigation.labelI18nKey(), navigation.id(), java.util.List.of());
+                var button = new JButton(SwingHost.context().resolveText(text));
+                button.setAlignmentX(Component.LEFT_ALIGNMENT);
+                button.addActionListener(event -> {
+                    if (!SwingHost.context().currentPluginSnapshots().contains(plugin)) return;
+                    shellAction.run("security-open-management",
+                            () -> SwingHost.host().openExternalUri(SwingHost.host().backendUri(navigation.href())),
+                            failure -> GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                                    message("gui.error.open-browser", failure.getClass().getSimpleName())));
+                });
+                securityNavigation.add(Box.createVerticalStrut(8));
+                securityNavigation.add(button);
+            }
+        }
+        securityNavigation.revalidate();
+        securityNavigation.repaint();
     }
 
     private JComponent buildChangePasswordCard() {
