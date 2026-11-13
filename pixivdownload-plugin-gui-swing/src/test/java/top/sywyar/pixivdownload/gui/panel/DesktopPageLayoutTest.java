@@ -28,7 +28,7 @@ class DesktopPageLayoutTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "message" -> args[0];
-                    case "localArtworkImports" -> java.util.Optional.empty();
+                    case "localArtworkImports", "startupCache" -> java.util.Optional.empty();
                     case "mediaTools" -> List.of(new DesktopMediaTool(identity, description));
                     case "mediaTool" -> source;
                     case "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();

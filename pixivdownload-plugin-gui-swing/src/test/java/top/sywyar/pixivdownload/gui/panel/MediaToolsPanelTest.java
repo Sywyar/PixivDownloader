@@ -56,7 +56,7 @@ class MediaToolsPanelTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "message" -> args[0];
-                    case "localArtworkImports" -> java.util.Optional.empty();
+                    case "localArtworkImports", "startupCache" -> java.util.Optional.empty();
                     case "mediaTools" -> tools.get();
                     case "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "mediaTool" -> { assertEquals(identity, args[0]); yield source; }
