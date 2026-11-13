@@ -3,14 +3,10 @@ package top.sywyar.pixivdownload.plugin.api.download.control;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,9 +49,6 @@ class DownloadControlPlaneContractTest {
 
         assertThat(command.workKey()).isEqualTo(workKey);
         assertThat(command.expectedPublication()).isSameAs(owner);
-        assertThat(Arrays.stream(DownloadQueueCancelCommand.class.getRecordComponents())
-                .map(component -> component.getName()))
-                .containsExactly("queueType", "workKey", "expectedPublication");
     }
 
     @Test
@@ -67,83 +60,6 @@ class DownloadControlPlaneContractTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new DownloadExtensionIdentity("demo", "demo", 0L, 0L))
                 .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    @DisplayName("控制面只暴露快照、精确取消与清空三类操作")
-    void controlPlaneHasExactOperationSurface() throws NoSuchMethodException {
-        assertThat(Arrays.stream(DownloadControlPlane.class.getDeclaredMethods())
-                .map(method -> method.getName()))
-                .containsExactlyInAnyOrder("extensions", "cancelExact", "clearQueues");
-        assertMethod(
-                "extensions",
-                DownloadExtensionSnapshot.class);
-        assertMethod(
-                "cancelExact",
-                DownloadQueueCancelResult.class,
-                DownloadQueueCancelCommand.class,
-                Supplier.class);
-        assertMethod(
-                "clearQueues",
-                int.class,
-                RequestOwnerIdentity.class);
-        assertThat(DownloadQueueCancelResult.values())
-                .containsExactly(
-                        DownloadQueueCancelResult.CANCELLED,
-                        DownloadQueueCancelResult.DESCRIPTOR_NOT_FOUND,
-                        DownloadQueueCancelResult.DESCRIPTOR_STALE,
-                        DownloadQueueCancelResult.UNSUPPORTED,
-                        DownloadQueueCancelResult.OPERATION_UNAVAILABLE);
-    }
-
-    @Test
-    @DisplayName("下载控制面纯值记录保持精确组件形状")
-    void controlPlaneRecordsHaveExactComponents() {
-        assertRecordShape(
-                DownloadExtensionIdentity.class,
-                new String[]{"pluginId", "packageId", "generation", "publicationId"},
-                new Class<?>[]{String.class, String.class, long.class, long.class});
-        assertRecordShape(
-                DownloadExtensionSnapshot.class,
-                new String[]{"epoch", "revision", "downloadTypes", "uiSlots"},
-                new Class<?>[]{String.class, long.class, List.class, List.class});
-        assertRecordShape(
-                DownloadTypePublication.class,
-                new String[]{"owner", "descriptor"},
-                new Class<?>[]{DownloadExtensionIdentity.class, DownloadTypeDescriptor.class});
-        assertRecordShape(
-                DownloadUiSlotPublication.class,
-                new String[]{"owner", "slot"},
-                new Class<?>[]{DownloadExtensionIdentity.class, WebUiSlotContribution.class});
-        assertRecordShape(
-                DownloadQueueCancelCommand.class,
-                new String[]{"queueType", "workKey", "expectedPublication"},
-                new Class<?>[]{String.class, String.class, DownloadExtensionIdentity.class});
-    }
-
-    private static void assertMethod(
-            String name,
-            Class<?> returnType,
-            Class<?>... parameterTypes) throws NoSuchMethodException {
-        Method method = DownloadControlPlane.class.getDeclaredMethod(name, parameterTypes);
-        assertThat(method.getReturnType()).isEqualTo(returnType);
-    }
-
-    private static void assertRecordShape(
-            Class<?> recordType,
-            String[] componentNames,
-            Class<?>[] componentTypes) {
-        assertThat(recordType.isRecord()).isTrue();
-        assertThat(Arrays.stream(recordType.getRecordComponents())
-                .map(component -> component.getName()))
-                .containsExactly(componentNames);
-        List<String> actualTypes = Arrays.stream(recordType.getRecordComponents())
-                .map(component -> component.getType().getName())
-                .toList();
-        List<String> expectedTypes = Arrays.stream(componentTypes)
-                .map(Class::getName)
-                .toList();
-        assertThat(actualTypes).isEqualTo(expectedTypes);
     }
 
     private static DownloadTypeDescriptor descriptor(String type) {

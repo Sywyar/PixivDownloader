@@ -62,5 +62,6 @@ class SettingsSearchTest {
     private fun location(id: String, title: String, help: String = "", category: String = "general") = SettingLocation(
         id, category, TextToken.raw(title), help.takeIf(String::isNotBlank)?.let(TextToken::raw),
         Button("$id.locate", "$id.locate", TextToken.raw(title), null, ButtonStyle.NORMAL, true),
+        emptyList(),
     )
 }

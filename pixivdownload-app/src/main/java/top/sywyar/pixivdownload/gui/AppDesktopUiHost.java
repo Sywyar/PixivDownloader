@@ -35,6 +35,37 @@ import java.util.function.Supplier;
 /** 应用拥有的稳定桌面界面宿主契约实现。 */
 final class AppDesktopUiHost implements DesktopUiHost {
     @Override
+    public void saveLocalImportPresets(String value) throws IOException {
+        var entries = parseLocalImportPresets(value);
+        applicationConfig().withWriteLock(() -> {
+            applicationConfig().writeAll(Map.of("local-import.presets", value));
+            try {
+                BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.core.importing.LocalImportConfig.class)
+                        .setPresets(value);
+            } catch (IllegalStateException unavailable) {
+                // 后端未运行时，下一次启动从已保存配置读取。
+            }
+        });
+        org.slf4j.LoggerFactory.getLogger(AppDesktopUiHost.class)
+                .info("Local import presets saved: count={}", entries.size());
+    }
+    @Override
+    public List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
+        return top.sywyar.pixivdownload.core.importing.LocalImportConfig.parse(value);
+    }
+    @Override
+    public String formatLocalImportPresets(List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> presets) {
+        String value = tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(presets);
+        parseLocalImportPresets(value);
+        return value;
+    }
+    @Override
+    public Optional<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports> localArtworkImports() {
+        try {
+            return Optional.of(BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.core.importing.LocalImportService.class));
+        } catch (IllegalStateException unavailable) { return Optional.empty(); }
+    }
+    @Override
     public List<top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool> fileImportTools() {
         try {
             return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.importing.DesktopFileImportToolRegistry.class).tools();
@@ -150,6 +181,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution> coreConfigGroups() {
         return DesktopCoreConfigCatalog.groups();
     }
+    @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution> coreConfigSections() {
+        return DesktopCoreConfigCatalog.sections();
+    }
     @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution> coreConfigFields() {
         return DesktopCoreConfigCatalog.fields(this);
     }
@@ -241,6 +275,29 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String requireSafeConfigValue(String value)throws java.io.IOException{return top.sywyar.pixivdownload.gui.config.ConfigFileEditor.requireSafeValue(value);}
     @Override public void validateCoreConfigValue(String key, String value) throws IOException {
         if (FfmpegLocator.CONFIG_KEY.equals(key)) FfmpegLocator.validateConfiguredPath(value);
+        try {
+            top.sywyar.pixivdownload.core.appconfig.DownloadConfig.validateValue(key, value);
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure) {
+            throw new IOException(message("directory-template." + failure.reason(), failure.variable()), failure);
+        }
+    }
+    @Override public void validateDirectoryTemplate(String value) throws IOException {
+        try {
+            if (value != null && !value.isBlank()) top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(value);
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure) {
+            throw new IOException(message("directory-template." + failure.reason(), failure.variable()), failure);
+        }
+    }
+    @Override public String saveDownloadTemplateRoot(String root) throws IOException {
+        String[] saved = new String[1];
+        applicationConfig.withWriteLock(() -> {
+            String current = applicationConfig.read("download.root-folder");
+            if (current == null) current = top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE;
+            saved[0] = top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(current)
+                    .withFixedPrefix(RuntimeFiles.normalizeRootFolder(root));
+            applicationConfig.write("download.root-folder", saved[0]);
+        });
+        return saved[0];
     }
     private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
         return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
@@ -585,7 +642,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private String folderCheckRoot() throws IOException {
         String configured = applicationConfig.read("download.root-folder");
         return configured == null || configured.isBlank()
-                ? new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder() : configured;
+                ? new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder() : RuntimeFiles.normalizeRootFolder(configured);
     }
     @Override public ImageClassifierSettings loadImageClassifierSettings(String rootFolder) throws IOException {
         return desktopUiTools.loadImageClassifierSettings(rootFolder);

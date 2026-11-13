@@ -213,7 +213,9 @@ public class ArtworkFileService {
      */
     public boolean hasArtworkFiles(ArtworkRecord artwork) {
         if (artwork == null || artwork.count() <= 0) return false;
-        if (!artworkFileLocator.isReadOnly(artwork)) {
+        boolean readOnly = artworkFileLocator.isReadOnly(artwork);
+        if (readOnly && !artworkFileLocator.hasCompletePageIdentity(artwork)) return false;
+        if (!readOnly) {
             String directory = artworkFileLocator.resolveArtworkDirectory(artwork);
             if (!StringUtils.hasText(directory)) throw new IllegalStateException("Missing artwork directory record");
             Path path = Path.of(directory);

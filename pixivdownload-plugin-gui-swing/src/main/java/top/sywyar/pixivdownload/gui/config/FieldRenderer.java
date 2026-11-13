@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.LocalImportGuideButton;
+import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 
@@ -90,6 +92,7 @@ public final class FieldRenderer {
             case MULTI_ENUM -> renderMultiEnum(spec);
             case PASSWORD -> renderPassword(spec);
             case STRING -> renderString(spec);
+            case PATH_TEMPLATES -> renderPathTemplates(spec);
         };
     }
 
@@ -268,13 +271,28 @@ public final class FieldRenderer {
     }
 
     private static RenderedField renderString(ConfigFieldSpec spec) {
+        return renderString(spec, spec.label(), spec.helpText());
+    }
+
+    /** 为组合表单复用文本输入、校验与生效标记，标签和帮助由组合布局决定。 */
+    public static RenderedField renderString(ConfigFieldSpec spec, String label, String help) {
         JTextField tf = new JTextField(spec.defaultValue(), 24);
-        RenderedPanel p = renderFieldPanel(spec, tf);
+        RenderedPanel p = renderFieldPanel(spec, tf, label, help);
         return new RenderedField(p.panel(),
                 () -> tf.getText().trim(),
                 v -> tf.setText(v == null ? "" : v),
                 tf,
                 p.validationError());
+    }
+    private static RenderedField renderPathTemplates(ConfigFieldSpec spec) {
+        var editor = new LocalImportPresetEditor(spec.defaultValue());
+        var controls = new JPanel();
+        controls.setOpaque(false);
+        controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
+        controls.add(editor);
+        controls.add(new LocalImportGuideButton(SwingHost.host()));
+        RenderedPanel p = renderFieldPanel(spec, controls);
+        return new RenderedField(p.panel(), editor::value, editor::setValue, editor, p.validationError());
     }
 
     // ── 字段面板布局 ──────────────────────────────────────────────────────────────
@@ -283,15 +301,19 @@ public final class FieldRenderer {
      * 布局：[标签] [控件 + 帮助文字 + 需重启标记]
      */
     private static RenderedPanel renderFieldPanel(ConfigFieldSpec spec, JComponent control) {
+        return renderFieldPanel(spec, control, spec.label(), spec.helpText());
+    }
+
+    private static RenderedPanel renderFieldPanel(ConfigFieldSpec spec, JComponent control, String label, String help) {
         JTextArea validationError = createTextArea("");
         validationError.setForeground(VALIDATION_ERROR_COLOR);
         validationError.setVisible(false);
 
         return new RenderedPanel(buildFieldPanel(
-                spec.label() + message("gui.punctuation.colon"),
+                label + message("gui.punctuation.colon"),
                 control,
                 effectLabel(spec.effect()),
-                spec.helpText(),
+                help,
                 validationError), validationError);
     }
 

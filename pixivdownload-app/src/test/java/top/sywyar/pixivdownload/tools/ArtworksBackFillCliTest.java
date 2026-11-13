@@ -58,7 +58,7 @@ class ArtworksBackFillCliTest {
         try (var targets = mockStatic(DatabaseTarget.class);
              var bootstrap = mockStatic(DatabaseBootstrap.class);
              var console = mockStatic(top.sywyar.pixivdownload.common.Utf8ConsoleStreams.class);
-             var files = mockStatic(RuntimeFiles.class)) {
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS)) {
             targets.when(DatabaseTarget::configurationEnvironment).thenReturn(environment);
             bootstrap.when(() -> DatabaseBootstrap.openToolSession(environment)).thenReturn(plugins);
             bootstrap.when(() -> DatabaseBootstrap.inspect(plugins, environment)).thenReturn(target);

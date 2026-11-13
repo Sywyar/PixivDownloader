@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,7 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Swing GUI 文案归属启发式 lint")
 class GuiMessageUsageGuardTest {
     private static final Pattern MESSAGE_CALL = Pattern.compile(
-            "(?:(?<![A-Za-z.])message|GuiMessages\\.get)\\(\\s*\"([^\"]+)\"\\s*(?:,|\\))");
+            "((?<![A-Za-z.])message|GuiMessages\\.get)\\(\\s*\"([^\"]+)\"\\s*(?:,|\\))");
+    private static final Pattern GUI_MESSAGE_WRAPPER = Pattern.compile(
+            "\\bString\\s+message\\([^{}]*\\)\\s*\\{\\s*return\\s+GuiMessages\\.get\\(");
 
     @Test
     @DisplayName("所有字面量 GUI key 都可由 Swing 解析链解析")
@@ -33,16 +36,44 @@ class GuiMessageUsageGuardTest {
         int calls = 0;
         try (var sources = Files.walk(Path.of("src/main/java"))) {
             for (Path source : sources.filter(path -> path.toString().endsWith(".java")).toList()) {
-                Matcher matcher = MESSAGE_CALL.matcher(Files.readString(source, StandardCharsets.UTF_8));
-                while (matcher.find()) {
+                for (String key : guiMessageKeys(Files.readString(source, StandardCharsets.UTF_8))) {
                     calls++;
-                    String key = matcher.group(1);
                     assertThat(GuiMessages.get(key)).as(source + " 无法解析文案 key: " + key)
                             .isNotEqualTo(key);
                 }
             }
         }
         assertThat(calls).isPositive();
+    }
+
+    @Test
+    @DisplayName("文案 lint 区分 Swing 词典转发与宿主命名空间转发")
+    void onlyGuiOwnedMessagesUseGuiBundle() {
+        assertThat(guiMessageKeys("""
+                private static String message(String key, Object... args) {
+                    return GuiMessages.get(key, args);
+                }
+                message("gui.first");
+                GuiMessages.get("gui.second", 2);
+                """)).containsExactly("gui.first", "gui.second");
+        assertThat(guiMessageKeys("""
+                private String message(String key, Object... args) {
+                    return context.host().message("local-import." + key, args);
+                }
+                message("title");
+                context.host().message("local-import.help");
+                GuiMessages.get("gui.direct");
+                """)).containsExactly("gui.direct");
+    }
+
+    private static List<String> guiMessageKeys(String source) {
+        boolean guiWrapper = GUI_MESSAGE_WRAPPER.matcher(source).find();
+        List<String> keys = new ArrayList<>();
+        Matcher matcher = MESSAGE_CALL.matcher(source);
+        while (matcher.find()) {
+            if (matcher.group(1).equals("GuiMessages.get") || guiWrapper) keys.add(matcher.group(2));
+        }
+        return keys;
     }
 
     private static void installHost() {

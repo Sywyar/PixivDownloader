@@ -28,6 +28,14 @@ public final class PixivScheduledDefinitionValidator {
         if (source == null || !source.isObject()) {
             throw invalidDefinition();
         }
+        try {
+            top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.fromCode(
+                    source.path("acquisitionMode").asString(null));
+        } catch (IllegalArgumentException invalid) { throw invalidDefinition(); }
+        JsonNode username = source.get("username");
+        if (username != null && (!username.isString() || username.stringValue().length() > 512)) throw invalidDefinition();
+        if ("user".equals(source.path("acquisitionMode").asString(null))
+                && (username == null || username.stringValue().isBlank())) throw invalidDefinition();
         switch (sourceType) {
             case USER_NEW, USER_REQUEST -> requirePositiveId(source.get("userId"));
             case SERIES -> requirePositiveId(source.get("seriesId"));
@@ -35,7 +43,7 @@ public final class PixivScheduledDefinitionValidator {
             case SEARCH -> validateSearchSource(source);
             case MY_BOOKMARKS -> validateBookmarksSource(source);
             case FOLLOW_LATEST -> {
-                if (!source.isEmpty()) {
+                if (source.size() > (source.has("acquisitionMode") ? 1 : 0)) {
                     throw invalidDefinition();
                 }
             }

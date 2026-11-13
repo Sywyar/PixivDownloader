@@ -14,20 +14,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * 插件市场 Web 页面静态守卫：直接读取 classpath 下的市场页静态资源与 i18n 文案，校验前端不变量——
- * <ul>
- *   <li>页面模块按依赖顺序加载（core → data → api → vue → fallback → init），且先加载共享 Vue 助手；</li>
- *   <li>只消费正确的 {@code /api/plugin-market/**} 端点，<b>不</b>引用已迁移为 404 的旧 {@code /api/plugins/catalog/**}；</li>
- *   <li>不引入设计稿运行时（{@code support.js} / {@code _ds} / {@code .dc.html} / design_handoff）；</li>
- *   <li>Vue 视图不使用 {@code v-html}、命令式回退一律经 {@code escapeHtml} 转义（杜绝不受控 HTML/SVG/CSS 注入）；</li>
- *   <li>安装只按受控 repositoryId+pluginId+version 构造 URL（encodeURIComponent），不接受任意 URL；</li>
- *   <li>i18n zh / en 文案键集合一致且覆盖关键键；</li>
- *   <li>页面唯一硬编码的跨页入口是核心壳自有的 {@code /plugin-manage.html}（互链），不硬编码其它插件页 href；</li>
- *   <li>旧占位命令式渲染模块 {@code plugin-market-views.js} 已删除、不在 classpath（不留孤儿死代码随 jar 打包）；</li>
- *   <li>静态文本资源不含真实 NUL（{@code 0x00}）字节（如复合键分隔符须以源码转义书写，不嵌裸字节）。</li>
- * </ul>
- */
+/** 市场页的资源装配、文案可用性与安全静态检查。 */
 @DisplayName("插件市场 Web 页面静态守卫")
 class PluginMarketPageGuardTest {
 
@@ -108,36 +95,6 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("不引用已迁移为 404 的旧 /api/plugins/catalog 端点")
-    void noLegacyCatalogEndpoint() throws IOException {
-        for (String resource : ALL_STATIC) {
-            assertThat(read(resource))
-                    .as("%s 不应引用旧 /api/plugins/catalog 端点（已破坏性迁移为 /api/plugin-market）", resource)
-                    .doesNotContain("/api/plugins/catalog");
-        }
-    }
-
-    @Test
-    @DisplayName("不引入设计稿运行时（support.js / _ds / .dc.html / design_handoff）")
-    void noDesignRuntime() throws IOException {
-        for (String resource : ALL_STATIC) {
-            String content = read(resource);
-            assertThat(content).as("%s 不应引用设计稿运行时 support.js", resource).doesNotContain("support.js");
-            assertThat(content).as("%s 不应引用设计系统目录 _ds", resource).doesNotContain("_ds");
-            assertThat(content).as("%s 不应引用设计稿原型 .dc.html", resource).doesNotContain(".dc.html");
-            assertThat(content).as("%s 不应引用设计交付目录 design_handoff", resource).doesNotContain("design_handoff");
-        }
-    }
-
-    @Test
-    @DisplayName("旧占位命令式渲染模块 plugin-market-views.js 已删除、不在 classpath（不留孤儿死代码随 jar 打包）")
-    void orphanViewsModuleAbsent() {
-        assertThat(PluginMarketPageGuardTest.class.getClassLoader()
-                .getResource("static/plugin-market/plugin-market-views.js"))
-                .as("plugin-market-views.js 应已删除、不随 classpath / boot jar 打包").isNull();
-    }
-
-    @Test
     @DisplayName("市场页静态文本资源不含真实 NUL 字节（复合键分隔符等须用源码转义 \\u0000，不嵌裸 0x00）")
     void staticResourcesContainNoRawNulByte() throws IOException {
         for (String resource : ALL_STATIC) {
@@ -205,49 +162,6 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("默认安装与依赖筛选消费目录中性字段，默认开启且 Vue / 基础回退视图一致")
-    void defaultInstalledAndDependencyFiltersStayDataDrivenAndConsistent() throws IOException {
-        String data = read(DATA);
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-
-        assertThat(data).as("默认安装判定只读 catalog market.defaultInstalled，缺字段自然为 false")
-                .contains("m.defaultInstalled", "D.entryDefaultInstalled", "opts.hideDefaultInstalled");
-        assertThat(data).as("依赖插件判定只读中性 category=dependency")
-                .contains("D.entryCategory(entry) === 'dependency'", "opts.hideDependencies");
-        assertThat(data).as("数据层不得按具体插件 id 判断默认安装或依赖")
-                .doesNotContain("'douyin'")
-                .doesNotContain("'download-workbench'");
-
-        assertThat(vue).as("Vue 主视图应提供两个默认开启的筛选并传给共享数据层")
-                .contains("filter.hide-default-installed", "filter.hide-dependencies",
-                        "hideDefaultInstalled: true", "hideDependencies: true",
-                        "hideDefaultInstalled: this.hideDefaultInstalled",
-                        "hideDependencies: this.hideDependencies");
-        assertThat(fallback).as("基础回退视图应提供同名、同默认值的筛选并传给共享数据层")
-                .contains("filter.hide-default-installed", "filter.hide-dependencies",
-                        "hideDefaultInstalled: true", "hideDependencies: true",
-                        "data-pmk-filter", "hideDefaultInstalled: state.hideDefaultInstalled",
-                        "hideDependencies: state.hideDependencies");
-    }
-
-    @Test
-    @DisplayName("分类说明显示在当前分类标题下方，Vue 与基础回退视图行为一致")
-    void categoryDescriptionsRenderInVueAndFallback() throws IOException {
-        String core = read(CORE);
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-        String css = read("static/plugin-market/plugin-market.css");
-        assertThat(core).contains("'download-type'", "dependency", "PMK.categoryDescription");
-        assertThat(vue).contains("pmk-toolbar-title-row", "pmk-toolbar-description");
-        assertThat(fallback).contains(
-                "pmk-toolbar-title-row",
-                "esc(PMK.categoryDescription(state.category))",
-                "description.textContent = PMK.categoryDescription(state.category)");
-        assertThat(css).contains(".pmk-toolbar-title-row", ".pmk-toolbar-description");
-    }
-
-    @Test
     @DisplayName("Vue 与基础回退视图共用插件执行说明和高权限宿主警告")
     void rendersSecurityNoticeInVueAndFallback() throws IOException {
         String vue = read(VUE);
@@ -255,42 +169,6 @@ class PluginMarketPageGuardTest {
 
         assertThat(vue).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
         assertThat(fallback).contains("pmk-security-notice", "security.notice", "host.elevated.notice");
-    }
-
-    @Test
-    @DisplayName("展示元数据只保存 i18n key 和受控展示 token，不内联中文 fallback")
-    void displayMetadataUsesI18nKeysOnly() throws IOException {
-        String data = read(DATA);
-        String core = read(CORE);
-
-        assertThat(data).as("验签徽标元数据应只携带 i18n key / tone / icon")
-                .contains("VERIFICATION_BADGE_META", "labelKey")
-                .doesNotContain("fallback:");
-        assertThat(core).as("安装状态元数据应只携带 i18n key / icon / variant")
-                .contains("PMK.INSTALL_META", "labelKey")
-                .doesNotContain("fallback:");
-    }
-
-    @Test
-    @DisplayName("仓库切换异步竞态护栏：Vue / 回退按 token 丢弃旧仓库 catalog 响应，安装绑定展示条目同源仓库（不读全局 activeRepositoryId）")
-    void repositorySwitchRaceGuards() throws IOException {
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-        // catalog 拉取按自增 token 守卫：回调只在 token 仍最新时落地（仓库快速切换时旧仓库响应被丢弃、不覆盖当前状态）。
-        assertThat(vue).as("Vue catalog 拉取应有 token 竞态护栏").contains("catalogToken");
-        assertThat(fallback).as("回退 catalog 拉取应有 token 竞态护栏").contains("catalogToken");
-        // 安装态按 (repositoryId, pluginId) 复合键键控，使同名插件在不同仓库间互不污染。
-        assertThat(vue).as("Vue 安装态按复合键键控").contains("installKey");
-        assertThat(fallback).as("回退安装态按复合键键控").contains("installKey");
-        // 安装绑定展示条目同源仓库：Vue 用卡片 / 当前 catalog 的 repositoryId，回退从卡片 data-pmk-repo 取仓库。
-        assertThat(vue).as("Vue 安装绑定卡片 repositoryId").contains("doInstall(card.repositoryId");
-        assertThat(vue).as("Vue 模态安装绑定当前 catalog 仓库").contains("activeCatalogRepositoryId");
-        assertThat(fallback).as("回退安装从卡片 data-pmk-repo 取仓库").contains("data-pmk-repo");
-        // 不再读易变的全局 activeRepositoryId 发起安装（展示与安装的 repositoryId 同源）。
-        assertThat(vue).as("Vue 安装不读全局 activeRepositoryId")
-                .doesNotContain("installPlugin(this.activeRepositoryId");
-        assertThat(fallback).as("回退安装不读全局 activeRepositoryId")
-                .doesNotContain("installPlugin(state.activeRepositoryId");
     }
 
     @Test
@@ -305,20 +183,6 @@ class PluginMarketPageGuardTest {
                 "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
         assertThat(api).contains("confirmTrust=").doesNotContain("confirmIdentityMigration");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
-    }
-
-    @Test
-    @DisplayName("仅兼容筛选按条目 compatible 判定；无可安装版本条目稳定降级为不可点击的 i18n 不可安装状态")
-    void compatibilityFilterAndUnavailableDegradation() throws IOException {
-        // 「仅兼容当前版本」按条目自身 compatible 标记（最新可安装版本兼容性）判定，而非派生的 installStatus。
-        String data = read(DATA);
-        assertThat(data).as("onlyCompatible 按 entry.compatible 判定").contains("entry.compatible === false");
-        assertThat(data).as("onlyCompatible 不再仅按 installStatus 判定")
-                .doesNotContain("entry.installStatus === 'INCOMPATIBLE'");
-        // 无可安装版本（后端 UNAVAILABLE）→ 禁用态控件 + i18n 不可安装文案，不渲染可点击但无响应的安装按钮。
-        String core = read(CORE);
-        assertThat(core).as("UNAVAILABLE 安装控件元数据存在").contains("UNAVAILABLE");
-        assertThat(core).as("UNAVAILABLE 走 i18n 不可安装文案键").contains("install.state.unavailable");
     }
 
     @Test

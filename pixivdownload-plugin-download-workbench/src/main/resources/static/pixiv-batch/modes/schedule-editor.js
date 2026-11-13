@@ -76,6 +76,22 @@
             ov, prevTask, () => scheduleSubmissionCurrent(sourceLease, editingToken));
         if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
         if (!confirmedClears) return;
+        try {
+            snap = await scheduleSourceRuntime().prepareSubmission(snap, {task: prevTask, request: {
+                taskId: editingToken?.taskId, expectedStateVersion: editingToken?.stateVersion,
+                proxy: ov.proxyChecked ? ov.proxyValue : null,
+                credential: ov.credentialChecked ? ov.credentialValue : '',
+                savedCredentialSelection: ov.credentialChecked && ov.useSavedCredential ? ov.savedCredentialSelection : null,
+                useTaskCredential: !!(prevTask && scheduleTaskCredentialPolicy(prevTask).bound
+                    && (!ov.supportsCredential || ov.credentialChecked && !ov.credentialValue && !ov.useSavedCredential))
+            }});
+            if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
+        } catch (e) {
+            if (scheduleSubmissionCurrent(sourceLease, editingToken)) {
+                setScheduleFormStatus(scheduleSourceErrorMessage(e), 'error');
+            }
+            return;
+        }
         const triggerKind = document.getElementById('sch-trigger').value;
         const body = {
             name,

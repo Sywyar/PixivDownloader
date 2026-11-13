@@ -25,6 +25,7 @@ function fixture(alt) {
     const context = vm.createContext({
         window: {PixivBatch: {}, PixivBatchAlt: {engine: {}, queue: {}}},
         STATUS_TIMEOUT_MS: 1000,
+        QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
         state: {queue: [q], settings: {}, sseListeners: {}},
         document: {createTextNode: text => element('#text', '', text)}, el: element,
         bt: (key, fallback, args) => key + (args ? ' ' + Object.values(args).join('/') : ''),

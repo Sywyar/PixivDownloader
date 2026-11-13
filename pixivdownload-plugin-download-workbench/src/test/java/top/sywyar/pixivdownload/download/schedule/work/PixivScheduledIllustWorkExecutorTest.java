@@ -357,9 +357,11 @@ class PixivScheduledIllustWorkExecutorTest {
                 WorkType.ARTWORK, 123L, body.toString(), body.toString(), "schedule");
     }
 
-    @Test
-    @DisplayName("普通插画把完整作品元数据和下载设置映射到同步下载请求")
-    void mapsCompleteArtworkAndDownloadFieldsToBlockingRequest() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"user", "series", "quick"})
+    @DisplayName("计划插画保留完整元数据及显式来源快照，旧快照不从系列元数据猜测模式")
+    void mapsCompleteArtworkAndDownloadFieldsToBlockingRequest(String mode) throws Exception {
         JsonNode artworkBody = objectMapper.createObjectNode().put("kind", "artwork");
         JsonNode pagesBody = objectMapper.createArrayNode().addObject().put("page", 0);
         List<WorkTag> tags = List.of(new WorkTag(null, "标签", "tag"));
@@ -392,12 +394,12 @@ class PixivScheduledIllustWorkExecutorTest {
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull()))
                 .thenReturn(true);
         ScheduledTaskDefinition task = task("""
-                {"kind":"illust","source":{"seriesId":"42"},"filters":{},
+                {"kind":"illust","source":{"seriesId":"42","username":"source reader","acquisitionMode":%s},"filters":{},
                  "download":{"fileNameTemplate":"{artwork_id}_p{page}",
                              "bookmark":true,"collectionId":"88","imageDelayMs":345,
                              "imageFormats":"webp","ugoiraFormats":"zip,webp",
                              "mediaQuality":73,"mediaWebpLossless":true,"mediaMaximumEdge":1280}}
-                """);
+                """.formatted(mode == null ? "null" : "\"" + mode + "\""));
 
         ScheduledWorkResult result = executor().execute(
                 work("123"), context(task, ScheduledNetworkRoute.direct()).context());
@@ -439,7 +441,8 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(other.getUgoiraZipUrl()).isNull();
         assertThat(other.getUgoiraDelays()).isNull();
         assertThat(other.isUserDownload()).isFalse();
-        assertThat(other.getUsername()).isNull();
+        assertThat(other.getUsername()).isEqualTo("source reader");
+        assertThat(other.directoryMode()).isEqualTo(mode);
         assertThat(other.getFileNames()).isNull();
         assertThat(other.getFileNameTimestamp()).isNull();
         assertThat(other.getRawMetaJson()).isNull();

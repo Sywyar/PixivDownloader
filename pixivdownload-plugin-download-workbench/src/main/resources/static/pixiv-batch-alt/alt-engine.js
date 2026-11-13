@@ -24,12 +24,15 @@ function notifyFirstDownloadCompleted() {
 /* ============================================================
    下载提交（POST /api/download/pixiv，payload 与现行引擎一致）
    ============================================================ */
-async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
+async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation, acquisitionMode) {
     const delayMs = getImageDelayMs();
     const collectionId = state.settings.collectionId;
     const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
     const fileNameTimestamp = Date.now();
     const fileNames = buildDownloadFileNames(fileNameTemplate, {
+        ...collectionFileNameVariables(collectionId, batchCollections),
+        ...seriesInfo,
+        username,
         artworkId,
         title,
         authorId: normalizeAuthorId(authorId),
@@ -40,6 +43,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     }, imageUrls.length);
     const other = {
         userDownload: isUserDownload,
+        acquisitionMode: acquisitionMode || null,
         username: username || '',
         authorId: normalizeAuthorId(authorId),
         authorName: authorName || null,
@@ -57,7 +61,7 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     };
     if (seriesInfo && seriesInfo.seriesId) {
         other.seriesId = Number(seriesInfo.seriesId);
-        other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+        other.seriesOrder = seriesInfo.seriesOrder == null ? null : Number(seriesInfo.seriesOrder);
         other.seriesTitle = seriesInfo.seriesTitle || null;
         if (seriesInfo.seriesDescription) other.seriesDescription = seriesInfo.seriesDescription;
         if (seriesInfo.seriesCoverUrl) other.seriesCoverUrl = seriesInfo.seriesCoverUrl;

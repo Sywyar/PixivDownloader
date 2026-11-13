@@ -156,7 +156,9 @@ class DatabaseTransferProcessTest {
             try (var insert = connection.prepareStatement("INSERT INTO path_prefixes(id,path) VALUES(7,?)")) {
                 insert.setString(1, oldPrefix); insert.executeUpdate();
             }
-            try (var insert = connection.prepareStatement("INSERT INTO external_work_files VALUES(?, 'ARTWORK', ?, 0, ?, ?, 1)")) {
+            try (var insert = connection.prepareStatement("INSERT INTO external_work_files "
+                    + "(reference_id, work_type, work_id, page, root_path, file_path, record_time) "
+                    + "VALUES(?, 'ARTWORK', ?, 0, ?, ?, 1)")) {
                 for (int index = 0; index < 3; index++) {
                     insert.setString(1, "ref" + index); insert.setInt(2, index + 1);
                     insert.setString(3, index == 0 ? "{0}" : index == 1 ? "{7}" : oldRoot);

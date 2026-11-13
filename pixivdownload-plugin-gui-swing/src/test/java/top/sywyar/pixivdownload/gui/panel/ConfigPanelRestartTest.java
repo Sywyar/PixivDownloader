@@ -884,7 +884,7 @@ class ConfigPanelRestartTest {
                     case "applicationConfig" -> config;
                     case "databaseSettings" -> Optional.ofNullable(databaseSettings);
                     case "pluginConfig" -> plugin == null ? config : plugin;
-                    case "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "coreConfigGroups", "coreConfigSections", "coreConfigFields" -> List.of();
                     case "visibleLocales" -> List.of(locale);
                     case "matchLocale" -> Optional.of(locale).filter(ignored ->
                             args != null && args.length > 0 && locale.tag().equalsIgnoreCase(String.valueOf(args[0])));

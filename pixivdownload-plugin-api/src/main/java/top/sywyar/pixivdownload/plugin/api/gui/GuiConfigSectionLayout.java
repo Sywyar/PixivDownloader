@@ -7,5 +7,7 @@ public enum GuiConfigSectionLayout {
     /** 按卡片 ID 分组字段，并通过 section 内切换器展示。 */
     CARD_SWITCHER,
     /** 保持 section 顺序，把紧凑的类布尔控件渲染为网格。 */
-    COMPACT_GRID
+    COMPACT_GRID,
+    /** 首字段为默认目录模板，其余为可选覆盖；空覆盖继承默认值，移除只清空对应字段。 */
+    DIRECTORY_TEMPLATES
 }

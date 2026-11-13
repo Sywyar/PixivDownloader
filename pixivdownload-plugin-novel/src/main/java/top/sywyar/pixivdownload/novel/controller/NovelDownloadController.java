@@ -320,8 +320,8 @@ public class NovelDownloadController {
         NovelDownloadStatus.State state = status.getState();
         return ResponseEntity.ok(new NovelDownloadStatusResponse(
                 true,
-                messages.get(statusMessageCode(state), state.failed() && state.errorMessage() != null
-                        ? new Object[]{state.errorMessage()} : new Object[0]),
+                messages.get(statusMessageCode(state), state.failed()
+                        ? new Object[]{status.errorMessage(messages)} : new Object[0]),
                 novelId,
                 status.getTitle(),
                 status.getFormat(),

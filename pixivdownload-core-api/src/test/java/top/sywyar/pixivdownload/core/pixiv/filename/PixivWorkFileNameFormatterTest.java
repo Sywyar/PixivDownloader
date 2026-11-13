@@ -11,6 +11,49 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PixivWorkFileNameFormatterTest {
 
     @Test
+    @DisplayName("系列变量与来源用户名使用下载快照，名称清洗且不递归展开")
+    void seriesAndSourceVariables() {
+        var context = new PixivWorkFileNameFormatter.Context(null, null, 8L, "系列/{page}", 0L, "来源/User");
+        String template = "{series_id}_{series_name}_{series_title}_{series_order}_{username}_{author_name}";
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", 7L, "Author",
+                123, 2, false, 0, 180, context)).containsExactly(
+                "8_系列_{page}_系列_{page}_0_来源_User_Author",
+                "8_系列_{page}_系列_{page}_0_来源_User_Author_p1");
+        var missing = new PixivWorkFileNameFormatter.Context(null, null, null, "stale", 3L, null);
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", 7L, "Author",
+                123, 1, false, 0, 180, missing)).containsExactly("_____Author");
+        var unknownOrder = new PixivWorkFileNameFormatter.Context(null, null, 8L, null, -1L, null);
+        assertThat(PixivWorkFileNameFormatter.formatAll("{series_id}_{series_order}_{series_title}",
+                42, "Title", 7L, "Author", 123, 1, false, 0, 180, unknownOrder)).containsExactly("8__");
+    }
+
+    @Test
+    @DisplayName("收藏夹变量按当次选择展开并保留安全清洗与空值语义")
+    void collectionVariables() {
+        String template = "{collection_id}_{collection_name}_{artwork_id}_p{page}";
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", null, null,
+                123, 2, false, 0, 180, 7L, "收藏😀/unsafe"))
+                .containsExactly("7_收藏😀_unsafe_42_p0", "7_收藏😀_unsafe_42_p1");
+        assertThat(PixivWorkFileNameFormatter.formatAll(template, 42, "Title", null, null,
+                123, 1, false, 0)).containsExactly("__42_p0");
+        assertThat(PixivWorkFileNameFormatter.formatAll("{collection_name}{collection_id}", 42, "Title", null, null,
+                123, 1, false, 0, 180, null, "stale"))
+                .containsExactly("42_p0");
+        assertThat(PixivWorkFileNameFormatter.formatAll("{collection_name}", 42, "Title", null, null,
+                123, 2, false, 0, 8, 7L, "abcdefghijk"))
+                .containsExactly("abcdefgh", "abcde_p1");
+    }
+
+    @Test
+    @DisplayName("共享定义保留下载变量求值及未支持变量的字面值")
+    void sharedDefinitionsPreserveDownloadSemantics() {
+        assertThat(PixivWorkFileNameFormatter.formatAll(
+                "{artwork_id}_{author_id}_{page}_{count}_{ai}_{ai+}_{R18}_{R18+}_{extension}_{name}_{ex}_{artworkId}",
+                42, "Title", 7L, "Author", 123, 1, true, 2)).containsExactly(
+                "42_7_0_1_AI_AI_R18G_R18G_{extension}_{name}_{ex}_{artworkId}");
+    }
+
+    @Test
     @DisplayName("应展开变量并合规化标题和作者名")
     void shouldFormatVariablesAndSanitizeNameParts() {
         List<String> names = PixivWorkFileNameFormatter.formatAll(

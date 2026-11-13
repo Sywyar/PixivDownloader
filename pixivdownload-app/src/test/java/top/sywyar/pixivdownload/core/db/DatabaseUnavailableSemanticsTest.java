@@ -56,7 +56,7 @@ class DatabaseUnavailableSemanticsTest {
         var pixiv = mock(PixivDatabase.class);
         org.mockito.Mockito.when(pixiv.isUnavailable()).thenReturn(true);
         var files = new top.sywyar.pixivdownload.core.download.LocalWorkAssetService(
-                null, null, pixiv, null, null, null, null, null);
+                null, null, pixiv, null, null, null, null, null, null);
         for (WorkType type : List.of(WorkType.ARTWORK, WorkType.NOVEL)) {
             assertThat(files.findAsset(type, 1)).isEmpty();
             assertThat(files.existingThumbnail(type, 1, 0)).isEmpty();

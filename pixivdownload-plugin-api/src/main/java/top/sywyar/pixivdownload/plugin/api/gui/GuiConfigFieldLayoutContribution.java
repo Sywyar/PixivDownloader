@@ -4,8 +4,8 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * GUI 配置贡献字段的布局元数据。
  *
  * @param fieldKey 要放置的配置字段 key；宿主只接受贡献插件拥有的字段
- * @param cardId 卡片切换布局使用的可选卡片 ID
- * @param cardLabelKey 卡片标签的可选 i18n key
+ * @param cardId 卡片切换布局的可选卡片 ID，或目录模板覆盖的模式标识
+ * @param cardLabelKey 卡片或目录模板模式短标签的可选 i18n key
  * @param i18nNamespace 可选的 i18n namespace；空白表示插件展示 namespace
  * @param order 字段在布局容器内的排序提示
  */

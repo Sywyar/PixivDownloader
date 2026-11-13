@@ -53,14 +53,17 @@
         return promise;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation, acquisitionMode) {
         assertProcessInvocation(invocation);
         const delayMs = getImageDelayMs();
-        const collectionId = await resolveBatchCollectionIdForDownload(invocation);
+        const {collectionId, collections} = await refreshBatchCollections(invocation);
         assertProcessInvocation(invocation);
         const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
         const fileNameTimestamp = Date.now();
         const fileNames = buildDownloadFileNames(fileNameTemplate, {
+            ...collectionFileNameVariables(collectionId, collections),
+            ...seriesInfo,
+            username,
             artworkId,
             title,
             authorId: normalizeAuthorId(authorId),
@@ -71,6 +74,7 @@
         }, imageUrls.length);
         const other = {
             userDownload: isUserDownload,
+            acquisitionMode: acquisitionMode || null,
             username: username || '',
             authorId: normalizeAuthorId(authorId),
             authorName: authorName || null,
@@ -88,7 +92,7 @@
         };
         if (seriesInfo && seriesInfo.seriesId) {
             other.seriesId = Number(seriesInfo.seriesId);
-            other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+            other.seriesOrder = seriesInfo.seriesOrder == null ? null : Number(seriesInfo.seriesOrder);
             other.seriesTitle = seriesInfo.seriesTitle || null;
             // 系列简介/封面只在本地数据库尚无时由后端落盘，前端这里仅负责把 Pixiv 的 hint 透传过去。
             // 缓存一批查一次，失败/空值不阻塞下载。

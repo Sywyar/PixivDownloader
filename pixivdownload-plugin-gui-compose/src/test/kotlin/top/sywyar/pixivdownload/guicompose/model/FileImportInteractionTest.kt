@@ -177,7 +177,7 @@ class FileImportInteractionTest {
     fun compactWorkspace() = workspace(600, 680, 1.25f, "dark")
 
     @Test
-    @DisplayName("宽窗口中历史导入位于数据维护列，返回与后台任务状态保持一致")
+    @DisplayName("宽窗口中导入随快捷工具排列，关闭弹窗后后台任务继续")
     fun wideWorkspace() = workspace(1200, 900, 1f, "light")
 
     @Test
@@ -204,9 +204,17 @@ class FileImportInteractionTest {
             top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Description(
                 top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.title")),
                 top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.help")),
+                true,
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.raw(importer.getProperty("history.recommendation")),
             ),
         )))
+        val localType = top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports::class.java
+        val localService = java.lang.reflect.Proxy.newProxyInstance(localType.classLoader, arrayOf(localType)) { _, method, _ ->
+            if (method.name == "presets") emptyList<Any>() else error("Unexpected local import operation: ${method.name}")
+        }
         val overrides = mapOf<String, Function<Array<Any>, Any>>(
+            "localArtworkImports" to Function { java.util.Optional.of(localService) },
+            "parseLocalImportPresets" to Function { emptyList<Any>() },
             "fileImportTools" to Function { fixture.tools.get() },
             "fileImportTool" to Function { fixture.source },
             "message" to Function { messages.getProperty(it[0].toString(), it[0].toString()) },
@@ -219,6 +227,9 @@ class FileImportInteractionTest {
                         Box(Modifier.size(width.dp, height.dp).background(LocalExperiencePalette.current.surface)) {
                             ComposeDesktopUiNodeRenderer.Render(snapshot.document().pages().first { it.id() == "tools" }.content(),
                                 ::resolve, { model.dispatch(snapshot, it) })
+                            snapshot.document().dialogs().firstOrNull()?.let { dialog ->
+                                DocumentDialog(dialog, ::resolve, "Close", { model.dispatch(snapshot, it) }, snapshot.revision())
+                            }
                         }
                     }
                 }
@@ -230,7 +241,8 @@ class FileImportInteractionTest {
                     val history = onNodeWithTag("tools.entry.$prefix").fetchSemanticsNode().boundsInRoot
                     assertEquals(backfill.left, history.left, 1f)
                     assertEquals(backfill.width, history.width, 1f)
-                    assertTrue(history.left > classifier.right)
+                    assertEquals(backfill.left, classifier.left, 1f)
+                    assertTrue(classifier.top >= history.bottom)
                     assertTrue(history.top >= backfill.bottom)
                 }
                 fun capture(tag: String, state: String) {
@@ -239,12 +251,44 @@ class FileImportInteractionTest {
                     ImageIO.write(onNodeWithTag(tag).captureToImage().toAwtImage(), "png", file.toFile())
                 }
                 capture("tools.overview", "overview")
+                onNodeWithTag("tools.entry.local-import").performScrollTo().performClick()
+                onNodeWithTag("local-import.templates").assertDoesNotExist()
+                onNodeWithTag("local-import.presets").performScrollTo().performClick()
+                waitUntilExactlyOneExists(hasText(messages.getProperty("local-import.save")), timeoutMillis = 5_000)
+                onNodeWithText(messages.getProperty("local-import.save")).assertIsDisplayed()
+                val presetImage = Path.of("target/tools-ui/presets-$width-${locale.language}.png")
+                ImageIO.write(captureToImage().toAwtImage(), "png", presetImage.toFile())
+                onNode(hasText(messages.getProperty("local-import.cancel")) and isEnabled()).performClick()
+                onNodeWithTag("local-import.templates").assertDoesNotExist()
+                capture("tools.import.workspace", "local-import-collapsed")
+                onNodeWithTag("local-import.options").assertTextContains(messages.getProperty("local-import.options-required"))
+                val missingTemplate = messages.getProperty("local-import.error.IMPORT_NO_TEMPLATES")
+                repeat(2) {
+                    onNodeWithTag("local-import.scan").assertIsEnabled().performClick()
+                    waitUntilExactlyOneExists(hasText(missingTemplate), timeoutMillis = 5_000)
+                    onNodeWithTag("local-import.templates").assertIsDisplayed().assertIsFocused()
+                    onNodeWithTag("local-import.templates.label").assertTextEquals(messages.getProperty("local-import.templates-required"))
+                    onNodeWithTag("local-import.templates.field").assert(
+                        SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.Error, missingTemplate))
+                    capture("tools.import.workspace", "local-import-required")
+                    if (it == 0) {
+                        onNodeWithTag("local-import.options").performScrollTo().performClick()
+                        onNodeWithTag("local-import.templates").assertDoesNotExist()
+                    }
+                }
+                onNodeWithTag("local-import.templates").performTextInput("D:/{artwork_id}/")
+                onNodeWithText(missingTemplate).assertDoesNotExist()
+                onNodeWithTag("local-import.templates.field").assert(
+                    SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Error))
+                capture("tools.import.workspace", "local-import")
+                onNodeWithTag("tools.import.sheet.close").performClick()
                 onNodeWithTag("tools.entry.$prefix").performScrollTo().performClick()
+                onNodeWithText(importer.getProperty("history.recommendation")).performScrollTo().assertIsDisplayed()
                 onNodeWithTag("$prefix.file").performScrollTo().performTextInput("/records.json")
                 onNodeWithTag("$prefix.root").performScrollTo().performTextInput("/original")
                 onNodeWithTag("$prefix.credential").performScrollTo().performTextInput("private-cookie")
-                onNodeWithTag("tools.import.sheet.close").assertDoesNotExist()
-                onNodeWithTag("tools.import.back").assertIsDisplayed().performTouchInput { click() }
+                onNodeWithTag("tools.sheet").assertIsDisplayed()
+                onNodeWithTag("tools.import.sheet.close").assertIsDisplayed().performTouchInput { click() }
                 onNodeWithTag("tools.overview").assertIsDisplayed()
                 onNodeWithTag("tools.entry.$prefix").assertIsFocused().performClick()
                 onNodeWithTag("$prefix.file").performScrollTo().assertTextEquals("/records.json")
@@ -258,7 +302,7 @@ class FileImportInteractionTest {
                 onNodeWithTag("$prefix.start").performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.starts.get() == 1 }
                 onNodeWithTag("$prefix.credential").assertTextEquals("")
-                onNodeWithTag("tools.import.back")
+                onNodeWithTag("tools.import.sheet.close")
                     .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus)
                     .performKeyInput { pressKey(Key.Enter) }
                 onNodeWithTag("tools.current.$prefix").assertIsDisplayed()
@@ -268,7 +312,7 @@ class FileImportInteractionTest {
                 onNodeWithTag("$prefix.cancel").assertIsDisplayed().performClick()
                 waitUntil(timeoutMillis = 5_000) { fixture.state.get().phase() == top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.Phase.CANCELLED }
                 waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag("$prefix.inspect").fetchSemanticsNodes().any { SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Disabled).matches(it) } }
-                onNodeWithTag("tools.import.back")
+                onNodeWithTag("tools.import.sheet.close")
                     .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus)
                     .performKeyInput { pressKey(Key.Escape) }
                 onNodeWithTag("tools.current.$prefix").assertDoesNotExist()

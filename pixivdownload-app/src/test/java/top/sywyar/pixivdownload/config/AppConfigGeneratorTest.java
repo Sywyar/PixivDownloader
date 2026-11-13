@@ -11,6 +11,7 @@ import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.io.FileSystemResource;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.error.YAMLException;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
@@ -90,7 +91,7 @@ class AppConfigGeneratorTest {
         var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(configPath));
         assertThat(sources).hasSize(1);
         assertThat(sources.get(0).getProperty("server.port")).isEqualTo(7011);
-        assertThat(sources.get(0).getProperty("download.root-folder")).isEqualTo("pixiv-download");
+        assertThat(sources.get(0).getProperty("download.root-folder")).isEqualTo(DownloadConfig.DEFAULT_TEMPLATE);
         assertThat(sources.get(0).getProperty("app.config-menu-expand-all")).isEqualTo(false);
 
         new AppConfigGenerator(TestI18nBeans.appMessages()).generateOrUpdateConfig();

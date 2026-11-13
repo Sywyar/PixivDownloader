@@ -20,6 +20,16 @@ public class NovelDownloadRequest {
     public static class Other {
         private boolean userDownload;
         private String username;
+        private String acquisitionMode;
+
+        /** 优先采用明确的来源；旧 User 标记仍属于已知来源，不从系列元数据推断。 */
+        public String directoryMode() {
+            String mode = acquisitionMode == null || acquisitionMode.isBlank()
+                    ? (isUserDownload() ? "user" : null) : acquisitionMode;
+            var parsed = top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.fromCode(mode);
+            return parsed == null ? null : parsed.code();
+        }
+
         private Long authorId;
         private String authorName;
         private int xRestrict;

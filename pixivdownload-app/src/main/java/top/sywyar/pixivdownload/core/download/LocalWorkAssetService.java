@@ -56,6 +56,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
     private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
+    private final top.sywyar.pixivdownload.core.asset.DownloadDirectories downloadDirectories;
 
     @Override public boolean isReadOnly(WorkType type, long id) {
         requireDatabase();
@@ -191,7 +192,9 @@ public class LocalWorkAssetService implements WorkAssetService {
             }
             return switch (workType) {
                 case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId), commitRecord);
-                case NOVEL -> deleteNovelFiles(workId, commitRecord);
+                case NOVEL -> {
+                    synchronized (downloadDirectories) { yield deleteNovelFiles(workId, commitRecord); }
+                }
             };
         }
     }
@@ -384,8 +387,8 @@ public class LocalWorkAssetService implements WorkAssetService {
     /**
      * 解析小说独占目录并执行磁盘边界守卫（避免污染的 folder 把递归操作范围扩大到 root 之外、
      * 共享目录或 OS 根）：解析后的目录必须非空、可解析、是已存在目录、非 OS / 驱动盘根、
-     * 且不等于配置的 {@code download.root-folder} 本身；同时目录名必须等于 {@code novel-{novelId}}
-     * 才视为本小说独占目录。枚举链路遇到不满足项时返回 {@code null}；删除链路只有已确认不存在的目录
+     * 且不等于默认模板固定前缀本身；旧目录名须等于 {@code novel-{novelId}}，自定义目录须持有
+     * 本小说的下载归属且无其它资产重叠。枚举链路遇到不满足项时返回 {@code null}；删除链路只有已确认不存在的目录
      * 视为「无可操作目录」，现存或无法判定安全的目录抛出 {@link UnsafeDeletionPathException}。
      *
      * @param logRefusals 删除链路传 {@code true}（守卫拒绝时记日志，polluted folder 行可由管理员
@@ -438,7 +441,8 @@ public class LocalWorkAssetService implements WorkAssetService {
         }
         Path name = dir.getFileName();
         String expectedName = "novel-" + record.novelId();
-        if (name == null || !expectedName.equals(name.toString())) {
+        if ((name == null || !expectedName.equals(name.toString()))
+                && !downloadDirectories.owns(WorkType.NOVEL, record.novelId(), dir)) {
             if (logRefusals) {
                 log.warn(logMessage("novel.gallery.log.directory-not-exclusive",
                         record.novelId(), dir, expectedName));

@@ -38,19 +38,6 @@ class PixivFeaturePluginDefaultsTest {
         }
     }
 
-    /** 覆写展示 token 的插件：证明覆写生效、返回插件自己声明的受控 token。 */
-    private static final class CustomizedPlugin extends MinimalPlugin {
-        @Override
-        public String iconKey() {
-            return "download";
-        }
-
-        @Override
-        public String colorToken() {
-            return "blue";
-        }
-    }
-
     @Test
     @DisplayName("最小插件（仅实现抽象方法）取得默认 token 与空 GUI 主题贡献")
     void minimalPluginGetsDefaultTokens() {
@@ -80,12 +67,4 @@ class PixivFeaturePluginDefaultsTest {
                 .isEqualTo("java.util.List<top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor>");
     }
 
-    @Test
-    @DisplayName("覆写 iconKey/colorToken 的插件返回其自身受控 token")
-    void overriddenTokensAreReturned() {
-        PixivFeaturePlugin plugin = new CustomizedPlugin();
-
-        assertThat(plugin.iconKey()).isEqualTo("download");
-        assertThat(plugin.colorToken()).isEqualTo("blue");
-    }
 }

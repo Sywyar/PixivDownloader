@@ -143,6 +143,37 @@ function apiHarness(file) {
     return {context, requests, get unauthorized() { return unauthorized; }, get aborted() { return aborted; }};
 }
 
+test('单作品脚本的插画和小说请求使用单作品目录模式', async () => {
+    const requests = [];
+    const context = vm.createContext({
+        URL, console, serverBase: 'http://localhost:8101', userUUID: null,
+        getBackendURL: () => 'http://localhost:8101/api/download/pixiv',
+        getNovelId: () => '42', checkBackendStatus: async () => true,
+        getNovelMeta: async () => ({fetchToken: 'fetch-ticket'}),
+        KEY_SKIP_HISTORY: 'history', KEY_NOVEL_FORMAT: 'format', KEY_BOOKMARK_AFTER_DL: 'bookmark',
+        GM_getValue: (_key, fallback) => fallback,
+        GM_xmlhttpRequest: request => requests.push(request),
+        UserscriptDownloadOptions: {matches: () => true, other: async () => ({}), text: key => key},
+        quotaInfo: {enabled: false}, createDownloadUI() {}, alert() {}, t: key => key
+    });
+    vm.runInContext(singleSource.slice(singleSource.indexOf('    async function sendDownloadRequest('),
+        singleSource.indexOf('    // 检查后端服务状态', singleSource.indexOf('    async function sendDownloadRequest('))), context);
+    vm.runInContext(singleSource.slice(singleSource.indexOf('    async function downloadNovel()'),
+        singleSource.indexOf('    async function getImageUrls(')), context);
+    for (const operation of [
+        () => context.sendDownloadRequest(42, 'test', ['https://i.pximg.net/test.jpg'], {}),
+        () => context.downloadNovel()
+    ]) {
+        const run = operation();
+        await flush();
+        const request = requests.at(-1);
+        assert.equal(JSON.parse(request.data).other.acquisitionMode, 'single-import');
+        request.onload({status: 200, responseText: '{"success":true,"alreadyDownloaded":true}'});
+        await run;
+    }
+    assert.equal(requests.length, 2);
+});
+
 for (const file of batchFiles) {
     test(`${file}：后端写请求携带目标来源，清空保留捕获地址`, async () => {
         const r = apiHarness(file);
@@ -166,6 +197,28 @@ for (const file of batchFiles) {
 }
 
 for (const file of batchFiles) {
+    test(`${file}：实际下载请求保留脚本来源模式，User 来源名独立于作者`, async () => {
+        for (const kind of ['illust', 'novel']) {
+            const backend = apiHarness(file);
+            const {manager} = queueHarness(file, {
+                getArtworkMeta: async () => ({pageCount: 1, userName: 'Other author', urls: {original: 'https://i.pximg.net/image.jpg'}}),
+                getNovelMeta: async () => ({fetchToken: 'fetch-ticket', authorName: 'Other author'}),
+                sendDownloadRequest: (...args) => backend.context.api.sendDownloadRequest(...args),
+                sendNovelDownloadRequest: (...args) => backend.context.api.sendNovelDownloadRequest(...args)
+            });
+            manager.queue[0].kind = kind;
+            const run = manager.start();
+            await flush();
+            assert.equal(backend.requests.length, 1);
+            const other = JSON.parse(backend.requests[0].data).other;
+            const mode = file === batchFiles[0] ? 'single-import' : file === batchFiles[1] ? 'user' : undefined;
+            assert.equal(other.acquisitionMode, mode);
+            if (mode === 'user') assert.equal(other.username, 'test');
+            backend.requests[0].onload({status: 200, responseText: '{"alreadyDownloaded":true}'});
+            await run;
+        }
+    });
+
     test(`${file}：清空队列后，迟到的作品信息不能继续提交或覆盖清空状态`, async () => {
         for (const kind of ['illust', 'novel']) {
             let completeMeta;

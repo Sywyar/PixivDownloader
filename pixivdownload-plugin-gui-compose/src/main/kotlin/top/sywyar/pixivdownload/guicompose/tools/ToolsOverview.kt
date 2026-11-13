@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -40,6 +41,7 @@ private val toolIds = listOf("classifier", "folder", "backfill", "migration")
 private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt)
 
 internal val LocalOpenBackfill = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalRegisterToolsExit = staticCompositionLocalOf<(((() -> Boolean)?) -> Unit)> { {} }
 
 @Composable
 internal fun ToolsOverview(
@@ -66,9 +68,10 @@ internal fun ToolsOverview(
     val mediaTools = node.mediaTools().filterIsInstance<Group>()
     val fileImports = node.fileImports().filterIsInstance<Group>()
     val selectedImport = fileImports.firstOrNull { it.id() == selected }
-    LaunchedEffect(fileImports.map { it.id() }) {
-        anchors.keys.removeAll { id -> id.startsWith("import.") && fileImports.none { it.id() == id } }
-        if (selected?.startsWith("import.") == true && selectedImport == null) {
+    LaunchedEffect(selected, fileImports.map { it.id() }) {
+        anchors.keys.removeAll { id -> id !in toolIds && id != "media" && fileImports.none { it.id() == id } }
+        if (selected != null && selected !in toolIds && selected != "media" &&
+            selected != "history" && selected?.startsWith("history.") != true && selectedImport == null) {
             restoreFocus = "backfill"
             selected = null
         }
@@ -91,27 +94,49 @@ internal fun ToolsOverview(
     val activeMedia = activeToolProgress(sequenceOf(node.media()) + mediaTools.asSequence()).toList()
     val activeImports = activeToolProgress(fileImports.asSequence()).toList()
     val mediaProgress = activeMedia.firstOrNull()?.second
-    if (selectedImport != null) {
-        FileImportWorkspace(selectedImport, text, emit, { selected = null }, modifier)
+    val workspace = node.workspace()
+    fun leaveUtility(): Boolean {
+        if (workspace != null) {
+            if (!workspace.close().enabled()) return false
+            activate(workspace.close())
+        }
+        if (selected == "media") {
+            descendants(node.media()).filterIsInstance<Button>().firstOrNull { it.id() == "status.ffmpeg.leave" }?.let(::activate)
+        }
+        selected = null
+        return true
+    }
+    val exit by rememberUpdatedState { leaveUtility() }
+    val registerExit = LocalRegisterToolsExit.current
+    DisposableEffect(registerExit) {
+        registerExit { exit() }
+        onDispose { registerExit(null) }
+    }
+    if (workspace != null) {
+        Box(modifier.fillMaxSize().testTag("tools.utility.workspace")) {
+            ToolWorkspacePanel(workspace, text, emit, { activate(workspace.close()) })
+        }
     } else if (selected == "media") {
-        FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { selected = null }, modifier, mediaSection)
+        FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { leaveUtility() }, modifier, mediaSection)
     } else {
         BoxWithConstraints(modifier.fillMaxSize().testTag("tools.overview")) {
             val wide = maxWidth >= 760.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
             val inset = if (maxWidth < 600.dp) 24.dp else 44.dp
+            val itemWidth = if (wide) (maxWidth - inset * 2 - 20.dp) / 2 else maxWidth - inset * 2
             val scroll = rememberScrollState()
             Box(Modifier.fillMaxSize()) {
                 Column(
                     Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = inset, vertical = 32.dp),
-                    verticalArrangement = Arrangement.spacedBy(30.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CupertinoText(text(TextToken.key("desktop.ui.page.tools")), Modifier.semantics { heading() },
-                                fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                            CupertinoText(label("subtitle"), fontSize = 13.sp, color = palette.secondaryText)
-                        }
+                        CupertinoText(
+                            text(TextToken.key("desktop.ui.page.tools")),
+                            Modifier.weight(1f).semantics { heading() },
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
                         CupertinoText(text(node.backend().text()), fontSize = 12.sp, color = palette.secondaryText)
                     }
                     if (runningActivity != null || activeMedia.isNotEmpty() || activeImports.isNotEmpty()) {
@@ -155,49 +180,64 @@ internal fun ToolsOverview(
                             }
                         }
                     }
-                    @Composable fun category(maintenance: Boolean, modifier: Modifier = Modifier) {
-                        val indices = if (maintenance) 2..2 else 0..1
-                        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CupertinoText(label(if (maintenance) "maintain" else "organize"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                                color = palette.secondaryText, modifier = Modifier.semantics { heading() })
-                            indices.forEach { index ->
-                                val id = toolIds[index]
-                                val focus = anchors.getOrPut(id) { FocusRequester() }
-                                ToolRow(label("$id.title"), label("$id.description"), label("$id.impact"), toolIcons[index],
-                                    "tools.entry.$id", Modifier.fillMaxWidth().focusRequester(focus)) { select(id) }
-                            }
-                            if (maintenance) fileImports.forEach { tool ->
-                                key(tool.id()) {
-                                    val help = descendants(tool).filterIsInstance<Text>().firstOrNull { it.id().endsWith(".help") }
+                    @Composable fun category(quick: Boolean) {
+                        val indices = if (quick) listOf(2) else listOf(0, 1)
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CupertinoText(
+                                label(if (quick) "quick" else "utilities"),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = palette.secondaryText,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            FlowRow(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                maxItemsInEachRow = if (wide) 2 else 1,
+                            ) {
+                                indices.forEach { index ->
+                                    val id = toolIds[index]
+                                    val focus = anchors.getOrPut(id) { FocusRequester() }
                                     ToolRow(
-                                        title = text(tool.title()),
-                                        description = help?.text()?.let(text).orEmpty(),
-                                        impact = "",
-                                        icon = Icons.Default.FileDownload,
-                                        tag = "tools.entry.${tool.id()}",
-                                        modifier = Modifier.fillMaxWidth()
-                                            .focusRequester(anchors.getOrPut(tool.id()) { FocusRequester() }),
-                                    ) { select(tool.id()) }
+                                        label("$id.title"),
+                                        label("$id.description"),
+                                        if (id == "classifier") "" else label("$id.impact"),
+                                        toolIcons[index],
+                                        "tools.entry.$id",
+                                        Modifier.width(itemWidth).focusRequester(focus),
+                                    ) { select(id) }
+                                }
+                                if (quick) fileImports.forEach { tool ->
+                                    key(tool.id()) {
+                                        val help = descendants(tool).filterIsInstance<Text>().firstOrNull { it.id().endsWith(".help") }
+                                        ToolRow(
+                                            title = text(tool.title()),
+                                            description = help?.text()?.let(text).orEmpty(),
+                                            impact = "",
+                                            icon = Icons.Default.FileDownload,
+                                            tag = "tools.entry.${tool.id()}",
+                                            modifier = Modifier.width(itemWidth)
+                                                .focusRequester(anchors.getOrPut(tool.id()) { FocusRequester() }),
+                                        ) { select(tool.id()) }
+                                    }
+                                }
+                                if (!quick) {
+                                    val state = descendants(node.media()).filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }
+                                    ToolRow(
+                                        label("media-title"),
+                                        label("media-description"),
+                                        mediaProgress?.text()?.let(text) ?: state?.text()?.let(text).orEmpty(),
+                                        Icons.Default.Movie,
+                                        "tools.entry.media",
+                                        Modifier.width(itemWidth).focusRequester(anchors.getOrPut("media") { FocusRequester() }),
+                                    ) { select("media") }
                                 }
                             }
                         }
                     }
-                    if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-                        category(false, Modifier.weight(1f))
-                        category(true, Modifier.weight(1f))
-                    } else Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                        category(false)
-                        category(true)
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CupertinoText(label("media-group"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                            color = palette.secondaryText, modifier = Modifier.semantics { heading() })
-                        val state = descendants(node.media()).filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }
-                        ToolRow(label("media-title"), label("media-description"), mediaProgress?.text()?.let(text) ?: state?.text()?.let(text).orEmpty(),
-                            Icons.Default.Movie, "tools.entry.media",
-                            Modifier.fillMaxWidth().background(palette.secondarySurface.copy(alpha = .6f), RoundedCornerShape(16.dp))
-                                .focusRequester(anchors.getOrPut("media") { FocusRequester() })) { select("media") }
-                    }
+                    category(true)
+                    category(false)
                     val rows = (node.history() as? Table)?.rows().orEmpty()
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -214,31 +254,24 @@ internal fun ToolsOverview(
             }
         }
     }
-    LaunchedEffect(selected) {
-        if (selected == null) restoreFocus?.let { anchors[it]?.requestFocus() }
+    LaunchedEffect(selected, workspace?.toolId()) {
+        if (selected == null && workspace == null) restoreFocus?.let { anchors[it]?.requestFocus() }
     }
-    var retainedWorkspace by remember { mutableStateOf<ToolWorkspace?>(null) }
-    node.workspace()?.let { retainedWorkspace = it }
-    val workspace = node.workspace()
-    val current = workspace?.toolId() ?: selected?.takeIf {
-        it in toolIds || it == "history" || it.startsWith("history.")
+    val current = selected?.takeIf {
+        it == selectedImport?.id() || it in toolIds || it == "history" || it.startsWith("history.")
     }
-    val close = {
-        if (workspace != null) activate(workspace.close()) else selected = null
-    }
+    val close = { selected = null }
     ToolsSheet(current, onDismiss = close, onClosed = {
-        retainedWorkspace = null
         restoreFocus?.let { anchors[it]?.requestFocus() }
     }) { id ->
+        val importTool = fileImports.firstOrNull { it.id() == id }
         when {
-            id == "classifier" || id == "folder" -> retainedWorkspace?.let {
-                ToolWorkspacePanel(it, text, emit, close)
-            }
+            importTool != null -> FileImportWorkspace(importTool, text, emit, close)
             id == "history" || id.startsWith("history.") -> ToolPanelLayout(
                 label("history"), "", Icons.Default.History, close, label("close"),
                 footer = { ToolButton(label("done"), "tools.history.done", primary = true, onClick = close) },
             ) { HistoryPanel(node.history(), id, text) { select(it) } }
-            else -> {
+            id in toolIds -> {
                 val index = toolIds.indexOf(id)
                 ToolPanel(id,
                     label("$id.title"),
@@ -285,12 +318,21 @@ private fun ToolRow(title: String, description: String, impact: String, icon: Im
             if (running) progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
         }
         .pointerHoverIcon(PointerIcon.Hand).clickable(interaction, null, role = Role.Button, onClick = onClick)
-        .padding(horizontal = 16.dp, vertical = 20.dp),
+        .padding(horizontal = 16.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         ToolIcon(icon)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             CupertinoText(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            CupertinoText(description, fontSize = 12.sp, color = palette.secondaryText)
+            if (description.isNotBlank()) ComposeDesktopUiNodeRenderer.HintedTitle(description) {
+                CupertinoText(
+                    description,
+                    fontSize = if (running) 12.sp else 11.sp,
+                    lineHeight = 16.sp,
+                    color = palette.secondaryText,
+                    maxLines = if (running) Int.MAX_VALUE else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (impact.isNotBlank()) CupertinoText(impact, fontSize = 11.sp, color = palette.secondaryText)
         }
         DesktopIcon(Icons.Default.ChevronRight, null, Modifier.size(17.dp), tint = palette.secondaryText)
@@ -339,7 +381,8 @@ private fun ToolsSheet(
                     enter = fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 1f, stiffness = 500f), initialScale = .97f),
                     exit = fadeOut(tween(140)) + scaleOut(tween(180), targetScale = .98f)) {
                     val palette = LocalExperiencePalette.current
-                    val width = when (retained) { "classifier" -> 1000.dp; "folder" -> 800.dp; else -> 580.dp }
+                    val width = if (retained in toolIds || retained == "history" ||
+                        retained?.startsWith("history.") == true) 580.dp else 720.dp
                     Box(Modifier.widthIn(max = width).fillMaxWidth().heightIn(max = availableHeight)
                         .background(palette.surface, RoundedCornerShape(22.dp)).clip(RoundedCornerShape(22.dp))
                         .testTag("tools.sheet").animateContentSize(spring(dampingRatio = 1f, stiffness = 550f))) {

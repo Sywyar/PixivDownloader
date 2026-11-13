@@ -1351,8 +1351,7 @@ public class StatusPanel extends JPanel {
             return false;
         }
         try {
-            SwingHost.host().applicationConfig().write("download.root-folder",
-                    SwingHost.host().normalizeRootFolder(newRoot));
+            SwingHost.host().saveDownloadTemplateRoot(newRoot);
             return true;
         } catch (Exception e) {
             log.warn(logMessage("gui.status.log.path-prefix.root-persist-failed", safeText(e)), e);

@@ -11,6 +11,7 @@ public enum FieldType {
     BOOL,
     INT,
     STRING,
+    PATH_TEMPLATES,
     ENUM,
     MULTI_ENUM,
     PASSWORD;

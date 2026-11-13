@@ -1,2 +1,3 @@
 org.springframework.boot.EnvironmentPostProcessor=\
+top.sywyar.pixivdownload.config.DownloadDirectoryConfigMigration,\
 top.sywyar.pixivdownload.config.PluginConfigEnvironmentPostProcessor

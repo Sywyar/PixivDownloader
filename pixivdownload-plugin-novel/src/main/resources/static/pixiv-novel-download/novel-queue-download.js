@@ -186,6 +186,8 @@ const {
                 novelId: Number(novelId),
                 fetchToken: meta.fetchToken || null,
                 other: {
+                    acquisitionMode: queueDownloadMode(item.source),
+                    username: item.username || '',
                     fileNameTemplate: state.settings.fileNameTemplate,
                     bookmark: !!state.settings.bookmark,
                     collectionId,

@@ -94,6 +94,29 @@ class AuthFilterTest {
                 new NavigationRegistry(registry));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"solo", "multi"})
+    @DisplayName("本地导入 API 不向匿名请求开放，包括本机请求")
+    void localImportRequiresAdmin(String mode) throws Exception {
+        when(setupService.isSetupComplete()).thenReturn(true);
+        when(setupService.getMode()).thenReturn(mode);
+        request.setMethod("POST"); request.setRequestURI("/api/local-import/previews"); request.setRemoteAddr("127.0.0.1");
+        authFilter.doFilterInternal(request, response, filterChain);
+        assertThat(response.getStatus()).isIn(401, 403);
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test @DisplayName("管理员令牌可进入本地导入 API")
+    void localImportAcceptsAdminToken() throws Exception {
+        when(setupService.isSetupComplete()).thenReturn(true);
+        when(setupService.getMode()).thenReturn("solo");
+        when(setupService.isValidSession("import-admin")).thenReturn(true);
+        request.addHeader("X-Session-Token", "import-admin");
+        request.setMethod("POST"); request.setRequestURI("/api/local-import/previews"); request.setRemoteAddr("127.0.0.1");
+        authFilter.doFilterInternal(request, response, filterChain);
+        verify(filterChain).doFilter(request, response);
+    }
+
     private AuthFilter authFilterWithNovel() {
         var plugins = new java.util.ArrayList<>(BuiltInPlugins.createAll());
         plugins.add(new TestNovelGalleryPlugin());

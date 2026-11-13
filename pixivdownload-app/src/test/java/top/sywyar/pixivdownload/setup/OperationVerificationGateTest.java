@@ -54,7 +54,7 @@ class OperationVerificationGateTest {
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, temporary.resolve("config").toString());
         System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, temporary.resolve("state").toString());
         var config = new DownloadConfig();
-        config.setRootFolder(temporary.resolve("downloads").toString());
+        config.setRootFolder(temporary.resolve("downloads").toString() + "/{artwork_id}");
         setup = spy(new SetupService(config, json, new DefaultApplicationArguments(), TestI18nBeans.appMessages()));
         setup.init("admin", "password1234", "solo");
         limits = mock(LoginRateLimitService.class);

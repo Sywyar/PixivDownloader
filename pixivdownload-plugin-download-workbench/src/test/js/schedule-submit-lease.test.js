@@ -19,6 +19,32 @@ test('validation await 期间 A→B 后旧 submit 零状态写与零请求', asy
     assert.equal(h.fetchCount, 0);
     assert.equal(h.confirmCount, 0);
 });
+
+test('创建和编辑保存准备失败不提交，成功使用准备后的定义，失活结果丢弃', async () => {
+    for (const editing of [false, true]) {
+        let fail = true;
+        const h = harness({prepareSubmission: async snapshot => {
+            if (fail) throw new Error('Profile unavailable');
+            return {...snapshot, params: {source: {userId: '7', username: 'Target user'}}};
+        }, response: {ok: true, json: async () => ({id: 7})}});
+        if (editing) h.setEditing(7, [{id: 7, sourceType: 'source-a'}]);
+        await h.submit();
+        assert.equal(h.fetchCount, 0);
+        assert.match(h.status.textContent, /Profile unavailable/);
+        fail = false;
+        await h.submit();
+        const request = h.requests.find(value => value.init.method === (editing ? 'PUT' : 'POST'));
+        assert.equal(JSON.parse(JSON.parse(request.init.body).definitionJson).source.username, 'Target user');
+    }
+    const result = deferred();
+    const h = harness({prepareSubmission: () => result.promise});
+    const pending = h.submit();
+    await new Promise(resolve => setImmediate(resolve));
+    h.stale();
+    result.resolve({params: {source: {username: 'Old user'}}});
+    await pending;
+    assert.equal(h.fetchCount, 0);
+});
 test('full-fetch confirm await 期间 A→B 后旧 submit 不继续请求', async () => {
     const confirm = deferred();
     const h = harness({confirm, fetchLimitMode: 'per-run'});
@@ -182,8 +208,7 @@ test('非 2xx error JSON await 期间 A→B 后旧错误不回写表单', async 
     const response = {ok: false, json: () => errorBody.promise};
     const h = harness({response});
     const pending = h.submit();
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.fetchCount, 1);
     h.stale();
     errorBody.resolve({error: 'old publication error'});

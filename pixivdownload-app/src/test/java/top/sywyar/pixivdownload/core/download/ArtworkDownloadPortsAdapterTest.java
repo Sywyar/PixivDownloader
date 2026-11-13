@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -143,6 +144,19 @@ class ArtworkDownloadPortsAdapterTest {
         verify(pixivDatabase).refreshArtworkMetadataAfterDownload(
                 42L, null, null, null, null, null, 5L, null, null, null);
         verify(pixivDatabase).replaceArtworkTagsAfterDownload(42L, List.of());
+    }
+
+    @Test
+    @DisplayName("历史登记保留实际落盘名称，不用缺少收藏夹上下文的元数据重算")
+    void historyStoresCompletedFileNames() {
+        PixivDatabase database = mock(PixivDatabase.class);
+        var names = new java.util.ArrayList<>(List.of("收藏😀_7_42_p0", "收藏😀_7_42_p1"));
+        var completion = new ArtworkDownloadCompletion(42L, "Title", tempDir.resolve("42"), 2,
+                Set.of("png"), 303L, 0, false, null, null,
+                "{collection_name}_{collection_id}_{artwork_id}_p{page}", null, null, null, List.of(), 180, names);
+        names.set(0, "changed");
+        new ArtworkDownloadHistoryAdapter(database).record(completion);
+        verify(database).replaceArtworkFileNames(42L, List.of("收藏😀_7_42_p0", "收藏😀_7_42_p1"));
     }
 
     @Test

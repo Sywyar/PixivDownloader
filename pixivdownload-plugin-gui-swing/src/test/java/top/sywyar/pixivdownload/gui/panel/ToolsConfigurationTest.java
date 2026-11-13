@@ -44,11 +44,12 @@ class ToolsConfigurationTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.of(snapshot);
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "message" -> args[0];
@@ -86,12 +87,12 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
-                    case "backfillTask" -> java.util.Optional.empty();
+                    case "backfillTask", "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "runMigration" -> summary;
@@ -161,6 +162,7 @@ class ToolsConfigurationTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.ofNullable(observed.get());
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
@@ -169,7 +171,7 @@ class ToolsConfigurationTest {
                         var locale = new DesktopUiHost.UiLocale(requested.equals("ja") ? "ja-JP" : "en-US", requested, requested);
                         yield new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     }
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "stopBackend", "startBackend" -> {
@@ -248,12 +250,12 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
-                    case "backfillTask" -> java.util.Optional.empty();
+                    case "backfillTask", "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> throw new IllegalStateException("Configuration unavailable");
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "message" -> "desktop.ui.tools.operation-failed".equals(args[0])
@@ -296,10 +298,12 @@ class ToolsConfigurationTest {
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     case "findToolLog" -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath());
+                    case "message" -> args[0];
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "openExternalUri" -> {
                         org.junit.jupiter.api.Assertions.assertFalse(SwingUtilities.isEventDispatchThread());
                         assertEquals("backfill-fixture.html", Path.of((java.net.URI) args[0]).getFileName().toString());
@@ -341,10 +345,12 @@ class ToolsConfigurationTest {
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> saved.get();
+                    case "message" -> args[0];
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "readDownloadRootFromConfig" -> root.get();
                     case "supportsDatabaseFileSelection" -> true;
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
-                    case "mediaTools", "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
+                    case "mediaTools", "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
                     default -> throw new AssertionError("Unexpected host operation: " + method.getName());

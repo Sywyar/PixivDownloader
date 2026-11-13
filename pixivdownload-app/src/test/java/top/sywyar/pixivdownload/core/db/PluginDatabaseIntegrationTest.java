@@ -275,7 +275,7 @@ class PluginDatabaseIntegrationTest {
         isolatedFileOperations = true;
         System.setProperty(key, directory.resolve("file-journal").toString());
         var config = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
-        config.setRootFolder(directory.resolve("works").toString());
+        config.setRootFolder(directory.resolve("works").toString() + "/{artwork_id}");
         var paths = new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec(
                 new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper(main),
                 config, TestI18nBeans.appMessages());

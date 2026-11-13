@@ -24,6 +24,58 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("桌面启动失败诊断")
 class GuiLauncherStartupDiagnosticsTest {
+    @ParameterizedTest
+    @CsvSource({"download.root-folder, unknown", "download.mode-templates.user, unknown",
+            "download.mode-templates.series, unknown", "download.mode-templates.user, YAML"})
+    @DisplayName("真实配置 Bean 初始化失败后，启动提示保留目录设置位置与未知变量")
+    void diagnosesDirectoryConfigurationFailure(String key, String variable) {
+        var config = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
+        String invalid = "private-directory/{" + variable + "}/{artwork_id}";
+        if (key.equals("download.root-folder")) config.setRootFolder(invalid);
+        else config.setModeTemplates(java.util.Map.of(key.substring("download.mode-templates.".length()), invalid));
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.registerBean("downloadConfig", top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class, () -> config);
+            var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                    org.springframework.beans.factory.BeanCreationException.class, context::refresh);
+            String actual = ReflectionTestUtils.invokeMethod(GuiLauncher.class, "diagnoseStartupError", failure);
+            assertThat(actual).contains(key, "{" + variable + "}")
+                    .doesNotContain("private-directory", "BeanCreationException", "unknown-variable");
+        }
+    }
+
+    @Test
+    @DisplayName("中文启动弹窗显示目录错误详情，日志保持英文且不重复记录弹窗正文")
+    void directoryDialogIsLocalizedAndLogRemainsEnglish() {
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class,
+                () -> top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(
+                        "private-directory/{unknown}/{artwork_id}", "download.mode-templates.user"));
+        var wrapped = new IllegalStateException("Unable to start web server", failure);
+        Locale originalLocale = Locale.getDefault();
+        Object originalLog = ReflectionTestUtils.getField(GuiLauncher.class, "log");
+        Logger logger = mock(Logger.class);
+        try (var dialogs = org.mockito.Mockito.mockStatic(DesktopUiDialogs.class)) {
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+            ReflectionTestUtils.setField(GuiLauncher.class, "log", logger);
+            ReflectionTestUtils.invokeMethod(GuiLauncher.class, "showBackendStartupFailure", wrapped);
+            var displayed = org.mockito.ArgumentCaptor.forClass(String.class);
+            dialogs.verify(() -> DesktopUiDialogs.show(org.mockito.ArgumentMatchers.isNull(),
+                    org.mockito.ArgumentMatchers.anyString(), displayed.capture(), org.mockito.ArgumentMatchers.isNull()));
+            String detail = MessageBundles.get("directory-template.unknown-variable", "{unknown}");
+            assertThat(displayed.getValue()).contains(MessageBundles.get("gui.launcher.diagnostic.directory-template",
+                    "download.mode-templates.user", detail)).doesNotContain("private-directory");
+            var logged = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(logger).error(logged.capture(), org.mockito.ArgumentMatchers.same(wrapped));
+            assertThat(logged.getValue()).isEqualTo(MessageBundles.getForLog("gui.launcher.log.startup.failed.diagnostic",
+                    MessageBundles.getForLog("gui.launcher.diagnostic.directory-template", "download.mode-templates.user",
+                            MessageBundles.getForLog("directory-template.unknown-variable", "{unknown}"))));
+            assertThat(logged.getValue()).doesNotContain(detail, "private-directory");
+        } finally {
+            Locale.setDefault(originalLocale);
+            ReflectionTestUtils.setField(GuiLauncher.class, "log", originalLog);
+        }
+    }
+
 
     @ParameterizedTest
     @CsvSource({

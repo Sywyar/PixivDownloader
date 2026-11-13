@@ -24,6 +24,37 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class ToolsOverviewTest {
     @Test
+    @DisplayName("任意导入贡献按行自动排列，缺席和撤回不留空列，窄窗口重新排列")
+    fun contributionsReflow() = runComposeUiTest {
+        var imports by mutableStateOf(listOf(activeTool("local-import"), activeTool("import.beta"), activeTool("import.gamma")))
+        var width by mutableStateOf(1200.dp)
+        setContent {
+            PixivDownloaderTheme("dark") {
+                Box(Modifier.size(width, 1000.dp)) {
+                    ToolsOverview(sample(fileImports = imports), ::resolve, {})
+                }
+            }
+        }
+        fun bounds(id: String) = onNodeWithTag("tools.entry.$id").fetchSemanticsNode().boundsInRoot
+        assertEquals(bounds("backfill").top, bounds("local-import").top, 1f)
+        assertEquals(bounds("backfill").left, bounds("import.beta").left, 1f)
+        assertTrue(bounds("import.beta").top >= bounds("backfill").bottom)
+        onNodeWithTag("tools.entry.local-import").performScrollTo().performClick()
+        onNodeWithTag("tools.import.workspace").assertIsDisplayed()
+        runOnIdle { imports = imports.drop(1) }
+        onNodeWithTag("tools.entry.local-import").assertDoesNotExist()
+        onNodeWithTag("tools.import.workspace").assertDoesNotExist()
+        assertEquals(bounds("backfill").top, bounds("import.beta").top, 1f)
+        assertEquals(bounds("backfill").left, bounds("import.gamma").left, 1f)
+        runOnIdle { width = 560.dp }
+        assertEquals(bounds("backfill").left, bounds("import.beta").left, 1f)
+        assertTrue(bounds("import.beta").top >= bounds("backfill").bottom)
+        runOnIdle { imports = emptyList() }
+        onNodeWithTag("tools.entry.import.beta").assertDoesNotExist()
+        onNodeWithTag("tools.entry.classifier").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     @DisplayName("工具分组布局与弹窗校验，收起执行后可重新查看结果")
     fun catalogueAndTaskFlow() = runComposeUiTest {
         val values = mutableStateMapOf("db" to "artworks.db", "proxy-host" to "127.0.0.", "proxy-port" to "7890", "delay" to "800", "limit" to "0")
@@ -41,8 +72,8 @@ class ToolsOverviewTest {
         }
         val left = onNodeWithTag("tools.entry.classifier").fetchSemanticsNode().boundsInRoot
         val right = onNodeWithTag("tools.entry.backfill").fetchSemanticsNode().boundsInRoot
-        assertEquals(left.top, right.top, 1f)
-        assertTrue(right.left > left.right)
+        assertTrue(left.top > right.bottom)
+        assertEquals(left.left, right.left, 1f)
         screenshot("overview")
         onNodeWithTag("tools.entry.backfill").performClick()
         onNodeWithTag("tools.sheet").assertIsDisplayed()

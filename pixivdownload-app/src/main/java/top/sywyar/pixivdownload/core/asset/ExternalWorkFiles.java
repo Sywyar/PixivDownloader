@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
 import top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest;
@@ -18,6 +19,7 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 @Repository
 public class ExternalWorkFiles {
     private static final String TABLE = "external_work_files";
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
     private final MainDatabase database;
     private final PathPrefixCodec paths;
     public ExternalWorkFiles(MainDatabase database, PathPrefixCodec paths, DatabaseInitializer initializer) {
@@ -74,5 +76,90 @@ public class ExternalWorkFiles {
             }
             return null;
         });
+    }
+
+    /** 读取登记事实时保留失效路径，不能用过滤后的文件列表覆盖数据库。 */
+    public List<Reference> references(WorkType type, long id) {
+        return database.read(s -> s.query(new Query(TABLE, Map.of(
+                "root_path", column(TABLE, "root_path"), "file_path", column(TABLE, "file_path"),
+                "page", column(TABLE, "page"), "source_page", column(TABLE, "source_page"),
+                "parsed_metadata", column(TABLE, "parsed_metadata")), currentRecord(type, id), List.of(),
+                List.of(new Query.Order(column(TABLE, "page"), false, true)), 1001, 0))).stream().map(row -> {
+            String metadata = (String) row.get("parsed_metadata");
+            Number sourcePage = (Number) row.get(metadata == null ? "page" : "source_page");
+            return new Reference(Path.of(paths.resolve((String) row.get("root_path"))),
+                    Path.of(paths.resolve((String) row.get("file_path"))),
+                    sourcePage == null ? null : sourcePage.intValue(), metadata);
+        }).toList();
+    }
+
+    public record Reference(Path root, Path file, Integer sourcePage, String parsedMetadata) {}
+
+    /** 调用方持有作品锁和登记事务；只合并外部引用，不覆盖作品元数据。 */
+    public boolean merge(LocalWorkFileImportRequest request) {
+        var combined = new LinkedHashMap<Path, Reference>();
+        for (Reference ref : references(request.workType(), request.workId())) combined.put(ref.file(), ref);
+        int before = combined.size();
+        for (int i = 0; i < request.pageFiles().size(); i++) {
+            Path path = request.file(i);
+            var source = request.sources().get(i);
+            var previous = combined.get(path);
+            if (previous != null) {
+                if (source.page() != null && previous.sourcePage() != null && !source.page().equals(previous.sourcePage()))
+                    throw new IllegalArgumentException("IMPORT_PAGE_CONFLICT");
+                continue;
+            }
+            combined.put(path, new Reference(source.root().normalize(), path, source.page(), JSON.writeValueAsString(source.hints())));
+        }
+        if (combined.size() > 1000) throw new IllegalArgumentException("IMPORT_FILE_LIMIT");
+        Set<Integer> pages = new HashSet<>();
+        for (var ref : combined.values()) {
+            if (ref.sourcePage() != null && !pages.add(ref.sourcePage())) throw new IllegalArgumentException("IMPORT_PAGE_CONFLICT");
+        }
+        if (before == combined.size()) return false;
+        List<Reference> ordered = new ArrayList<>(combined.values().stream().limit(before).toList());
+        // 已登记展示序号关联缩略图和逐页事实；补充时保持原序号，只排序新增文件。
+        ordered.addAll(combined.values().stream().skip(before).sorted(Comparator
+                .comparing(Reference::sourcePage, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(ref -> ref.file().toString())).toList());
+        database.transaction(s -> {
+            var records = s.query(recordTime(request.workType(), request.workId()));
+            if (records.isEmpty()) throw new org.springframework.dao.EmptyResultDataAccessException(1);
+            Object time = records.getFirst().get("time");
+            s.delete(TABLE, identity(request.workType(), request.workId()));
+            Set<String> extensions = new TreeSet<>();
+            for (int page = 0; page < ordered.size(); page++) {
+                Reference ref = ordered.get(page);
+                var row = new LinkedHashMap<String, Object>();
+                row.put("reference_id", request.workType().name() + ":" + request.workId() + ":" + page);
+                row.put("work_type", request.workType().name()); row.put("work_id", request.workId()); row.put("page", page);
+                row.put("root_path", paths.encode(ref.root().toString())); row.put("file_path", paths.encode(ref.file().toString()));
+                row.put("record_time", time); row.put("source_page", ref.sourcePage()); row.put("parsed_metadata", ref.parsedMetadata());
+                s.insert(TABLE, row, DatabaseSession.Conflict.error());
+                String name = ref.file().getFileName().toString();
+                extensions.add(name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT));
+            }
+            s.update("artworks", Map.of("count", value(ordered.size()), "extensions", value(String.join(",", extensions))),
+                    call(EQUAL, column("artworks", "artwork_id"), value(request.workId())));
+            return null;
+        });
+        return true;
+    }
+
+    /** 解析导入的本地数量不作为来源站点总页数；有可靠快照后才检查来源页覆盖。 */
+    public boolean hasCompletePageIdentity(long id) {
+        List<Reference> references = references(WorkType.ARTWORK, id);
+        if (references.stream().noneMatch(ref -> ref.parsedMetadata() != null)) return true;
+        var rows = database.read(s -> s.query(new Query("artworks", Map.of("metadata_json", column("artworks", "metadata_json")),
+                call(EQUAL, column("artworks", "artwork_id"), value(id)), List.of(), List.of(), 1, 0)));
+        if (rows.isEmpty() || !(rows.getFirst().get("metadata_json") instanceof String json)) return false;
+        try {
+            var document = new WorkMetaCurator(JSON).restore(WorkType.ARTWORK, id, JSON.readTree(json)).document();
+            int count = document.path("raw").path("pageCount").asInt(0);
+            if (count <= 0 || count != references.size()) return false;
+            Set<Integer> pages = new HashSet<>();
+            for (var ref : references) if (ref.sourcePage() == null || ref.sourcePage() >= count || !pages.add(ref.sourcePage())) return false;
+            return true;
+        } catch (RuntimeException invalid) { return false; }
     }
 }

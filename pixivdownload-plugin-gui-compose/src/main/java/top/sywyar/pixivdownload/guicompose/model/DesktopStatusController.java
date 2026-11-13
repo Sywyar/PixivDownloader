@@ -39,6 +39,9 @@ final class DesktopStatusController {
     private volatile boolean connectivityChecking;
     private volatile long lastConnectivityCheckAt;
     private volatile boolean ffmpegInstalling;
+    private final Object ffmpegWorkerLock = new Object();
+    private Thread ffmpegWorker;
+    private volatile boolean ffmpegExitRequested;
     private volatile Optional<DesktopUiHost.FfmpegInstallation> ffmpegInstallation = Optional.empty();
     private final AtomicBoolean ffmpegChecking = new AtomicBoolean();
     private volatile boolean ffmpegChecked;
@@ -241,6 +244,8 @@ final class DesktopStatusController {
                     button("status.ffmpeg.open", "status.ffmpeg.open", "gui.ffmpeg.action.open-dir",
                             !owner.busy(), nextActions, this::openFfmpegDirectory)));
         }
+        ffmpegNodes.add(button("status.ffmpeg.leave", "status.ffmpeg.leave", "desktop.ui.action.close",
+                true, nextActions, owner::leaveMediaTools));
         if (ffmpegInstalling) ffmpegNodes.add(new DesktopUiNode.Progress(
                 "status.ffmpeg.progress",
                 ffmpegProgress,
@@ -298,14 +303,21 @@ final class DesktopStatusController {
 
     private void installFfmpeg() {
         if (owner.busy()) return;
+        ffmpegExitRequested = false;
         ffmpegInstalling = true;
         ffmpegProgress = 0d;
         owner.runBusy(() -> {
             try {
+                synchronized (ffmpegWorkerLock) {
+                    if (ffmpegExitRequested) throw new java.util.concurrent.CancellationException();
+                    ffmpegWorker = Thread.currentThread();
+                }
                 DesktopUiHost.FfmpegProxy proxy = owner.proxySettings();
                 DesktopUiHost.FfmpegInstallation installed = host.installManagedFfmpeg(
                         proxy,
                         (stage, current, total) -> {
+                            if (ffmpegExitRequested && stage != DesktopUiHost.FfmpegInstallStage.COMPLETED)
+                                throw new java.util.concurrent.CancellationException();
                             owner.statusNotice = host.message("gui.ffmpeg.install.stage." + stage.name().toLowerCase(
                                     Locale.ROOT));
                             ffmpegProgress = total > 0 ? Math.min(
@@ -322,19 +334,35 @@ final class DesktopStatusController {
                 ffmpegNotice = toolToken("installed");
                 ffmpegNoticeError = false;
                 inspectFfmpeg();
+            } catch (java.util.concurrent.CancellationException cancelled) {
+                LOG.info("Managed FFmpeg installation cancelled from desktop tool");
+                ffmpegNotice = toolToken("cancelled");
+                ffmpegNoticeError = false;
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
-                LOG.error("Managed FFmpeg installation was interrupted", interrupted);
-                ffmpegNotice = TextToken.key("desktop.ui.ffmpeg.install-failed");
-                ffmpegNoticeError = true;
+                LOG.info("Managed FFmpeg installation interrupted from desktop tool");
+                ffmpegNotice = ffmpegExitRequested ? toolToken("cancelled") : TextToken.key("desktop.ui.ffmpeg.install-failed");
+                ffmpegNoticeError = !ffmpegExitRequested;
             } catch (Exception failure) {
                 LOG.error("Managed FFmpeg installation failed", failure);
                 ffmpegNotice = TextToken.key("desktop.ui.ffmpeg.install-failed");
                 ffmpegNoticeError = true;
             } finally {
-                ffmpegInstalling = false;
+                synchronized (ffmpegWorkerLock) {
+                    ffmpegWorker = null;
+                    ffmpegInstalling = false;
+                }
             }
         });
+    }
+
+    void leaveFfmpeg() {
+        ffmpegConfirm = false;
+        synchronized (ffmpegWorkerLock) {
+            ffmpegExitRequested = true;
+            if (ffmpegWorker != null) ffmpegWorker.interrupt();
+        }
+        if (ffmpegInstalling) LOG.info("Managed FFmpeg installation cancellation requested from desktop tool");
     }
 
     void openDownloadDirectory() {

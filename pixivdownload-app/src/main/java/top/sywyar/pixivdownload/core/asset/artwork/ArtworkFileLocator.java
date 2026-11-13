@@ -54,6 +54,10 @@ public class ArtworkFileLocator {
         return artwork != null && externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId());
     }
 
+    public boolean hasCompletePageIdentity(ArtworkRecord artwork) {
+        return externalFiles.hasCompletePageIdentity(artwork.artworkId());
+    }
+
     public String resolveArtworkDirectory(ArtworkRecord artwork) {
         if (artwork == null) {
             return null;

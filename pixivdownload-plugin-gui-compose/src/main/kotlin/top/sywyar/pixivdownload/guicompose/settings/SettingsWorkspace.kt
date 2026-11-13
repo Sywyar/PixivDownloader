@@ -39,6 +39,8 @@ internal fun settingsText(key: String, vararg arguments: Any) = TextToken(
 internal fun descendants(node: DesktopUiNode): Sequence<DesktopUiNode> =
     sequenceOf(node) + node.childNodes().asSequence().flatMap(::descendants)
 
+internal val LocalConsumedSettingsLocation = staticCompositionLocalOf<MutableLongState> { error("Settings workspace required") }
+
 @Composable
 internal fun SettingsWorkspace(
     node: DesktopUiNode.SettingsWorkspace,
@@ -55,6 +57,7 @@ internal fun SettingsWorkspace(
     val searchFocus = remember { FocusRequester() }
     val reviewFocus = remember { FocusRequester() }
     val categoryStates = rememberSaveableStateHolder()
+    val consumedLocation = rememberSaveable { mutableLongStateOf(-1L) }
     val secrets = remember(node.credentialRevision()) { mutableStateMapOf<String, Pair<Long, TextFieldValue>>() }
     val footer = node.footer().flatMap { descendants(it).toList() }
     val buttons = footer.filterIsInstance<Button>().associateBy { it.id() }
@@ -70,7 +73,7 @@ internal fun SettingsWorkspace(
     val results = remember(query, node.locations(), node.tabs(), text) {
         searchSettings(query, node.locations(), node.tabs(), text)
     }
-    CompositionLocalProvider(LocalHintDismiss provides hintDismiss) {
+    CompositionLocalProvider(LocalHintDismiss provides hintDismiss, LocalConsumedSettingsLocation provides consumedLocation) {
     BoxWithConstraints(modifier.fillMaxSize().testTag("settings.workspace").onPreviewKeyEvent {
         when {
             it.type == KeyEventType.KeyDown && (it.isCtrlPressed || it.isMetaPressed) && it.key == Key.K -> {

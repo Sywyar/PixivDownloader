@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv.filename;
 
+import top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -20,8 +21,9 @@ public final class PixivWorkFileNameFormatter {
 
     /** 默认文件名主干的最大 UTF-16 长度，不含扩展名。 */
     public static final int MAX_BASENAME_LENGTH = 180;
-    private static final Pattern VARIABLE_PATTERN = Pattern.compile(
-            "\\{(artwork_id|artwork_title|author_id|author_name|timestamp|page|count|ai\\+?|R18\\+?)}");
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile("\\{(" + WorkTemplateVariables.all().stream()
+            .filter(WorkTemplateVariables.Variable::download).map(v -> Pattern.quote(v.token()))
+            .collect(java.util.stream.Collectors.joining("|")) + ")}");
     private static final Pattern INVALID_FILE_NAME_CHARS = Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]");
     private static final Pattern TRAILING_DOTS_AND_SPACES = Pattern.compile("[. ]+$");
     private static final Set<String> WINDOWS_RESERVED_NAMES = Set.of(
@@ -31,6 +33,29 @@ public final class PixivWorkFileNameFormatter {
     );
 
     private PixivWorkFileNameFormatter() {}
+
+    /**
+     * 同次下载的命名上下文，不从可变的当前页面或元数据重新推导。
+     * @param collectionId 选中的收藏夹 ID
+     * @param collectionName 选中的收藏夹名称
+     * @param seriesId 作品所属系列 ID；非正数表示无系列
+     * @param seriesTitle 系列标题，同时提供 series_name 与 series_title
+     * @param seriesOrder 系列内的原始序号，缺失时为空
+     * @param username User 来源的目标用户名，不等同于作品作者
+     */
+    public record Context(Long collectionId, String collectionName, Long seriesId,
+                          String seriesTitle, Long seriesOrder, String username) {
+        /** 清除无效系列身份及其关联字段，保留有效的来源快照。 */
+        public Context {
+            if (seriesId == null || seriesId <= 0) {
+                seriesId = null;
+                seriesTitle = null;
+                seriesOrder = null;
+            } else if (seriesOrder != null && seriesOrder < 0) {
+                seriesOrder = null;
+            }
+        }
+    }
 
     /**
      * 执行对应操作并返回结果。
@@ -87,6 +112,52 @@ public final class PixivWorkFileNameFormatter {
     public static List<String> formatAll(String template, long artworkId, String artworkTitle,
                                          Long authorId, String authorName, long timestamp, int count,
                                          Boolean isAi, Integer xRestrict, int maxLength) {
+        return formatAll(template, artworkId, artworkTitle, authorId, authorName, timestamp, count,
+                isAi, xRestrict, maxLength, null, null);
+    }
+
+    /**
+     * 按下载时选中的收藏夹展开文件名；未选中时两个收藏夹变量都为空。
+     * @param template 文件名模板
+     * @param artworkId 作品标识
+     * @param artworkTitle 作品标题
+     * @param authorId 作者标识
+     * @param authorName 作者名称
+     * @param timestamp 文件名时间戳
+     * @param count 作品页数
+     * @param isAi 是否为 AI 生成作品
+     * @param xRestrict 年龄分级
+     * @param maxLength 包含消歧页码后缀的主干长度上限
+     * @param collectionId 下载时选中的收藏夹标识，可为空
+     * @param collectionName 下载时取得的收藏夹名称，可为空
+     * @return 按页排列且互不重复的文件名主干
+     */
+    public static List<String> formatAll(String template, long artworkId, String artworkTitle,
+                                         Long authorId, String authorName, long timestamp, int count,
+                                         Boolean isAi, Integer xRestrict, int maxLength,
+                                         Long collectionId, String collectionName) {
+        return formatAll(template, artworkId, artworkTitle, authorId, authorName, timestamp, count,
+                isAi, xRestrict, maxLength, new Context(collectionId, collectionName, null, null, null, null));
+    }
+
+    /**
+     * 按下载上下文展开收藏夹、系列与来源用户名；缺省变量展开为空。
+     * @param template 文件名模板
+     * @param artworkId 作品 ID
+     * @param artworkTitle 作品标题
+     * @param authorId 作者 ID
+     * @param authorName 作者名称
+     * @param timestamp 文件名时间戳
+     * @param count 页数
+     * @param isAi 是否为 AI 作品
+     * @param xRestrict 年龄分级
+     * @param maxLength 文件名主干长度上限
+     * @param context 同次下载的命名上下文
+     * @return 已清洗、截断并消除页间重名的文件名主干
+     */
+    public static List<String> formatAll(String template, long artworkId, String artworkTitle,
+                                         Long authorId, String authorName, long timestamp, int count,
+                                         Boolean isAi, Integer xRestrict, int maxLength, Context context) {
         if (maxLength < 1 || maxLength > MAX_BASENAME_LENGTH) {
             throw new IllegalArgumentException("Invalid filename length");
         }
@@ -94,7 +165,7 @@ public final class PixivWorkFileNameFormatter {
         List<String> names = new ArrayList<>(safeCount);
         for (int page = 0; page < safeCount; page++) {
             String name = format(template, artworkId, artworkTitle, authorId, authorName,
-                    timestamp, page, safeCount, isAi, xRestrict);
+                    timestamp, page, safeCount, isAi, xRestrict, context);
             names.add(maxLength == MAX_BASENAME_LENGTH ? name : truncate(name, maxLength));
         }
         return ensureUnique(names, maxLength);
@@ -166,14 +237,15 @@ public final class PixivWorkFileNameFormatter {
                                  int page,
                                  int count,
                                  Boolean isAi,
-                                 Integer xRestrict) {
+                                 Integer xRestrict,
+                                 Context context) {
         String normalizedTemplate = normalizeTemplate(template);
         Matcher matcher = VARIABLE_PATTERN.matcher(normalizedTemplate);
         StringBuffer buffer = new StringBuffer();
         while (matcher.find()) {
             matcher.appendReplacement(buffer, Matcher.quoteReplacement(resolveVariable(
                     matcher.group(1), artworkId, artworkTitle, authorId, authorName,
-                    timestamp, page, count, isAi, xRestrict)));
+                    timestamp, page, count, isAi, xRestrict, context)));
         }
         matcher.appendTail(buffer);
         return normalizeBaseName(buffer.toString(), fallbackBaseName(artworkId, page));
@@ -188,7 +260,8 @@ public final class PixivWorkFileNameFormatter {
                                           int page,
                                           int count,
                                           Boolean isAi,
-                                          Integer xRestrict) {
+                                          Integer xRestrict,
+                                          Context context) {
         boolean ai = Boolean.TRUE.equals(isAi);
         int restrict = xRestrict == null ? 0 : xRestrict;
         return switch (variable) {
@@ -196,6 +269,12 @@ public final class PixivWorkFileNameFormatter {
             case "artwork_title" -> sanitize(artworkTitle);
             case "author_id" -> authorId == null ? "" : String.valueOf(authorId);
             case "author_name" -> sanitize(authorName);
+            case "collection_name" -> context.collectionId() == null ? "" : sanitize(context.collectionName());
+            case "collection_id" -> context.collectionId() == null ? "" : String.valueOf(context.collectionId());
+            case "series_id" -> context.seriesId() == null ? "" : context.seriesId().toString();
+            case "series_name", "series_title" -> sanitize(context.seriesTitle());
+            case "series_order" -> context.seriesOrder() == null ? "" : context.seriesOrder().toString();
+            case "username" -> sanitize(context.username());
             case "timestamp" -> String.valueOf(timestamp);
             case "page" -> String.valueOf(page);
             case "count" -> String.valueOf(count);

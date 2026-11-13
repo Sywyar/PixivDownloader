@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.novel;
 
+import top.sywyar.pixivdownload.novel.config.NovelDirectorySettings;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.novel.config.NovelExecutionSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
@@ -208,11 +212,52 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 new I18nContribution("narration", "i18n.web.narration", 14));
     }
 
-    private static final List<GuiConfigContribution> GUI_CONFIG_CONTRIBUTIONS = List.of(new GuiConfigContribution(List.of(
-        executionConcurrencyField(
-                NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
-                "gui.config.field.download.novel-max-concurrent",
-                100))));
+    private static final List<GuiConfigContribution> GUI_CONFIG_CONTRIBUTIONS = directoryConfig();
+
+    private static List<GuiConfigContribution> directoryConfig() {
+        var fields = new java.util.ArrayList<GuiConfigFieldContribution>();
+        fields.add(executionConcurrencyField(NovelExecutionSettings.DOWNLOAD_CONCURRENCY_KEY,
+                "gui.config.field.download.novel-max-concurrent", 100));
+        var root = NovelDirectorySettings.ROOT_KEY;
+        fields.add(directoryField(root, NovelDirectorySettings.DEFAULT_TEMPLATE, 101)
+                .requiredWhen(new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition(root,
+                        top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator.BLANK, null)));
+        int order = 102;
+        for (var mode : DownloadAcquisitionMode.values()) fields.add(directoryField(
+                NovelDirectorySettings.MODE_PREFIX + mode.code(),
+                mode == DownloadAcquisitionMode.USER_PROFILE
+                        ? NovelDirectorySettings.DEFAULT_USER_TEMPLATE : "", order++));
+        var layouts = new java.util.ArrayList<GuiConfigFieldLayoutContribution>();
+        layouts.add(new GuiConfigFieldLayoutContribution(root, 0));
+        for (var mode : DownloadAcquisitionMode.values()) {
+            layouts.add(new GuiConfigFieldLayoutContribution(
+                    NovelDirectorySettings.MODE_PREFIX + mode.code(),
+                    mode.code(),
+                    "gui.config.directory.mode." + mode.code(),
+                    ID,
+                    layouts.size()
+            ));
+        }
+        var section = new GuiConfigSectionContribution(
+                "novel-directories",
+                GuiConfigGroups.DOWNLOAD,
+                "gui.config.directory.novel",
+                "gui.config.directory.help",
+                ID,
+                GuiConfigSectionLayout.DIRECTORY_TEMPLATES,
+                1,
+                layouts,
+                List.of(),
+                List.of()
+        );
+        return List.of(new GuiConfigContribution(List.of(), fields, List.of(section)));
+    }
+
+    private static GuiConfigFieldContribution directoryField(String key, String value, int order) {
+        return new GuiConfigFieldContribution(key, GuiConfigGroups.DOWNLOAD, "gui.config.field." + key + ".label",
+                "gui.config.field." + key + ".help", ID, GuiConfigFieldType.DIRECTORY_TEMPLATE, value, order,
+                false, GuiConfigEffect.BACKEND_RESTART, List.of(), List.of(), List.of(), null, null);
+    }
 
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {

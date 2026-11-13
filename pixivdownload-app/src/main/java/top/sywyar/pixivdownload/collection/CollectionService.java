@@ -227,16 +227,22 @@ public class CollectionService {
     }
 
     public Path resolveDownloadRoot(long collectionId, Path defaultRoot) {
+        return downloadContext(collectionId, defaultRoot).root();
+    }
+
+    public top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver.Context downloadContext(long collectionId, Path defaultRoot) {
         Collection collection = resolve(collectionMapper.findById(collectionId));
         if (collection == null || !StringUtils.hasText(collection.downloadRoot())) {
-            return defaultRoot;
+            return new top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver.Context(
+                    defaultRoot, collection == null ? null : collection.name());
         }
-        return resolveConfiguredDownloadRoot(
+        Path root = resolveConfiguredDownloadRoot(
                 collection.downloadRoot(),
                 collection.name(),
                 collection.id(),
                 defaultRoot
         );
+        return new top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver.Context(root, collection.name());
     }
 
     private void requireDatabase() {

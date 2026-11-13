@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 @Data
 public class NovelDownloadStatus {
     private volatile String errorCode;
+    private String errorMessageKey;
+    private Object[] errorMessageArgs = new Object[0];
     private Long novelId;
     private String title;
     private String ownerUuid;
@@ -69,5 +71,10 @@ public class NovelDownloadStatus {
 
     public String getErrorMessage() {
         return state.errorMessage();
+    }
+
+    /** 请求边界按当前语言展开错误，下载状态只持有受控 key 和参数。 */
+    public String errorMessage(top.sywyar.pixivdownload.i18n.MessageResolver messages) {
+        return errorMessageKey == null ? state.errorMessage() : messages.get(errorMessageKey, errorMessageArgs);
     }
 }

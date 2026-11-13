@@ -28,7 +28,7 @@ public class CoreCollectionAdapter implements WorkCollectionMembership, Collecti
     }
 
     @Override
-    public Path resolveDownloadRoot(long collectionId, Path defaultRoot) {
-        return collectionService.resolveDownloadRoot(collectionId, defaultRoot);
+    public Context resolve(long collectionId, Path defaultRoot) {
+        return collectionService.downloadContext(collectionId, defaultRoot);
     }
 }

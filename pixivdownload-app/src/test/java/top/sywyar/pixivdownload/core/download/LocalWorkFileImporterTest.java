@@ -30,6 +30,7 @@ class LocalWorkFileImporterTest {
     private Path source;
     private Path output;
     private ExternalWorkFiles externalFiles;
+    private top.sywyar.pixivdownload.core.asset.DownloadDirectories directories;
     private top.sywyar.pixivdownload.author.AuthorMapper authorMapper;
     private top.sywyar.pixivdownload.author.AuthorService authors;
     private final List<DownloadEvent> events = new ArrayList<>();
@@ -48,13 +49,14 @@ class LocalWorkFileImporterTest {
                 registry.contributions(), registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         settings = new DownloadConfig();
-        settings.setRootFolder(output.toString());
+        settings.setRootFolder(output.toString() + "/{artwork_id}");
         var codec = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), settings, TestI18nBeans.appMessages());
         codec.init();
         database = new PixivDatabase(new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         database.init();
         history = new ArtworkDownloadHistoryAdapter(database);
         externalFiles = new ExternalWorkFiles(DatabaseProviderTestFixtures.main(dataSource), codec, initializer);
+        directories = new top.sywyar.pixivdownload.core.asset.DownloadDirectories(DatabaseProviderTestFixtures.main(dataSource), codec, initializer);
         authorMapper = new top.sywyar.pixivdownload.author.AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         authors = new top.sywyar.pixivdownload.author.AuthorService(authorMapper, database,
                 org.mockito.Mockito.mock(org.springframework.web.client.RestTemplate.class),
@@ -69,7 +71,7 @@ class LocalWorkFileImporterTest {
                 null, null, List.of(), source, paths, null);
     }
     private LocalWorkFileImporter importer(ArtworkDownloadHistory target) {
-        return new LocalWorkFileImporter(target, database, externalFiles, new DataSourceTransactionManager(dataSource), lifecycle, authors::observe);
+        return new LocalWorkFileImporter(target, database, externalFiles, new DataSourceTransactionManager(dataSource), lifecycle, authors::observe, directories);
     }
     @Test @DisplayName("纯本地登记保存文件引用，未知元数据保持为空且重复执行不覆盖")
     void importsLocalFactsWithoutMetadata() throws Exception {
@@ -88,6 +90,48 @@ class LocalWorkFileImporterTest {
         assertThat(importer.importLocalFiles(request)).isFalse();
         assertThat(Files.readAllBytes(original)).isEqualTo(bytes);
         try (var files = Files.list(output)) { assertThat(files.count()).isZero(); }
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    @DisplayName("真实模板扫描后重验文件，单项失败不留下记录，成功项保留原文件且日志不泄露路径")
+    void templateImportRevalidatesPreview(org.springframework.boot.test.system.CapturedOutput outputLog) throws Exception {
+        Path missing = Files.copy(source.resolve("custom.png"), source.resolve("42_p0.png"));
+        Path retained = Files.copy(source.resolve("custom.png"), source.resolve("43_p0.png"));
+        byte[] original = Files.readAllBytes(retained);
+        var previousLocale = Locale.getDefault();
+        try (var service = new top.sywyar.pixivdownload.core.importing.LocalImportService(
+                new top.sywyar.pixivdownload.core.importing.LocalImportConfig(), importer(history), database, externalFiles)) {
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+            var preview = service.scan(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Request(
+                    List.of(source + "/{artwork_id}_p{page}.{extension}"), List.of(), false, ""));
+            awaitPhase(service, preview.id(), top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Phase.READY);
+            assertThat(database.getArtwork(43)).isNull();
+            Files.delete(missing);
+            service.start(preview.id());
+            awaitPhase(service, preview.id(), top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Phase.COMPLETED);
+            var result = service.status(preview.id());
+            assertThat(result.processed()).isEqualTo(2);
+            assertThat(result.imported()).isEqualTo(1);
+            assertThat(result.failed()).isEqualTo(1);
+            assertThat(result.problems()).hasSize(1);
+            assertThat(result.problems().getFirst().artworkId()).isEqualTo(42L);
+            assertThat(database.getArtwork(42)).isNull();
+            assertThat(database.getArtwork(43).count()).isEqualTo(1);
+            assertThat(externalFiles.file(WorkType.ARTWORK, 43, 0)).isEqualTo(retained);
+            assertThat(Files.readAllBytes(retained)).isEqualTo(original);
+            try (var files = Files.list(output)) { assertThat(files.count()).isZero(); }
+        } finally { Locale.setDefault(previousLocale); }
+        assertThat(outputLog.getAll()).contains("Local import scan accepted:", "Local import preview ready:",
+                "Local import started:", "Local import finished:", "processed=2, imported=1, skipped=0, failed=1")
+                .doesNotContain(source.toString());
+    }
+
+    private static void awaitPhase(top.sywyar.pixivdownload.core.importing.LocalImportService service, UUID id,
+            top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Phase expected) throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (service.status(id).phase() != expected && System.nanoTime() < deadline) Thread.sleep(10);
+        assertThat(service.status(id).phase()).isEqualTo(expected);
     }
     @Test @DisplayName("任意源文件名直接登记并定位，删除记录保留源文件且重试不复活软删除作品")
     void referencesAndRetainsOriginals() throws Exception {
@@ -147,5 +191,65 @@ class LocalWorkFileImporterTest {
         new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE artworks SET time = time + 1 WHERE artwork_id = 42");
         assertThat(externalFiles.contains(WorkType.ARTWORK, 42)).isFalse();
         assertThat(externalFiles.files(WorkType.ARTWORK, 42)).isEmpty();
+    }
+
+    private LocalWorkFileImportRequest parsed(Path root, Path file, Integer page) {
+        return new LocalWorkFileImportRequest(WorkType.ARTWORK, 42, root, List.of(file),
+                List.of(new LocalWorkFileImportRequest.Source(root, page, Map.of("artworkId", "42", "artworkTitle", "Hint"))));
+    }
+
+    @Test @DisplayName("解析导入允许缺页，重复幂等并跨目录补充，保留可靠元数据")
+    void supplementsExternalFiles() throws Exception {
+        var importer = importer(history);
+        Path original = source.resolve("custom.png");
+        assertThat(importer.importLocalFiles(parsed(source, original, 2))).isTrue();
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isFalse();
+        assertThat(database.getArtwork(42).title()).isEmpty();
+        assertThat(importer.importLocalFiles(parsed(source, original, 2))).isFalse();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        jdbc.update("UPDATE artworks SET title='Reliable title' WHERE artwork_id=42");
+        Path other = Files.createDirectory(temp.resolve("other"));
+        Path second = Files.copy(original, other.resolve("second.png"));
+        assertThat(importer.importLocalFiles(parsed(other, second, 0))).isTrue();
+        assertThat(database.getArtwork(42).title()).isEqualTo("Reliable title");
+        assertThat(database.getArtwork(42).count()).isEqualTo(2);
+        assertThat(externalFiles.references(WorkType.ARTWORK, 42)).extracting(ExternalWorkFiles.Reference::sourcePage).containsExactly(2, 0);
+        assertThat(Files.readAllBytes(original)).isEqualTo(Files.readAllBytes(second));
+    }
+
+    @Test @DisplayName("同一来源页的不同文件整笔拒绝，原有引用不变")
+    void pageConflictRollsBack() throws Exception {
+        var importer = importer(history);
+        Path original = source.resolve("custom.png");
+        importer.importLocalFiles(parsed(source, original, 0));
+        Path second = Files.copy(original, source.resolve("second.png"));
+        assertThatThrownBy(() -> importer.importLocalFiles(parsed(source, second, 0)))
+                .hasMessage("IMPORT_PAGE_CONFLICT");
+        assertThat(database.getArtwork(42).count()).isEqualTo(1);
+        assertThat(externalFiles.files(WorkType.ARTWORK, 42)).containsExactly(original);
+    }
+
+    @Test @DisplayName("来源快照和完整页码同时存在才确认完整，未知页码不推断")
+    void completenessNeedsAuthoritativeCount() throws Exception {
+        Path original = source.resolve("custom.png");
+        importer(history).importLocalFiles(parsed(source, original, 0));
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isFalse();
+        var mapper = tools.jackson.databind.json.JsonMapper.builder().build();
+        var raw = mapper.createObjectNode().put("id", "42").put("pageCount", 1);
+        var snapshot = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
+                .curateArtwork(42, raw, null, "backfill").document().toString();
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE artworks SET metadata_json=? WHERE artwork_id=42", snapshot);
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isTrue();
+        var legacy = (tools.jackson.databind.node.ObjectNode) mapper.readTree(snapshot);
+        // 首版快照仍受支持；未知格式不能作为完整页数的依据。
+        legacy.put("schemaVersion", 1);
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE artworks SET metadata_json=? WHERE artwork_id=42", legacy.toString());
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isTrue();
+        legacy.put("schemaVersion", Integer.MAX_VALUE);
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE artworks SET metadata_json=? WHERE artwork_id=42", legacy.toString());
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isFalse();
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE artworks SET metadata_json=? WHERE artwork_id=42", snapshot);
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("UPDATE external_work_files SET source_page=NULL WHERE work_id=42");
+        assertThat(externalFiles.hasCompletePageIdentity(42)).isFalse();
     }
 }

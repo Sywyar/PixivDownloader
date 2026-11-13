@@ -24,6 +24,7 @@ public class DownloadRequest {
 
     private String referer = "https://www.pixiv.net/";
 
+    @jakarta.validation.Valid
     private Other other = new Other();
 
     private String cookie;
@@ -65,7 +66,19 @@ public class DownloadRequest {
         @com.fasterxml.jackson.annotation.JsonIgnore
         private boolean mediaOutputEnabled = true;
         private boolean isUserDownload;
+        @jakarta.validation.constraints.Size(max = 512)
         private String username;
+        @jakarta.validation.constraints.Pattern(regexp = "single-import|user|series|search|quick")
+        private String acquisitionMode;
+
+        /** 优先采用明确的来源；旧 User 标记仍属于已知来源，不从系列元数据推断。 */
+        public String directoryMode() {
+            String mode = acquisitionMode == null || acquisitionMode.isBlank()
+                    ? (isUserDownload() ? "user" : null) : acquisitionMode;
+            var parsed = top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.fromCode(mode);
+            return parsed == null ? null : parsed.code();
+        }
+
         private Long authorId;
         private String authorName;
         private int xRestrict;

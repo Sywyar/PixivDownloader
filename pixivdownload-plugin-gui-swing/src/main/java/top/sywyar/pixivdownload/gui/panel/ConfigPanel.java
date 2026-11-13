@@ -1473,6 +1473,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     yield message("gui.config.validation.valid-port");
                 }
             }
+            case PATH_TEMPLATES -> {
+                try { SwingHost.context().host().parseLocalImportPresets(safe); yield null; }
+                catch (RuntimeException invalid) { yield SwingHost.host().message("local-import.error.INVALID_IMPORT_PRESET"); }
+            }
             case PATH_DIR, PATH_FILE, STRING, PASSWORD -> null;
         };
     }
@@ -1924,7 +1928,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private static boolean shouldUseDefaultForBlankStoredValue(ConfigFieldSpec spec) {
         return switch (spec.type()) {
             case BOOL, ENUM, MULTI_ENUM, INT, PORT -> true;
-            case PATH_DIR, PATH_FILE, STRING, PASSWORD -> false;
+            case PATH_DIR, PATH_FILE, STRING, PASSWORD, PATH_TEMPLATES -> false;
         };
     }
 
@@ -2058,6 +2062,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             combo.addActionListener(e -> handleFieldChanged(key));
         } else if (control instanceof JButton button) {
             button.addPropertyChangeListener("text", event -> handleFieldChanged(key));
+            button.addPropertyChangeListener("presetValue", event -> handleFieldChanged(key));
         } else if (control instanceof JSpinner sp) {
             sp.addChangeListener(e -> handleFieldChanged(key));
         } else if (control instanceof JTextField tf) {

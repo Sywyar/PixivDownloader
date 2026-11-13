@@ -18,6 +18,34 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DesktopMediaToolsControllerTest {
     @Test
+    @DisplayName("离开媒体页面时停止已接纳任务，启动回执迟到也不能继续运行")
+    void leaveDuringStartCancelsAcceptedTask() throws Exception {
+        var fixture = new Fixture();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        fixture.beforeStart.set(() -> {
+            entered.countDown();
+            try { assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); }
+            catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+        });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "mediaTools", arguments -> fixture.tools.get(),
+                "mediaTool", arguments -> fixture.source))) {
+            activate(model, "media.sample.1.preview");
+            activate(model, "media.sample.1.start");
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            activate(model, "status.ffmpeg.leave");
+            release.countDown();
+            await(() -> fixture.state.get().state().equals("cancelled"));
+            assertEquals(1, fixture.starts.get());
+            assertEquals(1, fixture.cancellations.get());
+            activate(model, "media.sample.1.refresh");
+            await(() -> button(model, "media.sample.1.preview").enabled());
+            assertFalse(button(model, "media.sample.1.start").enabled());
+        } finally { release.countDown(); }
+    }
+
+    @Test
     @DisplayName("失败文件按页展示，翻页可查看全部身份")
     void failuresCanBePaged() throws Exception {
         var fixture = new Fixture();
@@ -79,6 +107,10 @@ class DesktopMediaToolsControllerTest {
             await(() -> button(model, prefix + ".start").enabled());
             assertEquals("1 / 1", ((DesktopUiNode.Text) node(model, prefix + ".page")).text().fallback());
             assertFalse(button(model, prefix + ".previous").enabled());
+            activate(model, "status.ffmpeg.leave");
+            assertFalse(button(model, prefix + ".start").enabled());
+            assertTrue(nodes(model).noneMatch(value -> value.id().equals(prefix + ".files")));
+            assertEquals(0, fixture.starts.get());
             fixture.files.set(List.of());
             activate(model, prefix + ".preview");
             await(() -> button(model, prefix + ".preview").enabled());
@@ -134,6 +166,8 @@ class DesktopMediaToolsControllerTest {
                 new DesktopMediaTool.Description(DesktopUiText.raw("Media processing"), "batch", "original", "webp"));
         final AtomicReference<List<DesktopMediaTool>> tools = new AtomicReference<>(List.of(tool));
         final AtomicInteger starts = new AtomicInteger();
+        final AtomicInteger cancellations = new AtomicInteger();
+        final AtomicReference<Runnable> beforeStart = new AtomicReference<>(() -> {});
         final AtomicReference<DesktopMediaTool.Request> request = new AtomicReference<>();
         final AtomicReference<List<DesktopMediaTool.Item>> files = new AtomicReference<>(List.of(
                 new DesktopMediaTool.Item(42, 0, "source.jpg", List.of("png"), true)));
@@ -145,13 +179,17 @@ class DesktopMediaToolsControllerTest {
                 return new DesktopMediaTool.Result<>(new DesktopMediaTool.Preview("confirmed-preview", files.get(), files.get().size(), 0, false), null);
             }
             public DesktopMediaTool.Result<DesktopMediaTool.Status> start(String token) {
+                beforeStart.get().run();
                 assertEquals("confirmed-preview", token);
                 starts.incrementAndGet();
                 state.set(new DesktopMediaTool.Status("running", 1, 0, 0, List.of()));
                 return new DesktopMediaTool.Result<>(state.get(), null);
             }
             public DesktopMediaTool.Status status() { return state.get(); }
-            public void cancel() { state.set(new DesktopMediaTool.Status("cancelled", 1, 0, 0, List.of())); }
+            public void cancel() {
+                cancellations.incrementAndGet();
+                state.set(new DesktopMediaTool.Status("cancelled", 1, 0, 0, List.of()));
+            }
             public DesktopMediaTool.Result<DesktopMediaTool.Report> capabilities() {
                 return new DesktopMediaTool.Result<>(new DesktopMediaTool.Report("ffmpeg", "system", List.of(new DesktopMediaTool.Capability("png", true))), null);
             }

@@ -82,7 +82,7 @@ async function novelPreviewJson(path, hookContext) {
     assertNovelActivation();
     const response = await fetch(`${BASE}${path}`, {
         credentials: 'same-origin',
-        headers: novelAcquisitionCredentialHeaders(),
+        ...(hookContext?.requestInit || {headers: novelAcquisitionCredentialHeaders()}),
         signal: novelHookSignal(hookContext)
     });
     const data = await response.json().catch(() => ({}));
@@ -121,7 +121,7 @@ function novelBookmarkPageRequest(ctx) {
 
 async function getNovelUserMeta(userId, hookContext) {
     const data = await novelPreviewJson(
-        `/api/pixiv/user/${encodeURIComponent(userId)}/meta`, hookContext);
+        `/api/pixiv/user/${encodeURIComponent(userId)}/meta${hookContext?.requestInit ? '/schedule' : ''}`, hookContext);
     return data.name || '';
 }
 

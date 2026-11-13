@@ -30,7 +30,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         DesktopUiNode.NumberInput, DesktopUiNode.Table, DesktopUiNode.Tree,
         DesktopUiNode.Button, DesktopUiNode.Link, DesktopUiNode.AccountSetup, DesktopUiNode.OnboardingHub,
         DesktopUiNode.HomeOverview, DesktopUiNode.AutomationOverview, DesktopUiNode.PluginOverview, DesktopUiNode.ToolsOverview,
-        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.RepositoryEditor, DesktopUiNode.AboutOverview {
+        DesktopUiNode.SecurityOverview, DesktopUiNode.SettingsWorkspace, DesktopUiNode.RepositoryEditor,
+        DesktopUiNode.ImportPresetList, DesktopUiNode.AboutOverview {
 
     /** @return 单份文档内稳定的节点标识 */
     String id();
@@ -67,6 +68,22 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         EnumSet<Kind> kinds = EnumSet.noneOf(Kind.class);
         validateNode(root, documentIds, kinds, 0);
         return Set.copyOf(kinds);
+    }
+
+    /** 本地导入预设的单列编辑区；输入和操作继续使用既有事件校验。 */
+    record ImportPresetList(String id, List<TextInput> inputs, List<Button> removals,
+                            TextToken title, TextToken emptyText) implements DesktopUiNode {
+        public ImportPresetList {
+            inputs = List.copyOf(inputs);
+            removals = List.copyOf(removals);
+            if (inputs.size() != removals.size()) throw new IllegalArgumentException("Row actions must match inputs");
+        }
+        @Override public Kind kind() { return Kind.CONTAINER; }
+        @Override public List<DesktopUiNode> childNodes() {
+            var children = new ArrayList<DesktopUiNode>(inputs);
+            children.addAll(removals);
+            return List.copyOf(children);
+        }
     }
 
     /** 通用列、行、流式或网格容器。 */
@@ -272,7 +289,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 带标题的分组容器。 */
-    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) implements DesktopUiNode {
+    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary,
+                 TextToken helpTitle, DesktopUiNode help) implements DesktopUiNode {
+        public Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) {
+            this(id, title, content, collapsible, summary, null, null);
+        }
         public Group(String id, TextToken title, DesktopUiNode content) {
             this(id, title, content, false);
         }
@@ -293,7 +314,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
         @Override public Kind kind() { return Kind.GROUP; }
         @Override public List<DesktopUiNode> childNodes() {
-            return summary == null ? List.of(content) : List.of(summary, content);
+            if (help == null) return summary == null ? List.of(content) : List.of(summary, content);
+            return summary == null ? List.of(content, help) : List.of(summary, content, help);
         }
     }
 
@@ -828,7 +850,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     record SettingsWorkspace(String id, Choice categories, List<Tab> tabs,
                              List<SettingLocation> locations, List<SettingChange> changes,
                              List<DesktopUiNode> footer, String locatedRow, String invalidRow,
-                             long credentialRevision) implements DesktopUiNode {
+                             long credentialRevision, long locationRevision) implements DesktopUiNode {
         public SettingsWorkspace {
             id = requireId(id, "id");
             tabs = List.copyOf(tabs);
@@ -847,7 +869,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help, Button locate) {}
+    record SettingLocation(String rowId, String categoryId, TextToken label, TextToken help,
+                           Button locate, List<TextToken> searchTerms) {
+        public SettingLocation {
+            searchTerms = List.copyOf(searchTerms);
+        }
+    }
 
     /** 敏感字段只包含状态说明，不携带输入值或已存凭据。 */
     record SettingChange(String rowId, TextToken label, TextToken before, TextToken after, TextToken effect) {}
@@ -1665,6 +1692,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     enum FormStyle {
         /** 紧凑标签与控件。 */ COMPACT,
         /** 响应式标签宽度。 */ RESPONSIVE,
+        /** 目录覆盖列表，行内包含模式选择、模板与移除动作。 */ DIRECTORY_OVERRIDES,
         /** 只读键值呈现。 */ KEY_VALUE
     }
     /** 逻辑方向。 */
@@ -1676,6 +1704,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     enum TextStyle {
         /** 普通正文。 */ BODY,
         /** 强调正文。 */ EMPHASIS,
+        /** 信息提示，使用主题强调色。 */ INFO,
         /** 弱化正文。 */ SECONDARY,
         /** 项目符号正文。 */ BULLET,
         /** 小号说明文本。 */ CAPTION,

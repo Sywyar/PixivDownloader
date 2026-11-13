@@ -13,6 +13,33 @@ import java.util.function.Consumer;
  * 桌面界面可消费的稳定、工具包无关宿主业务契约。
  */
 public interface DesktopUiHost extends DesktopUiToolHost {
+    /** {@return 后端活动时可用的本地模板导入入口} */
+    default Optional<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports> localArtworkImports() {
+        return Optional.empty();
+    }
+    /**
+     * 解析设置草稿，不要求后端运行，也不保存配置。
+     * @param value 路径预设 JSON
+     * @return 校验后的路径预设
+     */
+    default List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
+    /**
+     * 校验并编码预设草稿，不保存配置。
+     * @param presets 待编码的路径预设
+     * @return 可保存的路径预设 JSON
+     */
+    default String formatLocalImportPresets(List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> presets) {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
+    /** 保存已确认的本地导入预设，并供后续扫描使用；不提交其它配置草稿。
+     * @param value 经校验的路径预设 JSON
+     * @throws IOException 持久化失败
+     */
+    default void saveLocalImportPresets(String value) throws IOException {
+        throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
+    }
     /** {@return 活动文件导入能力；缺席时不显示入口} */
     default List<top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool> fileImportTools() {
         return List.of();
@@ -97,6 +124,9 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      * {@return 宿主拥有的核心配置字段语义}
      */
     List<GuiConfigFieldContribution> coreConfigFields();
+
+    /** {@return 宿主字段的语义组合；字段与保存仍使用原有配置目录} */
+    default List<GuiConfigSectionContribution> coreConfigSections() { return List.of(); }
 
     /**
      * 取得指定插件的配置读写端口。
@@ -224,6 +254,21 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      * @throws java.io.IOException 值不符合宿主约束时
      */
     void validateCoreConfigValue(String key, String value) throws java.io.IOException;
+
+    /**
+     * 校验非空的最终作品目录模板，供所有配置 owner 与桌面 provider 共用。
+     * @param value 模板原文，空值留给字段的必填或回退语义处理
+     * @throws java.io.IOException 模板无效，消息可直接展示
+     */
+    void validateDirectoryTemplate(String value) throws java.io.IOException;
+
+    /**
+     * 目录迁移确认后保存默认模板的新固定前缀，保留作品模板后缀与独立模式覆盖。
+     * @param root 用户确认的新固定目录
+     * @return 已保存的默认模板
+     * @throws java.io.IOException 配置读取或保存失败
+     */
+    String saveDownloadTemplateRoot(String root) throws java.io.IOException;
 
     /**
      * 从宿主拥有的配置文件读取结构化插件仓库。

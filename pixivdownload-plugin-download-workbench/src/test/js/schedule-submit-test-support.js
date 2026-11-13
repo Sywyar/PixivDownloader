@@ -151,6 +151,7 @@ function harness(options) {
         }
     };
     const runtime = {
+        prepareSubmission: (snapshot, context) => config.prepareSubmission ? config.prepareSubmission(snapshot, context) : Promise.resolve(snapshot),
         refresh: () => config.refresh ? config.refresh() : Promise.resolve(),
         captureForMode() {
             if (config.captureError) throw config.captureError;
@@ -310,6 +311,7 @@ function harness(options) {
         setTimeout,
         clearTimeout,
         AbortController,
+        AbortSignal,
         Map,
         Set,
         Promise,
@@ -318,6 +320,7 @@ function harness(options) {
     vm.createContext(sandbox);
     vm.runInContext(source, sandbox, {filename: 'schedule.js'});
     return {
+        context: sandbox,
         submit: sandbox.window.PixivBatch.modes.schedule.submitScheduleTask,
         setEditing: sandbox.window.__setScheduleEditing,
         replaceTasks: sandbox.window.__replaceScheduleTasks,

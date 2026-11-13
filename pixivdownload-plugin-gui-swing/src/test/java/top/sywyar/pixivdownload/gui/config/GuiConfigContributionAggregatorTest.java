@@ -29,7 +29,7 @@ class GuiConfigContributionAggregatorTest {
                 getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
-                    case "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "coreConfigGroups", "coreConfigSections", "coreConfigFields" -> List.of();
                     case "message" -> args[0];
                     default -> throw new AssertionError("Unexpected host call: " + method.getName());
                 }

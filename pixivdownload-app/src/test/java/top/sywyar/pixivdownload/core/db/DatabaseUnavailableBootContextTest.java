@@ -34,8 +34,9 @@ class DatabaseUnavailableBootContextTest {
                 java.util.List.of(new top.sywyar.pixivdownload.config.DeleteStagingManifest.Entry(missingOriginal, "0.bak")));
         Path config = directory.resolve("config/config.yaml");
         Files.createDirectories(config.getParent());
+        String downloadTemplate = directory.resolve("downloads/{artwork_id}").toString();
         new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(config).write("download.root-folder",
-                directory.resolve("downloads").toString());
+                downloadTemplate);
         Map<String, String> paths = Map.of(
                 RuntimeFiles.CONFIG_DIR_PROPERTY, directory.resolve("config").toString(),
                 RuntimeFiles.STATE_DIR_PROPERTY, directory.resolve("state").toString(),
@@ -49,7 +50,7 @@ class DatabaseUnavailableBootContextTest {
             try (var context = PixivDownloadApplication.start(new String[]{
                             "--server.port=0", "--setup.browser.auto-open=false", "--update.auto-check=false",
                             "--spring.config.import=optional:" + directory.resolve("config/config.yaml").toUri(),
-                            "--download.root-folder=" + directory.resolve("downloads")})) {
+                            "--download.root-folder=" + downloadTemplate})) {
                 assertThat(context.isActive()).isTrue();
                 assertThat(context.getBean(RecoveryModeService.class).isActive()).isTrue();
                 var availability = context.getBean(top.sywyar.pixivdownload.core.database.DatabaseAvailability.class);

@@ -413,11 +413,12 @@ class DatabaseSchemaRegistryTest {
     }
 
     @Test
-    @DisplayName("内置插件合并出的路径前缀列与旧静态总表五张表等价")
-    void mergedPathColumnsEqualLegacyFiveTables() {
+    @DisplayName("内置插件合并出的路径前缀列覆盖作品、外部引用与目录归属")
+    void mergedPathColumnsCoverStoredPaths() {
         PathPrefixColumns merged = DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns();
 
         assertThat(merged.all()).containsExactlyInAnyOrder(
+                new PathPrefixColumns.TableColumns("download_directories", "claim_id", List.of("directory")),
                 new PathPrefixColumns.TableColumns("artworks", "artwork_id", List.of("folder", "move_folder")),
                 new PathPrefixColumns.TableColumns("novels", "novel_id", List.of("folder")),
                 new PathPrefixColumns.TableColumns("manga_series", "series_id", List.of("cover_folder")),

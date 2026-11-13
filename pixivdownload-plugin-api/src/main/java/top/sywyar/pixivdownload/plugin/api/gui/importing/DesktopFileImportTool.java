@@ -31,8 +31,18 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      * @param title 工具名称
      * @param help 输入格式与导入行为说明
      * @param requiresCredential 是否接受本次操作使用的来源站点凭据
+     * @param recommendation 可选的使用建议，与导入行为说明分别呈现
      */
-    public record Description(DesktopUiText title, DesktopUiText help, boolean requiresCredential) {
+    public record Description(DesktopUiText title, DesktopUiText help, boolean requiresCredential,
+                              DesktopUiText recommendation) {
+        /** 未提供额外建议的工具描述。
+         * @param title 工具名称
+         * @param help 输入与行为说明
+         * @param requiresCredential 是否接受临时来源凭据
+         */
+        public Description(DesktopUiText title, DesktopUiText help, boolean requiresCredential) {
+            this(title, help, requiresCredential, null);
+        }
         /** 保留需要临时凭据的来源描述。
          * @param title 工具名称
          * @param help 工具说明
@@ -42,6 +52,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
          * @param title 工具名称
          * @param help 输入与行为说明
          * @param requiresCredential 是否接受临时来源凭据
+         * @param recommendation 可选的使用建议
          */
         public Description { Objects.requireNonNull(title); Objects.requireNonNull(help); }
     }

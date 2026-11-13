@@ -4,6 +4,80 @@ const assert = require('node:assert/strict');
 const {setup} = require('./batch-alt-schedule-session-support');
 const defaults = require('../../../../scripts/schedule/pixiv-defaults.json');
 
+test('User 插画、小说和约稿计划创建与更换用户后保存均读取目标名称，失败可重试', async () => {
+    for (const kind of ['illust', 'novel', 'request']) {
+        for (const editing of [false, true]) {
+            const sourceType = kind === 'request' ? 'user-request' : 'user-new';
+            const h = setup({sourceType, paramsJson: JSON.stringify({kind: kind === 'novel' ? 'novel' : 'illust',
+                source: {userId: '6', username: 'Previous user', acquisitionMode: 'user'}})});
+            const lookups = [];
+            let fail = true;
+            Object.assign(h.context.PixivBatch.queueTypes, {
+                acquisition: type => ({type, fetchMeta: async (id, options) => {
+                    lookups.push({id, type});
+                    assert.equal(options.signal.aborted, false);
+                    if (fail) throw new Error('Profile unavailable');
+                    return 'Target user';
+                }}),
+                acquisitionLease: () => ({signal: new AbortController().signal, assertCurrent() {}})
+            });
+            h.confirm(true);
+            if (editing) h.context.openScheduleEditor(h.task);
+            else h.run(`state.mode='user';userState.kind='${kind}';renderStage();`);
+            h.field('abUserInput').value = '7';
+            h.run(`userState.userId='7';userState.username='Stale profile';userState.kind='${kind}';`);
+            if (!editing) {
+                h.context.openScheduleEditor();
+                h.field('abScheduleField0').value = 'New user schedule';
+            }
+            const save = editing ? h.save : () => h.drawer.footer.querySelector('.ab-btn--primary').listeners.get('click')[0]();
+            await save();
+            assert.equal(h.requests.length, 0);
+            assert.match(h.context.document.querySelector('[role="status"]').textContent, /Profile unavailable/);
+            fail = false;
+            await save();
+            assert.equal(h.requests.length, 1);
+            assert.equal(h.requests[0].method, editing ? 'PUT' : 'POST');
+            const saved = JSON.parse(h.requests[0].body.definitionJson);
+            assert.deepEqual(saved.source, {userId: '7', username: 'Target user', acquisitionMode: 'user'});
+            assert.equal(saved.kind, kind === 'novel' ? 'novel' : 'illust');
+            assert.ok(lookups.every(value => value.id === '7' && value.type === saved.kind));
+        }
+    }
+});
+
+test('保存等待用户资料时保留捕获身份，不串用后来页面的用户，空名称不得提交', async () => {
+    const h = setup();
+    let complete;
+    h.confirm(true);
+    Object.assign(h.context.PixivBatch.queueTypes, {
+        acquisition: () => ({fetchMeta: id => {
+            assert.equal(id, '7');
+            return new Promise(resolve => { complete = resolve; });
+        }}),
+        acquisitionLease: () => ({signal: new AbortController().signal, assertCurrent() {}})
+    });
+    h.run("state.mode='user';userState.kind='illust';renderStage();");
+    h.field('abUserInput').value = '7';
+    h.context.openScheduleEditor();
+    h.field('abScheduleField0').value = 'New schedule';
+    const save = () => h.drawer.footer.querySelector('.ab-btn--primary').listeners.get('click')[0]();
+    const failed = save();
+    await new Promise(resolve => setImmediate(resolve));
+    complete(' ');
+    await failed;
+    assert.equal(h.requests.length, 0);
+    const pending = save();
+    await new Promise(resolve => setImmediate(resolve));
+    h.field('abUserInput').value = '8';
+    h.run("userState.userId='8';userState.username='Next user';");
+    complete('Target user');
+    await pending;
+    const saved = JSON.parse(h.requests[0].body.definitionJson);
+    assert.equal(saved.source.userId, '7');
+    assert.equal(saved.source.username, 'Target user');
+});
+
 test('快捷来源变化原位更新计划按钮，账号返回、作品列表和内层关闭均不需切页', async () => {
     const h = setup();
     h.load('../pixiv-batch/batch-pagination.js', 'alt-mode-capture.js');

@@ -27,13 +27,18 @@ public class NovelDownloadCommand {
 
     @Data
     @JsonIgnoreProperties({
-            "userDownload", "username", "authorId", "authorName", "xRestrict", "ai", "original",
+            "userDownload", "authorId", "authorName", "xRestrict", "ai", "original",
             "language", "wordCount", "textLength", "readingTimeSeconds", "pageCount", "description",
             "tags", "seriesId", "seriesOrder", "seriesTitle", "seriesDescription", "seriesCoverUrl",
             "seriesTags", "fileName", "fileNameTimestamp", "delayMs", "uploadTimestamp", "coverUrl",
             "embeddedImages", "rawMetaJson"
     })
     public static class Other {
+        @Pattern(regexp = "single-import|user|series|search|quick")
+        private String acquisitionMode;
+
+        @Size(max = 512)
+        private String username;
 
         @Size(max = 512)
         private String fileNameTemplate;
@@ -64,6 +69,9 @@ public class NovelDownloadCommand {
         private String autoTranslateMergeFormat;
 
         public void applyTo(NovelDownloadRequest.Other target) {
+            top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.fromCode(acquisitionMode);
+            target.setAcquisitionMode(acquisitionMode);
+            target.setUsername(username);
             target.setFileNameTemplate(fileNameTemplate);
             target.setPathOverflowAction(pathOverflowAction);
             target.setBookmark(bookmark);

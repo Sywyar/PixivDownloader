@@ -251,7 +251,7 @@ function renderUserStage() {
         onEnqueueAll: enqueueUserAll
     }));
     stage.appendChild(worksGrid(userState.items, {
-        source: 'user',
+        source: 'user', username: userState.username,
         authorId: userState.userId, authorName: userState.username
     }));
     stage.appendChild(paginationBar({

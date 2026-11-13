@@ -212,7 +212,7 @@ public final class SdkTools {
                     Long.toString(owner.pid()), owner.info().startInstant().orElseThrow().toString(), run.toString(),
                     "--server.address=127.0.0.1", "--server.port=" + serverPort,
                     "--update.enabled=false", "--plugin-catalog.enabled=false",
-                    "--download.root-folder=" + dev.resolve("downloads")));
+                    "--download.root-folder=" + dev.resolve("downloads/{artwork_id}")));
             if (noGui) command.add("--no-gui");
             var process = new AtomicReference<Process>();
             Thread shutdown = new Thread(() -> stopOwnedProcess(run, process.get()), "sdk-stop-host");
@@ -253,7 +253,7 @@ public final class SdkTools {
                 owner.info().startInstant().orElseThrow().toString(), run.toString(),
                 "--server.address=127.0.0.1", "--server.port=" + port,
                 "--update.enabled=false", "--plugin-catalog.enabled=false",
-                "--download.root-folder=" + dev.resolve("downloads")));
+                "--download.root-folder=" + dev.resolve("downloads/{artwork_id}")));
         if (noGui) arguments.add("--no-gui");
         recordSession(dev, run, owner, port);
         // 宿主及插件仍用固定运行包自己的类加载器，但执行在 IDE 调试的同一个 JVM。

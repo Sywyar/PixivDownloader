@@ -25,7 +25,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
     private static final Pattern PUBLIC_READ = Pattern.compile("/ajax/(?:"
             + "illust/[1-9][0-9]*(?:/(?:pages|ugoira_meta))?"
             + "|novel/[1-9][0-9]*|novel/(?:series|series_content)/[1-9][0-9]*"
-            + "|series/[1-9][0-9]*|user/[1-9][0-9]*/profile/(?:all|top)"
+            + "|series/[1-9][0-9]*|user/[1-9][0-9]*(?:/profile/(?:all|top))?"
             + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|novels)/[^/]+)");
     private static final int MAX_HEALTH = 1024;
     private static final long DEFAULT_COOLDOWN = 30_000;

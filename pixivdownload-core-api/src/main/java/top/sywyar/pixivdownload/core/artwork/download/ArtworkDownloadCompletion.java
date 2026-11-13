@@ -32,6 +32,7 @@ import java.util.Set;
  * @param seriesOrder          系列内序号，可为 {@code null}
  * @param tags                 下载时携带的标签
  * @param fileNameMaxLength    实际使用的基础文件名截断长度
+ * @param fileNames            执行时实际采用的逐页基础文件名
  */
 public record ArtworkDownloadCompletion(
         long artworkId,
@@ -49,7 +50,8 @@ public record ArtworkDownloadCompletion(
         Long seriesId,
         Long seriesOrder,
         List<WorkTag> tags,
-        int fileNameMaxLength) {
+        int fileNameMaxLength,
+        List<String> fileNames) {
 
     /**
      * 使用默认的 180 字符文件名上限创建下载事实。
@@ -76,7 +78,9 @@ public record ArtworkDownloadCompletion(
                                      Long seriesId, Long seriesOrder, List<WorkTag> tags) {
         this(artworkId, title, folder, imageCount, extensions, recordTime, restriction, aiGenerated,
                 authorId, description, fileNameTemplate, normalizedAuthorName, seriesId, seriesOrder, tags,
-                top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH);
+                PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH,
+                PixivWorkFileNameFormatter.formatAll(fileNameTemplate, artworkId, title, authorId,
+                        normalizedAuthorName, recordTime, imageCount, aiGenerated, restriction));
     }
 
     /**
@@ -98,6 +102,7 @@ public record ArtworkDownloadCompletion(
      * @param seriesOrder 系列顺序
      * @param tags 标签集合
      * @param fileNameMaxLength 实际使用的基础文件名截断长度
+     * @param fileNames 执行时实际采用的逐页基础文件名
      */
     public ArtworkDownloadCompletion {
         if (fileNameMaxLength < 1 || fileNameMaxLength > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
@@ -105,6 +110,11 @@ public record ArtworkDownloadCompletion(
         }
         folder = Objects.requireNonNull(folder, "folder");
         fileNameTemplate = Objects.requireNonNull(fileNameTemplate, "fileNameTemplate");
+        fileNames = List.copyOf(fileNames);
+        if (fileNames.size() != Math.max(1, imageCount)
+                || !fileNames.equals(PixivWorkFileNameFormatter.normalizeProvidedBaseNames(fileNames, imageCount, artworkId))) {
+            throw new IllegalArgumentException("Invalid completed artwork filenames");
+        }
         normalizedAuthorName = normalizedAuthorName == null || normalizedAuthorName.isBlank()
                 ? null
                 : normalizedAuthorName;

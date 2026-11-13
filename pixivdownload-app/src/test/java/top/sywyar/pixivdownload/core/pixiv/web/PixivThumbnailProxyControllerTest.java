@@ -68,7 +68,8 @@ class PixivThumbnailProxyControllerTest {
                 pixivThumbnailFetcher,
                 pixivProxyAccessPolicy,
                 requestOwnerIdentityResolver,
-                MESSAGES
+                MESSAGES,
+                org.mockito.Mockito.mock(top.sywyar.pixivdownload.schedule.ScheduleRequestScope.class)
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .defaultRequest(get("/").locale(Locale.US))

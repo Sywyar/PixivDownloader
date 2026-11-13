@@ -2703,6 +2703,7 @@
             const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
             const other = {
                 userDownload: false,
+                acquisitionMode: 'single-import',
                 authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
                 authorName: authorName || null,
                 xRestrict: Number(xRestrict) || 0,
@@ -3883,6 +3884,7 @@
                         // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
                         bookmark: false,
                         ...await UserscriptDownloadOptions.other('novel'),
+                        acquisitionMode: 'single-import',
                         format: fmt
                     }
                 };

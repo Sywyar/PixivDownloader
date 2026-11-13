@@ -1,0 +1,67 @@
+package top.sywyar.pixivdownload.novel.config;
+
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.env.MockEnvironment;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
+import java.nio.file.*;
+import java.util.Map;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@DisplayName("小说独立目录模板初始化")
+class NovelDirectorySettingsTest {
+    @TempDir Path temp;
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"download.novel-directory-template", "download.novel-mode-templates.user"})
+    @DisplayName("小说目录配置错误保留默认或模式位置及未知变量")
+    void reportsInvalidSetting(String key) {
+        String invalid = "private-directory/{unknown}/novel-{artwork_id}";
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(
+                top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class,
+                () -> new NovelDirectorySettings(key.equals(NovelDirectorySettings.ROOT_KEY) ? invalid : NovelDirectorySettings.DEFAULT_TEMPLATE,
+                        key.equals(NovelDirectorySettings.ROOT_KEY) ? Map.of() : Map.of("user", invalid)));
+        assertThat(failure.configurationKey()).isEqualTo(key);
+        assertThat(failure.reason()).isEqualTo("unknown-variable");
+        assertThat(failure.variable()).isEqualTo("unknown");
+        assertThat(failure.getMessage()).contains(key, "{unknown}").doesNotContain("private-directory");
+    }
+
+    @Test @DisplayName("保留宿主旧根和空 User 覆盖，重复启动不覆盖小说自有配置")
+    void preservesRootAndExplicitEmptyOverride() throws Exception {
+        var host = mock(DownloadSettings.class);
+        when(host.directoryTemplate(null)).thenReturn(temp + "/pictures/{artwork_id}");
+        when(host.directoryOverrides()).thenReturn(Map.of("user", "", "series", "serial/{artwork_id}"));
+        var paths = mock(RuntimePathProvider.class);
+        Path file = temp.resolve("config/novel.properties");
+        when(paths.configFile("properties")).thenReturn(file);
+        var settings = NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
+        assertThat(settings.directoryTemplate(null)).isEqualTo(temp + "/pictures/novel-{artwork_id}");
+        assertThat(settings.directoryTemplate("user")).isEqualTo(settings.directoryTemplate(null));
+        assertThat(settings.directoryTemplate("series")).isEqualTo("serial/novel-{artwork_id}");
+        assertThat(Files.exists(temp.resolve("pictures"))).isFalse();
+        byte[] original = Files.readAllBytes(file);
+        when(host.directoryTemplate(null)).thenReturn("changed/{artwork_id}");
+        NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+        var overridden = NovelDirectorySettings.initialize(host, paths, new MockEnvironment()
+                .withProperty(NovelDirectorySettings.ROOT_KEY, "books/{artwork_id}/text")
+                .withProperty(NovelDirectorySettings.MODE_PREFIX + "series", ""));
+        assertThat(overridden.directoryTemplate("series")).isEqualTo("books/{artwork_id}/text");
+    }
+
+    @Test @DisplayName("保留非扁平 User 的来源用户名与分级段，错误覆盖不回退")
+    void preservesLegacyUserLayout() throws Exception {
+        var host = mock(DownloadSettings.class);
+        when(host.directoryTemplate(null)).thenReturn("relative/{artwork_id}");
+        when(host.directoryOverrides()).thenReturn(Map.of("user", "relative/{username}/{R18}/{artwork_id}"));
+        var paths = mock(RuntimePathProvider.class);
+        when(paths.configFile("properties")).thenReturn(temp.resolve("novel.properties"));
+        var settings = NovelDirectorySettings.initialize(host, paths, new MockEnvironment());
+        assertThat(settings.directoryTemplate("user")).isEqualTo("relative/{username}/{R18}/novel-{artwork_id}");
+        assertThatThrownBy(() -> new NovelDirectorySettings("books/{artwork_id}", Map.of("series", "broken")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+}

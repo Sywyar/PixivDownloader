@@ -260,7 +260,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             Path downloadPath = fileNamePlan.directory();
             requireWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
-            Files.createDirectories(downloadPath);
+            downloadPathGuard.prepareDirectory(WorkType.ARTWORK, artworkId, downloadPath);
             status.setDownloadPath(downloadPath.toString());
 
             AtomicInteger successCount = new AtomicInteger(0);
@@ -363,7 +363,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
-                    other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength());
+                    other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength(), fileNamePlan.baseNames());
             recorded = true;
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
@@ -447,7 +447,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             log.error(logMessage("download.log.failed"), e);
             status.setCompleted(true);
             status.setFailed(true);
-            status.setErrorMessage(resolveStatusErrorMessage(e));
+            if (e instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException directory) {
+                status.setErrorCode("directory-template." + directory.reason());
+                status.setErrorMessageKey(status.getErrorCode());
+                status.setErrorMessageArgs(new Object[]{directory.variable()});
+            } else {
+                status.setErrorMessage(resolveStatusErrorMessage(e));
+            }
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
             if (!recorded) {
@@ -531,32 +537,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         if (result.containsKey("ugoiraFormats")) other.setUgoiraFormats(result.get("ugoiraFormats"));
         other.resolveMediaOutputSettings();
         return other;
-    }
-
-    private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {
-        Path defaultRoot = Paths.get(downloadSettings.getRootFolder());
-        if (other != null && other.getCollectionId() != null) {
-            return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
-        }
-        return defaultRoot;
-    }
-
-    public void validateUserDownloadFolder(DownloadRequest.Other other) {
-        if (other != null && other.isUserDownload() && other.getUsername() != null) {
-            requireSafeDirectoryName(other.getUsername());
-        }
-    }
-
-    private String requireSafeDirectoryName(String value) {
-        try {
-            return downloadPathGuard.requireSafeDirectoryName(value);
-        } catch (DownloadPathRejectedException rejected) {
-            throw LocalizedException.badRequest(
-                    "download.path.segment.invalid",
-                    "Unsafe download subdirectory: {0}",
-                    value
-            );
-        }
     }
 
     private void requireWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
@@ -1165,15 +1145,30 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private FileNamePlan buildFileNamePlan(Long artworkId, String title, int count, DownloadRequest.Other other) {
-        validateUserDownloadFolder(other);
-        Path root = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
-        Path directory = root;
-        if (other.isUserDownload() && other.getUsername() != null && !downloadSettings.isUserFlatFolder()) {
-            directory = directory.resolve(requireSafeDirectoryName(other.getUsername()));
-            if (other.getXRestrict() == 2) directory = directory.resolve("R18G");
-            else if (other.getXRestrict() == 1) directory = directory.resolve("R18");
-        }
-        directory = directory.resolve(String.valueOf(artworkId)).normalize();
+        var directoryTemplate = top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(
+                downloadSettings.directoryTemplate(other.directoryMode()));
+        var collection = other.getCollectionId() == null
+                ? new CollectionDownloadRootResolver.Context(directoryTemplate.fixedPrefix(), null)
+                : collectionDownloadRootResolver.resolve(other.getCollectionId(), directoryTemplate.fixedPrefix());
+        Path root = collection.root().toAbsolutePath().normalize();
+        String collectionName = collection.name();
+        Long collectionId = collectionName == null ? null : other.getCollectionId();
+        var naming = new PixivWorkFileNameFormatter.Context(collectionId, collectionName,
+                other.getSeriesId(), other.getSeriesTitle(), other.getSeriesOrder(), other.getUsername());
+        var values = new java.util.HashMap<String, String>();
+        values.put("artworkId", String.valueOf(artworkId));
+        values.put("artworkTitle", title);
+        values.put("authorId", other.getAuthorId() == null ? null : other.getAuthorId().toString());
+        values.put("authorName", other.getAuthorName());
+        values.put("username", naming.username());
+        values.put("collectionId", collectionId == null ? null : collectionId.toString());
+        values.put("collectionName", collectionName);
+        values.put("seriesId", naming.seriesId() == null ? null : naming.seriesId().toString());
+        values.put("seriesName", naming.seriesTitle());
+        values.put("seriesTitle", naming.seriesTitle());
+        values.put("seriesOrder", naming.seriesOrder() == null ? null : naming.seriesOrder().toString());
+        values.put("R18", other.getXRestrict() == 2 ? "R18G" : other.getXRestrict() == 1 ? "R18" : "");
+        Path directory = directoryTemplate.resolve(root, values);
         requireWithinDownloadRoot(root, directory);
         String template = PixivWorkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
         long preferredTime = EpochMillisNormalizer.normalize(other.getFileNameTimestamp());
@@ -1183,7 +1178,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         DownloadPathPlan resolved = DownloadPathPlan.resolve(directory,
                 supported == null ? DownloadPathLimits.UNKNOWN::accepts : supported,
                 length -> PixivWorkFileNameFormatter.formatAll(template, artworkId, title, other.getAuthorId(),
-                        other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length),
+                        other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict(), length,
+                        naming),
                 PixivWorkFileNameFormatter.formatAll(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE, artworkId,
                         title, other.getAuthorId(), other.getAuthorName(), recordTime, count, other.isAi(), other.getXRestrict()),
                 other.isUgoira() ? List.of(".webp", ".webp.part", "_thumb.jpg", ".frames.properties")
@@ -1206,7 +1202,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private void recordDownload(Long artworkId, String title, String folderPath, Set<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<WorkTag> tags,
                                 String fileNameTemplate, long recordTime, String normalizedAuthorName,
-                                Long seriesId, Long seriesOrder, int maxLength) {
+                                Long seriesId, Long seriesOrder, int maxLength, List<String> fileNames) {
         artworkDownloadHistory.record(new ArtworkDownloadCompletion(
                 artworkId,
                 title,
@@ -1223,7 +1219,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 seriesId,
                 seriesOrder,
                 tags,
-                maxLength
+                maxLength,
+                fileNames
         ));
     }
 

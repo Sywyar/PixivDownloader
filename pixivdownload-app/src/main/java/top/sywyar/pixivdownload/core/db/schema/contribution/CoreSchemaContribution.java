@@ -23,6 +23,12 @@ public final class CoreSchemaContribution {
 
     private static SchemaContribution createContribution() {
         List<TableSpec> tables = List.of(
+                new TableSpec("download_directories", List.of(
+                        column("claim_id", "TEXT", true, null, 1),
+                        column("work_type", "TEXT", true, null, 0),
+                        column("work_id", "INTEGER", true, null, 0),
+                        column("directory", "TEXT", true, null, 0)
+                ), List.of(uniqueConstraint("directory"))),
                 new TableSpec("file_operation_entries", List.of(
                         column("entry_id", "TEXT", true, null, 1),
                         column("operation_id", "TEXT", true, null, 0),
@@ -39,7 +45,9 @@ public final class CoreSchemaContribution {
                         column("page", "INTEGER", true, null, 0),
                         column("root_path", "TEXT", true, null, 0),
                         column("file_path", "TEXT", true, null, 0),
-                        column("record_time", "INTEGER", true, null, 0)
+                        column("record_time", "INTEGER", true, null, 0),
+                        column("source_page", "INTEGER", false, null, 0),
+                        column("parsed_metadata", "TEXT", false, null, 0)
                 ), List.of(uniqueConstraint("work_type", "work_id", "page"))),
                 new TableSpec(
                         "path_prefixes",
@@ -54,6 +62,7 @@ public final class CoreSchemaContribution {
         );
 
         return new SchemaContribution(tables, List.of(), List.of(
+                new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("download_directories", "claim_id", List.of("directory")),
                 new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("external_work_files", "reference_id", List.of("root_path", "file_path")),
                 new top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec("file_operation_entries", "entry_id", List.of("target_path"))));
     }

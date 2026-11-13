@@ -13,7 +13,7 @@ const download = readFileSync(resolve(__dirname,
 
 function pageContext(page, fetch) {
     const context = vm.createContext({
-        fetch, TextDecoder, Uint8Array,
+        fetch, TextDecoder, Uint8Array, QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
         window: {addEventListener() {}, PixivBatch: {}, PixivBatchAlt: {settings: {}}},
         document: {
             getElementById: () => ({style: {}, appendChild() {}}),
@@ -23,7 +23,7 @@ function pageContext(page, fetch) {
     const html = readFileSync(resolve(workbench, page), 'utf8');
     // 由实际页面依赖加载网络与设置模块，防止测试自行补入页面遗漏的函数。
     for (const [, src] of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) {
-        if (!/\/(batch-(fetch-json|archive|download-quota|settings)|settings-context|alt-settings|filename-template)\.js$/.test(src)) continue;
+        if (!/\/(batch-(fetch-json|archive|download-quota|settings)|settings-context|alt-settings|filename-template|queue-display)\.js$/.test(src)) continue;
         vm.runInContext(readFileSync(resolve(workbench, '.' + src), 'utf8'), context,
             {filename: src});
     }
@@ -31,7 +31,8 @@ function pageContext(page, fetch) {
 }
 
 for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
-    test(`${page} 小说下载读取流式正文后提交票据并完成队列`, async () => {
+  for (const source of [undefined, 'user', 'series', 'search', 'quick-fetch', 'single-import', 'schedule']) {
+    test(`${page} 小说下载按队列来源 ${source} 提交票据并完成队列`, async () => {
         const controller = new AbortController();
         const meta = {title: '中文小说', fetchToken: 'test-ticket'};
         const bytes = new TextEncoder().encode(JSON.stringify(meta));
@@ -64,7 +65,7 @@ for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
             });
             return Response.json({completed: true, failed: false});
         });
-        const item = {id: 'n42', novelId: '42', kind: 'novel', status: 'downloading', mergeAfterSeriesId: 8};
+        const item = {id: 'n42', novelId: '42', kind: 'novel', source, username: 'source reader', authorName: 'work author', status: 'downloading', mergeAfterSeriesId: 8};
         const shared = {novelAcquisitionCredentialHeaders: () => ({'X-Test-Credential': 'test-only'})};
         Object.assign(context, {
             window: {PixivBatch: {
@@ -103,10 +104,14 @@ for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
         assert.equal(submitted[0].url, '/api/novel/download');
         assert.equal(submitted[0].body.fetchToken, meta.fetchToken);
         assert.equal(submitted[0].body.other.collectionId, 7);
+        assert.equal(submitted[0].body.other.acquisitionMode,
+            source === 'quick-fetch' ? 'quick' : !source || source === 'schedule' ? null : source);
+        assert.equal(submitted[0].body.other.username, 'source reader');
         assert.ok(coverProgress.some(value => value.done === 10 && value.total === 20));
         assert.deepEqual(authRefreshes, ['auth', 'actions']);
         assert.equal(context.isAdmin, false);
     });
+  }
 }
 
 test('流式 JSON 保留错误响应与取消信号，不把失败读取当成成功', async () => {

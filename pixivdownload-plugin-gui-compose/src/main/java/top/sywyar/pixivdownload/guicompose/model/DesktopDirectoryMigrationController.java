@@ -368,8 +368,7 @@ final class DesktopDirectoryMigrationController {
                 return;
             }
             try {
-                String savedRoot = host.normalizeRootFolder(rootSyncPath);
-                host.applicationConfig().write("download.root-folder", savedRoot);
+                String savedRoot = host.saveDownloadTemplateRoot(rootSyncPath);
                 owner.coreConfigValueSaved("download.root-folder", savedRoot);
             } catch (Exception failure) {
                 LOG.warn("Unable to persist migrated download root", failure);

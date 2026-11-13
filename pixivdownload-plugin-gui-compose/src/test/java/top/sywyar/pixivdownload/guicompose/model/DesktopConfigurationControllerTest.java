@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.VariableException;
 
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -33,6 +34,67 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 @DisplayName("Compose 配置未保存状态")
 class DesktopConfigurationControllerTest {
+    @Test
+    @DisplayName("本地导入预设编辑确认只更新草稿，设置保存后才持久化")
+    @SuppressWarnings("unchecked")
+    void localImportPresetsSaveThroughSettings() throws Exception {
+        var stored = new HashMap<String, String>();
+        var opened = new AtomicReference<java.net.URI>();
+        var variableFailure = new AtomicReference<VariableException>();
+        String guide = "https://sywyar.github.io/PixivDownloader/#/ja/local-import";
+        var parsed = new AtomicReference<List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset>>(List.of());
+        String encoded = "[{\"template\":\"D:/{artwork_id}/\"}]";
+        var field = new GuiConfigFieldContribution("local-import.presets", "fixture", "Presets", "",
+                GuiConfigFieldType.PATH_TEMPLATES, "[]", 0, false,
+                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect.BACKEND_RESTART);
+        try (var model = model(stored, Map.of(
+                "coreConfigFields", args -> List.of(field),
+                "message", args -> "local-import.guide-url".equals(args[0]) ? guide : args[0],
+                "openExternalUri", args -> { opened.set((java.net.URI) args[0]); return null; },
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("fixture", "Fixture", 0)),
+                "parseLocalImportPresets", args -> "[]".equals(args[0]) ? List.of() : parsed.get(),
+                "formatLocalImportPresets", args -> {
+                    if (variableFailure.get() != null) throw variableFailure.get();
+                    parsed.set((List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset>) args[0]); return encoded;
+                },
+                "validateCoreConfigValue", args -> null
+        ))) {
+            awaitReady(model);
+            activate(model, "config.app.local-import.presets.input");
+            activate(model, "import-presets.add");
+            for (String variable : List.of("foo", "ai")) {
+                variableFailure.set(new VariableException(variable, variable.equals("ai")));
+                dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                        "import-presets.field.0.template", DesktopUiNode.Value.text("D:/{artwork_id}_{" + variable + "}/")));
+                activate(model, "import-presets.apply");
+                var notice = model.snapshot().document().dialogs().stream()
+                        .flatMap(dialog -> descendants(dialog.content()))
+                        .filter(n -> n.id().equals("import-presets.error"))
+                        .map(DesktopUiNode.Text.class::cast).findFirst().orElseThrow();
+                assertEquals("local-import.error." + variableFailure.get().getMessage(), notice.text().key());
+                assertEquals(List.of("{" + variable + "}"), notice.text().arguments());
+                assertTrue(stored.isEmpty());
+                assertTrue(parsed.get().isEmpty());
+            }
+            variableFailure.set(null);
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "import-presets.field.0.template", DesktopUiNode.Value.text("D:/{artwork_id}/")));
+            activate(model, "import-presets.apply");
+            assertEquals(List.of(new top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset("D:/{artwork_id}/")), parsed.get());
+            assertTrue(stored.isEmpty());
+            assertTrue(pendingCount(model) > 0);
+            activate(model, "config.app.local-import.presets.guide");
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (opened.get() == null) Thread.sleep(10);
+            });
+            assertEquals(guide, opened.get().toString());
+            assertTrue(stored.isEmpty());
+            assertTrue(pendingCount(model) > 0);
+            save(model);
+            assertEquals(encoded, stored.get("local-import.presets"));
+        }
+    }
+
     @Test
     @DisplayName("存储失败没有字段错误时仍显示错误提示并保留草稿")
     void storageFailureHasErrorNoticeWithoutInvalidField() throws Exception {

@@ -1905,6 +1905,7 @@
                     // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
                     bookmark: false,
                     ...await UserscriptDownloadOptions.other('novel'),
+                    acquisitionMode: 'single-import',
                     format: fmt
                 }
             };
@@ -2114,7 +2115,7 @@
     // 发送下载请求到后端
     async function sendDownloadRequest(artworkId, title, imageUrls, other) {
         const requestedUrl = getBackendURL();
-        other = {...other, ...await UserscriptDownloadOptions.other('illust')};
+        other = {...other, ...await UserscriptDownloadOptions.other('illust'), acquisitionMode: 'single-import'};
         if (requestedUrl !== getBackendURL()) throw new Error(UserscriptDownloadOptions.text('unavailable'));
         return new Promise((resolve, reject) => {
             const requestData = {

@@ -46,6 +46,14 @@ public class GlobalExceptionHandler {
 
     private final AppMessages messages;
 
+    @ExceptionHandler(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class)
+    public ResponseEntity<ApiErrorResponse> handleDirectoryTemplate(
+            top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException failure, Locale locale) {
+        String code = "directory-template." + failure.reason();
+        log.warn("Download directory rejected: reason={}", failure.reason());
+        return ResponseEntity.badRequest().body(error(code, messages.get(locale, code, failure.variable())));
+    }
+
     @ExceptionHandler(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class)
     public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Locale locale) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error("DATABASE_UNAVAILABLE",

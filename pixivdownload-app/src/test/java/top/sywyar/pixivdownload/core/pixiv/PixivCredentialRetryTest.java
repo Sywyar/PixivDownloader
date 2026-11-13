@@ -97,11 +97,13 @@ class PixivCredentialRetryTest {
         }))).isInstanceOf(PixivAjaxException.class);
         assertThat(attempts).containsExactly(A);
     }
-    @Test @DisplayName("个人来源固定账号，全部耗尽和取消不产生额外请求")
-    void accountAndCancellation() {
+    @ParameterizedTest @ValueSource(strings = {"/ajax/user/1/illusts/bookmarks", "/ajax/user/1/novels/bookmarks",
+            "/ajax/user/1/following", "/ajax/user/1/profile", "/ajax/user/1/unknown"})
+    @DisplayName("个人来源和未声明的用户子路径固定账号，全部耗尽和取消不产生额外请求")
+    void accountAndCancellation(String path) {
         var attempts = new ArrayList<String>();
         var retry = new PixivCredentialRetry();
-        URI personal = URI.create("https://www.pixiv.net/ajax/user/1/illusts/bookmarks");
+        URI personal = URI.create("https://www.pixiv.net" + path);
         assertThatThrownBy(() -> scope.call(() -> retry.execute(personal, A, cookie -> {
             attempts.add(cookie);
             throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429, 100_000);
@@ -114,6 +116,7 @@ class PixivCredentialRetryTest {
             }))).isInstanceOf(CancellationException.class);
         } finally { Thread.interrupted(); }
         assertThat(attempts).containsExactly(A);
+        retry.destroy();
     }
     @Test @DisplayName("解析秒数和 HTTP 日期冷却，超大秒数不会溢出成立即重试")
     void retryAfter() {

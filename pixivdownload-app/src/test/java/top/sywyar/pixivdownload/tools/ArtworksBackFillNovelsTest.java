@@ -48,7 +48,7 @@ class ArtworksBackFillNovelsTest {
         var client = mock(ArtworksBackFillPixivClient.class);
         var source = mock(javax.sql.DataSource.class);
         when(source.getConnection()).thenAnswer(ignored -> target.openConnection());
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var dryProgress = new java.util.ArrayList<String>();
@@ -85,7 +85,7 @@ class ArtworksBackFillNovelsTest {
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(ArtworksBackFillPixivClient.LookupResult.r18Only("restricted"));
         var path = directory.resolve("unreachable.json");
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
             var manual = options(target, alwaysNetwork, false, 1);
@@ -131,7 +131,7 @@ class ArtworksBackFillNovelsTest {
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(ArtworksBackFillPixivClient.LookupResult.r18Only("restricted"));
         var path = directory.resolve("unreachable.json");
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
             var options = options(target, false, true, 1).forStartup();
@@ -153,7 +153,7 @@ class ArtworksBackFillNovelsTest {
             }
             return networkResult();
         });
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var summary = ArtworksBackFill.run(options(target, true, false, 1));
@@ -186,7 +186,7 @@ class ArtworksBackFillNovelsTest {
         }
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(networkResult());
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var options = options(target, alwaysNetwork, dryRun, 0);
@@ -228,7 +228,7 @@ class ArtworksBackFillNovelsTest {
         }
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(networkResult());
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
             var options = options(target, false, false, 1);
@@ -252,7 +252,7 @@ class ArtworksBackFillNovelsTest {
         Path unreachablePath = directory.resolve("unreachable.json");
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(ArtworksBackFillPixivClient.LookupResult.deleted("HTTP 404"));
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(unreachablePath);
             var options = options(target, false, false, 1);
@@ -298,7 +298,7 @@ class ArtworksBackFillNovelsTest {
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.queryNovel(3)).thenReturn(ArtworksBackFillPixivClient.parseResponse(200,
                 "{\"body\":{\"id\":3,\"userId\":42,\"createDate\":\"2020-01-01T00:00:00Z\"}}", mapper, WorkType.NOVEL));
-        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var summary = ArtworksBackFill.run(options(target, false, dryRun, 1));

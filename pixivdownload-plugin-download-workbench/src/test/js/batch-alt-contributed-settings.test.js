@@ -102,6 +102,52 @@ function harness() {
         input: id => document.getElementById(id)};
 }
 
+test('共享变量生成的按钮插入可执行模板并保存，不显示导入专用变量', () => {
+    const h = harness();
+    const body = h.context.buildSettingsDrawerBody();
+    h.document.body.appendChild(body);
+    const chips = body.querySelectorAll('.ab-var-chip');
+    const tokens = chips.map(chip => chip.title);
+    assert.ok(tokens.includes('{artwork_id}') && tokens.includes('{ai+}') && tokens.includes('{R18+}'));
+    assert.ok(tokens.includes('{collection_name}') && tokens.includes('{collection_id}'));
+    for (const token of ['series_id', 'series_name', 'series_title', 'series_order', 'username']) {
+        assert.ok(tokens.includes('{' + token + '}'));
+    }
+    assert.ok(!tokens.includes('{extension}') && !tokens.includes('{name}'));
+    const input = body.querySelector('.filename-template-controls').querySelector('input');
+    input.value = 'selected_';
+    chips.find(chip => chip.title === '{artwork_id}').dispatchEvent({type: 'click'});
+    assert.equal(input.value, 'selected_{artwork_id}');
+    assert.equal(h.writes.at(-1).fileNameTemplate, 'selected_{artwork_id}');
+    assert.equal(h.context.formatFileNameBase(input.value, {artworkId: '42'}, 0, 1), 'selected_42');
+});
+
+test('更换或清空收藏夹立即刷新文件名预览，不把收藏夹写入保存的设置', () => {
+    const h = harness();
+    vm.runInContext("batchCollections = [{id: 7, name: '收藏/one'}, {id: 8, name: 'Two'}]; state.settings.collectionId = 7; state.settings.fileNameTemplate = '{collection_name}_{collection_id}_{artwork_id}'", h.context);
+    const body = h.context.buildSettingsDrawerBody();
+    h.document.body.appendChild(body);
+    const preview = body.querySelector('.ab-name-preview');
+    const select = body.querySelectorAll('select').find(node => node.children.some(option => option.value === '7'));
+    assert.match(preview.textContent, /收藏_one_7_12345678/);
+    select.value = '8';
+    select.dispatchEvent({type: 'change'});
+    assert.match(preview.textContent, /Two_8_12345678/);
+    select.value = '';
+    select.dispatchEvent({type: 'change'});
+    assert.match(preview.textContent, /__12345678/);
+    assert.ok(h.writes.every(value => !Object.hasOwn(value, 'collectionId')));
+});
+
+test('系列与来源变量在文件名设置中预览实际示例值', () => {
+    const h = harness();
+    vm.runInContext("state.settings.fileNameTemplate = '{series_id}_{series_name}_{series_title}_{series_order}_{username}'", h.context);
+    const body = h.context.buildSettingsDrawerBody();
+    const preview = body.querySelector('.ab-name-preview').textContent;
+    assert.match(preview, /24680_.+_.+_1_.+/);
+    assert.doesNotMatch(preview, /\{(?:series_id|series_name|series_title|series_order|username)\}/);
+});
+
 test('统一设置保留分区输入，筛选即时生效且与下载参数一起保存和恢复方案', async () => {
     const h = harness();
     const {context, document} = h;
@@ -250,6 +296,12 @@ test('文件名预览跟随输入，变量按需展开，插入和键盘收起�
     variables.open = true;
     variables.querySelectorAll('button').find(node => node.title === '{author_id}').dispatchEvent({type: 'click'});
     assert.equal(h.writes.at(-1).fileNameTemplate, 'draft_{artwork_id}{author_id}');
+    assert.equal(h.document.activeElement, input);
+    input.setSelectionRange(0, 5);
+    variables.querySelectorAll('button').find(node => node.title === '{series_name}').dispatchEvent({type: 'click'});
+    assert.equal(h.writes.at(-1).fileNameTemplate, '{series_name}_{artwork_id}{author_id}');
+    assert.equal(input.selectionStart, '{series_name}'.length);
+    assert.equal(input.selectionEnd, input.selectionStart);
     assert.equal(h.document.activeElement, input);
     let stopped = false;
     variables.dispatchEvent({type: 'keydown', key: 'Escape', preventDefault() {}, stopPropagation() { stopped = true; }});

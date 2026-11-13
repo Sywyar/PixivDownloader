@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
@@ -38,6 +43,31 @@ final class DesktopCoreConfigCatalog {
 
     static List<GuiConfigGroupContribution> groups() {
         return GROUPS;
+    }
+
+    static List<GuiConfigSectionContribution> sections() {
+        var layouts = new ArrayList<GuiConfigFieldLayoutContribution>();
+        layouts.add(new GuiConfigFieldLayoutContribution("download.root-folder", 0));
+        for (var mode : DownloadAcquisitionMode.values()) {
+            layouts.add(new GuiConfigFieldLayoutContribution(
+                    "download.mode-templates." + mode.code(),
+                    mode.code(),
+                    "gui.config.directory.mode." + mode.code(),
+                    layouts.size()
+            ));
+        }
+        return List.of(new GuiConfigSectionContribution(
+                "download-directories",
+                GuiConfigGroups.DOWNLOAD,
+                "gui.config.directory.illustration",
+                "gui.config.directory.help",
+                null,
+                GuiConfigSectionLayout.DIRECTORY_TEMPLATES,
+                0,
+                layouts,
+                List.of(),
+                List.of()
+        ));
     }
 
     static List<GuiConfigFieldContribution> fields(DesktopUiHost host) {
@@ -118,23 +148,26 @@ final class DesktopCoreConfigCatalog {
         fields.add(core(
                 "download.root-folder",
                 GuiConfigGroups.DOWNLOAD,
-                GuiConfigFieldType.PATH_DIR,
-                "pixiv-download",
+                GuiConfigFieldType.DIRECTORY_TEMPLATE,
+                DownloadConfig.DEFAULT_TEMPLATE,
                 GuiConfigEffect.PROCESS_RESTART,
                 null,
                 null,
                 order++
         ));
-        fields.add(core(
-                "download.user-flat-folder",
-                GuiConfigGroups.DOWNLOAD,
-                GuiConfigFieldType.BOOL,
-                "false",
-                GuiConfigEffect.HOT_RELOAD,
-                null,
-                null,
-                order++
-        ));
+        for (var mode : DownloadAcquisitionMode.values()) {
+            fields.add(core(
+                    "download.mode-templates." + mode.code(),
+                    GuiConfigGroups.DOWNLOAD,
+                    GuiConfigFieldType.DIRECTORY_TEMPLATE,
+                    mode == DownloadAcquisitionMode.USER_PROFILE
+                            ? DownloadConfig.DEFAULT_USER_TEMPLATE : "",
+                    GuiConfigEffect.PROCESS_RESTART,
+                    null,
+                    null,
+                    order++
+            ));
+        }
         fields.add(core(
                 "download.max-concurrent",
                 GuiConfigGroups.DOWNLOAD,

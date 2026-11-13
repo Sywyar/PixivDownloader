@@ -52,7 +52,7 @@ class ArtworksBackFillNovelImportTest {
              var pool = target.openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE)) {
             var main = DatabaseProviderTestFixtures.main(pool);
             var settings = new DownloadConfig();
-            settings.setRootFolder(directory.toString());
+            settings.setRootFolder(directory.toString() + "/{artwork_id}");
             var codec = new PathPrefixCodec(new PathPrefixMapper(main), settings, TestI18nBeans.appMessages());
             codec.init();
             try (var owner = main.forOwner("novel", List.of("pixiv-novels", "pixiv-tags"))) {
@@ -71,7 +71,8 @@ class ArtworksBackFillNovelImportTest {
                         .getConstructor(databaseType, WorkFileNameCatalog.class).newInstance(novels, names);
                 var external = new ExternalWorkFiles(main, codec, null);
                 var importer = new LocalWorkFileImporter(mock(ArtworkDownloadHistory.class), mock(PixivDatabase.class),
-                        external, new DataSourceTransactionManager(pool), mock(DownloadLifecycle.class), mock(AuthorObservationService.class));
+                        external, new DataSourceTransactionManager(pool), mock(DownloadLifecycle.class), mock(AuthorObservationService.class),
+                        new top.sywyar.pixivdownload.core.asset.DownloadDirectories(main, codec, null));
                 importer.register(new ExternalCapabilityOwner("novel", "novel", 1, 1), Map.of(WorkType.NOVEL, handler));
                 var request = new LocalWorkFileImportRequest(WorkType.NOVEL, 42, directory, List.of(original.getFileName()));
                 assertThat(importer.importLocalFiles(request)).isTrue();

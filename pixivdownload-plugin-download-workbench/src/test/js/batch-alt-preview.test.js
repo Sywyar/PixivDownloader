@@ -44,6 +44,48 @@ function previewContext(localStorage) {
     return {context, root};
 }
 
+test('User 单张卡片及跨页选择入队保存目标用户名，切换页面不会改成作者或新用户', () => {
+    const {context, root} = previewContext();
+    const stage = context.document.createElement('div');
+    stage.id = 'abUserStage'; root.appendChild(stage);
+    Object.assign(context, {
+        PixivBatchAlt: {queue: {}, modes: {}},
+        state: {mode: 'user', queue: [], settings: {}},
+        userState: {source: 'pixiv', kind: 'illust', userId: '7', username: 'Target user',
+            items: [], rawItems: [{}], page: 1, pageSize: 30, total: 60},
+        altAcquisition: () => ({}), hasExtraSearchFilter: () => false,
+        normalizeAuthorId: value => value == null ? null : Number(value),
+        pixivCancelWorkKey: value => 'illust:' + value,
+        updateStats() {}, saveQueue() {}, renderQueue() {}, abToast() {}
+    });
+    for (const name of ['alt-queue-model.js', 'alt-mode-discovery.js']) {
+        vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
+    }
+    context.syncAllResultsQueueState = () => {};
+    context.saveQueue = () => {};
+    for (const [id, kind] of [['42', 'illust'], ['n43', 'novel']]) {
+        context.userState.items = [{id, kind, userId: '99', userName: 'Work author'}];
+        context.renderUserStage();
+        const card = stage.querySelector('.ab-work');
+        const checkbox = card.querySelector('.ab-work-select');
+        checkbox.checked = true; checkbox.dispatchEvent({type: 'change'});
+        context.userState.page++;
+        stage.children.slice().forEach(child => stage.removeChild(child));
+    }
+    context.enqueueSelectedWorks();
+    assert.equal(context.state.queue.length, 2);
+    assert.ok(context.state.queue.every(item => item.username === 'Target user' && item.authorName === 'Work author'));
+    context.userState.items = [{id: '44', kind: 'illust', userId: '99', userName: 'Another author'}];
+    context.renderUserStage();
+    const button = stage.querySelector('.ab-work-enqueue');
+    context.userState.username = 'Next user'; context.userState.userId = '8'; context.state.mode = 'search';
+    button.dispatchEvent({type: 'click', stopPropagation() {}});
+    const queued = context.state.queue.find(item => item.id === '44');
+    assert.equal(queued.source, 'user');
+    assert.equal(queued.username, 'Target user');
+    assert.equal(queued.authorName, 'Another author');
+});
+
 test('预览收起跨重绘保留，分页一起隐藏，各预览独立', () => {
     const {context, root} = previewContext();
     const options = {previewKey: 'search', page: 1, totalPages: 2, total: 4, onPage() {}, onEnqueueAll() {}};

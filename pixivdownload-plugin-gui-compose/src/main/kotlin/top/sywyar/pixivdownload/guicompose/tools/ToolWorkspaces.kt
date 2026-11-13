@@ -48,8 +48,9 @@ internal fun ToolWorkspacePanel(
         description = label("$id.description"),
         icon = if (classifier) Icons.Default.Collections else Icons.Default.FolderOpen,
         close = close,
-        closeLabel = label("close"),
+        closeLabel = label("exit"),
         closeEnabled = workspace.close().enabled(),
+        backNavigation = true,
         footer = {
             if (classifier) {
                 buttons["classifier.previous"]?.let { ToolAction(it, text, emit) }

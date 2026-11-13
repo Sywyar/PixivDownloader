@@ -414,6 +414,10 @@ public class ArtworksBackFill {
                           boolean alwaysNetwork,
                           boolean automatic) {
 
+        public Options {
+            rootFolder = top.sywyar.pixivdownload.config.RuntimeFiles.normalizeRootFolder(rootFolder);
+        }
+
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                        long delayMs, int limit, boolean dryRun, DatabaseTarget target, String rootFolder, boolean alwaysNetwork) {
             this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, false);

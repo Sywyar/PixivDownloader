@@ -19,15 +19,12 @@ import java.util.Set;
  */
 public class PropertiesConfigFileEditor {
 
-    // ponytail: 64 stripes bound storage; use managed per-file locks if collisions cause contention.
-    private static final Object[] FILE_LOCKS = java.util.stream.IntStream.range(0, 64)
-            .mapToObj(index -> new Object()).toArray();
     private final Path configPath;
     private final Object fileLock;
 
     public PropertiesConfigFileEditor(Path configPath) {
         this.configPath = configPath.toAbsolutePath().normalize();
-        this.fileLock = FILE_LOCKS[Math.floorMod(this.configPath.hashCode(), FILE_LOCKS.length)];
+        this.fileLock = top.sywyar.pixivdownload.plugin.api.storage.PluginConfigFileLocks.forPath(this.configPath);
     }
 
     public Map<String, String> readAll(Collection<String> keys) throws IOException {

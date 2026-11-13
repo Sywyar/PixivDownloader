@@ -47,6 +47,7 @@ class LocalWorkAssetServiceTest {
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
     private DownloadConfig downloadConfig;
+    private top.sywyar.pixivdownload.core.asset.DownloadDirectories directories;
     private LocalWorkAssetService service;
 
     @BeforeEach
@@ -58,9 +59,11 @@ class LocalWorkAssetServiceTest {
         pixivDatabase = mock(PixivDatabase.class);
         novelMetadataRepository = mock(NovelMetadataRepository.class);
         downloadConfig = mock(DownloadConfig.class);
+        directories = mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class);
         service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
                 novelMetadataRepository, downloadConfig, TestI18nBeans.appMessages(),
-                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class),
+                directories);
     }
 
     @AfterEach
@@ -254,6 +257,21 @@ class LocalWorkAssetServiceTest {
                     new WorkAssetFile(2, c.toAbsolutePath().normalize(), "png")), asset.get().files());
         }
 
+        @Test @DisplayName("自定义小说目录须有持久归属，枚举和删除仍使用登记路径")
+        void customNovelDirectoryUsesOwnershipAndRecordedPath() throws Exception {
+            Path dir = Files.createDirectories(tempDir.resolve("books/7/text"));
+            Path file = Files.writeString(dir.resolve("novel.txt"), "original");
+            when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, null));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.resolve("changed-root").toString());
+            assertTrue(service.findAsset(WorkType.NOVEL, 7L).orElseThrow().files().isEmpty());
+            assertThrows(UnsafeDeletionPathException.class, () -> service.deleteLocalFiles(WorkType.NOVEL, 7L));
+            assertTrue(Files.exists(file));
+            when(directories.owns(WorkType.NOVEL, 7L, dir)).thenReturn(true);
+            assertEquals(List.of(new WorkAssetFile(0, file, "txt")), service.findAsset(WorkType.NOVEL, 7L).orElseThrow().files());
+            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 7L));
+            assertFalse(Files.exists(dir));
+        }
+
         @Test
         @DisplayName("findAsset 枚举层真过滤 meta sidecar（{id}.meta.json 不入导出枚举）")
         void findAssetExcludesNovelSidecar() throws Exception {
@@ -396,7 +414,8 @@ class LocalWorkAssetServiceTest {
             LocalWorkAssetService failingService = new LocalWorkAssetService(
                     artworkFileService, artworkFileLocator, pixivDatabase, novelMetadataRepository,
                     downloadConfig, TestI18nBeans.appMessages(),
-                    failOn(dir.resolve("7.meta.json")), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                    failOn(dir.resolve("7.meta.json")), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class),
+                    mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
 
             assertFalse(failingService.deleteLocalFiles(WorkType.NOVEL, 7L), "删除失败应返回 false");
             assertTrue(Files.exists(txt), "正文文件应被回滚复原");

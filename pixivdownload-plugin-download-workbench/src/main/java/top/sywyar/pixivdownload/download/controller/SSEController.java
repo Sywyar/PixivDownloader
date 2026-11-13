@@ -790,7 +790,7 @@ public class SSEController {
 
             if (downloadStatus.isCancelled() || downloadStatus.isFailed() || downloadStatus.isCompleted()) {
                 builder.message(messages.get(locale, downloadStatus.getStatusMessageCode(),
-                        downloadStatus.getStatusMessageArgs()));
+                        downloadStatus.getStatusMessageArgs(messages, locale)));
             }
 
             if (downloadStatus.getTotalImages() > 0) {

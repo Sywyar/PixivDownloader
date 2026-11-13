@@ -16,6 +16,13 @@ import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 public class NovelExecutionConfiguration {
 
     @Bean
+    public NovelDirectorySettings novelDirectorySettings(top.sywyar.pixivdownload.config.DownloadSettings host,
+            top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider paths, Environment environment)
+            throws java.io.IOException {
+        return NovelDirectorySettings.initialize(host, paths, environment);
+    }
+
+    @Bean
     public NovelExecutionSettings novelExecutionSettings(Environment environment) {
         return Binder.get(environment)
                 .bind(NovelExecutionSettings.PREFIX, Bindable.of(NovelExecutionSettings.class))

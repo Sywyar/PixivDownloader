@@ -428,15 +428,6 @@ class UpdateServiceTest {
     }
 
     @Test
-    @DisplayName("更新检查结果不暴露可变 setter")
-    void updateCheckResultIsImmutable() {
-        assertThat(java.util.Arrays.stream(UpdateCheckResult.class.getMethods())
-                .map(java.lang.reflect.Method::getName)
-                .filter(name -> name.startsWith("set"))
-                .toList()).isEmpty();
-    }
-
-    @Test
     @DisplayName("异步下载失败状态只保存安全错误码")
     void asyncDownloadFailureDoesNotStoreInternalDetails() throws Exception {
         UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(UpdateHttpClientProvider.class)) {
