@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.cache.PluginPreparationCache;
+
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
@@ -137,6 +141,27 @@ public final class PluginBootstrapSession implements AutoCloseable {
         this.installer = new ExternalPluginInstaller(this.pluginsRoot,
                 PluginPackageLimits.defaults(),
                 effectiveResolver, directoryLock, developmentModeEnabled);
+    }
+
+    private PluginPreparationCache preparationCache = new PluginPreparationCache(null);
+
+    /** 复用空闲的准备树，活动 generation 仍独占自己的加载目录。 */
+    public synchronized PluginBootstrapSession withPreparationCache(Path directory) {
+        if (started || closed || manager != null) throw new IllegalStateException("Plugin bootstrap has already started");
+        preparationCache = new PluginPreparationCache(Objects.requireNonNull(directory));
+        return this;
+    }
+
+    private PluginScanCache scanCache =
+            new PluginScanCache(null);
+
+    /** 缓存由宿主运行目录提供；必须在事务恢复与插件启动前配置。 */
+    public synchronized PluginBootstrapSession withScanCache(Path directory) {
+        if (started || closed || manager != null) throw new IllegalStateException("Plugin bootstrap has already started");
+        scanCache = new PluginScanCache(
+                Objects.requireNonNull(directory));
+        installer.useScanCache(scanCache);
+        return this;
     }
 
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭）。 */
@@ -467,6 +492,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
         try {
             if (current != null) {
                 current.shutdown();
+                log.info("Plugin preparation cache after shutdown: {}", preparationCache.statistics());
             }
         } catch (RuntimeException e) {
             diagnostics.add("plugin runtime shutdown failed: " + describe(e));
@@ -489,6 +515,8 @@ public final class PluginBootstrapSession implements AutoCloseable {
         PluginRuntimeManager current = manager;
         if (current == null) {
             current = runtimeManagerFactory.create(pluginsRoot, verifierResolver, installer);
+            current.useScanCache(scanCache);
+            current.usePreparationCache(preparationCache);
             current.updateAdmissionPolicy(admissionPolicy);
             manager = current;
         }

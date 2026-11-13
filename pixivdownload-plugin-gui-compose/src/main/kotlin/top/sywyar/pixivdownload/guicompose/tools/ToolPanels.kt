@@ -422,6 +422,22 @@ internal fun ToolFlow(labels: List<String>) {
 }
 
 @Composable
+internal fun StartupCachePanel(group: Group, text: (TextToken) -> String, emit: (Event) -> Unit, close: () -> Unit) {
+    val nodes = descendants(group).toList()
+    val active = nodes.any { it is Progress }
+    ToolPanelLayout(text(group.title()), text(TextToken.key("gui.tools.startup-cache.description")), Icons.Default.Speed,
+        close, workspaceText(text, "close"), footer = {
+            nodes.filterIsInstance<Button>().forEach { ToolAction(it, text, emit, it.id().endsWith(".run")) }
+        }) {
+        if (active) CupertinoActivityIndicator(Modifier.size(24.dp))
+        nodes.filterIsInstance<Text>().forEach {
+            CupertinoText(text(it.text()), Modifier.testTag(it.id()).semantics { liveRegion = LiveRegionMode.Polite })
+        }
+        ToolNotice(text(TextToken.key("gui.tools.startup-cache.impact")))
+    }
+}
+
+@Composable
 private fun ToolForm(form: Form, id: String, text: (TextToken) -> String, emit: (Event) -> Unit, errors: Map<String, String>, attempt: Int) {
     fun label(key: String) = workspaceText(text, key)
     fun row(suffix: String) = form.rows().first { it.content().id().endsWith(".$suffix") }

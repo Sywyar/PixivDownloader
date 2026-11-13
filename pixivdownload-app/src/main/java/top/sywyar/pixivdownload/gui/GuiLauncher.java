@@ -139,7 +139,7 @@ public class GuiLauncher {
         // Logback 自己在文件 appender 创建前建立会话，Spring 不重新配置它。
         System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
         boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
-        if (startupLaunch || CliSetupCommand.containsCliCommand(args)
+        if (startupLaunch || startupCacheTraining() || CliSetupCommand.containsCliCommand(args)
                 || Arrays.asList(args).contains("--no-gui")
                 || Arrays.asList(args).contains("--help") || Arrays.asList(args).contains("-h")) {
             splash.close();
@@ -296,7 +296,9 @@ public class GuiLauncher {
         final PluginRepositoryRegistry startupRepositoryRegistry = readPluginRepositoryRegistry(configPath);
         final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
                 RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath),
-                PluginCatalogTrustStores.verifierResolver(startupRepositoryRegistry));
+                PluginCatalogTrustStores.verifierResolver(startupRepositoryRegistry))
+                .withScanCache(RuntimeFiles.pluginScanCacheDirectory())
+                .withPreparationCache(RuntimeFiles.pluginPreparationCacheDirectory());
         pluginSession.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(
                 startupRepositoryRegistry, new PluginCatalogTrustStateStore()));
         pluginSession.start();
@@ -374,6 +376,10 @@ public class GuiLauncher {
                     },
                     failure -> {
                         splash.close();
+                        if (startupCacheTraining()) {
+                            finishStartupTraining(false);
+                            return;
+                        }
                         desktopRecoveryFailure = failure;
                         openPluginMarketWithoutDesktopProvider(
                                 desktopUiHost,
@@ -393,10 +399,18 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, desktopUiHost, startupManagedSchema, databaseTarget);
+                observeStartupCache(desktopUiHost);
+                if (startupCacheTraining()) BackendLifecycleManager.startAsync();
+                else maybeScheduleStartupBackfillFlow(ui, desktopUiHost, startupManagedSchema, databaseTarget);
             }
         } catch (Throwable failure) {
             splash.close();
+            if (startupCacheTraining()) {
+                DesktopUiFailover.rethrowFatal(failure);
+                log.error("Startup cache GUI initialization failed", failure);
+                finishStartupTraining(false);
+                return;
+            }
             handleFatalGuiBootstrapFailure(failure);
         }
     }
@@ -574,6 +588,11 @@ public class GuiLauncher {
     }
 
     private static void showBackendStartupFailure(Throwable error) {
+        if (startupCacheTraining()) {
+            logStartupFailure(error);
+            finishStartupTraining(false);
+            return;
+        }
         String diag = logStartupFailure(error);
         String userMessage = diag != null ? diag : message("gui.launcher.dialog.startup-error.message", safeMessage(error));
         DesktopUiDialogs.show(
@@ -583,6 +602,38 @@ public class GuiLauncher {
                         userMessage, Path.of(LOG_LATEST).toAbsolutePath()),
                 null
         );
+    }
+
+    private static boolean startupCacheTraining() {
+        return Boolean.getBoolean(top.sywyar.pixivdownload.startup.StartupCacheTraining.TRAINING_PROPERTY);
+    }
+
+    private static void observeStartupCache(AppDesktopUiHost host) {
+        BackendLifecycleManager.Listener listener = new BackendLifecycleManager.Listener() {
+            @Override public void onStateChanged(BackendLifecycleManager.Snapshot snapshot) {
+                if (snapshot.state() == BackendLifecycleManager.State.RUNNING) {
+                    BackendLifecycleManager.removeListener(this);
+                    if (startupCacheTraining()) finishStartupTraining(true);
+                    else host.checkStartupCache();
+                }
+            }
+        };
+        BackendLifecycleManager.addListener(listener);
+    }
+
+    private static void finishStartupTraining(boolean ready) {
+        int exit = 1;
+        if (ready) {
+            try {
+                java.nio.file.Files.writeString(Path.of(top.sywyar.pixivdownload.startup.StartupCacheTraining.READY_FILE),
+                        "ready", java.nio.charset.StandardCharsets.US_ASCII, java.nio.file.StandardOpenOption.CREATE_NEW);
+                exit = 0;
+            } catch (java.io.IOException failure) {
+                log.error("Startup cache readiness could not be recorded", failure);
+            }
+        }
+        int code = exit;
+        requestApplicationExit(GuiLauncher::closeActiveDesktopUiResources, () -> System.exit(code));
     }
 
     private static String logStartupFailure(Throwable t) {

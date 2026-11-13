@@ -238,8 +238,9 @@ class FileImportInteractionTest {
                 if (width >= 1000) {
                     val classifier = onNodeWithTag("tools.entry.classifier").fetchSemanticsNode().boundsInRoot
                     val backfill = onNodeWithTag("tools.entry.backfill").fetchSemanticsNode().boundsInRoot
+                    val startup = onNodeWithTag("tools.entry.startup").fetchSemanticsNode().boundsInRoot
                     val history = onNodeWithTag("tools.entry.$prefix").fetchSemanticsNode().boundsInRoot
-                    assertEquals(backfill.left, history.left, 1f)
+                    assertEquals(startup.left, history.left, 1f)
                     assertEquals(backfill.width, history.width, 1f)
                     assertEquals(backfill.left, classifier.left, 1f)
                     assertTrue(classifier.top >= history.bottom)

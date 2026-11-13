@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.cache.PluginPreparationCache;
+
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
@@ -151,6 +153,10 @@ public final class PluginDevelopmentArtifacts {
     }
 
     public static DevelopmentCacheSession openSession(Path cacheRoot) {
+        return openSession(cacheRoot, new PluginPreparationCache(null));
+    }
+
+    public static DevelopmentCacheSession openSession(Path cacheRoot, PluginPreparationCache preparationCache) {
         Objects.requireNonNull(cacheRoot, "cacheRoot");
         Path normalizedCacheRoot = cacheRoot.toAbsolutePath().normalize();
         Path sessionRoot = null;
@@ -160,7 +166,7 @@ public final class PluginDevelopmentArtifacts {
             String token = UUID.randomUUID().toString();
             Files.writeString(sessionRoot.resolve(SESSION_MARKER), token, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-            return new DevelopmentCacheSession(normalizedCacheRoot, sessionRoot, token);
+            return new DevelopmentCacheSession(normalizedCacheRoot, sessionRoot, token, preparationCache);
         } catch (IOException e) {
             cleanupAfterFailure(sessionRoot, e);
             throw new PluginRuntimeOperationException("failed to open plugin development cache session under "
@@ -190,13 +196,30 @@ public final class PluginDevelopmentArtifacts {
             Path sessionRoot = session.requireOpenRoot();
             snapshot = Files.createTempDirectory(sessionRoot,
                     snapshotDirectoryPrefix(descriptor, session.nextSequence()));
-            Files.copy(artifact.descriptorPath(), snapshot.resolve(PLUGIN_PROPERTIES),
-                    StandardCopyOption.REPLACE_EXISTING);
-            copyDevelopmentClasses(artifact.classesDirectory(), snapshot.resolve(CLASSES_DIR));
-            copyPrivateLibraries(artifact.classesDirectory(), snapshot.resolve(LIB_DIR));
+            String identity = session.preparationCache.identity(artifact.classesDirectory(), true);
+            var ticket = session.preparationCache.take(identity, snapshot);
+            if (ticket == null) {
+                Files.copy(artifact.descriptorPath(), snapshot.resolve(PLUGIN_PROPERTIES), StandardCopyOption.REPLACE_EXISTING);
+                copyDevelopmentClasses(artifact.classesDirectory(), snapshot.resolve(CLASSES_DIR));
+                copyPrivateLibraries(artifact.classesDirectory(), snapshot.resolve(LIB_DIR));
+            } else {
+                Files.delete(snapshot.resolve(SNAPSHOT_MARKER));
+            }
+            // 描述符也来自本次冻结树，避免开发输出在准备期间变化后混用旧声明。
+            descriptor = PluginPackageReader.inspectDescriptor(snapshot.resolve(PLUGIN_PROPERTIES));
+            if (!descriptor.externalValidationErrors().isEmpty())
+                throw new PluginRuntimeOperationException("invalid frozen development plugin descriptor: "
+                        + String.join("; ", descriptor.externalValidationErrors()));
             Files.writeString(snapshot.resolve(SNAPSHOT_MARKER),
                     session.snapshotMarker(descriptor), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            if (ticket != null) {
+                PluginRuntimeFileSecurity.secureWritableFile(snapshot.resolve(SNAPSHOT_MARKER),
+                        PluginRuntimeFileSecurity.owner(snapshot));
+            }
+            if (ticket == null && session.preparationCache.matches(identity, snapshot, true))
+                ticket = session.preparationCache.remember(identity, snapshot);
+            if (ticket != null) session.preparations.put(snapshot, ticket);
             return new MaterializedDevelopmentPlugin(artifact.moduleRoot(),
                     artifact.classesDirectory(), snapshot, descriptor);
         } catch (IOException e) {
@@ -524,11 +547,14 @@ public final class PluginDevelopmentArtifacts {
         private final String token;
         private final AtomicLong snapshotSequence = new AtomicLong();
         private boolean closed;
+        private final PluginPreparationCache preparationCache;
+        private final java.util.Map<Path, PluginPreparationCache.Ticket> preparations = new java.util.LinkedHashMap<>();
 
-        private DevelopmentCacheSession(Path cacheRoot, Path sessionRoot, String token) {
+        private DevelopmentCacheSession(Path cacheRoot, Path sessionRoot, String token, PluginPreparationCache preparationCache) {
             this.cacheRoot = cacheRoot.toAbsolutePath().normalize();
             this.sessionRoot = sessionRoot.toAbsolutePath().normalize();
             this.token = token;
+            this.preparationCache = Objects.requireNonNull(preparationCache);
         }
 
         public Path cacheRoot() {
@@ -565,6 +591,8 @@ public final class PluginDevelopmentArtifacts {
                 return;
             }
             requireOwnedSessionRoot();
+            preparations.forEach((path, ticket) -> preparationCache.release(ticket, path));
+            preparations.clear();
             deleteOwnedSession(sessionRoot, token);
             closed = true;
         }

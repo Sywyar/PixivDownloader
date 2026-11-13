@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.cache.PluginPreparationCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
@@ -33,14 +34,14 @@ import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFile
 import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.requirePlainRegularFile;
 
 /**
- * 生产插件加载使用的私有 artifact 快照。原始安装路径只在这里以 NOFOLLOW channel 读取一次；后续结构校验、
- * provenance 复验与 runtime 物化都只消费同一快照，避免验签后再次按公开路径打开不同字节。
+ * 生产插件加载使用的私有 artifact 快照。内容绑定的空闲准备树可独占移入；未命中时以 NOFOLLOW 有界复制。
+ * 结构校验、provenance 复验与 runtime 物化只消费同一快照，避免验签后按公开路径打开不同字节。
  */
 public final class PluginArtifactSnapshot implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PluginArtifactSnapshot.class);
     private static final int COPY_BUFFER_BYTES = 64 * 1024;
-    private static final int MAX_WORKSPACE_ENTRIES = 25_000;
+    public static final int MAX_WORKSPACE_ENTRIES = 25_000;
     private static final String WORKSPACE_PREFIX = ".artifact-snapshot-";
     private static final String OWNER_MARKER = ".pixiv-plugin-runtime-workspace";
 
@@ -51,6 +52,10 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     private Path loadDirectory;
     private LoadTreeManifest loadManifest;
     private boolean closed;
+    private PluginPreparationCache preparationCache;
+    private String preparationIdentity;
+    private PluginPreparationCache.Ticket preparationTicket;
+    private boolean restored;
 
     private PluginArtifactSnapshot(Path originalArtifact, Path workspace, Path snapshotArtifact,
                                    UserPrincipal owner) {
@@ -61,6 +66,11 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     }
 
     public static PluginArtifactSnapshot create(PluginRuntimeLayout layout, Path artifact, long maximumBytes) {
+        return create(layout, artifact, maximumBytes, new PluginPreparationCache(null));
+    }
+
+    public static PluginArtifactSnapshot create(PluginRuntimeLayout layout, Path artifact, long maximumBytes,
+                                               PluginPreparationCache cache) {
         Objects.requireNonNull(layout, "layout");
         Path original = Objects.requireNonNull(artifact, "artifact").toAbsolutePath().normalize();
         if (maximumBytes <= 0L) {
@@ -75,11 +85,22 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             workspace = PluginRuntimeFileSecurity.createPrivateTempDirectory(
                     runtimeRoot, WORKSPACE_PREFIX, owner);
             requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
+            String identity = cache.identity(original, false);
+            var ticket = cache.take(identity, workspace);
+            if (ticket != null) Files.delete(workspace.resolve(OWNER_MARKER));
             writeOwnerMarker(workspace, owner);
             snapshot = workspace.resolve(original.getFileName().toString());
-            copyBoundedNoFollow(original, snapshot, maximumBytes, owner);
+            if (ticket == null) copyBoundedNoFollow(original, snapshot, maximumBytes, owner);
             requirePlainRegularFile(snapshot, "plugin artifact snapshot");
-            return new PluginArtifactSnapshot(original, workspace, snapshot, owner);
+            if (Files.size(snapshot) > maximumBytes) throw new IOException("plugin artifact exceeds the snapshot size limit");
+            var result = new PluginArtifactSnapshot(original, workspace, snapshot, owner);
+            result.preparationCache = cache;
+            result.preparationIdentity = ticket != null || cache.matches(identity, snapshot, false) ? identity : null;
+            result.preparationTicket = ticket;
+            result.restored = ticket != null;
+            if (result.restored && Files.isDirectory(workspace.resolve("load"), LinkOption.NOFOLLOW_LINKS))
+                result.loadDirectory = workspace.resolve("load");
+            return result;
         } catch (IOException | RuntimeException e) {
             deleteWorkspaceQuietly(workspace);
             throw new PluginRuntimeOperationException("failed to freeze plugin artifact " + original, e);
@@ -199,6 +220,12 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         PluginRuntimeFileSecurity.secureWritableFile(normalized, owner);
     }
 
+    Path restoredLoadPath() { return restored ? (loadDirectory == null ? snapshotArtifact : loadDirectory) : null; }
+
+    void rememberPreparation() {
+        if (preparationTicket == null) preparationTicket = preparationCache.remember(preparationIdentity, workspace);
+    }
+
     void sealLoadPath(Path loadPath) throws IOException {
         requireOpen();
         if (loadManifest != null) {
@@ -207,6 +234,10 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         Path normalized = Objects.requireNonNull(loadPath, "loadPath").toAbsolutePath().normalize();
         if (!normalized.startsWith(workspace)) {
             throw new IOException("plugin artifact load path escaped its workspace: " + normalized);
+        }
+        if (restored) {
+            loadManifest = LoadTreeManifest.capture(normalized, owner, true);
+            return;
         }
         LoadTreeManifest manifest = LoadTreeManifest.capture(normalized, owner, false);
         for (LoadTreeEntry entry : manifest.entries().stream()
@@ -242,7 +273,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         if (closed) {
             return;
         }
-        closed = deleteWorkspaceQuietly(workspace);
+        closed = preparationCache.release(preparationTicket, workspace) || deleteWorkspaceQuietly(workspace);
     }
 
     private Path requireMaterializedPath(Path path) throws IOException {
@@ -342,7 +373,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
         }
     }
 
-    private static boolean deleteWorkspaceQuietly(Path root) {
+    public static boolean deleteWorkspaceQuietly(Path root) {
         if (root == null) {
             return true;
         }
@@ -431,6 +462,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 throw new IOException("plugin artifact load tree exceeds the supported entry count");
             }
             List<LoadTreeEntry> entries = new ArrayList<>(paths.size());
+            ByteBuffer buffer = ByteBuffer.allocate(8192);
             for (Path path : paths) {
                 Path normalized = path.toAbsolutePath().normalize();
                 if (!normalized.equals(normalizedRoot) && !normalized.startsWith(normalizedRoot)) {
@@ -447,7 +479,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                 boolean directory = attributes.isDirectory();
                 entries.add(new LoadTreeEntry(normalized, relativePath, directory,
                         directory ? 0L : attributes.size(),
-                        directory ? "" : sha256NoFollow(normalized, attributes),
+                        directory ? "" : sha256NoFollow(normalized, attributes, buffer),
                         attributes.fileKey(), attributes.creationTime()));
                 if (requireReadOnly) {
                     PluginRuntimeFileSecurity.verifyReadOnly(normalized, directory, owner);
@@ -473,14 +505,13 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                                  FileTime creationTime) {
     }
 
-    private static String sha256NoFollow(Path file, BasicFileAttributes expected) throws IOException {
+    private static String sha256NoFollow(Path file, BasicFileAttributes expected, ByteBuffer buffer) throws IOException {
         MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
         }
-        ByteBuffer buffer = ByteBuffer.allocate(8192);
         Set<OpenOption> options = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
         try (FileChannel channel = FileChannel.open(file, options)) {
             while (channel.read(buffer) >= 0) {

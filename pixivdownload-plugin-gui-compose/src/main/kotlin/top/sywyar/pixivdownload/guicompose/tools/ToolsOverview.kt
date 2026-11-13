@@ -37,8 +37,8 @@ import top.sywyar.pixivdownload.guicompose.*
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 
-private val toolIds = listOf("classifier", "folder", "backfill", "migration")
-private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt)
+private val toolIds = listOf("classifier", "folder", "backfill", "migration", "startup")
+private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt, Icons.Default.Speed)
 
 internal val LocalOpenBackfill = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalRegisterToolsExit = staticCompositionLocalOf<(((() -> Boolean)?) -> Unit)> { {} }
@@ -93,6 +93,7 @@ internal fun ToolsOverview(
     val runningActivity = activity?.takeIf { it.running() }
     val activeMedia = activeToolProgress(sequenceOf(node.media()) + mediaTools.asSequence()).toList()
     val activeImports = activeToolProgress(fileImports.asSequence()).toList()
+    val activeStartup = activeToolProgress(tools.asSequence().filter { it.id() == "tools.startup" }).toList()
     val mediaProgress = activeMedia.firstOrNull()?.second
     val workspace = node.workspace()
     fun leaveUtility(): Boolean {
@@ -139,8 +140,12 @@ internal fun ToolsOverview(
                         )
                         CupertinoText(text(node.backend().text()), fontSize = 12.sp, color = palette.secondaryText)
                     }
-                    if (runningActivity != null || activeMedia.isNotEmpty() || activeImports.isNotEmpty()) {
+                    if (runningActivity != null || activeMedia.isNotEmpty() || activeImports.isNotEmpty() || activeStartup.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            activeStartup.forEach { (tool, progress) ->
+                                ToolRow(text(tool.title()), text(progress.text()), label("show-task"), Icons.Default.Speed,
+                                    "tools.current.startup", Modifier.fillMaxWidth(), running = true) { select("startup") }
+                            }
                             runningActivity?.let { current ->
                                 ToolRow(
                                     title = label("${current.toolId()}.title"),
@@ -181,7 +186,7 @@ internal fun ToolsOverview(
                         }
                     }
                     @Composable fun category(quick: Boolean) {
-                        val indices = if (quick) listOf(2) else listOf(0, 1)
+                        val indices = if (quick) listOf(2, 4).filter { it < tools.size } else listOf(0, 1)
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             CupertinoText(
                                 label(if (quick) "quick" else "utilities"),
@@ -200,9 +205,13 @@ internal fun ToolsOverview(
                                     val id = toolIds[index]
                                     val focus = anchors.getOrPut(id) { FocusRequester() }
                                     ToolRow(
-                                        label("$id.title"),
-                                        label("$id.description"),
-                                        if (id == "classifier") "" else label("$id.impact"),
+                                        if (id == "startup") text(tools[index].title()) else label("$id.title"),
+                                        if (id == "startup") text(TextToken.key("gui.tools.startup-cache.description")) else label("$id.description"),
+                                        when (id) {
+                                            "startup" -> text(TextToken.key("gui.tools.startup-cache.impact"))
+                                            "classifier" -> ""
+                                            else -> label("$id.impact")
+                                        },
                                         toolIcons[index],
                                         "tools.entry.$id",
                                         Modifier.width(itemWidth).focusRequester(focus),
@@ -267,6 +276,7 @@ internal fun ToolsOverview(
         val importTool = fileImports.firstOrNull { it.id() == id }
         when {
             importTool != null -> FileImportWorkspace(importTool, text, emit, close)
+            id == "startup" -> StartupCachePanel(tools[toolIds.indexOf(id)], text, emit, close)
             id == "history" || id.startsWith("history.") -> ToolPanelLayout(
                 label("history"), "", Icons.Default.History, close, label("close"),
                 footer = { ToolButton(label("done"), "tools.history.done", primary = true, onClick = close) },
@@ -291,7 +301,8 @@ private fun activeToolProgress(nodes: Sequence<DesktopUiNode>) =
 
 internal fun DesktopUiNode.ToolsOverview.runningTaskCount(): Int =
     (if (activity()?.running() == true) 1 else 0) +
-        activeToolProgress(sequenceOf(media()) + mediaTools().asSequence() + fileImports().asSequence()).count()
+        activeToolProgress(sequenceOf(media()) + mediaTools().asSequence() + fileImports().asSequence()
+            + tools().asSequence().filter { it.id() == "tools.startup" }).count()
 
 internal fun workspaceText(text: (TextToken) -> String, key: String): String =
     text(TextToken("gui-compose", "gui.compose.tools.workspace.$key", "", emptyList()))

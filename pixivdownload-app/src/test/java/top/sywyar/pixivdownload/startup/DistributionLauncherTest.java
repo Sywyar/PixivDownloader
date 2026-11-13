@@ -47,4 +47,25 @@ class DistributionLauncherTest {
         Files.writeString(cache, "tampered", StandardCharsets.UTF_8);
         assertThat(DistributionLauncher.validCache(cache, identity, key)).isFalse();
     }
+
+    @Test @DisplayName("随包缓存允许安装路径变化，但依赖、插件及 VM 选项变化必须失效")
+    void bundledIdentity() throws Exception {
+        Path first = Files.createDirectory(directory.resolve("first"));
+        Path second = Files.createDirectory(directory.resolve("second"));
+        for (Path root : List.of(first, second)) {
+            Files.writeString(root.resolve("app.jar"), "host", StandardCharsets.UTF_8);
+            Files.writeString(Files.createDirectory(root.resolve("lib")).resolve("shared.jar"), "library", StandardCharsets.UTF_8);
+            Files.createDirectory(root.resolve("plugins"));
+        }
+        var inputs = StartupCacheInputs.capture(first.resolve("plugins"), first.resolve("config.yaml"));
+        var relocated = StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml"));
+        String key = StartupCacheTraining.bundledIdentity(first.resolve("app.jar"), List.of("-Dinstance=first"), inputs);
+        assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of("-Dinstance=second"), relocated)).isEqualTo(key);
+        assertThat(StartupCacheTraining.bundledIdentity(first.resolve("app.jar"), List.of("-Xmx512m"), inputs)).isNotEqualTo(key);
+        Files.writeString(second.resolve("plugins/new.jar"), "plugin", StandardCharsets.UTF_8);
+        assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of(),
+                StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml")))).isNotEqualTo(key);
+        Files.writeString(second.resolve("lib/shared.jar"), "changed", StandardCharsets.UTF_8);
+        assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of(), relocated)).isNotEqualTo(key);
+    }
 }

@@ -45,6 +45,7 @@ final class DesktopToolsController {
     volatile DesktopUiNode.Progress backfillProgress;
     volatile boolean backfillCancelRequested;
     volatile DesktopUiToolHost.BackfillTask backfillTask;
+    volatile top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache.Snapshot startupCache;
     private java.util.UUID dismissedAutomaticBackfill;
     volatile String migrationNotice = "";
     volatile List<DesktopUiNode.TableRow> folderRows = List.of();
@@ -333,6 +334,7 @@ final class DesktopToolsController {
     }
 
     void refreshBackfill() {
+        refreshStartupCache();
         synchronized (owner) {
             var task = host.backfillTask().orElse(null);
             if (task == null || task.equals(backfillTask)
@@ -347,6 +349,15 @@ final class DesktopToolsController {
             activity = new DesktopUiNode.ToolActivity("backfill", task.active(),
                     !task.active() && task.state() != DesktopUiToolHost.BackfillState.COMPLETED,
                     TextToken.key("gui.tools.backfill.state." + task.state().name().toLowerCase(java.util.Locale.ROOT)), task.executionId().toString());
+            owner.rebuildStatus();
+        }
+    }
+
+    void refreshStartupCache() {
+        synchronized (owner) {
+            var current = host.startupCache().map(value -> value.snapshot()).orElse(null);
+            if (java.util.Objects.equals(current, startupCache)) return;
+            startupCache = current;
             owner.rebuildStatus();
         }
     }

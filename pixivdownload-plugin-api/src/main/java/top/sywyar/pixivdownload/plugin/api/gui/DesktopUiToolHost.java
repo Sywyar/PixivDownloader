@@ -10,6 +10,12 @@ import java.util.function.Consumer;
  * 桌面维护、迁移、FFmpeg 与图片分类工具所需的宿主能力。
  */
 public interface DesktopUiToolHost {
+    /** {@return 当前发行入口提供的启动缓存工具；源码调试或不支持的 JVM 返回空} */
+    default Optional<DesktopStartupCache> startupCache() { return Optional.empty(); }
+
+    /** {@return 是否为独立的界面初始化训练进程；提供者仍创建界面，但不显示窗口或托盘} */
+    default boolean startupCacheTraining() { return false; }
+
     /**
      * 定位可用的 FFmpeg 安装。
      *
@@ -615,7 +621,9 @@ public interface DesktopUiToolHost {
         /** 旧 JSON 到 SQLite 迁移工具。 */
         JSON_TO_SQLITE_MIGRATION,
         /** 历史媒体格式与缩略图维护。 */
-        MEDIA_MAINTENANCE
+        MEDIA_MAINTENANCE,
+        /** 桌面与插件启动缓存训练。 */
+        STARTUP_CACHE
     }
 
     /** 桌面维护工具的稳定终态。 */

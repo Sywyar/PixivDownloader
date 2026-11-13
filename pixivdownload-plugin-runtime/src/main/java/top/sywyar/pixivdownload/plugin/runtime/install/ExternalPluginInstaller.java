@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
@@ -169,6 +171,15 @@ public class ExternalPluginInstaller implements AutoCloseable {
     /** 把恢复、权威枚举与文件事务串行化（同一实例 / 同一安装目录的并发操作互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
     private PluginRecoveryResourceBudget previousInventoryBudget;
+    private PluginScanCache scanCache =
+            new PluginScanCache(null);
+
+    /** 组合入口在启动恢复之前接入缓存，安装与恢复保留各自的当前信任验证。 */
+    public void useScanCache(PluginScanCache cache) {
+        installLock.lock();
+        try { scanCache = java.util.Objects.requireNonNull(cache); }
+        finally { installLock.unlock(); }
+    }
     private Map<Path, InventoryFailure> previousInventoryFailures = Map.of();
 
     private record InventoryFailure(String sha256, String reason) { }
@@ -938,7 +949,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             requireRecoverySafe("verify committed plugin target");
             RecoveryManifest manifest = requireManagedCommittedManifest(
                     transaction, PluginTransactionState.NEW_PLACED);
-            PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+            PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache);
             recoveryVisibleInventoryVerifier.verifyActivatedTarget(manifest,
                     recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget), budget, verificationService);
         } catch (IOException | PluginRecoveryValidationException e) {
@@ -1308,7 +1319,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
         List<Path> emptyTransactions = new ArrayList<>();
         List<PluginRecoveryPlan> plans = new ArrayList<>();
-        PluginRecoveryResourceBudget recoveryBudget = new PluginRecoveryResourceBudget();
+        PluginRecoveryResourceBudget recoveryBudget = new PluginRecoveryResourceBudget(null, scanCache);
         for (Path transaction : transactions) {
             String transactionId = transaction.getFileName().toString();
             try {
@@ -1522,7 +1533,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
         recoveryArtifactInspector.validateState(
                 manifest,
-                budget != null ? budget : new PluginRecoveryResourceBudget());
+                budget != null ? budget : new PluginRecoveryResourceBudget(null, scanCache));
         return new PluginRecoveryPlan(transactionId, transaction, manifest);
     }
 
@@ -1558,7 +1569,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void executeRecoveryPlan(PluginRecoveryPlan plan) throws IOException, PluginRecoveryValidationException {
-        executeRecoveryPlan(plan, new PluginRecoveryResourceBudget());
+        executeRecoveryPlan(plan, new PluginRecoveryResourceBudget(null, scanCache));
     }
 
     private void executeRecoveryPlan(PluginRecoveryPlan plan, PluginRecoveryResourceBudget budget)
@@ -1646,7 +1657,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     private void retireTransaction(PluginRecoveryPlan plan) throws IOException, PluginRecoveryValidationException {
-        retireTransaction(plan, new PluginRecoveryResourceBudget());
+        retireTransaction(plan, new PluginRecoveryResourceBudget(null, scanCache));
     }
 
     private void retireTransaction(PluginRecoveryPlan plan, PluginRecoveryResourceBudget budget)
@@ -1748,7 +1759,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         // 0. 资源与 entry 名安全扫描（.zip / .jar 同等），在任何解压 / 落盘前完成。
         PluginPackageVerifier.VerificationUsage packageUsage;
         try {
-            packageUsage = PluginPackageVerifier.verifyAndMeasure(packagePath, limits);
+            packageUsage = scanCache.verifyArchive(packagePath, limits);
         } catch (PluginPackageException e) {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
@@ -2002,7 +2013,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private void requireCompatibleContractSpaces(Path candidate, List<InstalledPlugin> installed)
             throws IOException, PluginRecoveryValidationException {
         if (installed.isEmpty()) return;
-        PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+        PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache);
         PluginPackageInspection incoming = budget.inspectArchive(
                 candidate, PluginPackageIntegrity.sha256Hex(candidate), limits);
         for (InstalledPlugin existing : installed) {
@@ -2030,7 +2041,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             }
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
             List<Artifact> result = new ArrayList<>(scan.candidates().size());
-            PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+            PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache);
             Map<Path, InventoryFailure> failures = new LinkedHashMap<>();
             for (Path path : scan.candidates()) {
                 String digest = null;
@@ -2142,7 +2153,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 }
                 recoveryVisibleInventoryVerifier.verifyRemovedIdentityAbsent(completed.manifest(),
                         recoveryVisibleInventoryVerifier.inspectVisibleInventory(
-                                new PluginRecoveryResourceBudget(previousInventoryBudget)));
+                                new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache)));
                 retireTransaction(completed);
                 attempt.confirm(PluginRemovalAttempt.Outcome.REMOVED);
                 return true;
@@ -2549,7 +2560,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 prepared.transactionId(),
                 candidate,
                 "PixivDownloader plugin transaction",
-                new PluginRecoveryResourceBudget(previousInventoryBudget),
+                new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache),
                 verificationService);
     }
 
@@ -2578,7 +2589,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 transaction.getFileName().toString(),
                 candidate,
                 "PixivDownloader plugin removal transaction",
-                new PluginRecoveryResourceBudget(previousInventoryBudget),
+                new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache),
                 verificationService);
     }
 

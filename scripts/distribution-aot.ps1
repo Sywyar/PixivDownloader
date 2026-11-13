@@ -25,8 +25,18 @@ function Test-DistributionAotCache {
 }
 
 function New-DistributionAotCache {
-    param([string]$Java, [string]$Jar, [string]$Cache, [string]$Training)
-    & $Java '-Dfile.encoding=UTF-8' -cp $Jar top.sywyar.pixivdownload.startup.DistributionLauncher prepare $Cache $Training
+    param([string]$Java, [string]$Jar, [string]$Cache, [string]$Training, [string]$Plugins)
+    if ($Plugins) {
+        $candidate = $Cache + '.pending'
+        & $Java '-Dfile.encoding=UTF-8' "-Dpixivdownload.plugins-dir=$Plugins" `
+            "-Dpixivdownload.config-dir=$Training/source-config" -cp $Jar `
+            top.sywyar.pixivdownload.startup.DistributionLauncher prepare-gui $candidate $Training
+        if ($LASTEXITCODE -ne 0) { throw "GUI AOT preparation failed (exit $LASTEXITCODE)." }
+        Move-Item -LiteralPath $candidate -Destination $Cache -Force
+        Move-Item -LiteralPath ($candidate + '.identity') -Destination ($Cache + '.identity') -Force
+    } else {
+        & $Java '-Dfile.encoding=UTF-8' -cp $Jar top.sywyar.pixivdownload.startup.DistributionLauncher prepare $Cache $Training
+    }
     if ($LASTEXITCODE -ne 0) { throw "Distribution AOT preparation failed (exit $LASTEXITCODE)." }
     if (-not (Test-Path -LiteralPath $Cache -PathType Leaf)) { throw 'Distribution AOT cache is missing.' }
 }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.recovery;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache;
+
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
@@ -36,13 +38,21 @@ public final class PluginRecoveryResourceBudget {
     private boolean exhausted;
     private final Map<ArchiveIdentity, VerifiedArchive> archiveInspections = new LinkedHashMap<>();
     private final Map<ArchiveIdentity, VerifiedArchive> previousInspections;
+    private final PluginScanCache scanCache;
 
     public PluginRecoveryResourceBudget() {
-        previousInspections = Map.of();
+        this(null);
     }
 
     /** 清点与在线事务复用上一轮的成功结构校验；调用方必须重新计算当前文件的完整 SHA-256。 */
     public PluginRecoveryResourceBudget(PluginRecoveryResourceBudget previousInventory) {
+        this(previousInventory, new PluginScanCache(null));
+    }
+
+    /** 持久缓存只替换成功扫描；本轮预算仍累计真实解压用量。 */
+    public PluginRecoveryResourceBudget(PluginRecoveryResourceBudget previousInventory,
+                                       PluginScanCache scanCache) {
+        this.scanCache = java.util.Objects.requireNonNull(scanCache);
         previousInspections = previousInventory == null
                 ? Map.of() : Map.copyOf(previousInventory.archiveInspections);
     }
@@ -131,7 +141,7 @@ public final class PluginRecoveryResourceBudget {
                 || effectiveLimits.maxEntryUncompressedBytes() < limits.maxEntryUncompressedBytes();
         PluginPackageVerifier.VerificationUsage usage;
         try {
-            usage = PluginPackageVerifier.verifyAndMeasure(artifact, effectiveLimits);
+            usage = scanCache.verifyArchive(artifact, effectiveLimits);
         } catch (PluginPackageException failure) {
             if (failure.hasVerificationUsage()) {
                 consumeArchiveUsage(failure.consumedEntries(), failure.consumedUncompressedBytes());

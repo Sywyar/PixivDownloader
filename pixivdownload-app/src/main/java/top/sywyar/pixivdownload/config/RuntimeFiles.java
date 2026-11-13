@@ -141,6 +141,12 @@ public final class RuntimeFiles {
 
     public static Path aotCacheDirectory() { return stateDirectory().resolve("aot"); }
 
+    /** 可丢弃的插件扫描纯值缓存，不存放插件可执行副本。 */
+    public static Path pluginScanCacheDirectory() { return stateDirectory().resolve("plugin-scan-cache"); }
+
+    /** 插件复制与展开结果的空闲缓存，使用时独占移入私有运行目录。 */
+    public static Path pluginPreparationCacheDirectory() { return stateDirectory().resolve("plugin-preparation-cache"); }
+
     public static Path resolvePluginStateDirectory(String pluginId) {
         return resolvePluginDirectory(stateDirectory(), pluginId);
     }

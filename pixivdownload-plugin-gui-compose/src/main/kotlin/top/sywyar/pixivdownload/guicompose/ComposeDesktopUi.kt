@@ -148,6 +148,7 @@ internal object ComposeDesktopUi {
     private val log = LoggerFactory.getLogger(ComposeDesktopUi::class.java)
 
     fun launch(context: DesktopUiContext): DesktopUiSession {
+        val training = context.host().startupCacheTraining()
         val savedWindowState = context.host().loadWindowState().orElse(null)
         val model = ComposeDesktopUiModel(
             context.serverPort(),
@@ -158,7 +159,7 @@ internal object ComposeDesktopUi {
             context::currentPluginSnapshots,
         )
         val trayExpectedAtLaunch = model.snapshot().document().tray().isPresent && SystemTray.isSupported()
-        val visible = mutableStateOf(windowVisibleForTrayState(context.startupLaunch(), trayExpectedAtLaunch))
+        val visible = mutableStateOf(!training && windowVisibleForTrayState(context.startupLaunch(), trayExpectedAtLaunch))
         val message = mutableStateOf<UiMessage?>(null)
         val windowRef = AtomicReference<ComposeWindow>()
         val exit = AtomicReference<() -> Unit>()
@@ -175,11 +176,11 @@ internal object ComposeDesktopUi {
                         it.id() == "directory-suggestion" || it.id() == "import-completion"
                     }?.id()
                     LaunchedEffect(attentionDialog) {
-                        if (attentionDialog != null) activateWindow(visible, windowRef)
+                        if (!training && attentionDialog != null) activateWindow(visible, windowRef)
                     }
                     val messages = remember(context, observed.revision()) { ComposeMessages(context) }
                     val tray = document.tray().orElse(null)
-                    val traySupported = tray != null && SystemTray.isSupported()
+                    val traySupported = !training && tray != null && SystemTray.isSupported()
                     val trayInstalled = remember { mutableStateOf(false) }
                     val trayPopup = remember { mutableStateOf<TrayPopupRequest?>(null) }
                     if (tray != null && traySupported) {

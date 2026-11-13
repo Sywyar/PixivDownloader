@@ -37,6 +37,7 @@ public class ToolsPanel extends JPanel {
     private final MediaToolsPanel mediaTools = new MediaToolsPanel(SwingHost.context());
     private final FileImportToolsPanel fileImports = new FileImportToolsPanel(SwingHost.context());
     private final LocalArtworkImportPanel localImports = new LocalArtworkImportPanel(SwingHost.context());
+    private final StartupCachePanel startupCache = new StartupCachePanel(SwingHost.host());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
     private final JLabel exclusiveToolLabel = new JLabel(message("gui.tools.exclusive-tool", message("gui.value.none")));
@@ -116,6 +117,8 @@ public class ToolsPanel extends JPanel {
         content.add(backfillCard);
         content.add(Box.createVerticalStrut(12));
         content.add(buildMigrationCard());
+        content.add(Box.createVerticalStrut(12));
+        content.add(startupCache);
         content.add(Box.createVerticalStrut(12));
         content.add(fileImports);
         content.add(localImports);
@@ -975,6 +978,7 @@ public class ToolsPanel extends JPanel {
         mediaTools.close();
         fileImports.close();
         localImports.close();
+        startupCache.close();
         SwingBackendLifecycle.removeListener(backendListener);
         disposed = true;
         backfillTimer.stop();

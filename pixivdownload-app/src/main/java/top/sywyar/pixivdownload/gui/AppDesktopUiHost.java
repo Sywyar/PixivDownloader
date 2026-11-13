@@ -112,6 +112,25 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private final Optional<top.sywyar.pixivdownload.startup.DesktopStartupCacheService> startupCache =
+            top.sywyar.pixivdownload.startup.DesktopStartupCacheService.create((result, started) -> {
+                ToolOutcome outcome = switch (result.state()) {
+                    case SUCCEEDED -> ToolOutcome.SUCCEEDED;
+                    case CANCELLED -> ToolOutcome.CANCELLED;
+                    default -> ToolOutcome.FAILED;
+                };
+                toolHistory.record(ToolId.STARTUP_CACHE, outcome, started, null, null, null, null);
+            });
+
+    @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache> startupCache() {
+        return startupCache.map(value -> value);
+    }
+
+    @Override public boolean startupCacheTraining() {
+        return Boolean.getBoolean(top.sywyar.pixivdownload.startup.StartupCacheTraining.TRAINING_PROPERTY);
+    }
+
+    void checkStartupCache() { startupCache.ifPresent(value -> value.startAutomatically()); }
     private volatile java.util.concurrent.atomic.AtomicReference<BackfillTask> backfillObservation =
             new java.util.concurrent.atomic.AtomicReference<>();
     private boolean migrationRunning;

@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.cache.PluginPreparationCache;
+
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache;
+
 import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginClassSpace;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpaceVerifier;
@@ -102,6 +106,21 @@ public class PluginRuntimeManager {
     // 所有运行期包变更必须复用本类的单包原语，禁止在 app 侧直接操作 PF4J manager。
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
+    private PluginPreparationCache preparationCache = new PluginPreparationCache(null);
+
+    public synchronized void usePreparationCache(PluginPreparationCache cache) {
+        if (pluginManager != null) throw new IllegalStateException("Plugin runtime has already started");
+        preparationCache = java.util.Objects.requireNonNull(cache);
+    }
+
+    private PluginScanCache scanCache =
+            new PluginScanCache(null);
+
+    /** 仅在启动前由组合入口提供纯值扫描缓存。 */
+    public synchronized void useScanCache(PluginScanCache cache) {
+        if (pluginManager != null) throw new IllegalStateException("Plugin runtime has already started");
+        scanCache = java.util.Objects.requireNonNull(cache);
+    }
     private static final PluginPackageLimits PRODUCTION_PACKAGE_LIMITS = PluginPackageLimits.defaults();
     static final int MAX_STARTUP_VERIFICATION_ENTRIES = 48_000;
     static final long MAX_STARTUP_VERIFICATION_UNCOMPRESSED_BYTES = 704L * 1024L * 1024L;
@@ -408,6 +427,8 @@ public class PluginRuntimeManager {
             }
         } finally {
             preparedCandidates.forEach(PreparedPluginArtifact::close);
+            log.info("Plugin scan cache: {}", scanCache.statistics());
+            log.info("Plugin preparation cache: {}", preparationCache.statistics());
         }
         return startLoadedPlugins(directory, failures, verifications);
     }
@@ -480,7 +501,7 @@ public class PluginRuntimeManager {
 
     private LoadedPluginPackage loadPreparedDevelopmentPlugin(
             PluginDevelopmentArtifacts.MaterializedDevelopmentPlugin materialized, Path sessionRoot) {
-        var space = PluginPackageVerifier.developmentClassSpace(materialized.pf4jLoadPath(), PluginPackageLimits.defaults());
+        var space = scanCache.verifyDevelopment(materialized.pf4jLoadPath(), PluginPackageLimits.defaults());
         PluginClassSpaceVerifier.contractPackages(space, materialized.descriptor());
         requireCompatibleClassSpace(materialized.descriptor(), space);
         var loaded = loadPreparedPlugin(materialized.classesDirectory(), materialized.pf4jLoadPath(),
@@ -1234,7 +1255,7 @@ public class PluginRuntimeManager {
                 ? PRODUCTION_PACKAGE_LIMITS
                 : startupBudget.remainingVerificationLimits(PRODUCTION_PACKAGE_LIMITS);
         PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
-                layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes());
+                layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes(), preparationCache);
         try {
             Path frozenArtifact = snapshot.snapshotArtifact();
             PluginPackageVerifier.VerificationUsage verificationUsage;
@@ -1406,7 +1427,7 @@ public class PluginRuntimeManager {
     PluginPackageVerifier.VerificationUsage verifyAndMeasureProductionPackage(
             Path frozenArtifact,
             PluginPackageLimits limits) {
-        return PluginPackageVerifier.verifyAndMeasure(frozenArtifact, limits);
+        return scanCache.verifyArchive(frozenArtifact, limits);
     }
 
     private LoadedPluginPackage loadPreparedProductionArtifact(PreparedPluginArtifact prepared) {
@@ -1818,7 +1839,7 @@ public class PluginRuntimeManager {
                     "cannot open plugin development cache session after PF4J manager initialization");
         }
         PluginDevelopmentArtifacts.DevelopmentCacheSession opened =
-                PluginDevelopmentArtifacts.openSession(normalizedCacheRoot);
+                PluginDevelopmentArtifacts.openSession(normalizedCacheRoot, preparationCache);
         developmentCacheSession = opened;
         return opened;
     }

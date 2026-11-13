@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
@@ -189,9 +191,10 @@ class PluginRuntimeManagerTest {
         }
     }
 
-    @Test
-    @DisplayName("撤销策略在 PF4J 加载前拒绝已验签的目录制品")
-    void admissionPolicyRejectsVerifiedCatalogArtifactBeforePf4jLoad() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("撤销策略在扫描缓存冷与热状态下都先于 PF4J 拒绝已验签制品")
+    void admissionPolicyRejectsVerifiedCatalogArtifactBeforePf4jLoad(boolean warm) throws IOException {
         Path plugins = tempDir.resolve("admission-rejected");
         Path artifact = plugins.resolve("bootstrap-probe-1.0.0.jar");
         writeDependencyOrderProbeJarWithMarker(artifact, PROBE_ID, "revoked-bytes");
@@ -205,12 +208,17 @@ class PluginRuntimeManagerTest {
                     "VERIFIED");
         });
         var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, ignored -> verifier);
+        var cache = new PluginScanCache(tempDir.resolve("admission-cache"));
+        if (warm) cache.verifyArchive(artifact, PluginPackageLimits.defaults());
+        manager.useScanCache(cache);
         manager.updateAdmissionPolicy(ignored -> PluginArtifactAdmissionResult.reject(
                 "PLUGIN_REVOKED", "verified revocation match"));
 
         PluginRuntimeStatus status = manager.start();
 
         assertThat(status.loadedPluginIds()).isEmpty();
+        assertThat(cache.statistics().hits()).isEqualTo(warm ? 1 : 0);
+        verify(verifier).verifyArtifact(any());
         assertThat(status.failures()).singleElement().satisfies(failure ->
                 assertThat(failure.reason()).contains("PLUGIN_REVOKED"));
         manager.shutdown();
@@ -2025,9 +2033,10 @@ class PluginRuntimeManagerTest {
         assertThat(manager.packagePhases()).isEmpty();
     }
 
-    @Test
-    @DisplayName("启动整轮递归 entry 累计超限后不再读取或验证后续候选")
-    void startupStopsPreparingCandidatesAfterCumulativeEntryBudgetExceeded() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("扫描缓存冷与热状态下都保留启动累计条目预算")
+    void startupStopsPreparingCandidatesAfterCumulativeEntryBudgetExceeded(boolean warm) throws IOException {
         Path plugins = tempDir.resolve("startup-entry-budget");
         Files.createDirectories(plugins);
         Path first = plugins.resolve("alpha.jar");
@@ -2050,10 +2059,18 @@ class PluginRuntimeManagerTest {
                 + thirdUsage.totalUncompressedBytes();
         CountingPluginRuntimeManager manager = new CountingPluginRuntimeManager(
                 plugins, entryBudget, byteBudget);
+        var cache = new PluginScanCache(tempDir.resolve("budget-cache"));
+        if (warm) {
+            var budget = new top.sywyar.pixivdownload.plugin.runtime.artifact.PluginStartupResourceBudget(
+                    entryBudget, byteBudget, Long.MAX_VALUE);
+            cache.verifyArchive(first, budget.remainingVerificationLimits(PluginPackageLimits.defaults()));
+        }
+        manager.useScanCache(cache);
 
         PluginRuntimeStatus status = manager.start();
 
         assertThat(status.loadedPluginIds()).containsExactly("alpha");
+        assertThat(cache.statistics().hits()).isEqualTo(warm ? 1 : 0);
         assertThat(status.failures()).hasSize(2)
                 .extracting(PluginLoadFailure::source)
                 .containsExactly("beta.jar", "gamma.jar");

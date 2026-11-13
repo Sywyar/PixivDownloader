@@ -49,6 +49,15 @@ class GuiLauncherPluginVerifierBootstrapTest {
     @TempDir
     Path tempDir;
 
+    @org.junit.jupiter.api.AfterEach
+    void removePrivatePreparationCache() {
+        Path prepared = tempDir.resolve("prepared-cache");
+        if (Files.exists(prepared)) {
+            assertThat(top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot
+                    .deleteWorkspaceQuietly(prepared)).isTrue();
+        }
+    }
+
     @Test
     @DisplayName("配置 custom trusted key：custom-signed installed plugin 可在 PROCESS bootstrap 启动")
     void processBootstrapUsesCustomTrustedKeyFromConfig() throws Exception {
@@ -97,6 +106,38 @@ class GuiLauncherPluginVerifierBootstrapTest {
                     .isEmpty();
         } finally {
             session.close();
+        }
+    }
+
+    @Test
+    @DisplayName("跨会话命中扫描与准备缓存后仍拒绝已移除的签名信任密钥")
+    void cachedScanDoesNotRetainPublisherTrust() throws Exception {
+        Path plugins = tempDir.resolve("cached-trust");
+        Path artifact = stageProbeJar(plugins);
+        SigningFixture signing = SigningFixture.create("gui-custom-key");
+        writeSignedProvenance(plugins, artifact, signing);
+        Path config = writeConfig(true, signing.publicKeyBase64());
+        Path cache = tempDir.toRealPath().resolve("scan-cache");
+        Path prepared = tempDir.toRealPath().resolve("prepared-cache");
+        try (var session = PluginBootstrapSession.createProcess(plugins,
+                PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config)).withScanCache(cache).withPreparationCache(prepared)) {
+            session.start();
+            assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+        }
+        config = writeConfig(false, signing.publicKeyBase64());
+        try (var verifier = org.mockito.Mockito.mockStatic(
+                top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier.class,
+                org.mockito.Mockito.CALLS_REAL_METHODS);
+             var session = PluginBootstrapSession.createProcess(plugins,
+                     PluginEnabledSnapshot.empty(), GuiLauncher.readPluginVerifierResolver(config)).withScanCache(cache).withPreparationCache(prepared)) {
+            session.start();
+            assertThat(session.status().startedPluginIds()).isEmpty();
+            assertThat(session.status().verifications()).singleElement().satisfies(snapshot ->
+                    assertThat(snapshot.result().status()).isEqualTo(VerificationStatus.UNKNOWN_KEY));
+            assertThat(session.manager().generation("bootstrap-probe")).isEmpty();
+            verifier.verify(() -> top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier
+                    .verifyAndMeasure(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()),
+                    org.mockito.Mockito.never());
         }
     }
 

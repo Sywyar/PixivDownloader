@@ -51,7 +51,7 @@ $FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
 $FfmpegLicenseDir = Join-Path $FfmpegDir "licenses"
 $AppName = "PixivDownload"
 $AppVendor = "sywyar"
-$MainClass = "top.sywyar.pixivdownload.gui.GuiLauncher"
+$MainClass = "top.sywyar.pixivdownload.startup.DistributionLauncher"
 $JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.jartool,jdk.localedata,jdk.management,jdk.net,jdk.unsupported,jdk.zipfs"
 $FfmpegReleaseBaseUrl = "https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/"
 $FfmpegAssetName = "ffmpeg-windows-x64.zip"
@@ -367,8 +367,10 @@ try {
     Write-Step "Preparing distribution AOT cache with bundled runtime"
     $runtimeJava = Join-Path $RuntimeDir 'bin/java.exe'
     $extracted = Expand-DistributionApplication -Java $runtimeJava -Jar $stagedJar -Destination (Join-Path $InputDir 'application')
-    New-DistributionAotCache -Java $runtimeJava -Jar $extracted `
-        -Cache (Join-Path $InputDir 'application.aot') -Training $AotTrainingDir
+    if ($SkipPlugins -or $AllowUnsignedLocalPlugins) {
+        New-DistributionAotCache -Java $runtimeJava -Jar $extracted `
+            -Cache (Join-Path $InputDir 'application.aot') -Training $AotTrainingDir
+    }
 
     Write-Step "Building app-image"
     Invoke-External "jpackage" @(
@@ -384,8 +386,7 @@ try {
         "--java-options", "-Dfile.encoding=UTF-8",
         "--java-options", "-Dstdout.encoding=UTF-8",
         "--java-options", "-Dstderr.encoding=UTF-8",
-        "--java-options", '-XX:AOTMode=auto',
-        "--java-options", '-XX:AOTCache=$APPDIR/application.aot',
+        "--java-options", '-Dpixivdownload.aot.bundled=$APPDIR/application.aot',
         "--dest", $OnlineAppImageRoot
     )
 
@@ -399,9 +400,11 @@ try {
         -not $_.StartsWith('app.classpath=') -or $_ -ceq $mainClassPath
     }), [Text.UTF8Encoding]::new($false))
 
-    Test-DistributionAotCache -Java (Join-Path $OnlineAppDir 'runtime/bin/java.exe') `
-        -Jar (Join-Path $OnlineAppDir "app/application/$AppName-$Version.jar") `
-        -Cache (Join-Path $OnlineAppDir 'app/application.aot') -Training $AotTrainingDir
+    if ($SkipPlugins -or $AllowUnsignedLocalPlugins) {
+        Test-DistributionAotCache -Java (Join-Path $OnlineAppDir 'runtime/bin/java.exe') `
+            -Jar (Join-Path $OnlineAppDir "app/application/$AppName-$Version.jar") `
+            -Cache (Join-Path $OnlineAppDir 'app/application.aot') -Training $AotTrainingDir
+    }
 
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
@@ -421,6 +424,13 @@ try {
             -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
             -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
         Write-Host ("    {0} official default-installed plugin(s) staged under plugins/." -f $defaultInstalledCount) -ForegroundColor Green
+        if (-not $AllowUnsignedLocalPlugins) {
+            Write-Step "Training GUI startup with the staged default plugins"
+            New-DistributionAotCache -Java (Join-Path $OnlineAppDir 'runtime/bin/java.exe') `
+                -Jar (Join-Path $OnlineAppDir "app/application/$AppName-$Version.jar") `
+                -Cache (Join-Path $OnlineAppDir 'app/application.aot') `
+                -Training ($AotTrainingDir + '-gui') -Plugins (Join-Path $OnlineAppDir 'plugins')
+        }
 
         if ($EnableInstallerPluginSelection) {
             Write-Step "Staging signed installer plugin catalog snapshot"
@@ -458,6 +468,13 @@ try {
                 -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
                 -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
+            if (-not $AllowUnsignedLocalPlugins) {
+                Write-Step "Training GUI startup with the staged offline plugins"
+                New-DistributionAotCache -Java (Join-Path $OfflineAppDir 'runtime/bin/java.exe') `
+                    -Jar (Join-Path $OfflineAppDir "app/application/$AppName-$Version.jar") `
+                    -Cache (Join-Path $OfflineAppDir 'app/application.aot') `
+                    -Training ($AotTrainingDir + '-offline-gui') -Plugins (Join-Path $OfflineAppDir 'plugins')
+            }
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
         Ensure-Directory $offlineFfmpegDir

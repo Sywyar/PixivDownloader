@@ -30,7 +30,9 @@ public final class DatabaseBootstrap {
                 .map(java.util.Map.Entry::getKey).toList();
         var session = PluginBootstrapSession.createProcess(RuntimeFiles.pluginsDirectory(),
                 top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot.ofDisabled(disabled, java.util.List.of()),
-                top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores.verifierResolver(repositories));
+                top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores.verifierResolver(repositories))
+                .withScanCache(RuntimeFiles.pluginScanCacheDirectory())
+                .withPreparationCache(RuntimeFiles.pluginPreparationCacheDirectory());
         session.updateAdmissionPolicy(new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy(
                 repositories, new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore()));
         return session.start();
