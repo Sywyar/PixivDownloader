@@ -50,9 +50,9 @@ Swing 与 Compose 设置页均提供「配置与环境迁移」，仅读取已�
 | --- | --- | --- |
 | `server.port` | `6999` | HTTP / HTTPS 监听端口 |
 | `debug.enabled` | `false` | 调试模式 |
-| `download.root-folder` | `pixiv-download` | 作品产物根目录（仅存放下载作品） |
-| `local-import.presets` | `[]` | 保存可重复使用的路径模板，保存后重启后端；[用法与示例](/zh-cn/local-import) |
-| `download.user-flat-folder` | `false` | 画师批量下载是否省略画师子目录 |
+| `download.root-folder` | `pixiv-download/{artwork_id}` | 插画最终保存目录模板；见下方说明 |
+| `local-import.presets` | `[]` | 保存可重复使用的路径模板；在工具页保存后用于后续扫描；[用法与示例](/zh-cn/local-import) |
+| `download.mode-templates.<mode>` | 见下方示例 | 按取得模式覆盖完整目录；空值使用默认模板 |
 | `download.max-concurrent` | `10` | 下载并发上限；另最多排队 100 件作品，满额返回 429 |
 | `database.maximum-pool-size` | `28` | 主数据库连接池上限（最小 `8`） |
 | `ffmpeg.max-concurrent` | `2` | FFmpeg 转码与媒体探测共享并发数（范围 `1–8`，重启后端生效） |
@@ -206,3 +206,31 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 - **插件凭据（`config/credentials/{pluginId}.properties`）**：存储密码、Cookie、API Key、Secret 与 Webhook 密钥，由宿主加密并按 owner 注入插件上下文。跨环境恢复使用包含凭据且设有密码的 `.pdbackup`；同环境文件备份还需保留 `config/credentials.key` 及其解锁条件。
 - **翻译设置（`translation` 插件）**：普通项位于 `config/plugins/translation.properties`（`translation.engine` 默认 `ai`，可选 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 默认 `false`，仅控制有道与 LibreTranslate；`translation.max-concurrent` 默认 `10`），保存后重启后端生效。详见[小说与朗读](/zh-cn/novel#翻译引擎（管理员）)。
 - **登录验证策略**：`setup.login-verification-policies` 默认为空；可配置最多 16 个逗号分隔的 `LoginVerification.policyId()` 策略键，重启后端生效。配置前请确认对应验证插件已启用，详见[操作验证码](/zh-cn/captcha)与[第三方插件 SDK](/zh-cn/plugin-development#不依赖-gui-的凭据与通用操作验证)。
+
+## 作品保存目录模板 :id=directory-templates
+
+在「设置 → 下载」中分别编辑插画和小说的保存目录。展开后的路径就是最终作品目录，不会再自动追加作者或作品 ID 层级。相对路径从应用工作目录解析，也可填写绝对路径；保存后重启应用生效。
+
+每类作品保留一个默认模板。点击「添加模式」可为单作品、User、系列、搜索或快捷模式设置完整覆盖；未添加、移除或留空的模式使用该类作品的默认模板。模式表示本次取得来源，作品属于某个系列并不等于使用系列模式。
+
+插画模板保存在宿主 `config/config.yaml` 的 `download.root-folder` 与 `download.mode-templates.<mode>`；小说模板由 `novel` 插件保存在 `config/plugins/novel.properties` 的 `download.novel-directory-template` 与 `download.novel-mode-templates.<mode>`。`<mode>` 为 `single-import`、`user`、`series`、`search` 或 `quick`。
+
+可用变量：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。变量名按这里的拼写精确匹配。
+
+模板必须包含独占一个路径段的 `{artwork_id}`，该段可以带固定文字，例如 `novel-{artwork_id}`，但不能同时包含其他变量。小说 ID 仍是纯数字，建议用 `novel-` 区分插画和小说。
+
+`{username}` 是取得来源的用户名。收藏夹、系列和 `R18` 变量缺值时展开为空；展开后完全为空的目录层会省略，同层的固定文字保留。其他必需值缺失会拒绝本次下载。`{page}`、`{extension}`、`{name}` 等本地导入变量不能用于保存目录。
+
+以下为默认模板和可选的模式模板示例：
+
+| 用途 | 模板 |
+| --- | --- |
+| 插画默认 | `pixiv-download/{artwork_id}` |
+| 插画 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 小说默认 | `pixiv-download/novel-{artwork_id}` |
+| 小说 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 系列模式示例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
+
+选中配置了目录的收藏夹时，收藏夹目录替换模板中首个含变量的目录层之前的固定路径；该目录层及其后续部分完整保留，包括固定文字。例如 `pixiv-download/novel-{artwork_id}` 配合收藏夹目录 `D:/Favorites`，会按 `D:/Favorites/novel-{artwork_id}` 展开。
+
+这些模板始终指定下载目录，末尾不要求 `/`。本地导入采用另一套规则：以 `/` 结尾匹配文件夹，不以 `/` 结尾匹配文件，见[本地作品导入](/zh-cn/local-import)。修改模板只影响后续下载，不会移动已有文件；搬迁已有目录见[存储与备份](/zh-cn/storage)。

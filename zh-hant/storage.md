@@ -11,7 +11,7 @@ PixivDownloader 將下載作品、宿主執行期檔案與外部外掛套件分�
 | 資料 | `data/` | SQLite 主資料庫、外掛私有資料庫、收藏夾圖示、縮圖/TTS 快取與遷移/還原紀錄 |
 | 外掛 | `plugins/` | 外部外掛安裝包、provenance 與執行期私有凍結工作區 |
 | 日誌 | `log/` | GUI 與後端執行日誌 |
-| 作品 | `{rootFolder}/` | `download.root-folder`（預設 `pixiv-download`）指定的作品檔案 |
+| 作品 | 依儲存目錄範本展開 | 插畫與小說的最終作品目錄；可依模式覆寫 |
 
 作品中繼資料與逐頁媒體紀錄集中儲存在所選資料庫中，新下載不再在作品目錄產生 `.meta.json` 或 `.media.properties`（Ugoira 保留原始 ZIP 時仍附帶 `.frames.properties` 影格時序）。請勿將設定、資料庫、外掛套件、狀態或快取放入作品下載根目錄。
 
@@ -50,12 +50,14 @@ PixivDownloader 將下載作品、宿主執行期檔案與外部外掛套件分�
 
 ## 下載作品目錄配置
 
+插畫與小說的目錄由[作品儲存目錄範本](/zh-hant/configuration?id=directory-templates)決定。插畫預設為 `pixiv-download/{artwork_id}`，小說預設為 `pixiv-download/novel-{artwork_id}`；User 等模式可個別覆寫。下表的 `{root}` 指預設插畫範本首個變數之前的固定前綴。
+
 | 預設路徑 | 內容 |
 | --- | --- |
-| `{root}/{artworkId}/` | 單件作品、URL 批次、搜尋等插畫 / 漫畫 / 動圖（含合成的 `_p0.webp` 與 `_p0_thumb.jpg`） |
-| `{root}/{artist}/{artworkId}/` | 畫師批次下載（`download.user-flat-folder=true` 時省略 `{artist}/` 層） |
+| `pixiv-download/{artwork_id}/` | 單件作品、URL 批次、搜尋等插畫 / 漫畫 / 動圖（含合成的 `_p0.webp` 與 `_p0_thumb.jpg`） |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | 插畫 User |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫畫系列封面 |
-| `{root}/novel-{novelId}/` | 單篇小說的 TXT / HTML / EPUB 與內嵌圖片 |
+| `pixiv-download/novel-{artwork_id}/` | 單篇小說的 TXT / HTML / EPUB 與內嵌圖片 |
 | `{root}/novel-series-{seriesId}/` | 小說系列封面與合訂本 |
 | `{root}/douyin/{owner}/...` | Douyin 外掛預設下載目錄（或該外掛設定的自訂目錄） |
 | `{root}/_archives/{token}.zip` | 批次匯出與多人模式配額的短期壓縮檔 |
@@ -66,7 +68,7 @@ PixivDownloader 將下載作品、宿主執行期檔案與外部外掛套件分�
 
 資料庫將檔案路徑儲存為 `{N}/relative/path`：
 
-- **`{0}` 符號根**：當 `download.root-folder` 為相對路徑（如預設的 `pixiv-download`）時，下載根內的檔案記錄為 `{0}/...`，每次啟動動態解析為「目前工作目錄 + 相對下載根」。**整體搬遷整個程式目錄（含 `pixiv-download/`）時，無需手動修改資料庫路徑。**
+- **`{0}` 符號根目錄**：預設插畫範本的固定前綴為相對路徑時（例如 `pixiv-download/{artwork_id}` 中的 `pixiv-download`），該前綴內的檔案可記錄為 `{0}/...`，啟動時依工作目錄解析。整體搬遷應用程式與該目錄時，不需手動修改這些資料庫路徑。
 - **一般 `{N}` 前綴**：當下載根或收藏夾使用絕對路徑時，紀錄會參照 `path_prefixes` 表中的絕對路徑前綴。
 
 僅搬移作品下載根目錄時：

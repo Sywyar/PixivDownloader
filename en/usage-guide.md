@@ -45,7 +45,7 @@ The following variables are available under "Download settings → Filename temp
 
 For a selected local collection named `Favorites` with ID `7`, `{collection_name}_{collection_id}_{artwork_id}_p{page}` can produce `Favorites_7_42_p0.png`. With no collection selected, the same template produces `__42_p0.png`. Both illustrations and novels support these variables. The actual filenames are saved at download time, so renaming a collection does not rename existing files.
 
-Filename templates affect filenames only: `/` and `\` become `_` and do not create subdirectories. The global `download.root-folder` does not expand variables; a collection's custom download directory supports `{collection_name}`. These modes differ from [local artwork import path parsing](/en/local-import), which reports both collection variables as known but unavailable in the current mode.
+Filename templates affect filenames only: `/` and `\` become `_` and do not create subdirectories. [Work directory templates](/en/configuration?id=directory-templates) control save paths and support the applicable work, collection, series and acquisition-source variables listed above. [Local artwork import](/en/local-import) parses existing paths in reverse and has its own supported variables.
 
 ## Automatic bookmarking and Ugoira processing
 
@@ -62,7 +62,7 @@ Compose groups tools by how you use them. **Quick tools** include Data backfill,
 
 !> Offline maintenance tools such as Directory check use an exclusive maintenance session; the GUI automatically stops and restores the backend. Back up the selected database first (for PostgreSQL, also back up the server-side database), and do not start another instance using the same data directory. When the operation ends, check the tool report, backend state and gallery access. Closing the tool window does not mean the operation succeeded.
 
-Import local artworks is an online tool that requires the backend to stay running; it does not use the maintenance shutdown flow above. Register files using path templates, or save presets and enter only artwork IDs. See the [guide and examples](/en/local-import).
+Import local artworks is an online tool that requires the backend to stay running; it does not use the maintenance shutdown flow above. Register files using path templates, or scan saved presets with all optional fields left empty. See the [guide and examples](/en/local-import).
 
 ## Guest invitations
 

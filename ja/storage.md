@@ -11,7 +11,7 @@ PixivDownloader は、ダウンロードした作品、ホストの実行時フ�
 | データ | `data/` | SQLite の主データベース、プラグイン専用データベース、コレクションのアイコン、サムネイル・TTS キャッシュ、移行・復旧記録 |
 | プラグイン | `plugins/` | 外部プラグインのインストールパッケージ、provenance、実行時の専用固定作業領域 |
 | ログ | `log/` | GUI とバックエンドの実行ログ |
-| 作品 | `{rootFolder}/` | `download.root-folder`（デフォルトは `pixiv-download`）で指定した作品ファイル |
+| 作品 | 保存先ディレクトリテンプレートを展開 | イラストと小説の最終保存先。モード別に上書き可能 |
 
 作品のメタデータとページごとのメディア記録は、選択したデータベースにまとめて保存されます。新規ダウンロードでは作品ディレクトリに `.meta.json` や `.media.properties` を生成しません。うごイラの元 ZIP を保持する場合は、フレームの時間情報 `.frames.properties` が引き続き付属します。設定、データベース、プラグインパッケージ、状態、キャッシュを作品のダウンロードルートに置かないでください。
 
@@ -50,12 +50,14 @@ JVM プロパティ `pixivdownload.plugins-dir` でプラグインのルート�
 
 ## ダウンロード作品のディレクトリ構成
 
+イラストと小説の保存先は[ディレクトリテンプレート](/ja/configuration?id=directory-templates)で決まります。既定値はイラストが `pixiv-download/{artwork_id}`、小説が `pixiv-download/novel-{artwork_id}` で、User などのモードごとに上書きできます。下表の `{root}` は既定のイラスト用テンプレートの最初の変数より前にある固定プレフィックスです。
+
 | デフォルトのパス | 内容 |
 | --- | --- |
-| `{root}/{artworkId}/` | 単一作品、URL 一括、検索などで取得したイラスト・漫画・うごイラ（生成した `_p0.webp` と `_p0_thumb.jpg` を含む） |
-| `{root}/{artist}/{artworkId}/` | 作者別一括ダウンロード（`download.user-flat-folder=true` の場合は `{artist}/` の階層を省略） |
+| `pixiv-download/{artwork_id}/` | 単一作品、URL 一括、検索などで取得したイラスト・漫画・うごイラ（生成した `_p0.webp` と `_p0_thumb.jpg` を含む） |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | イラストの User モード |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫画シリーズの表紙 |
-| `{root}/novel-{novelId}/` | 単一小説の TXT / HTML / EPUB と埋め込み画像 |
+| `pixiv-download/novel-{artwork_id}/` | 単一小説の TXT / HTML / EPUB と埋め込み画像 |
 | `{root}/novel-series-{seriesId}/` | 小説シリーズの表紙と合本 |
 | `{root}/douyin/{owner}/...` | Douyin プラグインのデフォルト保存先、または同プラグインで指定した保存先 |
 | `{root}/_archives/{token}.zip` | 一括エクスポートとマルチユーザーモードのクォータ処理用の短期アーカイブ |
@@ -66,7 +68,7 @@ JVM プロパティ `pixivdownload.plugins-dir` でプラグインのルート�
 
 データベースにはファイルパスが `{N}/relative/path` の形式で保存されます。
 
-- **`{0}` シンボリックルート**：`download.root-folder` が相対パス（デフォルトの `pixiv-download` など）の場合、ダウンロードルート内のファイルは `{0}/...` として記録され、起動のたびに「現在の作業ディレクトリ + 相対ダウンロードルート」として解決されます。**プログラムのディレクトリ全体を `pixiv-download/` とともに移転する場合、データベース内のパスを手動で変更する必要はありません。**
+- **`{0}` シンボリックルート**：既定のイラスト用テンプレートの固定プレフィックスが相対パスの場合（`pixiv-download/{artwork_id}` の `pixiv-download` など）、その範囲のファイルは `{0}/...` として記録でき、起動時に作業ディレクトリを基準に解決されます。アプリとそのディレクトリを一緒に移動する場合、これらのデータベースパスを手動で変更する必要はありません。
 - **通常の `{N}` プレフィックス**：ダウンロードルートやコレクションが絶対パスを使用する場合、記録は `path_prefixes` テーブルの絶対パスプレフィックスを参照します。
 
 作品のダウンロードルートだけを移転する場合：

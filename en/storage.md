@@ -11,7 +11,7 @@ PixivDownloader keeps downloaded works, host runtime files and external plugin p
 | Data | `data/` | SQLite main database, private plugin databases, collection icons, thumbnail / TTS caches and migration / recovery records |
 | Plugins | `plugins/` | External plugin packages, provenance and private frozen runtime workspaces |
 | Logs | `log/` | GUI and backend runtime logs |
-| Works | `{rootFolder}/` | Work files under `download.root-folder`, defaulting to `pixiv-download` |
+| Works | Expanded save directory template | Final artwork and novel directories; modes can override the default |
 
 Work metadata and per-page media records are stored centrally in the selected database. New downloads no longer create `.meta.json` or `.media.properties` in work directories. When an original Ugoira ZIP is retained, its `.frames.properties` frame timings are still included. Do not put configuration, databases, plugin packages, state or caches in the work download root.
 
@@ -50,12 +50,14 @@ Set the plugin root through the JVM property `pixivdownload.plugins-dir`. Never 
 
 ## Downloaded-work directory layout
 
+Illustration and novel directories follow the [work directory templates](/en/configuration?id=directory-templates). The defaults are `pixiv-download/{artwork_id}` for illustrations and `pixiv-download/novel-{artwork_id}` for novels; modes such as User can override them. In the table below, `{root}` means the fixed prefix before the first variable in the default illustration template.
+
 | Default path | Content |
 | --- | --- |
-| `{root}/{artworkId}/` | Illustrations / manga / animations from individual-work, URL-batch, search and similar downloads, including generated `_p0.webp` and `_p0_thumb.jpg` |
-| `{root}/{artist}/{artworkId}/` | Artist batch downloads; `download.user-flat-folder=true` omits the `{artist}/` level |
+| `pixiv-download/{artwork_id}/` | Illustrations / manga / animations from individual-work, URL-batch, search and similar downloads, including generated `_p0.webp` and `_p0_thumb.jpg` |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | Illustration User |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | Manga-series cover |
-| `{root}/novel-{novelId}/` | A single novel's TXT / HTML / EPUB and embedded images |
+| `pixiv-download/novel-{artwork_id}/` | A single novel's TXT / HTML / EPUB and embedded images |
 | `{root}/novel-series-{seriesId}/` | Novel-series cover and compiled book |
 | `{root}/douyin/{owner}/...` | Douyin plugin's default download directory, or its configured custom directory |
 | `{root}/_archives/{token}.zip` | Short-lived archives for batch export and multi-mode quotas |
@@ -66,7 +68,7 @@ Third-party download-type plugins should likewise save works under `{root}/{plug
 
 The database stores file paths as `{N}/relative/path`:
 
-- **`{0}` symbolic root**: when `download.root-folder` is relative, such as the default `pixiv-download`, files inside that root are recorded as `{0}/...`. Each startup resolves this dynamically to the current working directory plus the relative download root. **Moving the entire application directory, including `pixiv-download/`, requires no manual database-path changes.**
+- **`{0}` symbolic root**: when the default illustration template has a relative fixed prefix, such as `pixiv-download` in `pixiv-download/{artwork_id}`, files within that prefix can be recorded as `{0}/...` and resolved against the working directory at startup. Moving the application and that directory together requires no manual changes to those database paths.
 - **Ordinary `{N}` prefixes**: when the download root or a collection uses an absolute path, records refer to an absolute prefix in the `path_prefixes` table.
 
 To move only the work download root:

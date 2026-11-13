@@ -50,9 +50,9 @@ After moving the Windows installation directory, run the installer, select the n
 | --- | --- | --- |
 | `server.port` | `6999` | HTTP / HTTPS listening port |
 | `debug.enabled` | `false` | Debug mode |
-| `download.root-folder` | `pixiv-download` | Root directory for work output (downloaded works only) |
-| `local-import.presets` | `[]` | Reusable path templates; save and restart the backend. [Guide and examples](/en/local-import) |
-| `download.user-flat-folder` | `false` | Omit artist subdirectories in artist batch downloads |
+| `download.root-folder` | `pixiv-download/{artwork_id}` | Final illustration directory template; see below |
+| `local-import.presets` | `[]` | Reusable path templates; saving from Tools applies them to subsequent scans. [Guide and examples](/en/local-import) |
+| `download.mode-templates.<mode>` | See examples below | Override the entire directory per acquisition mode; blank uses the default |
 | `download.max-concurrent` | `10` | Download concurrency limit; at most 100 additional works can queue, with 429 returned when full |
 | `database.maximum-pool-size` | `28` | Main database connection pool limit (minimum `8`) |
 | `ffmpeg.max-concurrent` | `2` | Shared concurrency for FFmpeg transcoding and media probing (range `1–8`; takes effect after a backend restart) |
@@ -206,3 +206,31 @@ With `server.trusted-proxy-cidrs` empty, the server runs in direct-access mode a
 - **Plugin credentials (`config/credentials/{pluginId}.properties`)**: store passwords, cookies, API Keys, Secrets and Webhook keys, encrypted by the host and injected into plugin contexts by owner. For transfers between environments, use a password-protected `.pdbackup` that includes credentials. A file backup for the same environment also needs `config/credentials.key` and its unlocking requirements.
 - **Translation settings (`translation` plugin)**: ordinary settings are in `config/plugins/translation.properties` (`translation.engine` defaults to `ai`, with `youdao` and `libretranslate` also available; `translation.libretranslate-url` excludes `/translate`; `translation.use-proxy` defaults to `false` and controls only Youdao and LibreTranslate; `translation.max-concurrent` defaults to `10`). Save and restart the backend to apply. See [Novels and narration](/en/novel#translation-engines-administrator).
 - **Login verification policies**: `setup.login-verification-policies` defaults to empty. Configure at most 16 comma-separated `LoginVerification.policyId()` policy keys, then restart the backend. Confirm that the corresponding verification plugins are enabled before configuring this setting; see [Operation CAPTCHA](/en/captcha) and [Third-party plugin SDK](/en/plugin-development#credentials-and-general-operation-verification-without-a-gui-dependency).
+
+## Work directory templates :id=directory-templates
+
+In Settings → Downloads, edit the illustration and novel directories separately. The expanded path is the final work directory; no author or artwork ID levels are appended. Relative paths resolve from the application working directory, and absolute paths are also supported. Save and restart the application to apply changes.
+
+Each work type has one default template. Use Add mode to override the entire directory for individual works, User, series, search or quick acquisition. Modes that are absent, removed or blank use that work type's default. The mode describes how the current download was requested; belonging to a series does not select series mode.
+
+Illustration templates are stored in the host's `config/config.yaml` under `download.root-folder` and `download.mode-templates.<mode>`. The `novel` plugin stores novel templates in `config/plugins/novel.properties` under `download.novel-directory-template` and `download.novel-mode-templates.<mode>`. `<mode>` is `single-import`, `user`, `series`, `search` or `quick`.
+
+Available variables: `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}` and `{R18}`. Use these exact spellings.
+
+A template must contain a path segment whose only variable is `{artwork_id}`. Fixed text is allowed in that segment, as in `novel-{artwork_id}`. Novel IDs remain numeric; use a prefix such as `novel-` to keep novel and illustration directories separate.
+
+`{username}` is the username from the acquisition source. Missing collection, series and `R18` values expand to empty strings. Entirely empty directory levels are omitted, while fixed text in the same level remains. Missing other required values rejects the download. Local-import variables such as `{page}`, `{extension}` and `{name}` are unavailable in save directories.
+
+Default templates and examples of optional mode overrides:
+
+| Use | Template |
+| --- | --- |
+| Illustration default | `pixiv-download/{artwork_id}` |
+| Illustration User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| Novel default | `pixiv-download/novel-{artwork_id}` |
+| Novel User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| Series-mode example | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
+
+When the selected collection has a custom directory, it replaces the fixed path before the first directory segment containing a variable. That segment and everything after it are retained, including fixed text. For example, `pixiv-download/novel-{artwork_id}` with a collection directory of `D:/Favorites` expands using `D:/Favorites/novel-{artwork_id}`.
+
+These templates always specify download directories and do not require a trailing `/`. Local import uses a separate rule: a trailing `/` matches folders, while no trailing `/` matches files. See [local artwork import](/en/local-import). Template changes affect future downloads and do not move existing files; see [storage and backups](/en/storage) for moving directories.

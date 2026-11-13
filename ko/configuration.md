@@ -50,9 +50,9 @@ Windows 설치 폴더를 이동한 후 설치 패키지를 실행하고 새 폴�
 | --- | --- | --- |
 | `server.port` | `6999` | HTTP / HTTPS 수신 포트 |
 | `debug.enabled` | `false` | 디버그 모드 |
-| `download.root-folder` | `pixiv-download` | 작품 산출물 루트 폴더. 다운로드한 작품만 저장 |
-| `local-import.presets` | `[]` | 다시 사용할 경로 템플릿. 저장 후 백엔드 다시 시작. [사용 방법과 예시](/ko/local-import) |
-| `download.user-flat-folder` | `false` | 작가 일괄 다운로드 시 작가 하위 폴더 생략 여부 |
+| `download.root-folder` | `pixiv-download/{artwork_id}` | 일러스트 최종 저장 디렉터리 템플릿. 아래 설명 참고 |
+| `local-import.presets` | `[]` | 다시 사용할 경로 템플릿. 도구 페이지에서 저장하면 이후 검색에 적용. [사용 방법과 예시](/ko/local-import) |
+| `download.mode-templates.<mode>` | 아래 예시 참조 | 취득 모드별로 전체 경로 덮어쓰기. 비우면 기본 템플릿 사용 |
 | `download.max-concurrent` | `10` | 동시 다운로드 상한. 추가 대기 작품은 최대 100개이며 가득 차면 429 반환 |
 | `database.maximum-pool-size` | `28` | 주 데이터베이스 연결 풀 상한. 최솟값 `8` |
 | `ffmpeg.max-concurrent` | `2` | FFmpeg 변환과 미디어 탐색의 공유 동시 작업 수. 범위 `1–8`, 백엔드 재시작 후 적용 |
@@ -206,3 +206,31 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 - **플러그인 자격 증명(`config/credentials/{pluginId}.properties`)**: 비밀번호, Cookie, API Key, Secret과 Webhook 비밀 키를 저장합니다. 호스트가 암호화하고 owner별로 플러그인 컨텍스트에 주입합니다. 환경 간 이전에는 자격 증명을 포함한 비밀번호 보호 `.pdbackup`을 사용하세요. 같은 환경에 복원하는 파일 백업도 `config/credentials.key`와 그 잠금 해제 조건을 보존해야 합니다.
 - **번역 설정(`translation` 플러그인)**: 일반 항목은 `config/plugins/translation.properties`에 있습니다. `translation.engine` 기본값은 `ai`이며 `youdao`, `libretranslate`를 선택할 수 있습니다. `translation.libretranslate-url`에는 `/translate`를 포함하지 않습니다. `translation.use-proxy` 기본값은 `false`이며 Youdao와 LibreTranslate만 제어합니다. `translation.max-concurrent` 기본값은 `10`입니다. 저장 후 백엔드를 재시작해야 적용됩니다. [소설 및 낭독](/ko/novel#번역-엔진관리자)을 참고하세요.
 - **로그인 검증 정책**: `setup.login-verification-policies` 기본값은 비어 있습니다. 쉼표로 구분한 `LoginVerification.policyId()` 정책 키를 최대 16개 설정할 수 있으며 백엔드 재시작 후 적용됩니다. 설정 전에 해당 검증 플러그인이 활성화되어 있는지 확인하세요. [작업 CAPTCHA](/ko/captcha)와 [서드파티 플러그인 SDK](/ko/plugin-development#gui에-의존하지-않는-자격-증명-및-일반-작업-검증)을 참고하세요.
+
+## 작품 저장 디렉터리 템플릿 :id=directory-templates
+
+「설정 → 다운로드」에서 일러스트와 소설의 저장 경로를 따로 편집합니다. 변수를 치환한 경로가 최종 작품 디렉터리이며 작가나 작품 ID 폴더를 자동으로 덧붙이지 않습니다. 상대 경로는 앱 작업 디렉터리를 기준으로 해석하며 절대 경로도 사용할 수 있습니다. 저장 후 앱을 다시 시작하면 적용됩니다.
+
+작품 종류마다 기본 템플릿을 하나씩 둡니다. 「모드 추가」로 단일 작품, User, 시리즈, 검색 또는 빠른 가져오기 모드의 전체 경로를 덮어쓸 수 있습니다. 추가하지 않았거나 삭제했거나 비워 둔 모드는 해당 작품 종류의 기본값을 사용합니다. 모드는 이번 다운로드의 취득 방식을 뜻하며, 작품이 시리즈에 속한다는 이유만으로 시리즈 모드를 사용하지는 않습니다.
+
+일러스트 템플릿은 호스트 `config/config.yaml`의 `download.root-folder`와 `download.mode-templates.<mode>`에 저장합니다. 소설 템플릿은 `novel` 플러그인이 `config/plugins/novel.properties`의 `download.novel-directory-template`와 `download.novel-mode-templates.<mode>`에 저장합니다. `<mode>`는 `single-import`, `user`, `series`, `search`, `quick` 중 하나입니다.
+
+사용 가능한 변수: `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}`, `{R18}`. 표기를 정확히 일치시켜야 합니다.
+
+템플릿에는 `{artwork_id}`만 변수로 사용하는 경로 구간이 있어야 합니다. `novel-{artwork_id}`처럼 고정 문자를 붙일 수 있지만 같은 구간에 다른 변수를 넣을 수는 없습니다. 소설 ID도 숫자이므로 `novel-` 같은 접두사로 일러스트와 구분하세요.
+
+`{username}`은 취득 출처의 사용자 이름입니다. 컬렉션, 시리즈, `R18` 값이 없으면 빈 문자열로 치환합니다. 치환 후 완전히 빈 디렉터리 단계는 생략하고 같은 단계의 고정 문자는 남깁니다. 다른 필수 값이 없으면 다운로드를 거부합니다. 로컬 가져오기용 `{page}`, `{extension}`, `{name}` 등은 저장 디렉터리에 사용할 수 없습니다.
+
+기본 템플릿과 선택 가능한 모드별 템플릿 예시:
+
+| 용도 | 템플릿 |
+| --- | --- |
+| 일러스트 기본값 | `pixiv-download/{artwork_id}` |
+| 일러스트 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 소설 기본값 | `pixiv-download/novel-{artwork_id}` |
+| 소설 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 시리즈 모드 예시 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
+
+선택한 컬렉션에 저장 디렉터리가 있으면 변수가 처음 포함된 디렉터리 구간 앞의 고정 경로를 해당 디렉터리로 바꿉니다. 그 구간부터 뒤쪽은 고정 문자를 포함해 모두 유지합니다. 예를 들어 `pixiv-download/novel-{artwork_id}`와 컬렉션 디렉터리 `D:/Favorites`를 함께 사용하면 `D:/Favorites/novel-{artwork_id}`로 확장됩니다.
+
+이 템플릿은 항상 다운로드 디렉터리를 지정하므로 끝에 `/`를 붙일 필요가 없습니다. 로컬 가져오기는 별도 규칙을 사용하여 `/`로 끝나면 폴더, 그렇지 않으면 파일을 지정합니다. [로컬 작품 가져오기](/ko/local-import)를 참고하세요. 템플릿 변경은 이후 다운로드에 적용되며 기존 파일을 옮기지 않습니다. 폴더 이전은 [저장소 및 백업](/ko/storage)을 참고하세요.

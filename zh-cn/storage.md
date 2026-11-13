@@ -11,7 +11,7 @@ PixivDownloader 将下载作品、宿主运行期文件与外置插件包分目�
 | 数据 | `data/` | SQLite 主库、插件私库、收藏夹图标、缩略图/TTS 缓存与迁移/恢复记录 |
 | 插件 | `plugins/` | 外置插件安装包、provenance 与运行期私有冻结工作区 |
 | 日志 | `log/` | GUI 与后端运行日志 |
-| 作品 | `{rootFolder}/` | `download.root-folder`（默认 `pixiv-download`）指定的作品文件 |
+| 作品 | 按保存目录模板展开 | 插画与小说的最终作品目录；可按模式覆盖 |
 
 作品元数据与逐页媒体记录集中保存在所选数据库中，新下载不再在作品目录生成 `.meta.json` 或 `.media.properties`（Ugoira 保留原始 ZIP 时仍附带 `.frames.properties` 帧时序）。请勿将配置、数据库、插件包、状态或缓存放入作品下载根目录。
 
@@ -50,12 +50,14 @@ PixivDownloader 将下载作品、宿主运行期文件与外置插件包分目�
 
 ## 下载作品目录布局
 
+插画与小说的目录由[作品保存目录模板](/zh-cn/configuration?id=directory-templates)决定。默认插画路径为 `pixiv-download/{artwork_id}`，默认小说路径为 `pixiv-download/novel-{artwork_id}`；User 等模式可单独覆盖。下表的 `{root}` 指默认插画模板在首个变量之前的固定前缀。
+
 | 默认路径 | 内容 |
 | --- | --- |
-| `{root}/{artworkId}/` | 单作品、URL 批量、搜索等插画 / 漫画 / 动图（含合成的 `_p0.webp` 与 `_p0_thumb.jpg`） |
-| `{root}/{artist}/{artworkId}/` | 画师批量下载（`download.user-flat-folder=true` 时省略 `{artist}/` 层） |
+| `pixiv-download/{artwork_id}/` | 单作品、URL 批量、搜索等插画 / 漫画 / 动图（含合成的 `_p0.webp` 与 `_p0_thumb.jpg`） |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | 插画 User |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫画系列封面 |
-| `{root}/novel-{novelId}/` | 单篇小说的 TXT / HTML / EPUB 与内嵌图片 |
+| `pixiv-download/novel-{artwork_id}/` | 单篇小说的 TXT / HTML / EPUB 与内嵌图片 |
 | `{root}/novel-series-{seriesId}/` | 小说系列封面与合订本 |
 | `{root}/douyin/{owner}/...` | Douyin 插件默认下载目录（或该插件配置的自定义目录） |
 | `{root}/_archives/{token}.zip` | 批量导出与多人模式配额的短期压缩包 |
@@ -66,7 +68,7 @@ PixivDownloader 将下载作品、宿主运行期文件与外置插件包分目�
 
 数据库将文件路径保存为 `{N}/relative/path`：
 
-- **`{0}` 符号根**：当 `download.root-folder` 为相对路径（如默认的 `pixiv-download`）时，下载根内的文件记录为 `{0}/...`，每次启动动态解析为「当前工作目录 + 相对下载根」。**整体搬迁整个程序目录（含 `pixiv-download/`）时无需手动修改数据库路径。**
+- **`{0}` 符号根**：默认插画模板的固定前缀为相对路径时（如 `pixiv-download/{artwork_id}` 的 `pixiv-download`），该前缀内的文件可记录为 `{0}/...`；启动时按当前工作目录解析。整体搬迁应用和该目录时，无需手动修改这些数据库路径。
 - **普通 `{N}` 前缀**：当下载根或收藏夹使用绝对路径时，记录引用 `path_prefixes` 表中的绝对路径前缀。
 
 只搬移作品下载根目录时：

@@ -50,9 +50,9 @@ Swing 與 Compose 設定頁均提供「設定與環境遷移」，僅讀取已�
 | --- | --- | --- |
 | `server.port` | `6999` | HTTP / HTTPS 監聽連接埠 |
 | `debug.enabled` | `false` | 偵錯模式 |
-| `download.root-folder` | `pixiv-download` | 作品產物根目錄（僅存放下載作品） |
-| `local-import.presets` | `[]` | 儲存可重複使用的路徑範本，儲存後重新啟動後端；[用法與範例](/zh-hant/local-import) |
-| `download.user-flat-folder` | `false` | 畫師批次下載是否省略畫師子目錄 |
+| `download.root-folder` | `pixiv-download/{artwork_id}` | 插畫最終儲存目錄範本；詳見下方說明 |
+| `local-import.presets` | `[]` | 儲存可重複使用的路徑範本；在工具頁儲存後用於後續掃描；[用法與範例](/zh-hant/local-import) |
+| `download.mode-templates.<mode>` | 見下方範例 | 依取得模式覆寫完整目錄；空值使用預設範本 |
 | `download.max-concurrent` | `10` | 下載並行上限；另最多排隊 100 件作品，額滿回傳 429 |
 | `database.maximum-pool-size` | `28` | 主資料庫連線池上限（最小 `8`） |
 | `ffmpeg.max-concurrent` | `2` | FFmpeg 轉碼與媒體探測共用並行數（範圍 `1–8`，重新啟動後端生效） |
@@ -206,3 +206,31 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 - **外掛憑證（`config/credentials/{pluginId}.properties`）**：儲存密碼、Cookie、API Key、Secret 與 Webhook 密鑰，由宿主加密並依 owner 注入外掛上下文。跨環境還原使用包含憑證且設有密碼的 `.pdbackup`；同環境的檔案備份還需保留 `config/credentials.key` 及其解鎖條件。
 - **翻譯設定（`translation` 外掛）**：一般項目位於 `config/plugins/translation.properties`（`translation.engine` 預設 `ai`，可選 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 預設 `false`，僅控制有道與 LibreTranslate；`translation.max-concurrent` 預設 `10`），儲存後重新啟動後端生效。詳見[小說與朗讀](/zh-hant/novel#翻譯引擎（管理員）)。
 - **登入驗證策略**：`setup.login-verification-policies` 預設為空；可設定最多 16 個逗號分隔的 `LoginVerification.policyId()` 策略鍵，重新啟動後端生效。設定前請確認對應驗證外掛已啟用，詳見[操作驗證碼](/zh-hant/captcha)與[第三方外掛 SDK](/zh-hant/plugin-development#不依賴-gui-的憑證與通用操作驗證)。
+
+## 作品儲存目錄範本 :id=directory-templates
+
+在「設定 → 下載」中分別編輯插畫與小說的儲存目錄。展開後的路徑就是最終作品目錄，不會再自動附加作者或作品 ID 層級。相對路徑以應用程式工作目錄為基準，也可填寫絕對路徑；儲存後重新啟動應用程式生效。
+
+每類作品各有一個預設範本。按「新增模式」可為單一作品、User、系列、搜尋或快捷模式設定完整覆寫；未新增、移除或留空的模式使用該類作品的預設範本。模式代表此次取得來源，作品屬於某個系列不代表使用系列模式。
+
+插畫範本儲存在宿主 `config/config.yaml` 的 `download.root-folder` 與 `download.mode-templates.<mode>`；小說範本由 `novel` 外掛儲存在 `config/plugins/novel.properties` 的 `download.novel-directory-template` 與 `download.novel-mode-templates.<mode>`。`<mode>` 為 `single-import`、`user`、`series`、`search` 或 `quick`。
+
+可用變數：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。變數名稱必須符合此處的拼寫。
+
+範本必須包含獨占一個路徑區段的 `{artwork_id}`，該區段可帶固定文字，例如 `novel-{artwork_id}`，但不能同時包含其他變數。小說 ID 仍是純數字，建議以 `novel-` 區分插畫與小說。
+
+`{username}` 是取得來源的使用者名稱。收藏夾、系列與 `R18` 變數缺值時展開為空；完全為空的目錄層會省略，同層的固定文字保留。其他必要值缺少時會拒絕此次下載。`{page}`、`{extension}`、`{name}` 等本地匯入變數不能用於儲存目錄。
+
+以下為預設範本與可選模式範本的範例：
+
+| 用途 | 範本 |
+| --- | --- |
+| 插畫預設 | `pixiv-download/{artwork_id}` |
+| 插畫 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 小說預設 | `pixiv-download/novel-{artwork_id}` |
+| 小說 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 系列模式範例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
+
+選取設有目錄的收藏夾時，收藏夾目錄會替換範本中首個含變數的目錄層之前的固定路徑；該目錄層及後續部分完整保留，包括固定文字。例如 `pixiv-download/novel-{artwork_id}` 搭配收藏夾目錄 `D:/Favorites`，會依 `D:/Favorites/novel-{artwork_id}` 展開。
+
+這些範本始終指定下載目錄，末尾不要求 `/`。本地匯入使用另一套規則：以 `/` 結尾比對資料夾，未以 `/` 結尾則比對檔案，見[本地作品匯入](/zh-hant/local-import)。修改範本只影響後續下載，不會移動既有檔案；搬遷目錄見[儲存與備份](/zh-hant/storage)。

@@ -50,9 +50,9 @@ Windows のインストールディレクトリを移動した後は、インス
 | --- | --- | --- |
 | `server.port` | `6999` | HTTP / HTTPS の待ち受けポート |
 | `debug.enabled` | `false` | デバッグモード |
-| `download.root-folder` | `pixiv-download` | 作品の保存ルート。ダウンロード作品だけを置く |
-| `local-import.presets` | `[]` | 再利用するパステンプレート。保存後にバックエンドを再起動。[使い方と記入例](/ja/local-import) |
-| `download.user-flat-folder` | `false` | 作者別一括ダウンロードで作者サブディレクトリを省略するか |
+| `download.root-folder` | `pixiv-download/{artwork_id}` | イラストの最終保存先テンプレート。詳細は下記 |
+| `local-import.presets` | `[]` | 再利用するパステンプレート。ツールページで保存すると次回以降のスキャンに適用。[使い方と記入例](/ja/local-import) |
+| `download.mode-templates.<mode>` | 下の例を参照 | 取得モードごとに保存先全体を上書き。空欄は既定値を使用 |
 | `download.max-concurrent` | `10` | 同時ダウンロード上限。別途最大 100 作品を待機でき、満杯なら 429 を返す |
 | `database.maximum-pool-size` | `28` | 主データベースの接続プール上限。最小 `8` |
 | `ffmpeg.max-concurrent` | `2` | FFmpeg の変換とメディア調査で共有する同時実行数。範囲 `1–8`、バックエンド再起動後に反映 |
@@ -206,3 +206,31 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 - **プラグインの認証情報（`config/credentials/{pluginId}.properties`）**：パスワード、Cookie、API Key、Secret、Webhook の秘密キーを保存します。ホストが暗号化し、owner ごとにプラグインコンテキストへ注入します。環境間の移行には認証情報を含むパスワード付き `.pdbackup` を使ってください。同じ環境に戻すファイルバックアップでも、`config/credentials.key` とその復号条件を保持する必要があります。
 - **翻訳設定（`translation` プラグイン）**：通常の項目は `config/plugins/translation.properties` にあります。`translation.engine` はデフォルト `ai`、選択肢は `youdao`、`libretranslate`。`translation.libretranslate-url` は `/translate` を含めません。`translation.use-proxy` はデフォルト `false` で、有道と LibreTranslate だけを制御します。`translation.max-concurrent` はデフォルト `10` です。保存後にバックエンドを再起動すると反映されます。[小説と読み上げ](/ja/novel#翻訳エンジン（管理者）)を参照してください。
 - **ログイン検証ポリシー**：`setup.login-verification-policies` はデフォルトで空です。`LoginVerification.policyId()` のポリシーキーをカンマ区切りで最大 16 件指定でき、バックエンド再起動後に反映されます。設定前に対応する検証プラグインが有効であることを確認してください。[操作 CAPTCHA](/ja/captcha)と[サードパーティープラグイン SDK](/ja/plugin-development#gui-に依存しない認証情報と汎用操作検証)を参照してください。
+
+## 作品の保存先ディレクトリテンプレート :id=directory-templates
+
+「設定 → ダウンロード」でイラストと小説の保存先を個別に編集します。展開後のパスが作品の保存先になり、作者名や作品 ID の階層は追加されません。相対パスはアプリの作業ディレクトリを基準に解決され、絶対パスも使えます。保存後、アプリを再起動すると反映されます。
+
+作品の種類ごとに既定のテンプレートを設定します。「モードを追加」で単一作品、User、シリーズ、検索、クイック取得の保存先全体を上書きできます。未追加、削除済み、空欄のモードは、その種類の既定値を使います。モードは今回の取得方法を表し、作品がシリーズに属しているだけではシリーズモードになりません。
+
+イラストのテンプレートはホストの `config/config.yaml` にある `download.root-folder` と `download.mode-templates.<mode>`、小説のテンプレートは `novel` プラグインの `config/plugins/novel.properties` にある `download.novel-directory-template` と `download.novel-mode-templates.<mode>` に保存されます。`<mode>` は `single-import`、`user`、`series`、`search`、`quick` です。
+
+使用できる変数：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。表記は完全に一致させてください。
+
+テンプレートには、変数が `{artwork_id}` だけのパス区間が必要です。`novel-{artwork_id}` のように固定文字を加えることはできますが、同じ区間に別の変数は置けません。小説 ID も数字のみなので、イラストと区別するには `novel-` などを付けます。
+
+`{username}` は取得元のユーザー名です。コレクション、シリーズ、`R18` の値がなければ空文字になります。展開後に空になった階層は省略され、同じ階層の固定文字は残ります。その他の必須値が不足するとダウンロードは拒否されます。ローカルインポート用の `{page}`、`{extension}`、`{name}` などは保存先には使えません。
+
+既定のテンプレートと、モード別の設定例：
+
+| 用途 | テンプレート |
+| --- | --- |
+| イラストの既定値 | `pixiv-download/{artwork_id}` |
+| イラストの User モード | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 小説の既定値 | `pixiv-download/novel-{artwork_id}` |
+| 小説の User モード | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| シリーズモードの例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
+
+選択したコレクションに保存先がある場合、最初に変数を含むディレクトリ区間より前の固定パスを、その保存先に置き換えます。その区間から後は、固定文字も含めて残ります。たとえば `pixiv-download/novel-{artwork_id}` とコレクションの保存先 `D:/Favorites` を組み合わせると、`D:/Favorites/novel-{artwork_id}` として展開されます。
+
+このテンプレートは常にダウンロード先のディレクトリを指定するため、末尾の `/` は不要です。ローカルインポートでは末尾が `/` ならフォルダー、なければファイルを指定します。[ローカル作品インポート](/ja/local-import)を参照してください。変更は今後のダウンロードに適用され、既存ファイルは移動しません。移転方法は[ストレージとバックアップ](/ja/storage)を参照してください。
