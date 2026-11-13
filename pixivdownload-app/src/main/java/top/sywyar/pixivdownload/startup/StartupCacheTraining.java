@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.startup;
 
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache.Phase;
 
@@ -54,7 +55,8 @@ public final class StartupCacheTraining {
         MigrationFiles.makePrivate(directory);
         Files.writeString(directory.resolve("owner"), OWNER, StandardCharsets.US_ASCII, StandardOpenOption.CREATE_NEW);
         try {
-            StartupCacheInputs.copy(inputs, directory.resolve("plugins"), directory.resolve("config/config.yaml"));
+            StartupCacheInputs.copy(inputs, directory.resolve("plugins"), directory.resolve("config/config.yaml"),
+                    directory.resolve("state").resolve(RuntimeFiles.resolvePluginCatalogTrustStatePath().getFileName()));
             var isolated = new ArrayList<>(options.stream().filter(option -> !option.startsWith("-D")).toList());
             isolated.addAll(List.of("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                     "-D" + TRAINING_PROPERTY + "=true",
@@ -69,6 +71,7 @@ public final class StartupCacheTraining {
             var recording = new ArrayList<>(isolated);
             recording.addAll(List.of("-XX:AOTMode=record", "-XX:AOTConfiguration=" + configuration));
             progress.accept(Phase.RECORDING);
+            StartupCacheInputs.verifyCurrent(inputs);
             int port;
             try (var socket = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())) {
                 port = socket.getLocalPort();
@@ -79,6 +82,7 @@ public final class StartupCacheTraining {
                 throw new TrainingFailure(Phase.RECORDING, -1);
             StartupCacheInputs.checkInterrupted();
             progress.accept(Phase.ASSEMBLING);
+            StartupCacheInputs.verifyCurrent(inputs);
             var assembling = new ArrayList<>(isolated);
             assembling.addAll(List.of("-XX:AOTMode=create", "-XX:AOTConfiguration=" + configuration, "-XX:AOTCache=" + cache));
             execute(DistributionLauncher.command(jar, assembling), directory, Phase.ASSEMBLING);
@@ -88,6 +92,7 @@ public final class StartupCacheTraining {
             check.addAll(options);
             check.addAll(List.of("-XX:AOTMode=on", "-XX:AOTCache=" + cache, "-cp", jar.toString(), "-version"));
             execute(check, directory, Phase.VERIFYING);
+            StartupCacheInputs.verifyCurrent(inputs);
             PlainFilePathGuard.requirePlainRegularFile(cache);
         } catch (Exception | Error failure) {
             try { clean(directory); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
@@ -96,12 +101,13 @@ public final class StartupCacheTraining {
         clean(directory);
     }
 
-    private static void execute(List<String> command, Path directory, Phase phase) throws Exception {
+    static void execute(List<String> command, Path directory, Phase phase) throws Exception {
         StartupCacheInputs.checkInterrupted();
         var builder = new ProcessBuilder(command).directory(directory.toFile())
                 .redirectErrorStream(true);
         builder.environment().keySet().removeIf(key ->
-                !key.matches("(?i)PATH|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|LANG|LC_ALL"));
+                !key.matches("(?i)PATH|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|LANG|LC_ALL"
+                        + "|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR"));
         Process child = builder.start();
         // 只保留末尾诊断，插件标准输出不能使训练日志无限增长。
         byte[] tail = new byte[65536];

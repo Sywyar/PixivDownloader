@@ -34,7 +34,8 @@ public final class DistributionLauncher {
         if (args.length == 3 && args[0].equals("prepare")) {
             prepare(jar, Path.of(args[1]).toAbsolutePath(), Path.of(args[2]).toAbsolutePath());
         } else if (args.length == 3 && args[0].equals("prepare-gui")) {
-            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath());
+            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath(),
+                    RuntimeFiles.resolvePluginCatalogTrustStatePath());
             StartupCacheTraining.train(jar, DesktopStartupCacheService.options(), inputs,
                     Path.of(args[1]).toAbsolutePath(), Path.of(args[2]).toAbsolutePath(),
                     phase -> System.out.println("AOT distribution: GUI training " + phase));
@@ -206,7 +207,8 @@ public final class DistributionLauncher {
         var options = new ArrayList<>(DesktopStartupCacheService.options());
         Path cache = null;
         try {
-            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath());
+            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath(),
+                    RuntimeFiles.resolvePluginCatalogTrustStatePath());
             String key = StartupCacheTraining.identity(jar, options, inputs);
             cache = new DesktopCacheStore(RuntimeFiles.aotCacheDirectory()).find(key)
                     .map(DesktopCacheStore.Entry::cache).orElse(null);

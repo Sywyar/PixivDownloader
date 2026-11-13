@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 /** 进程拥有的单任务训练器；界面只观察快照，候选验证完成后供下次启动使用。 */
 public final class DesktopStartupCacheService implements DesktopStartupCache, AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(DesktopStartupCacheService.class);
-    private final Path jar, plugins, config, root;
+    private final Path jar, plugins, config, trustState, root;
     private final List<String> options;
     private final BiConsumer<Snapshot, Long> history;
     private final Trainer trainer;
@@ -33,13 +33,13 @@ public final class DesktopStartupCacheService implements DesktopStartupCache, Au
 
     private DesktopStartupCacheService(Path jar, BiConsumer<Snapshot, Long> history) {
         this(jar, options(), RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath(),
-                RuntimeFiles.aotCacheDirectory(), history, StartupCacheTraining::train);
+                RuntimeFiles.resolvePluginCatalogTrustStatePath(), RuntimeFiles.aotCacheDirectory(), history, StartupCacheTraining::train);
     }
 
-    DesktopStartupCacheService(Path jar, List<String> options, Path plugins, Path config, Path root,
+    DesktopStartupCacheService(Path jar, List<String> options, Path plugins, Path config, Path trustState, Path root,
                                BiConsumer<Snapshot, Long> history, Trainer trainer) {
         this.jar = jar; this.options = List.copyOf(options); this.plugins = plugins;
-        this.config = config; this.root = root.toAbsolutePath().normalize();
+        this.config = config; this.trustState = trustState; this.root = root.toAbsolutePath().normalize();
         this.history = history; this.trainer = trainer;
     }
 
@@ -111,7 +111,7 @@ public final class DesktopStartupCacheService implements DesktopStartupCache, Au
             if (lease == null) {
                 failure = Failure.BUSY;
             } else {
-                var inputs = StartupCacheInputs.capture(plugins, config);
+                var inputs = StartupCacheInputs.capture(plugins, config, trustState);
                 String key = StartupCacheTraining.identity(jar, options, inputs);
                 if (automatic && (store.find(key).isPresent() || StartupCacheTraining.bundledCache(jar, options, inputs) != null)) {
                     state = State.READY;
@@ -125,7 +125,7 @@ public final class DesktopStartupCacheService implements DesktopStartupCache, Au
                     phase(id, Phase.PREPARING, inputs.artifacts().size());
                     trainer.train(jar, options, inputs, candidate, root.resolve("desktop-training"),
                             step -> phase(id, step, inputs.artifacts().size()));
-                    String current = StartupCacheTraining.identity(jar, options, StartupCacheInputs.capture(plugins, config));
+                    String current = StartupCacheTraining.identity(jar, options, StartupCacheInputs.capture(plugins, config, trustState));
                     if (!key.equals(current)) throw new StartupCacheInputs.InputsChanged();
                     synchronized (this) {
                         StartupCacheInputs.checkInterrupted();

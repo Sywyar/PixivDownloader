@@ -25,7 +25,7 @@ class DesktopStartupCacheServiceTest {
     }
 
     DesktopStartupCacheService service(DesktopStartupCacheService.Trainer train) {
-        return new DesktopStartupCacheService(jar, List.of(), plugins, config, root, (snapshot, started) -> {}, train);
+        return new DesktopStartupCacheService(jar, List.of(), plugins, config, directory.resolve("trust.json"), root, (snapshot, started) -> {}, train);
     }
 
     @Test @DisplayName("发布成功后自动启动复用同一缓存，损坏缓存可以手动重建")
@@ -39,7 +39,7 @@ class DesktopStartupCacheServiceTest {
             await(service);
             assertThat(service.snapshot().state()).isEqualTo(State.SUCCEEDED);
             var store = new DesktopCacheStore(root);
-            String key = StartupCacheTraining.identity(jar, List.of(), StartupCacheInputs.capture(plugins, config));
+            String key = StartupCacheTraining.identity(jar, List.of(), StartupCacheInputs.capture(plugins, config, directory.resolve("trust.json")));
             Path cache = store.find(key).orElseThrow().cache();
             service.startAutomatically();
             await(service);
@@ -51,6 +51,38 @@ class DesktopStartupCacheServiceTest {
             await(service);
             assertThat(runs).hasValue(2);
             assertThat(store.find(key)).isPresent();
+        }
+    }
+
+    @Test @DisplayName("训练期间仅刷新撤销验证时间仍可发布并在下次自动启动复用")
+    void publishAcrossRevocationRefresh() throws Exception {
+        var trust = new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore(directory.resolve("trust.json"));
+        var original = new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot(
+                1, "a".repeat(64), "2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", "2026-01-02T00:00:00Z", List.of());
+        trust.acceptRevocations("custom", original);
+        String key = StartupCacheTraining.identity(jar, List.of(), StartupCacheInputs.capture(plugins, config, directory.resolve("trust.json")));
+        AtomicInteger runs = new AtomicInteger();
+        var trainer = (DesktopStartupCacheService.Trainer) (jar, options, inputs, cache, work, progress) -> {
+            runs.incrementAndGet();
+            progress.accept(Phase.RECORDING);
+            trust.acceptRevocations("custom", new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot(
+                    original.sequence(), original.documentSha256(), original.generatedTime(), original.nextUpdate(),
+                    "2026-01-03T00:00:00Z", original.entries()));
+            StartupCacheInputs.verifyCurrent(inputs);
+            Files.writeString(cache, "cache", StandardCharsets.UTF_8);
+        };
+        try (var service = service(trainer)) {
+            service.start();
+            await(service);
+            assertThat(service.snapshot().state()).isEqualTo(State.SUCCEEDED);
+            assertThat(service.snapshot().failure()).isEqualTo(Failure.NONE);
+        }
+        assertThat(new DesktopCacheStore(root).find(key).orElseThrow().cache()).hasContent("cache");
+        try (var service = service(trainer)) {
+            service.startAutomatically();
+            await(service);
+            assertThat(service.snapshot().state()).isEqualTo(State.READY);
+            assertThat(runs).hasValue(1);
         }
     }
 
@@ -71,6 +103,40 @@ class DesktopStartupCacheServiceTest {
             assertThat(service.snapshot().failure()).isEqualTo(Failure.INPUT_CHANGED);
             assertThat(store.find("a".repeat(64))).isPresent();
             assertThat(Files.readString(store.candidate(old))).isEqualTo("old");
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("训练期间仓库准入配置或撤销状态变化时拒绝发布并保留旧缓存")
+    void rejectChangedTrust(boolean changeState) throws Exception {
+        var store = new DesktopCacheStore(root);
+        UUID old = UUID.randomUUID();
+        try (var lease = store.acquire()) {
+            Files.writeString(store.candidate(old), "old", StandardCharsets.UTF_8);
+            store.publish(old, "a".repeat(64));
+        }
+        try (var service = service((jar, options, inputs, cache, work, progress) -> {
+            Files.writeString(cache, "new", StandardCharsets.UTF_8);
+            if (changeState) {
+                var state = new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore(directory.resolve("trust.json"));
+                String now = java.time.Instant.now().toString();
+                state.acceptRevocations("custom", new top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore.RevocationSnapshot(
+                        1, "a".repeat(64), now, now, now, List.of()));
+            } else Files.writeString(config, """
+                    plugin-catalog.repositories:
+                      - id: custom
+                        manifest-url: https://example.invalid/catalog.json
+                        revocations-url: https://example.invalid/revocations.json
+                        publisher-id: changed
+                    """, StandardCharsets.UTF_8);
+        })) {
+            service.start();
+            await(service);
+            assertThat(service.snapshot().failure()).isEqualTo(Failure.INPUT_CHANGED);
+            assertThat(store.find("a".repeat(64))).isPresent();
+            assertThat(store.candidate(old)).hasContent("old");
+            assertThat(store.candidate(service.snapshot().executionId())).doesNotExist();
         }
     }
 

@@ -249,6 +249,11 @@ public class GuiLauncher {
 
         if (noGui) {
             splash.close();
+            if (startupCacheTraining()) {
+                log.error("Desktop startup cache training requires a graphical session");
+                finishStartupTraining(false);
+                return;
+            }
             // 无头模式下若未完成首次初始化，没有任何 UI 入口可用（setup.html 仅本地可访问）。
             // 直接打印 CLI 提示并退出，避免起一个无法被任何人配置的服务。
             CliSetupCommand.enforceSetupCompleteForHeadlessOrExit();

@@ -7,6 +7,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
+import top.sywyar.pixivdownload.plugin.catalog.security.PluginCatalogStrictJson;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -16,19 +20,33 @@ import java.util.*;
 
 /** 只冻结训练需要的插件字节、启停与公开信任配置，不复制业务数据或凭据。 */
 final class StartupCacheInputs {
-    record Artifact(Path source, String sha256, long bytes) {}
-    record Snapshot(List<Artifact> artifacts, String configuration, String identity) {}
+    record Artifact(Path source, String sha256, long bytes, PluginProvenanceRecord provenance) {}
+    record Snapshot(List<Artifact> artifacts, String configuration,
+                    Map<String, PluginCatalogTrustStateStore.RevocationSnapshot> revocations,
+                    String identity, Path plugins, Path config, Path trustState) {}
 
     private StartupCacheInputs() {}
 
-    static Snapshot capture(Path plugins, Path config) throws IOException {
+    static Snapshot capture(Path plugins, Path config, Path trustState) throws IOException {
         var scan = PluginArtifactScanner.scan(plugins);
         if (!scan.rejectedCandidates().isEmpty()) throw new IOException("Invalid plugin artifact");
         MessageDigest digest = digest();
         String configuration = trainingConfiguration(config);
         digest.update(configuration.getBytes(StandardCharsets.UTF_8));
+        var mapper = PluginCatalogStrictJson.mapper(false);
+        var revocations = new TreeMap<String, PluginCatalogTrustStateStore.RevocationSnapshot>();
+        new PluginCatalogTrustStateStore(trustState).readSnapshot().repositories().forEach((id, state) -> {
+            if (state.revocations() != null) revocations.put(id, state.revocations());
+        });
+        var revocationIdentity = mapper.valueToTree(revocations);
+        // 同一文档再次验签只更新诊断时间，不改变执行准入；冻结副本仍保留完整快照。
+        for (var snapshot : revocationIdentity)
+            ((tools.jackson.databind.node.ObjectNode) snapshot).remove("verifiedAt");
+        digest.update(mapper.writeValueAsBytes(revocationIdentity));
         var artifacts = new ArrayList<Artifact>();
         long remaining = PluginArtifactScanner.MAX_TOTAL_CANDIDATE_BYTES;
+        long provenanceRemaining = InstalledPluginInventorySnapshot.MAX_PROVENANCE_BYTES;
+        var provenanceStore = new PluginProvenanceStore(plugins);
         for (Path path : scan.candidates()) {
             checkInterrupted();
             long bytes = Files.size(path);
@@ -36,15 +54,30 @@ final class StartupCacheInputs {
             String hash = hash(path, bytes);
             if (Files.size(path) != bytes) throw new InputsChanged();
             remaining -= bytes;
-            artifacts.add(new Artifact(path, hash, bytes));
+            var measured = provenanceStore.readMeasuredStrict(path, provenanceRemaining).orElse(null);
+            PluginProvenanceRecord provenance = measured == null ? null : measured.record();
+            if (measured != null) provenanceRemaining -= measured.byteCount();
+            artifacts.add(new Artifact(path, hash, bytes, provenance));
             digest.update(path.getFileName().toString().getBytes(StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(hash.getBytes(StandardCharsets.US_ASCII));
+            // 离线复验时间与诊断不是执行授权，不能让每次正常启动都使缓存失效。
+            var trust = mapper.valueToTree(provenance);
+            if (trust instanceof tools.jackson.databind.node.ObjectNode object)
+                object.remove(List.of("verifiedAt", "offlineStatus", "offlineVerifiedAt", "diagnosticCode"));
+            digest.update(mapper.writeValueAsBytes(trust));
         }
-        return new Snapshot(List.copyOf(artifacts), configuration, HexFormat.of().formatHex(digest.digest()));
+        return new Snapshot(List.copyOf(artifacts), configuration, Map.copyOf(revocations),
+                HexFormat.of().formatHex(digest.digest()), plugins, config, trustState);
     }
 
-    static void copy(Snapshot snapshot, Path plugins, Path config) throws IOException {
+    static void verifyCurrent(Snapshot snapshot) throws IOException {
+        if (!snapshot.identity().equals(capture(snapshot.plugins(), snapshot.config(), snapshot.trustState()).identity()))
+            throw new InputsChanged();
+    }
+
+    static void copy(Snapshot snapshot, Path plugins, Path config, Path trustState) throws IOException {
+        verifyCurrent(snapshot);
         Files.createDirectories(plugins);
         Files.createDirectories(config.getParent());
         Files.writeString(config, snapshot.configuration(), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
@@ -69,9 +102,12 @@ final class StartupCacheInputs {
             }
             if (bytes != artifact.bytes() || !HexFormat.of().formatHex(hash.digest()).equals(artifact.sha256()))
                 throw new InputsChanged();
-            var provenance = new PluginProvenanceStore(source.getParent()).readRequiredForRecovery(source);
-            destination.write(target, provenance);
+            if (artifact.provenance() == null) throw new IOException("Plugin provenance is missing");
+            destination.write(target, artifact.provenance());
         }
+        var stateStore = new PluginCatalogTrustStateStore(trustState);
+        for (var entry : snapshot.revocations().entrySet()) stateStore.acceptRevocations(entry.getKey(), entry.getValue());
+        verifyCurrent(snapshot);
     }
 
     static String trainingConfiguration(Path config) throws IOException {
@@ -114,6 +150,9 @@ final class StartupCacheInputs {
                 copy.put("id", repository.get("id"));
                 copy.put("manifest-url", "https://training.invalid/manifest.json");
                 copy.put("trusted-keys", repository.getOrDefault("trusted-keys", null));
+                copy.put("publisher-id", repository.getOrDefault("publisher-id", null));
+                if (repository.get("revocations-url") instanceof String url && !url.isBlank())
+                    copy.put("revocations-url", "https://training.invalid/revocations.json");
                 copies.add(copy);
             }
             selected.put("plugin-catalog.repositories", copies);

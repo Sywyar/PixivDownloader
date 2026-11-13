@@ -22,6 +22,18 @@ import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.CommunityPackageEvidence;
+import top.sywyar.pixivdownload.plugin.signature.CommunityPluginTrustRoots;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
+import top.sywyar.pixivdownload.sdk.community.submission.DescriptorSnapshot;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -156,6 +168,116 @@ class GuiLauncherPluginVerifierBootstrapTest {
         return config;
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false,PACKAGE_SHA256,true", "false,PUBLISHER,true", "false,PACKAGE_SHA256,false",
+            "true,PACKAGE_SHA256,true", "true,PUBLISHER,true", "true,PACKAGE_SHA256,false"
+    })
+    @DisplayName("训练副本按自定义及社区最后有效撤销快照阻止插件执行，正常受信插件仍可启动")
+    void trainingPreservesRevocationAdmission(boolean community, String scope, boolean revoked) throws Exception {
+        Path plugins = tempDir.resolve("installed");
+        Path artifact = stageProbeJar(plugins);
+        SigningFixture signing = SigningFixture.create("gui-custom-key");
+        Path config = writeConfig(true, signing.publicKeyBase64());
+        String repositoryId = community ? PluginRepository.COMMUNITY_ID : "custom";
+        var yaml = new org.yaml.snakeyaml.Yaml();
+        java.util.Map<String, Object> root = yaml.load(Files.readString(config, StandardCharsets.UTF_8));
+        var repository = (java.util.Map<String, Object>) ((List<?>) root.get("plugin-catalog.repositories")).getFirst();
+        repository.put("revocations-url", "https://example.invalid/revocations.json");
+        repository.put("publisher-id", "example");
+        Files.writeString(config, yaml.dump(root), StandardCharsets.UTF_8);
+        if (community) {
+            var evidence = communityEvidence(artifact);
+            byte[] message = EnvelopeV1Codec.communityPackageMessage(SignatureMetadata.ED25519, signing.keyId(),
+                    repositoryId, "bootstrap-probe", "1.0.0", Files.size(artifact), Hashing.sha256(artifact),
+                    evidence.assuranceLevel(), evidence.sourceCommit(), java.util.HexFormat.of().parseHex(evidence.reviewSha256()));
+            var signature = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519,
+                    signing.keyId(), Base64.getEncoder().encodeToString(signing.sign(message)));
+            writeSignedProvenance(plugins, artifact, signing, PluginPackageOrigin.forTrustedCatalog(repositoryId,
+                    false, Files.size(artifact), PluginPackageIntegrity.sha256Hex(artifact), signature).withCommunityEvidence(evidence));
+        } else writeSignedProvenance(plugins, artifact, signing);
+
+        Path trust = tempDir.resolve("plugin-catalog-trust.json");
+        String now = Instant.now().minusSeconds(120).toString();
+        new PluginCatalogTrustStateStore(trust).acceptRevocations(repositoryId,
+                new PluginCatalogTrustStateStore.RevocationSnapshot(5, "a".repeat(64), now,
+                        Instant.now().minusSeconds(60).toString(), now, revoked ? List.of(
+                        new PluginCatalogTrustStateStore.RevocationEntry(scope, "bootstrap-probe", "1.0.0",
+                                PluginPackageIntegrity.sha256Hex(artifact), signing.keyId(), "example", "REVOKED", "MALWARE", now)) : List.of()));
+        var key = new TrustedPluginKey(signing.keyId(), SignatureMetadata.ED25519, signing.publicKeyBase64(),
+                TrustedPluginKey.State.ACTIVE, "test", "test", false);
+        // 仅替换社区根为临时公钥，真实签名、审核绑定与 bootstrap 准入继续执行。
+        try (var roots = org.mockito.Mockito.mockStatic(CommunityPluginTrustRoots.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            roots.when(CommunityPluginTrustRoots::trustStore).thenReturn(PluginTrustStores.community(List.of(key)));
+            assertBootstrapAdmission(plugins, config, trust, revoked, tempDir.resolve("normal.marker"));
+            Class<?> inputs = Class.forName("top.sywyar.pixivdownload.startup.StartupCacheInputs");
+            Object snapshot = ReflectionTestUtils.invokeMethod(inputs, "capture", plugins, config, trust);
+            Path copy = tempDir.resolve("training");
+            ReflectionTestUtils.invokeMethod(inputs, "copy", snapshot, copy.resolve("plugins"),
+                    copy.resolve("config.yaml"), copy.resolve("trust.json"));
+            assertBootstrapAdmission(copy.resolve("plugins"), copy.resolve("config.yaml"), copy.resolve("trust.json"),
+                    revoked, tempDir.resolve("training.marker"));
+        }
+    }
+
+    private static CommunityPackageEvidence communityEvidence(Path artifact) throws Exception {
+        var review = (tools.jackson.databind.node.ObjectNode) CommunityJson.strictTree(Files.readAllBytes(
+                Path.of("../contracts/community/v1/vectors/structure/review.json")), CommunityPackageEvidence.MAX_REVIEW_BYTES);
+        review.put("pluginId", "bootstrap-probe").put("version", "1.0.0")
+                .put("packageSize", Files.size(artifact)).put("packageSha256", PluginPackageIntegrity.sha256Hex(artifact));
+        review.set("descriptor", CommunityJson.strictTree(CommunityJson.encode(DescriptorSnapshot.from(
+                PluginPackageReader.inspect(artifact).descriptor(), "bootstrap-probe", "1.0.0")), CommunityPackageEvidence.MAX_REVIEW_BYTES));
+        byte[] bytes = CommunityJson.encode(review);
+        return new CommunityPackageEvidence("SOURCE_REVIEWED", "12".repeat(20), CommunityJson.sha256(bytes),
+                new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    private static void assertBootstrapAdmission(Path plugins, Path config, Path trust, boolean revoked, Path marker) {
+        PluginRepositoryRegistry registry = ReflectionTestUtils.invokeMethod(GuiLauncher.class, "readPluginRepositoryRegistry", config);
+        String previous = System.getProperty("bootstrap.probe.marker");
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        try (var session = PluginBootstrapSession.createProcess(plugins, PluginEnabledSnapshot.empty(),
+                PluginCatalogTrustStores.verifierResolver(registry))) {
+            session.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(registry, new PluginCatalogTrustStateStore(trust)));
+            session.start();
+            if (revoked) {
+                assertThat(session.status().failures()).anySatisfy(failure ->
+                        assertThat(failure.reason()).contains("PLUGIN_REVOKED"));
+                assertThat(session.status().loadedPluginIds()).isEmpty();
+                assertThat(session.status().startedPluginIds()).isEmpty();
+                assertThat(session.manager().generation("bootstrap-probe")).isEmpty();
+                assertThat(marker).doesNotExist();
+            } else {
+                assertThat(session.status().startedPluginIds()).containsExactly("bootstrap-probe");
+                assertThat(session.manager().generation("bootstrap-probe")).hasValue(1L);
+                assertThat(marker).hasContent("load\nstart\n");
+            }
+        } finally {
+            if (previous == null) System.clearProperty("bootstrap.probe.marker");
+            else System.setProperty("bootstrap.probe.marker", previous);
+        }
+    }
+
+    @Test @DisplayName("冻结后撤销本地执行信任时拒绝训练副本，正常离线复验不会使缓存失效")
+    void trainingRejectsWithdrawnExecutionTrust() throws Exception {
+        Path plugins = tempDir.resolve("installed");
+        Path artifact = stageProbeJar(plugins);
+        SigningFixture signing = SigningFixture.create("gui-custom-key");
+        writeSignedProvenance(plugins, artifact, signing);
+        Path config = writeConfig(true, signing.publicKeyBase64());
+        Path trust = tempDir.resolve("trust.json");
+        Class<?> inputs = Class.forName("top.sywyar.pixivdownload.startup.StartupCacheInputs");
+        Object snapshot = ReflectionTestUtils.invokeMethod(inputs, "capture", plugins, config, trust);
+        assertBootstrapAdmission(plugins, config, trust, false, tempDir.resolve("normal.marker"));
+        ReflectionTestUtils.invokeMethod(inputs, "verifyCurrent", snapshot);
+        var store = new PluginProvenanceStore(plugins);
+        store.write(artifact, store.readRequiredForRecovery(artifact).withTrustRevokedAt(Instant.now()));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(inputs, "copy",
+                snapshot, tempDir.resolve("copy/plugins"), tempDir.resolve("copy/config.yaml"), tempDir.resolve("copy/trust.json")))
+                .hasRootCauseInstanceOf(IOException.class);
+        assertThat(tempDir.resolve("copy")).doesNotExist();
+    }
+
     private static Path stageProbeJar(Path pluginsDir) throws IOException {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
@@ -178,6 +300,11 @@ class GuiLauncherPluginVerifierBootstrapTest {
         SignatureMetadata metadata = signing.artifactSignature(artifact, "bootstrap-probe", "1.0.0");
         PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog("custom", false, Files.size(artifact),
                 PluginPackageIntegrity.sha256Hex(artifact), metadata);
+        writeSignedProvenance(pluginsDir, artifact, signing, origin);
+    }
+
+    private static void writeSignedProvenance(Path pluginsDir, Path artifact, SigningFixture signing,
+                                              PluginPackageOrigin origin) throws IOException {
         VerificationResult result = new VerificationResult(VerificationStatus.VERIFIED,
                 "bootstrap-probe", "1.0.0", signing.keyId(), SignatureMetadata.ED25519,
                 "GUI Test Publisher", "GUI Test Trust",

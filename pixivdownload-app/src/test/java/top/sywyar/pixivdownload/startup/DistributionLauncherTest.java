@@ -57,14 +57,14 @@ class DistributionLauncherTest {
             Files.writeString(Files.createDirectory(root.resolve("lib")).resolve("shared.jar"), "library", StandardCharsets.UTF_8);
             Files.createDirectory(root.resolve("plugins"));
         }
-        var inputs = StartupCacheInputs.capture(first.resolve("plugins"), first.resolve("config.yaml"));
-        var relocated = StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml"));
+        var inputs = StartupCacheInputs.capture(first.resolve("plugins"), first.resolve("config.yaml"), first.resolve("trust.json"));
+        var relocated = StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml"), second.resolve("trust.json"));
         String key = StartupCacheTraining.bundledIdentity(first.resolve("app.jar"), List.of("-Dinstance=first"), inputs);
         assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of("-Dinstance=second"), relocated)).isEqualTo(key);
         assertThat(StartupCacheTraining.bundledIdentity(first.resolve("app.jar"), List.of("-Xmx512m"), inputs)).isNotEqualTo(key);
         Files.writeString(second.resolve("plugins/new.jar"), "plugin", StandardCharsets.UTF_8);
         assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of(),
-                StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml")))).isNotEqualTo(key);
+                StartupCacheInputs.capture(second.resolve("plugins"), second.resolve("config.yaml"), second.resolve("trust.json")))).isNotEqualTo(key);
         Files.writeString(second.resolve("lib/shared.jar"), "changed", StandardCharsets.UTF_8);
         assertThat(StartupCacheTraining.bundledIdentity(second.resolve("app.jar"), List.of(), relocated)).isNotEqualTo(key);
     }
