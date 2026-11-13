@@ -47,7 +47,7 @@ public final class WorkTemplateVariables {
     private static final Map<String, Variable> BY_NAME = VARIABLES.stream()
             .collect(Collectors.toUnmodifiableMap(Variable::token, Function.identity()));
 
-    /** @return 不可变的全部变量定义 */
+    /** {@return 不可变的全部变量定义} */
     public static List<Variable> all() { return VARIABLES; }
 
     /**
@@ -67,7 +67,7 @@ public final class WorkTemplateVariables {
      */
     public static Variable find(String name) { return BY_NAME.get(name); }
 
-    /** @return 本地导入界面展示的变量列表 */
+    /** {@return 本地导入界面展示的变量列表} */
     public static String importTokens() {
         return VARIABLES.stream().filter(Variable::importing).map(v -> "{" + v.token() + "}")
                 .collect(Collectors.joining(", "));

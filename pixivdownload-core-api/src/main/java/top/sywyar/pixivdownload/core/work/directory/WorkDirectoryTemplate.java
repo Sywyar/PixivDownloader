@@ -86,7 +86,7 @@ public final class WorkDirectoryTemplate {
         }
     }
 
-    /** @return 第一个变量之前的固定路径，保留相对或绝对属性 */
+    /** {@return 第一个变量之前的固定路径，保留相对或绝对属性} */
     public Path fixedPrefix() { return prefix; }
 
     /**
@@ -102,6 +102,7 @@ public final class WorkDirectoryTemplate {
     }
 
     /**
+     * 使用模板自身的固定前缀展开作品目录。
      * @param values 按变量稳定身份提供的当次作品快照
      * @return 实际绝对作品目录
      */

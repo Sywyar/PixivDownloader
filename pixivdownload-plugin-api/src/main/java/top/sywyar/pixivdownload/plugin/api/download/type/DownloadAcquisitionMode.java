@@ -42,7 +42,12 @@ public enum DownloadAcquisitionMode {
         return code;
     }
 
-    /** 从明确的来源代码解析模式；没有来源信息时不猜测作品所属模式。 */
+    /**
+     * 从明确的来源代码解析模式；没有来源信息时不猜测作品所属模式。
+     * @param code 前端契约中的取得模式代码
+     * @return 对应的模式；输入为空或空白时返回 {@code null}
+     * @throws IllegalArgumentException 来源代码不受支持
+     */
     public static DownloadAcquisitionMode fromCode(String code) {
         if (code == null || code.isBlank()) return null;
         for (var mode : values()) if (mode.code.equals(code)) return mode;

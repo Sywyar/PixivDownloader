@@ -44,6 +44,7 @@ class ToolsConfigurationTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.of(snapshot);
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
@@ -86,7 +87,7 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
-                    case "backfillTask" -> java.util.Optional.empty();
+                    case "backfillTask", "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
@@ -161,6 +162,7 @@ class ToolsConfigurationTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "backfillTask" -> java.util.Optional.ofNullable(observed.get());
+                    case "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;
@@ -248,7 +250,7 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
-                    case "backfillTask" -> java.util.Optional.empty();
+                    case "backfillTask", "localArtworkImports" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> throw new IllegalStateException("Configuration unavailable");
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "supportsDatabaseFileSelection" -> true;

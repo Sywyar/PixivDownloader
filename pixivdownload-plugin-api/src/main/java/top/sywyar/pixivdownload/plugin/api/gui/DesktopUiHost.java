@@ -17,11 +17,19 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     default Optional<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports> localArtworkImports() {
         return Optional.empty();
     }
-    /** 解析设置草稿，不要求后端运行，也不保存配置。 */
+    /**
+     * 解析设置草稿，不要求后端运行，也不保存配置。
+     * @param value 路径预设 JSON
+     * @return 校验后的路径预设
+     */
     default List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> parseLocalImportPresets(String value) {
         throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
     }
-    /** 校验并编码预设草稿，不保存配置。 */
+    /**
+     * 校验并编码预设草稿，不保存配置。
+     * @param presets 待编码的路径预设
+     * @return 可保存的路径预设 JSON
+     */
     default String formatLocalImportPresets(List<top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.Preset> presets) {
         throw new UnsupportedOperationException("LOCAL_IMPORT_UNAVAILABLE");
     }
@@ -117,7 +125,7 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     List<GuiConfigFieldContribution> coreConfigFields();
 
-    /** @return 宿主字段的语义组合；字段与保存仍使用原有配置目录 */
+    /** {@return 宿主字段的语义组合；字段与保存仍使用原有配置目录} */
     default List<GuiConfigSectionContribution> coreConfigSections() { return List.of(); }
 
     /**

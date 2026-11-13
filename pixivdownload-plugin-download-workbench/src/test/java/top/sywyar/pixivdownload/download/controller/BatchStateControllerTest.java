@@ -126,7 +126,8 @@ class BatchStateControllerTest {
                 futures.add(executor.submit(() -> {
                     start.await();
                     controller.saveState(request(snapshot));
-                    assertThat(JSON.readTree(Files.readString(file, StandardCharsets.UTF_8)).isObject()).isTrue();
+                    // 活动请求通过状态接口读取；直接打开文件会在 Windows 上阻塞另一写入的替换。
+                    assertThat(state(controller)).isIn(snapshots);
                     return null;
                 }));
             }

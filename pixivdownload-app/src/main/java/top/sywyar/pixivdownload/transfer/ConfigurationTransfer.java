@@ -320,7 +320,8 @@ final class ConfigurationTransfer {
         } catch (NumberFormatException invalid) { return false; }
     }
     private static boolean isPath(GuiConfigFieldContribution field) {
-        return field.type() == GuiConfigFieldType.PATH_DIR || field.type() == GuiConfigFieldType.PATH_FILE;
+        return field.type() == GuiConfigFieldType.PATH_DIR || field.type() == GuiConfigFieldType.PATH_FILE
+                || field.type() == GuiConfigFieldType.DIRECTORY_TEMPLATE;
     }
     private static Map<String, String> parse(byte[] bytes) throws IOException {
         var node = JSON.readTree(bytes);

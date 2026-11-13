@@ -9,6 +9,7 @@ public final class PluginConfigFileLocks {
     private PluginConfigFileLocks() {}
 
     /**
+     * 取得供插件初始化与宿主配置保存共同使用的路径锁。
      * @param path 插件配置文件路径
      * @return 该绝对路径对应的互斥对象，调用方在其内部完成读取与原子保存
      */

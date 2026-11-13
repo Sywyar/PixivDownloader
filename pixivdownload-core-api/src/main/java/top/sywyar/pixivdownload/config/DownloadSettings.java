@@ -21,7 +21,7 @@ public interface DownloadSettings {
      */
     String directoryTemplate(String mode);
 
-    /** @return 已配置的模式覆盖快照；空值表示使用默认模板 */
+    /** {@return 已配置的模式覆盖快照；空值表示使用默认模板} */
     java.util.Map<String, String> directoryOverrides();
 
     /**

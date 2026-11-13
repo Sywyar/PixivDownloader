@@ -76,24 +76,32 @@ class ConfigurationTransferTest {
         var host = host();
         var configuration = new ConfigurationTransfer(host, List::of, new PluginCredentialStore(),
                 top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty());
-        configure("source", "server.port: 8123\nserver.ssl.key-store-password: unique-source-secret\ndownload.root-folder: D:/old\n");
+        configure("source", "server.port: 8123\nserver.ssl.key-store-password: unique-source-secret\ndownload.root-folder: D:/old/{artwork_id}\n");
         Path archive = root.resolve("encrypted");
         char[] password = "fixture-password".toCharArray();
         var codec = new TransferArchive();
         TransferArchive.Preview preview;
         try (var snapshot = configuration.export(true)) { preview = codec.write(archive, password, "fixture", snapshot.sources()); }
-        configure("target", "# target\nserver.port: 7001\ndownload.root-folder: downloads\n");
+        configure("target", "# target\nserver.port: 7001\ndownload.root-folder: downloads/{artwork_id}\n");
         try (var contents = codec.readSelected(archive, password, preview, ConfigurationTransfer.indices(preview))) {
             var changes = configuration.preview(preview, contents);
             assertThat(changes.toString()).doesNotContain("unique-source-secret");
             var path = new ConfigurationTransfer.Key("host", "download.root-folder");
             var secret = new ConfigurationTransfer.Key("host", "server.ssl.key-store-password");
+            assertThat(changes.changes()).filteredOn(change -> change.key().equals(path))
+                    .singleElement().satisfies(change -> assertThat(change.path()).isTrue());
+            assertThatThrownBy(() -> configuration.render(preview, contents, changes, Set.of(path, secret),
+                    Map.of(path, "E:/new"), Files.createDirectory(root.resolve("invalid"))))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+            assertThat(Files.readString(RuntimeFiles.peekConfigYamlPath()))
+                    .contains("downloads/{artwork_id}").doesNotContain("unique-source-secret");
             var rendered = configuration.render(preview, contents, changes, Set.of(path, secret),
-                    Map.of(path, "E:/new"), Files.createDirectory(root.resolve("rendered")));
+                    Map.of(path, "E:/new/{artwork_id}"), Files.createDirectory(root.resolve("rendered")));
             var transaction = new FileRestoreTransaction(root.resolve("run"), rendered.targets());
             transaction.prepare(rendered.replacements());
             transaction.commit();
-            assertThat(Files.readString(RuntimeFiles.peekConfigYamlPath())).contains("E:/new", "unique-source-secret", "server.port: 7001");
+            assertThat(Files.readString(RuntimeFiles.peekConfigYamlPath()))
+                    .contains("E:/new/{artwork_id}", "unique-source-secret", "server.port: 7001");
             assertThatThrownBy(() -> configuration.render(preview, contents, changes, Set.of(path), Map.of(),
                     Files.createDirectory(root.resolve("stale")))).hasMessage("transfer.target-changed");
         }
@@ -187,7 +195,7 @@ class ConfigurationTransferTest {
         var host = mock(DesktopUiHost.class);
         when(host.coreConfigFields()).thenReturn(List.of(field("server.port", GuiConfigFieldType.PORT),
                 field("server.ssl.key-store-password", GuiConfigFieldType.PASSWORD),
-                field("database.provider", GuiConfigFieldType.STRING), field("download.root-folder", GuiConfigFieldType.PATH_DIR)));
+                field("database.provider", GuiConfigFieldType.STRING), field("download.root-folder", GuiConfigFieldType.DIRECTORY_TEMPLATE)));
         return host;
     }
 

@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
 
 @DisplayName("无头回填与后端运行")
@@ -59,7 +60,7 @@ class HeadlessBackfillRuntimeTest {
             var runner = new DesktopBackfillRunner((options, progress) -> {
                 entered.countDown();
                 release.await();
-                try (var files = mockStatic(RuntimeFiles.class)) {
+                try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS)) {
                     files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
                     var summary = ArtworksBackFill.runObserved(options, pool, progress);
                     result.set(summary);

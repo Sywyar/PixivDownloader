@@ -292,14 +292,15 @@ class NovelDownloadControllerIdentityTest {
         verifyDownload(null, 7L, true);
     }
 
-    @Test
-    @DisplayName("客户端伪造的小说正文与元数据不进入下载服务")
-    void forgedNovelDataIsIgnored() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"Selected user", "../escape"})
+    @DisplayName("客户端伪造元数据被忽略，来源用户名快照与作品作者分开保留")
+    void forgedNovelDataIsIgnored(String username) throws Exception {
         when(applicationModeProvider.getMode()).thenReturn("solo");
         NovelDownloadCommand command = objectMapper.readValue("""
                 {"novelId":123,"title":"forged title","content":"forged content",
-                 "other":{"authorName":"forged author","username":"../escape","format":"txt"}}
-                """, NovelDownloadCommand.class);
+                 "other":{"authorName":"forged author","username":"%s","acquisitionMode":"user","format":"txt"}}
+                """.formatted(username), NovelDownloadCommand.class);
 
         var response = controller().downloadNovel(command, httpRequest);
 
@@ -308,7 +309,8 @@ class NovelDownloadControllerIdentityTest {
                 "server title".equals(request.getTitle())
                         && "server content".equals(request.getContent())
                         && "server author".equals(request.getOther().getAuthorName())
-                        && request.getOther().getUsername() == null
+                        && username.equals(request.getOther().getUsername())
+                        && "user".equals(request.getOther().getAcquisitionMode())
                         && request.getOther().getRawMetaJson().contains("server title")), isNull());
     }
 

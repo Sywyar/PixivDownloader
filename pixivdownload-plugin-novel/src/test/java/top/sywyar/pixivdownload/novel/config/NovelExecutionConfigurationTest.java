@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.novel.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.DownloadSettings;
+import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextPropertySourceProvider;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.env.MapPropertySource;
@@ -14,11 +18,15 @@ import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @DisplayName("novel 插件执行设置与线程池")
 class NovelExecutionConfigurationTest {
+    @TempDir Path directory;
 
     @Test
     @DisplayName("设置使用插件默认并发并对手写过小值兜底")
@@ -33,9 +41,16 @@ class NovelExecutionConfigurationTest {
     @Test
     @DisplayName("子上下文绑定插件属性并在关闭时销毁线程池与状态调度器")
     void childContextOwnsAndDestroysConfiguredExecutors() {
+        DownloadSettings host = mock(DownloadSettings.class);
+        when(host.directoryTemplate(null)).thenReturn("library/{artwork_id}");
+        when(host.directoryOverrides()).thenReturn(Map.of());
+        RuntimePathProvider paths = mock(RuntimePathProvider.class);
+        when(paths.configFile("properties")).thenReturn(directory.resolve("novel.properties"));
         PluginApplicationContextFactory factory = new PluginApplicationContextFactory(
-                new PluginStreamRegistry(), new PluginRuntimeTaskRegistry());
+                PluginContextPropertySourceProvider.EMPTY, new PluginStreamRegistry(),
+                new PluginRuntimeTaskRegistry(), owner -> paths, null);
         try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.registerBean(DownloadSettings.class, () -> host);
             parent.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
                     "novel-test-config",
                     Map.of(

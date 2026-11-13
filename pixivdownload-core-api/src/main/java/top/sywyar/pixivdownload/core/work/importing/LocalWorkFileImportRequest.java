@@ -13,9 +13,17 @@ import java.util.Map;
  * @param workId 正数作品 ID
  * @param sourceRoot 可信调用方批准的绝对源目录
  * @param pageFiles 从第零页开始连续排列的文件，最多 1000 个；小说只允许一个
+ * @param sources 与文件一一对应的解析来源；未解析时为空列表
  */
 public record LocalWorkFileImportRequest(WorkType workType, long workId, Path sourceRoot, List<Path> pageFiles,
                                          List<Source> sources) {
+    /**
+     * 创建未经过路径模板解析的本地文件登记请求。
+     * @param type 作品类型
+     * @param id 正数作品 ID
+     * @param root 已批准的绝对源目录
+     * @param files 按展示顺序排列的文件
+     */
     public LocalWorkFileImportRequest(WorkType type, long id, Path root, List<Path> files) {
         this(type, id, root, files, List.of());
     }
@@ -32,12 +40,29 @@ public record LocalWorkFileImportRequest(WorkType workType, long workId, Path so
             throw new IllegalArgumentException("INVALID_LOCAL_WORK_FILES");
         }
     }
+    /**
+     * 取得指定文件的已批准源目录。
+     * @param page 从零开始的文件列表下标
+     * @return 该文件的绝对源目录
+     */
     public Path root(int page) { return sources.isEmpty() ? sourceRoot : sources.get(page).root(); }
+    /**
+     * 根据已批准源目录展开文件路径。
+     * @param page 从零开始的文件列表下标
+     * @return 规范化的绝对文件路径；不代替实际磁盘安全校验
+     */
     public Path file(int page) { return root(page).resolve(pageFiles.get(page)).toAbsolutePath().normalize(); }
+    /** {@return 是否包含路径模板解析来源} */
     public boolean parsed() { return !sources.isEmpty(); }
 
-    /** 每个文件的批准根、明确来源页码和非权威解析提示。 */
+    /**
+     * 每个文件的批准根、明确来源页码和非权威解析提示。
+     * @param root 已批准的绝对源目录
+     * @param page 路径中解析出的原始页码；缺失时为空
+     * @param hints 路径模板提取的非权威元数据
+     */
     public record Source(Path root, Integer page, Map<String, String> hints) {
+        /** 校验来源并固定解析提示快照。 */
         public Source {
             Objects.requireNonNull(root);
             hints = Map.copyOf(hints);

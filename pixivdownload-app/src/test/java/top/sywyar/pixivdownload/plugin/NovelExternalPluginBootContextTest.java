@@ -60,7 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "pixivdownload.data-dir=target/test-runtime/translation-boot/data",
         "pixivdownload.plugins-dir=target/test-runtime/plugins-external-novel",
         "download.novel-max-concurrent=3",
-        "download.root-folder=target/test-runtime/translation-boot/downloads",
+        "download.root-folder=target/test-runtime/translation-boot/downloads/{artwork_id}",
         "setup.browser.auto-open=false"
 })
 @ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalSqliteBootstrapInitializer.class)

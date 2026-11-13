@@ -1475,7 +1475,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
             case PATH_TEMPLATES -> {
                 try { SwingHost.context().host().parseLocalImportPresets(safe); yield null; }
-                catch (RuntimeException invalid) { yield message("local-import.error.INVALID_IMPORT_PRESET"); }
+                catch (RuntimeException invalid) { yield SwingHost.host().message("local-import.error.INVALID_IMPORT_PRESET"); }
             }
             case PATH_DIR, PATH_FILE, STRING, PASSWORD -> null;
         };

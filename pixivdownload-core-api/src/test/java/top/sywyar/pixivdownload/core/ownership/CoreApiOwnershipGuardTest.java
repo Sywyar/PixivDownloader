@@ -213,6 +213,7 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter$Context",
             "top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables$Variable",
             "top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver$Context",
             "top.sywyar.pixivdownload.core.work.importing.LocalWorkFileImportRequest$Source",

@@ -45,6 +45,7 @@ public final class PixivWorkFileNameFormatter {
      */
     public record Context(Long collectionId, String collectionName, Long seriesId,
                           String seriesTitle, Long seriesOrder, String username) {
+        /** 清除无效系列身份及其关联字段，保留有效的来源快照。 */
         public Context {
             if (seriesId == null || seriesId <= 0) {
                 seriesId = null;

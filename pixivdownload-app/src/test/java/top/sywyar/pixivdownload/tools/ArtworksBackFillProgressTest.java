@@ -37,7 +37,7 @@ class ArtworksBackFillProgressTest {
         boolean softDeleted = scenario.equals("soft-deleted");
         var client = mock(ArtworksBackFillPixivClient.class);
         try (var pool = new HikariDataSource(configuration);
-             var files = mockStatic(RuntimeFiles.class);
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS);
              var clients = mockStatic(ArtworksBackFillPixivClient.class, invocation ->
                      invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             var unreachable = directory.resolve("unreachable.json");
@@ -115,7 +115,7 @@ class ArtworksBackFillProgressTest {
         var curator = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper);
         var client = mock(ArtworksBackFillPixivClient.class);
         try (var pool = new HikariDataSource(configuration);
-             var files = mockStatic(RuntimeFiles.class);
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS);
              var clients = mockStatic(ArtworksBackFillPixivClient.class, invocation ->
                      invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
@@ -173,7 +173,7 @@ class ArtworksBackFillProgressTest {
         var available = new AtomicBoolean(true);
         var client = mock(ArtworksBackFillPixivClient.class);
         try (var pool = new HikariDataSource(config);
-             var files = mockStatic(RuntimeFiles.class);
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS);
              var clients = mockStatic(ArtworksBackFillPixivClient.class)) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(unreachable);
             clients.when(() -> ArtworksBackFillPixivClient.open(any(), any())).thenReturn(client);
@@ -229,7 +229,7 @@ class ArtworksBackFillProgressTest {
         config.setMaximumPoolSize(1);
         try (var pool = new HikariDataSource(config);
              var proxy = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress());
-             var files = mockStatic(RuntimeFiles.class)) {
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS)) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             try (var connection = pool.getConnection(); var statement = connection.createStatement()) {
                 statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, title TEXT NOT NULL,"
@@ -290,7 +290,7 @@ class ArtworksBackFillProgressTest {
                     "description", List.of(), 0, 0, "");
         });
         try (var pool = new HikariDataSource(config);
-             var files = mockStatic(RuntimeFiles.class);
+             var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS);
              var clients = mockStatic(ArtworksBackFillPixivClient.class)) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             clients.when(() -> ArtworksBackFillPixivClient.open(any(), any())).thenReturn(client);
