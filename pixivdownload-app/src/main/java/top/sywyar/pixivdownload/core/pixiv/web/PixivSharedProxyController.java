@@ -14,6 +14,9 @@ import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
+import top.sywyar.pixivdownload.schedule.ScheduleRequestScope;
+import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -34,6 +37,26 @@ public final class PixivSharedProxyController {
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final MessageResolver messages;
+    private final ScheduleRequestScope scheduleRequests;
+
+    @PostMapping("/user/{userId}/meta/schedule")
+    public ResponseEntity<?> getScheduleUserMeta(
+            @PathVariable String userId,
+            @jakarta.validation.Valid @RequestBody ScheduleRequestScope.Request context,
+            @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String credential,
+            HttpServletRequest request) throws IOException {
+        if (!requestOwnerIdentityResolver.isAdminAuthenticated(request)) {
+            return ResponseEntity.status(403).body(ApiErrorResponse.of("CREDENTIAL_FORBIDDEN", messages.get("auth.unauthorized")));
+        }
+        return scheduleRequests.read(context, AcquisitionCredentialResolver.resolve(credential), ScheduledNetworkRoute.inherit(),
+                cookie -> getUserMeta(userId, cookie, request));
+    }
+
+    @ExceptionHandler(ScheduleManagementException.class)
+    public ResponseEntity<ApiErrorResponse> handleScheduleContext(ScheduleManagementException failure) {
+        return ResponseEntity.status(failure.code() == ScheduleManagementException.Code.CONFLICT ? 409 : 400)
+                .body(ApiErrorResponse.of(failure.messageCode(), messages.get(failure.messageCode(), failure.messageArgs())));
+    }
 
     @GetMapping("/user/{userId}/meta")
     public ResponseEntity<?> getUserMeta(

@@ -45,7 +45,7 @@
             context.assertActive();
             const response = await fetch(`${BASE}${path}`, {
                 credentials: 'same-origin',
-                headers: acquisitionCredentialHeaders(),
+                ...(hookContext?.requestInit || {headers: acquisitionCredentialHeaders()}),
                 signal: hookSignal(hookContext)
             });
             const data = await response.json().catch(() => ({}));
@@ -66,7 +66,7 @@
 
         async function fetchPixivUserMeta(userId, hookContext) {
             const data = await pixivPreviewJson(
-                `/api/pixiv/user/${encodeURIComponent(userId)}/meta`, hookContext);
+                `/api/pixiv/user/${encodeURIComponent(userId)}/meta${hookContext?.requestInit ? '/schedule' : ''}`, hookContext);
             return data.name || '';
         }
 

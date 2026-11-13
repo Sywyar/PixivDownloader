@@ -251,6 +251,44 @@
         };
     }
 
+    async function prepareDefinition(params, context, lease) {
+        if (params.source.acquisitionMode !== 'user') return params;
+        const saved = parseParams(context.editingTask)?.source;
+        if (String(saved?.userId || '') === String(params.source.userId)
+                && typeof saved?.username === 'string' && saved.username.trim() && saved.username.length <= 512) {
+            return {...params, source: {...params.source, username: saved.username}};
+        }
+        const request = context.request || {};
+        let headers = {'Content-Type': 'application/json'};
+        if (request.credential) headers['X-Acquisition-Credential'] = request.credential;
+        else if (request.savedCredentialSelection) {
+            const ids = request.savedCredentialSelection.ids;
+            const selected = Array.isArray(ids) && ids.length ? window.PixivCredentials?.headers(ids) : null;
+            if (!selected) throw new Error(bt('batch:schedule.error.no-credential', '当前来源没有可用的已保存凭证'));
+            headers = {...headers, ...selected};
+        }
+        const types = window.PixivBatch.queueTypes;
+        const acquisition = types.acquisition(params.kind, 'user');
+        const acquisitionLease = types.acquisitionLease(params.kind, 'user');
+        lease.assertCurrent();
+        acquisitionLease.assertCurrent();
+        const username = await acquisition.fetchMeta(params.source.userId, {
+            signal: AbortSignal.any([lease.signal, acquisitionLease.signal]),
+            requestInit: {method: 'POST', headers, body: JSON.stringify({
+                sourceType: lease.sourceType, activationToken: lease.activationToken,
+                taskId: request.taskId, expectedStateVersion: request.expectedStateVersion,
+                useTaskCredential: request.useTaskCredential === true, proxy: request.proxy || null
+            })}
+        });
+        lease.assertCurrent();
+        acquisitionLease.assertCurrent();
+        if (typeof username !== 'string' || !username.trim()) {
+            throw new Error(bt('batch:status.user-display-fetch-failed',
+                'ID: {id}（获取用户名失败）', {id: params.source.userId}));
+        }
+        return {...params, source: {...params.source, username}};
+    }
+
     function preview(sourceType, context) {
         const quick = normalizedQuickSource(context);
         if (quick && quick.sourceType === sourceType) {
@@ -969,6 +1007,7 @@
                 matches: context => matches(sourceType, context),
                 preview: context => preview(sourceType, context),
                 capture: context => capture(sourceType, context),
+                prepareDefinition,
                 restore: task => restore(sourceType, task),
                 summary: task => summary(sourceType, task),
                 fetchLimitMode: definition => fetchLimitMode(

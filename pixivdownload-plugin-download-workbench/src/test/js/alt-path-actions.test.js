@@ -39,7 +39,7 @@ function harness(choice) {
                 } : action === 'CANCEL' ? {code: 'DOWNLOAD_PATH_CANCELLED'} : {alreadyDownloaded: true}};
         }
     });
-    for (const file of ['pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch/batch-download-defaults.js', 'pixiv-batch/state-storage.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch/filename-template.js', 'pixiv-batch-alt/alt-settings.js',
+    for (const file of ['pixiv-batch/queue-display.js', 'pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch/batch-download-defaults.js', 'pixiv-batch/state-storage.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch/filename-template.js', 'pixiv-batch-alt/alt-settings.js',
         'pixiv-batch/batch-artwork-requests.js', 'pixiv-batch/batch-archive.js', 'pixiv-batch-alt/alt-engine.js', 'pixiv-batch/download-workers.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
         vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
     }

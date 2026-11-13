@@ -22,6 +22,7 @@ async function fixture(alt, stage) {
     let timerId = 0, delayed, release;
     c.window.PixivBatchAlt = {engine: {}};
     Object.assign(c, {
+        QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
         state: {settings: {skipHistory: ['history', 'history-meta', 'recovery'].includes(stage),
             verifyHistoryFiles: true, fileNameTemplate: 'worker_{artwork_id}'}, queue: [item], sseListeners: {}, sseRefs: {}},
         dockState: {quota: {enabled: false}}, isAdmin: true,
@@ -37,6 +38,7 @@ async function fixture(alt, stage) {
         mergeUgoiraProgress: (previous, incoming) => incoming === undefined ? previous : incoming
     });
     vm.runInContext(read('pixiv-batch/media-settings.js'), c);
+    vm.runInContext(read('pixiv-batch/queue-display.js'), c);
     vm.runInContext(read('pixiv-batch/batch-path-actions.js'), c);
     if (alt) {
         for (const file of ['pixiv-batch/batch-archive.js', 'pixiv-batch/filename-template.js',

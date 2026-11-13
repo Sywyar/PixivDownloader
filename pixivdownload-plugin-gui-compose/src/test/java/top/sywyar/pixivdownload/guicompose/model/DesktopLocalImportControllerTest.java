@@ -10,6 +10,66 @@ import java.util.concurrent.atomic.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DesktopLocalImportControllerTest {
+    @Test @DisplayName("相同输入再次扫描按新任务读取样本，扫描失败与取消不复用旧预览")
+    void rescansRefreshSamplesAndDiscardFailedPreviews() throws Exception {
+        var id = new AtomicReference<UUID>();
+        var phase = new AtomicReference<>(Phase.READY);
+        var scans = new AtomicInteger();
+        var fail = new AtomicBoolean();
+        var itemRequests = new java.util.concurrent.CopyOnWriteArrayList<UUID>();
+        var started = new AtomicReference<UUID>();
+        LocalArtworkImports service = new LocalArtworkImports() {
+            public List<Preset> presets() { return List.of(new Preset("D:/{artwork_id}/")); }
+            public Snapshot scan(Request input) {
+                if (fail.get()) throw new IllegalStateException("IMPORT_IO_FAILED");
+                id.set(UUID.randomUUID());
+                phase.set(scans.incrementAndGet() == 2 ? Phase.SCANNING : Phase.READY);
+                return status(id.get());
+            }
+            public Snapshot status(UUID token) {
+                assertEquals(id.get(), token);
+                return new Snapshot(token, phase.get(), 1, 1, 0, 0, 0, 0, false, List.of());
+            }
+            public List<Item> items(UUID token, int offset, int limit) {
+                assertEquals(id.get(), token);
+                itemRequests.add(token);
+                return List.of(new Item(41 + scans.get(), List.of(new File("D:/sample.png", null, Map.of())), Disposition.NEW, ""));
+            }
+            public Snapshot start(UUID token) { started.set(token); phase.set(Phase.IMPORTING); return status(token); }
+            public Snapshot cancel(UUID token) { phase.set(Phase.CANCELLED); return status(token); }
+        };
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(),
+                Map.of("localArtworkImports", args -> Optional.of(service)))) {
+            activate(model, "scan");
+            await(() -> sampleArtwork(model).equals("42"));
+            UUID first = id.get();
+            activate(model, "scan");
+            await(() -> button(model, "cancel").enabled());
+            assertEquals("", sampleArtwork(model));
+            UUID second = id.get();
+            assertNotEquals(first, second);
+            phase.set(Phase.READY);
+            await(() -> sampleArtwork(model).equals("43"));
+            assertTrue(itemRequests.contains(second));
+            activate(model, "start");
+            await(() -> second.equals(started.get()));
+            activate(model, "cancel");
+            await(() -> button(model, "scan").enabled());
+            activate(model, "scan");
+            await(() -> sampleArtwork(model).equals("44"));
+            fail.set(true);
+            activate(model, "scan");
+            await(() -> button(model, "scan").enabled());
+            assertEquals("", sampleArtwork(model));
+            assertFalse(button(model, "start").enabled());
+        }
+    }
+
+    private static String sampleArtwork(ComposeDesktopUiModel model) {
+        return DesktopMediaToolsControllerTest.nodes(model).filter(node -> node.id().equals("local-import.sample.0"))
+                .map(DesktopUiNode.Text.class::cast).map(node -> node.text().arguments().getFirst()).findFirst().orElse("");
+    }
+
     @Test @DisplayName("工具页预设独立保存，失败保留编辑，取消不写入且保留其他设置草稿")
     @SuppressWarnings("unchecked")
     void savedPresetsWorkflow() throws Exception {

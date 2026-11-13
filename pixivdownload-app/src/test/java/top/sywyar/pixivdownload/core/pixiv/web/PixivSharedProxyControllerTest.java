@@ -26,7 +26,8 @@ class PixivSharedProxyControllerTest {
     private final RequestOwnerIdentityResolver identity = mock(RequestOwnerIdentityResolver.class);
     private final MockHttpServletRequest request = new MockHttpServletRequest();
     private final PixivSharedProxyController controller = new PixivSharedProxyController(
-            JsonMapper.builderWithJackson2Defaults().build(), ajax, mock(PixivThumbnailFetcher.class), access, identity, HostTestMessages.messages());
+            JsonMapper.builderWithJackson2Defaults().build(), ajax, mock(PixivThumbnailFetcher.class), access, identity, HostTestMessages.messages(),
+            mock(top.sywyar.pixivdownload.schedule.ScheduleRequestScope.class));
 
     private void allow() {
         when(identity.resolveExistingOwnerUuid(request)).thenReturn(Optional.of("fixture-owner"));

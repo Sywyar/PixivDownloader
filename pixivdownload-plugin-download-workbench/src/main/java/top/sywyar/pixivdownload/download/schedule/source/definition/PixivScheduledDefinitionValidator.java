@@ -34,6 +34,8 @@ public final class PixivScheduledDefinitionValidator {
         } catch (IllegalArgumentException invalid) { throw invalidDefinition(); }
         JsonNode username = source.get("username");
         if (username != null && (!username.isString() || username.stringValue().length() > 512)) throw invalidDefinition();
+        if ("user".equals(source.path("acquisitionMode").asString(null))
+                && (username == null || username.stringValue().isBlank())) throw invalidDefinition();
         switch (sourceType) {
             case USER_NEW, USER_REQUEST -> requirePositiveId(source.get("userId"));
             case SERIES -> requirePositiveId(source.get("seriesId"));

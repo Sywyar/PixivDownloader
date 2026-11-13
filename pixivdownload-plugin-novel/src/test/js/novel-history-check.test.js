@@ -4,6 +4,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+function loadDownload(context) {
+    Object.assign(context, {QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import'});
+    vm.createContext(context);
+    for (const file of [
+        '../../../../pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/queue-display.js',
+        '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'
+    ]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), 'utf8'), context, {filename: file});
+}
+
 test('小说工作台历史查询错误使当前条目失败且不提交下载', async () => {
     for (const response of [{ok: false, status: 503}, {ok: true, json: async () => ({})}, null]) {
         const shared = {novelAcquisitionCredentialHeaders: () => ({})};
@@ -17,8 +26,7 @@ test('小说工作台历史查询错误使当前条目失败且不提交下载',
                 return response;
             }
         };
-        vm.createContext(context);
-        vm.runInContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'), 'utf8'), context);
+        loadDownload(context);
         const item = {id: 'n7', status: 'downloading'};
         await assert.rejects(shared.processNovelItem(item, {assertActive() {}, signal: new AbortController().signal}));
         assert.equal(item.status, 'failed');
@@ -42,9 +50,7 @@ test('小说下载完成保存消息键，重新渲染不保留下载时语言',
         fetchJsonWithProgress: async () => ({ok: true, json: async () => ({title: 'Novel'})}),
         fetch: async () => ({ok: true, json: async () => ({completed: true, failed: false})})
     };
-    vm.createContext(context);
-    vm.runInContext(fs.readFileSync(path.join(__dirname,
-        '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'), 'utf8'), context);
+    loadDownload(context);
     const item = {id: 'n7', status: 'downloading', statusMessageKey: 'stale:key'};
     await shared.processNovelItem(item, {assertActive() {}, signal: new AbortController().signal});
     const persisted = JSON.parse(JSON.stringify(item));
@@ -87,9 +93,7 @@ for (const [scenario, expectedStatus] of [
                     cancelled: scenario === 'cancelled'})};
             }
         };
-        vm.createContext(context);
-        vm.runInContext(fs.readFileSync(path.join(__dirname,
-            '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'), 'utf8'), context);
+        loadDownload(context);
         const running = shared.processNovelItem(item, {assertActive() {}, signal: new AbortController().signal});
         if (scenario === 'exception') await assert.rejects(running, /offline/);
         else await running;
@@ -135,9 +139,7 @@ for (const format of ['txt', 'html', 'epub']) {
             },
             fetch: async () => ({ok: true, json: async () => statuses.shift()})
         };
-        vm.createContext(context);
-        vm.runInContext(fs.readFileSync(path.join(__dirname,
-            '../../main/resources/static/pixiv-novel-download/novel-queue-download.js'), 'utf8'), context);
+        loadDownload(context);
         await shared.processNovelItem(item, {assertActive() {}, signal: new AbortController().signal});
         const writing = snapshots.find(row => row.novelStage === 'writing');
         assert.equal(writing.novelFormat, format);

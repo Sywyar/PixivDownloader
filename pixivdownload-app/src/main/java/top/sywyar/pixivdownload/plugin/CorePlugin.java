@@ -114,6 +114,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.local("/api/download/status"),
                 WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.visitor("/api/pixiv/user/*/meta"),
+                WebRouteContribution.admin("/api/pixiv/user/*/meta/schedule"),
                 WebRouteContribution.visitor("/api/pixiv/me/uid"),
                 WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
                 WebRouteContribution.admin("/home.html"),

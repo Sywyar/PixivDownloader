@@ -67,7 +67,7 @@
 
     function contributionMethods(value) {
         const allowed = [
-            'matches', 'preview', 'capture', 'restore', 'summary', 'fetchLimitMode',
+            'matches', 'preview', 'capture', 'prepareDefinition', 'restore', 'summary', 'fetchLimitMode',
             'quickSourceNote', 'credentialContribution', 'validateCredential',
             'bindCredential', 'bindSavedCredential', 'selectSavedCredential', 'revokeCredential',
             'credentialTaskPresentation', 'credentialPolicyGroups',

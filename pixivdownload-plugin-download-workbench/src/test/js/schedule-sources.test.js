@@ -24,6 +24,40 @@ test('来源 manifest 声明的模式与模块共同决定可调用行为', asyn
         {source: {id: '1'}}
     );
 });
+
+test('保存准备绑定捕获的来源版本，迟到资料及旧快照不能穿过来源换代', async () => {
+    let complete;
+    let signal;
+    let receivedContext;
+    const installers = new Map([['/plugins/source-a.js', validInitializer('/plugins/source-a.js', {
+        prepareDefinition(params, context, lease) {
+            signal = lease.signal;
+            receivedContext = context;
+            return new Promise(resolve => { complete = () => resolve({...params, username: 'Target user'}); });
+        }
+    })]]);
+    const runtime = harness([manifest(1, [source()]), manifest(2, [source({
+        publicationId: 12, activationToken: 'activation-b'
+    })])], installers);
+    await runtime.refresh(false);
+    const captured = runtime.captureForMode('user', {mode: 'user'});
+    const request = {proxy: 'plan.proxy:8080', credential: 'synthetic-draft-secret'};
+    const first = runtime.prepareSubmission(captured, {request,
+        task: {sourceType: 'source-a', paramsJson: '{"source":{"id":"1","username":"Saved user"}}'}});
+    assert.equal(receivedContext.request, request);
+    assert.equal(JSON.parse(receivedContext.editingTask.paramsJson).source.username, 'Saved user');
+    complete();
+    const prepared = await first;
+    assert.equal(prepared.params.username, 'Target user');
+    assert.equal(JSON.stringify(prepared).includes('synthetic-draft-secret'), false);
+    const pending = runtime.prepareSubmission(captured);
+    await runtime.refresh(true);
+    assert.equal(signal.aborted, true);
+    complete();
+    await assert.rejects(pending, {code: 'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE'});
+    await assert.rejects(runtime.prepareSubmission(captured), {code: 'SCHEDULE_SOURCE_EDITOR_UNAVAILABLE'});
+    runtime.dispose();
+});
 test('捕获编辑任务时仅向原来源提供只读定义快照', async () => {
     let received;
     const install = runtime => runtime.registerModule('/plugins/source-a.js', api => {

@@ -27,6 +27,7 @@ function client(lang) {
 
 function harness(alt = true) {
     const c = vm.createContext({console, setTimeout, clearTimeout, Map, Set, AbortController,
+        QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
         document: {createElement: tag => new MiniElement(tag), getElementById: () => null, addEventListener() {}},
         openFiltersDrawer() {}, openSettingsDrawer() {},
         PixivBatchAlt: {}, PixivBatch: {}});

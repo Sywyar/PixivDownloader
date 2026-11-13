@@ -616,7 +616,7 @@ function openScheduleEditor(task) {
         body.setAttribute('aria-busy', 'true');
         try {
             if (session) session.lease.assertCurrent();
-            const snapshot = altCaptureScheduleSource(firstLimit);
+            let snapshot = altCaptureScheduleSource(firstLimit);
             if (session && (snapshot.sourceType !== session.lease.sourceType
                 || snapshot.activationToken !== session.lease.activationToken)) {
                 throw new Error(bt('schedule.editor.source-changed'));
@@ -631,6 +631,12 @@ function openScheduleEditor(task) {
                 if (!await abConfirm(limitKey(snapshot, 'fullFetchConfirmKey',
                     'schedule.confirm.full-fetch'))) return;
             }
+            snapshot.lease.assertCurrent();
+            snapshot = await altScheduleSources().prepareSubmission(snapshot, {task: savedTask, request: {
+                taskId: savedTask?.id, expectedStateVersion: savedTask?.stateVersion,
+                proxy, credential, savedCredentialSelection: selectedCredential,
+                useTaskCredential: !!(savedTask?.credentialPolicy?.bound && !credential && !selectedCredential)
+            }});
             snapshot.lease.assertCurrent();
             const requestBody = {
                 name,

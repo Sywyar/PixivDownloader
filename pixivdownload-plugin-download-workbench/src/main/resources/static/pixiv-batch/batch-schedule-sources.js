@@ -358,6 +358,19 @@ window.PixivBatch.scheduleSources = (function () {
         });
     }
 
+    async function prepareSubmission(snapshot, context = {}) {
+        const entry = handler(snapshot.sourceType);
+        const lease = credentialLease(entry);
+        lease.assertCurrent();
+        if (lease.activationToken !== snapshot.activationToken) {
+            throw sourceEditorError('SCHEDULE_SOURCE_EDITOR_UNAVAILABLE', 'schedule source handler became stale');
+        }
+        const params = await invoke(snapshot.sourceType, 'prepareDefinition',
+            [snapshot.params, Object.freeze({...scopedSourceContext(entry, context), request: context.request}), lease], snapshot.params);
+        lease.assertCurrent();
+        return Object.freeze({...snapshot, params});
+    }
+
     function restoreTask(task, context) {
         const sourceType = text(task && (task.sourceType));
         const entry = handler(sourceType);
@@ -565,6 +578,7 @@ window.PixivBatch.scheduleSources = (function () {
         descriptor,
         previewForMode,
         captureForMode,
+        prepareSubmission,
         restoreTask,
         summary,
         fetchLimitMode,

@@ -101,6 +101,7 @@ final class DesktopLocalImportController implements AutoCloseable {
             var request = new Request(templates.lines().map(String::strip).filter(s -> !s.isEmpty()).toList(),
                     ids.isBlank() ? List.of() : Arrays.stream(ids.strip().split("[\\s,;，；]+", -1)).map(Long::valueOf).toList(),
                     refresh, selectedFile.strip());
+            invalidate();
             run(() -> source().scan(request));
         } catch (RuntimeException invalid) { notice = key("local-import.error.INVALID_IMPORT_REQUEST"); owner.rebuild(); }
     }
@@ -108,7 +109,13 @@ final class DesktopLocalImportController implements AutoCloseable {
         if (busy || closed) return;
         busy = true; notice = null; owner.rebuild();
         owner.executeAsync(() -> {
-            try { Snapshot next = action.get(); if (!closed) status = next; }
+            try {
+                Snapshot next = action.get();
+                if (!closed) {
+                    if (status == null || !status.id().equals(next.id())) samples = List.of();
+                    status = next;
+                }
+            }
             catch (RuntimeException failure) {
                 String code = failure.getMessage();
                 notice = failure instanceof VariableException variable
@@ -130,7 +137,7 @@ final class DesktopLocalImportController implements AutoCloseable {
             status = next; samples = items;
             if (changed) owner.rebuild();
         } catch (RuntimeException failure) {
-            if (!closed && status == before) { status = null; notice = key("local-import.error.IMPORT_TASK_EXPIRED"); owner.rebuild(); }
+            if (!closed && status == before) { invalidate(); notice = key("local-import.error.IMPORT_TASK_EXPIRED"); owner.rebuild(); }
         }
     }
     private boolean running() { return status != null && Set.of(Phase.SCANNING, Phase.IMPORTING, Phase.CANCELLING).contains(status.phase()); }

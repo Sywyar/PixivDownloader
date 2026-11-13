@@ -187,6 +187,15 @@ class PixivScheduledSourceExecutorTest {
                 new InvalidDefinition("user-request", """
                         {"kind":"illust","source":{"userId":"not-a-number"}}
                         """),
+                new InvalidDefinition("user-new", """
+                        {"kind":"illust","source":{"userId":"7","acquisitionMode":"user"}}
+                        """),
+                new InvalidDefinition("user-new", """
+                        {"kind":"novel","source":{"userId":"7","acquisitionMode":"user","username":" "}}
+                        """),
+                new InvalidDefinition("user-request", """
+                        {"kind":"illust","source":{"userId":"7","acquisitionMode":"user","username":""}}
+                        """),
                 new InvalidDefinition("series", """
                         {"kind":"illust","source":{"seriesId":-1}}
                         """),
@@ -248,6 +257,23 @@ class PixivScheduledSourceExecutorTest {
                     .satisfies(failure -> assertThat(((ScheduledExecutionException) failure).code())
                             .isEqualTo("schedule.pixiv.definition-business-invalid"));
         }
+    }
+
+    @Test
+    @DisplayName("插画与小说保存保留显式 User 名称快照，旧计划不补取得模式")
+    void preservesUserDirectoryContextDuringPrepare() throws Exception {
+        for (String kind : List.of("illust", "novel")) {
+            for (String source : List.of("{\"userId\":\"7\"}",
+                    "{\"userId\":\"7\",\"acquisitionMode\":\"user\",\"username\":\"Target user\"}")) {
+                var prepared = executor("user-new").prepare(new ScheduledTaskDraft(
+                        7L, "user-new", "untrusted.schema", 9,
+                        "{\"kind\":\"" + kind + "\",\"source\":" + source + "}", ScheduledTaskPresentation.empty()));
+                assertThat(objectMapper.readTree(prepared.definitionJson()).path("source"))
+                        .isEqualTo(objectMapper.readTree(source));
+                executor("user-new").plan(prepared);
+            }
+        }
+        verifyNoInteractions(fetchService);
     }
 
     @Test

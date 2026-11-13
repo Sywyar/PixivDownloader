@@ -36,7 +36,7 @@ function setup(overrides={}) {
     document.querySelector=query=>document.body.querySelector(query);
     document.querySelectorAll=query=>document.body.querySelectorAll(query);
     const panel=document.createElement('div');panel.id='abModePanel';document.body.append(panel);
-    const context=vm.createContext({document,console,URLSearchParams,AbortController,setTimeout,clearTimeout});
+    const context=vm.createContext({document,console,URLSearchParams,AbortController,AbortSignal,setTimeout,clearTimeout});
     context.window=context;context.addEventListener=()=>{};context.scrollTo=()=>{};
     context.PixivBatch={};context.PixivBatchAlt={schedule:{},modes:{}};
     for(const name of ['commitQueueItemPatch','addItemsToQueue','removeFromQueue','renderQueue','updateStats',
@@ -52,6 +52,10 @@ function setup(overrides={}) {
     const lease=sourceType=>({sourceType,activationToken:'activation-a',signal:new AbortController().signal,
         assertCurrent(){if(!current)throw new Error('Stale source');}});
     context.PixivBatch.scheduleSources={
+        async prepareSubmission(snapshot, context = {}) {
+            return {...snapshot, params: await handlers.get(snapshot.sourceType)
+                .prepareDefinition(snapshot.params, {...context, editingTask: context.task}, lease(snapshot.sourceType))};
+        },
         registerModule(url,init){init({descriptors:['search','user-new','user-request','series','my-bookmarks','follow-latest','collection']
             .map(sourceType=>({sourceType})),registerSource:(type,handler)=>handlers.set(type,handler)});},
         activationLease:lease,restoreTask:value=>handlers.get(value.sourceType).restore(value),
