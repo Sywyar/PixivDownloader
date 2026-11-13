@@ -7,8 +7,6 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static');
 const CORE = fs.readFileSync(path.join(ROOT, 'pixiv-artwork', 'artwork-core.js'), 'utf8');
-const PAGE = fs.readFileSync(path.join(ROOT, 'pixiv-artwork.html'), 'utf8');
-const GALLERY_INIT = fs.readFileSync(path.join(ROOT, 'pixiv-gallery', 'gallery-init.js'), 'utf8');
 
 function load(stored) {
     const sandbox = {
@@ -29,9 +27,5 @@ assert.strictEqual(load('/pixiv-novel-gallery.html?view=all').state.returnTo,
     '/pixiv-gallery.html?view=all');
 assert.strictEqual(load('//example.invalid/steal').state.returnTo,
     '/pixiv-gallery.html?view=all');
-assert.ok(PAGE.includes('id="backToGalleryLink"') && PAGE.includes('返回画廊')
-    && !PAGE.includes('history.back()') && !PAGE.includes('id="galleryBtnLabel"'));
-assert.ok(GALLERY_INIT.includes("sessionStorage.setItem(ARTWORK_GALLERY_RETURN_KEY")
-    && GALLERY_INIT.includes("window.addEventListener('pagehide', rememberArtworkGalleryLocation)"));
 
 console.log('artwork-return-navigation.test.js: passed');

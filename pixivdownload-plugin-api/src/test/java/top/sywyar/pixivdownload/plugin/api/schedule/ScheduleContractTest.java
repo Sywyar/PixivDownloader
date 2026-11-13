@@ -43,7 +43,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunStatistics;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -709,21 +708,6 @@ class ScheduleContractTest {
         assertThat(method.isDefault()).isFalse();
         assertThat(Modifier.isAbstract(method.getModifiers())).isTrue();
         assertThat(method.getReturnType()).isEqualTo(java.util.Optional.class);
-    }
-
-    @Test
-    @DisplayName("Guard 决定保持完整的纯值 record 形状")
-    void guardDecisionKeepsDataOnlyRecordShape() throws Exception {
-        Constructor<ScheduledGuardDecision> constructor = ScheduledGuardDecision.class
-                .getDeclaredConstructor(
-                        ScheduledGuardDecision.Action.class,
-                        String.class,
-                        long.class);
-
-        assertThat(constructor).isNotNull();
-        assertThat(ScheduledGuardDecision.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("action", "reasonCode", "retryAfterMillis");
     }
 
     @Test

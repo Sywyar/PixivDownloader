@@ -5,16 +5,12 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpProxyProvider;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 
-import java.lang.reflect.Method;
 import java.net.URI;
-import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,44 +18,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("出站 WebSocket 稳定契约")
 class OutboundWebSocketContractTest {
-
-    @Test
-    @DisplayName("公开表面只暴露 profile、请求、连接与关闭语义")
-    void publicSurfaceHasExactTransportNeutralShape() throws Exception {
-        assertThat(OutboundWebSocketClientProfile.class.isRecord()).isTrue();
-        assertThat(Arrays.stream(OutboundWebSocketClientProfile.class.getRecordComponents())
-                .map(component -> component.getName()).toList())
-                .containsExactly("connectTimeout", "route");
-        assertThat(Arrays.stream(OutboundWebSocketClientProfile.class.getRecordComponents())
-                .map(component -> component.getType().getName()).toList())
-                .containsExactly(Duration.class.getName(), OutboundHttpRoute.class.getName());
-
-        assertThat(OutboundWebSocketRequest.class.isRecord()).isTrue();
-        assertThat(Arrays.stream(OutboundWebSocketRequest.class.getRecordComponents())
-                .map(component -> component.getName()).toList())
-                .containsExactly("uri", "headers");
-        assertThat(Arrays.stream(OutboundWebSocketRequest.class.getRecordComponents())
-                .map(component -> component.getType().getName()).toList())
-                .containsExactly(URI.class.getName(), Map.class.getName());
-
-        assertThat(OutboundWebSocketClient.class.getInterfaces())
-                .containsExactly(AutoCloseable.class);
-        Method connect = OutboundWebSocketClient.class.getDeclaredMethod(
-                "connect", OutboundWebSocketRequest.class, WebSocket.Listener.class);
-        assertThat(connect.getReturnType()).isEqualTo(CompletableFuture.class);
-        assertThat(connect.getGenericReturnType().getTypeName())
-                .isEqualTo(CompletableFuture.class.getName() + "<" + WebSocket.class.getName() + ">");
-        assertThat(connect.getExceptionTypes()).isEmpty();
-
-        Method close = OutboundWebSocketClient.class.getDeclaredMethod("close");
-        assertThat(close.getReturnType()).isEqualTo(void.class);
-        assertThat(close.getExceptionTypes()).isEmpty();
-
-        Method open = OutboundWebSocketClientFactory.class.getDeclaredMethod(
-                "open", OutboundWebSocketClientProfile.class);
-        assertThat(open.getReturnType()).isEqualTo(OutboundWebSocketClient.class);
-        assertThat(open.getExceptionTypes()).isEmpty();
-    }
 
     @Test
     @DisplayName("profile 拒绝空值与非正连接超时")

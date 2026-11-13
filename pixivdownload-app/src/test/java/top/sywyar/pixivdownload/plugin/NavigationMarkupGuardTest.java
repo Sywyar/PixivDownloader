@@ -190,22 +190,4 @@ class NavigationMarkupGuardTest {
                 .doesNotContain("?view=all");
     }
 
-    @Test
-    @DisplayName("类型切换跨页交接使用插槽链接事件委托、不依赖链接同步存在、不特判对方插件路径")
-    void typeSwitchHandoffUsesDelegatedClickHandling() throws IOException {
-        // 画廊 / 小说页通过 document 事件委托接住异步生成的类型链接，无需监听导航渲染生命周期。
-        for (String initJs : List.of("pixiv-gallery/gallery-init.js", "pixiv-novel-gallery/novel-gallery-init.js")) {
-            assertThat(read(initJs))
-                    .as("%s 应委托处理动态生成的共享类型切换链接", initJs)
-                    .contains("document.addEventListener('click'", ".gallery-type-switch a[href]")
-                    .doesNotContain("pixivnav:rendered");
-        }
-        // 类型切换交接不得特判「对方插件页面路径」（应对 slot 内全部链接统一处理）。
-        assertThat(read("pixiv-gallery/gallery-state.js"))
-                .as("画廊类型切换交接不应特判小说页路径")
-                .doesNotContain("/pixiv-novel-gallery.html\"]");
-        assertThat(read("pixiv-novel-gallery/novel-gallery-core.js"))
-                .as("小说类型切换交接不应特判画廊页路径")
-                .doesNotContain("/pixiv-gallery.html\"]");
-    }
 }

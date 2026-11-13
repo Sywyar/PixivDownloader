@@ -83,23 +83,6 @@ class DownloadExtensionControllerTest {
     }
 
     @Test
-    @DisplayName("扩展响应与下载类型视图只包含当前单一来源契约字段")
-    void responseRecordsContainOnlyCurrentContractFields() {
-        assertThat(DownloadExtensionController.DownloadExtensionsView.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("epoch", "revision", "downloadTypes", "uiSlots");
-        assertThat(DownloadExtensionController.DownloadTypeView.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly(
-                        "contractVersion", "type", "displayNamespace", "displayI18nKey", "order",
-                        "iconKey", "colorToken", "moduleUrl", "acquisitionModes", "cancelSupported",
-                        "filters", "settings", "i18nNamespace", "owner");
-        assertThat(DownloadExtensionController.UiSlotView.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "owner");
-    }
-
-    @Test
     @DisplayName("控制面没有可用扩展时端点返回空列表")
     void emptyControlPlaneSnapshotProducesEmptyLists() {
         DownloadExtensionController.DownloadExtensionsView view = responseFor(

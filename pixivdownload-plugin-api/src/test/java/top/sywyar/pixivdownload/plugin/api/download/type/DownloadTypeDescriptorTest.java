@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,52 +12,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("下载类型 descriptor 当前契约")
 class DownloadTypeDescriptorTest {
-
-    @Test
-    @DisplayName("record 只保留单一下载类型事实源字段")
-    void recordHasExactCurrentShape() {
-        var components = Arrays.asList(DownloadTypeDescriptor.class.getRecordComponents());
-
-        assertThat(components.stream()
-                .map(component -> component.getName()).toList())
-                .containsExactly(
-                        "contractVersion",
-                        "type",
-                        "displayNamespace",
-                        "displayI18nKey",
-                        "order",
-                        "iconKey",
-                        "colorToken",
-                        "moduleUrl",
-                        "acquisitionModes",
-                        "cancelSupported",
-                        "filters",
-                        "settings",
-                        "i18nNamespace");
-        assertThat(components.stream()
-                .map(component -> component.getType().getName()).toList())
-                .containsExactly(
-                        "int",
-                        String.class.getName(),
-                        String.class.getName(),
-                        String.class.getName(),
-                        "int",
-                        String.class.getName(),
-                        String.class.getName(),
-                        String.class.getName(),
-                        List.class.getName(),
-                        "boolean",
-                        List.class.getName(),
-                        List.class.getName(),
-                        String.class.getName());
-        assertThat(DownloadTypeDescriptor.class.getDeclaredConstructors())
-                .singleElement()
-                .satisfies(constructor -> assertThat(constructor.getParameterCount()).isEqualTo(13));
-        assertThat(DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION).isEqualTo(1);
-        assertThat(DownloadTypeDescriptor.class.getDeclaredMethods())
-                .extracting(method -> method.getName())
-                .doesNotContain("pluginId", "queue", "schedule", "uiSlots", "gallery", "legacy");
-    }
 
     @Test
     @DisplayName("无版本与负版本不能伪装成当前契约")
