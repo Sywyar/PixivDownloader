@@ -371,6 +371,24 @@
                 <version>3.5.0</version>
                 <executions>
                     <execution>
+                        <id>generate-host-spring-aot</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <skip>false</skip>
+                            <executable>java</executable>
+                            <classpathScope>runtime</classpathScope>
+                            <arguments>
+                                <argument>-Dfile.encoding=UTF-8</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>${maven.multiModuleProjectDirectory}/build-support/spring-aot/GenerateHostComponents.java</argument>
+                                <argument>${project.build.directory}</argument>
+                                <argument>${java.version}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>generate-maintainer-catalog</id>
                         <phase>generate-resources</phase>
                         <goals>

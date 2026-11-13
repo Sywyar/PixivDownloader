@@ -69,4 +69,24 @@ class StartupCacheInputsTest {
         assertThatThrownBy(() -> StartupCacheInputs.copy(inputs, directory.resolve("copy2/plugins"),
                 directory.resolve("copy2/config.yaml"))).isInstanceOf(java.io.IOException.class);
     }
+
+    @Test @DisplayName("无自定义信任列表的训练配置经过初始化编辑后仍可由 Spring 读取")
+    void scalarConfigurationSurvivesSetupEdits() throws Exception {
+        Path source = Files.writeString(directory.resolve("source.yaml"),
+                "app.gui-provider: custom-desktop\napp.theme: dark\n", StandardCharsets.UTF_8);
+        Path training = Files.writeString(directory.resolve("training.yaml"),
+                StartupCacheInputs.trainingConfiguration(source), StandardCharsets.UTF_8);
+        var editor = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(training);
+        editor.writeAll(java.util.Map.of("proxy.enabled", "false", "proxy.host", "127.0.0.1",
+                "database.provider", "fixture-database"));
+        var sources = new org.springframework.boot.env.YamlPropertySourceLoader().load("training",
+                new org.springframework.core.io.FileSystemResource(training));
+        assertThat(sources).hasSize(1);
+        var properties = sources.getFirst();
+        assertThat(properties.getProperty("app.gui-provider")).isEqualTo("custom-desktop");
+        assertThat(properties.getProperty("app.theme")).isEqualTo("dark");
+        assertThat(properties.getProperty("proxy.enabled")).isEqualTo(false);
+        assertThat(properties.getProperty("proxy.host")).isEqualTo("127.0.0.1");
+        assertThat(properties.getProperty("database.provider")).isEqualTo("fixture-database");
+    }
 }

@@ -532,6 +532,30 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
+    @DisplayName("发行 JAR 经生成的 Spring 装配启动且 GUI 条件仍随当前环境变化")
+    void bootJarStartsWithGeneratedHostComponents() throws Exception {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
+        Path entry = Path.of(acceptance.HostAotAcceptance.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        for (boolean headless : new boolean[]{true, false}) {
+            Path run = Files.createDirectories(tempDir.resolve(Boolean.toString(headless)));
+            Path log = run.resolve("startup.log");
+            Process process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-Dfile.encoding=UTF-8", "-Dloader.path=" + entry, "-Dloader.main=" + acceptance.HostAotAcceptance.class.getName(),
+                    "-cp", bootJar.toAbsolutePath().toString(), "org.springframework.boot.loader.launch.PropertiesLauncher",
+                    Boolean.toString(headless)).directory(run.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+            try {
+                assertThat(process.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)).as("发行包启动与关闭应完成").isTrue();
+                String output = Files.readString(log, StandardCharsets.UTF_8);
+                assertThat(process.exitValue()).withFailMessage(output).isZero();
+                assertThat(output).contains("HOST_AOT_ACCEPTANCE_OK headless=" + headless);
+            } finally {
+                if (process.isAlive()) process.destroyForcibly().waitFor();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("最终宿主产物可独立加载共享实现、迁移与社区合同、语言目录和许可证")
     void bootJarLoadsCommunityContracts() throws Exception {
         Path bootJar = locateBootJar();

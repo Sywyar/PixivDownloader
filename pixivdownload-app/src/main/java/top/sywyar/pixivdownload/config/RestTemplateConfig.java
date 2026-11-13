@@ -14,6 +14,9 @@ import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.client.ClientHttpRequest;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.DefaultResponseErrorHandler;
 import org.springframework.web.client.NoOpResponseErrorHandler;
@@ -21,6 +24,9 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import java.io.IOException;
+import java.net.URI;
 
 @Configuration
 @RequiredArgsConstructor
@@ -82,6 +88,22 @@ public class RestTemplateConfig {
             boolean followRedirects,
             boolean manageCookies
     ) {
+        var factory = new DeferredRequestFactory(() -> buildRequestFactory(
+                connectTimeoutMs, socketTimeoutMs, followRedirects, manageCookies));
+        RestTemplate restTemplate = new ManagedRestTemplate(factory);
+        restTemplate.getInterceptors().add((request, body, execution) -> {
+            PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), request.getURI(), request.getMethod());
+            return execution.execute(request, body);
+        });
+        return restTemplate;
+    }
+
+    private HttpComponentsClientHttpRequestFactory buildRequestFactory(
+            int connectTimeoutMs,
+            int socketTimeoutMs,
+            boolean followRedirects,
+            boolean manageCookies
+    ) {
         ConnectionConfig connectionConfig = ConnectionConfig.custom()
                 .setConnectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .setSocketTimeout(socketTimeoutMs, TimeUnit.MILLISECONDS)
@@ -109,24 +131,56 @@ public class RestTemplateConfig {
         }
         HttpClient httpClient = httpClientBuilder.build();
 
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient) {
+        return new HttpComponentsClientHttpRequestFactory(httpClient) {
             @Override protected void postProcessHttpRequest(org.apache.hc.core5.http.ClassicHttpRequest request) {
                 top.sywyar.pixivdownload.core.pixiv.PixivCredentialRetry.bindRequest(request);
             }
         };
-        RestTemplate restTemplate = new ManagedRestTemplate(factory);
-        restTemplate.getInterceptors().add((request, body, execution) -> {
-            PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), request.getURI(), request.getMethod());
-            return execution.execute(request, body);
-        });
-        return restTemplate;
+    }
+
+    /** 连接池及 TLS 在首次请求时初始化；未使用的客户端关闭时不创建资源。 */
+    static final class DeferredRequestFactory implements ClientHttpRequestFactory, DisposableBean {
+        private Supplier<HttpComponentsClientHttpRequestFactory> supplier;
+        private HttpComponentsClientHttpRequestFactory delegate;
+        private boolean closed;
+
+        DeferredRequestFactory(Supplier<HttpComponentsClientHttpRequestFactory> supplier) {
+            this.supplier = supplier;
+        }
+
+        private synchronized HttpComponentsClientHttpRequestFactory delegate() throws IOException {
+            if (closed) throw new IOException("HTTP client is closed");
+            if (delegate == null) {
+                delegate = supplier.get();
+                supplier = null;
+            }
+            return delegate;
+        }
+
+        @Override
+        public ClientHttpRequest createRequest(URI uri, HttpMethod method) throws IOException {
+            return delegate().createRequest(uri, method);
+        }
+
+        @Override
+        public void destroy() throws Exception {
+            HttpComponentsClientHttpRequestFactory active;
+            synchronized (this) {
+                if (closed) return;
+                closed = true;
+                supplier = null;
+                active = delegate;
+                delegate = null;
+            }
+            if (active != null) active.destroy();
+        }
     }
 
     private static final class ManagedRestTemplate extends RestTemplate implements DisposableBean {
 
-        private final HttpComponentsClientHttpRequestFactory requestFactory;
+        private final DeferredRequestFactory requestFactory;
 
-        private ManagedRestTemplate(HttpComponentsClientHttpRequestFactory requestFactory) {
+        private ManagedRestTemplate(DeferredRequestFactory requestFactory) {
             super(requestFactory);
             this.requestFactory = requestFactory;
         }

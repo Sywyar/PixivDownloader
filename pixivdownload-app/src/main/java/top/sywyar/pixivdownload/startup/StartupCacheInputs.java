@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.startup;
 
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactScanner;
@@ -125,7 +126,9 @@ final class StartupCacheInputs {
         selected.put("proxy.enabled", false);
         selected.put("server.port", 0);
         selected.put("download.root-folder", "downloads");
-        return new Yaml().dump(selected);
+        var output = new DumperOptions();
+        output.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        return new Yaml(output).dump(selected);
     }
 
     private static Object catalogValue(Map<?, ?> root, String key) {

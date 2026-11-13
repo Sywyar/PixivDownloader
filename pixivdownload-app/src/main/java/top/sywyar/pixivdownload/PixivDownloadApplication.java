@@ -14,13 +14,13 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSessionHandoff;
+import top.sywyar.pixivdownload.startup.aot.HostComponents;
 
 import java.nio.file.Path;
 
 /**
- * 前两个排除过滤器是 {@code @SpringBootApplication} 元注解的原样展开；展开成显式组合
- * 是为了追加第三个：被 {@link PluginManagedBean} 标记的插件托管 Bean 不经根包扫描注册，
- * 一律由所属插件的 {@code XxxPluginConfiguration} 以 {@code @Bean} 显式提供。
+ * 宿主组件经 {@link HostComponents} 装配，保留 Boot 的排除规则，并排除
+ * {@link PluginManagedBean}；插件托管 Bean 一律由所属插件配置显式提供。
  *
  * <p>两个入口：{@link #start(String[])}（headless / 普通）由 Spring 创建 CONTEXT 拥有的 bootstrap 会话；
  * {@link #start(String[], PluginBootstrapSession)}（GUI）接收进程级 PROCESS 会话并交接给 Spring——经
@@ -73,6 +73,8 @@ public class PixivDownloadApplication {
      */
     static SpringApplication buildHeadlessApplication() {
         SpringApplication application = new SpringApplication(PixivDownloadApplication.class);
+        application.setApplicationContextFactory(HostComponents.contextFactory());
+        application.addInitializers(new HostComponents());
         application.addListeners(new top.sywyar.pixivdownload.gui.backfill.HeadlessBackfillStartup(application));
         return application;
     }
@@ -83,6 +85,8 @@ public class PixivDownloadApplication {
      */
     static SpringApplication buildGuiApplication(PluginBootstrapSession session) {
         SpringApplication application = new SpringApplication(PixivDownloadApplication.class);
+        application.setApplicationContextFactory(HostComponents.contextFactory());
+        application.addInitializers(new HostComponents());
         application.setRegisterShutdownHook(false);
         application.addInitializers(new PluginBootstrapHandoffInitializer(session));
         return application;
