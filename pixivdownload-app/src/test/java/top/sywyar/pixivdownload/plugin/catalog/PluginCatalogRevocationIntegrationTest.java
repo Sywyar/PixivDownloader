@@ -275,4 +275,45 @@ class PluginCatalogRevocationIntegrationTest {
         responses.put(repository.revocationsUrl() + ".sig", mapper.writeValueAsBytes(new SignatureMetadata(
                 1, "Ed25519", "test-key", Base64.getEncoder().encodeToString(signer.sign()))));
     }
+
+    @Test
+    @DisplayName("重复浏览同一签名撤销文档更新诊断时间但不使桌面训练输入失效")
+    void browsingUnchangedRevocationsPreservesStartupInputs() throws Exception {
+        publish(1, List.of(restriction("ab", "REVOKED")), Instant.now().plusSeconds(3600));
+        market.catalog(repository.repositoryId());
+        var first = store.revocations(repository.repositoryId()).orElseThrow();
+        var inputsType = Class.forName("top.sywyar.pixivdownload.startup.StartupCacheInputs");
+        var capture = inputsType.getDeclaredMethod("capture", Path.class, Path.class, Path.class);
+        capture.setAccessible(true);
+        Path plugins = Files.createDirectory(temp.resolve("plugins"));
+        Path config = temp.resolve("config.yaml");
+        var frozen = capture.invoke(null, plugins, config, temp.resolve("trust.json"));
+        var identity = frozen.getClass().getDeclaredMethod("identity");
+        identity.setAccessible(true);
+        var verifyCurrent = inputsType.getDeclaredMethod("verifyCurrent", frozen.getClass());
+        verifyCurrent.setAccessible(true);
+
+        // 只发布一次；列表和详情均走真实刷新、验签与持久化路径。
+        Thread.sleep(20);
+        market.catalog(repository.repositoryId());
+        var refreshed = store.revocations(repository.repositoryId()).orElseThrow();
+        assertThat(refreshed.verifiedAt()).isNotEqualTo(first.verifiedAt());
+        assertThat(refreshed.documentSha256()).isEqualTo(first.documentSha256());
+        assertThat(refreshed.sequence()).isEqualTo(first.sequence());
+        assertThat(refreshed.entries()).isEqualTo(first.entries());
+        assertThat(identity.invoke(capture.invoke(null, plugins, config, temp.resolve("trust.json"))))
+                .isEqualTo(identity.invoke(frozen));
+        verifyCurrent.invoke(null, frozen);
+        var details = market.pluginDetail(repository.repositoryId(), "demo").packages().get(0).verification().revocation();
+        assertThat(details.fetchedAt()).isEqualTo(store.revocations(repository.repositoryId()).orElseThrow().verifiedAt());
+        assertThat(details.executionBlocked()).isTrue();
+        assertThat(new PluginCatalogRevocationAdmissionPolicy(registry, store).evaluate(request("ab")).allowed()).isFalse();
+        verifyCurrent.invoke(null, frozen);
+
+        publish(2, List.of(), Instant.now().plusSeconds(3600));
+        market.catalog(repository.repositoryId());
+        assertThat(identity.invoke(capture.invoke(null, plugins, config, temp.resolve("trust.json"))))
+                .isNotEqualTo(identity.invoke(frozen));
+        assertThatThrownBy(() -> verifyCurrent.invoke(null, frozen)).hasCauseInstanceOf(java.io.IOException.class);
+    }
 }

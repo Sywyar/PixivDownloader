@@ -691,6 +691,31 @@ final class DesktopToolsView {
                         )
                 )
         ));
+        var cache = model.startupCache;
+        boolean active = cache != null && cache.active();
+        String statusKey = cache == null ? "unavailable"
+                : cache.state() == top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache.State.FAILED
+                    ? "failure." + cache.failure().name().toLowerCase(java.util.Locale.ROOT)
+                : cache.state() == top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache.State.RUNNING
+                    ? "phase." + cache.phase().name().toLowerCase(java.util.Locale.ROOT)
+                    : "state." + cache.state().name().toLowerCase(java.util.Locale.ROOT);
+        var startupNodes = new ArrayList<DesktopUiNode>();
+        startupNodes.add(new DesktopUiNode.Text("tools.startup.status",
+                key("gui.tools.startup-cache." + statusKey), TextStyle.BODY, true, false));
+        if (active) startupNodes.add(new DesktopUiNode.Progress("tools.startup.progress", 0, true,
+                key("gui.tools.startup-cache." + statusKey), DesktopUiNode.ProgressStyle.LINEAR));
+        startupNodes.add(button("tools.startup.run", "tools.startup.run", "gui.tools.startup-cache.start",
+                model.host.startupCache().isPresent() && !active, nextActions, () -> {
+                    model.host.startupCache().ifPresent(value -> value.start());
+                    model.refreshStartupCache();
+                }));
+        if (active) startupNodes.add(button("tools.startup.cancel", "tools.startup.cancel", "gui.tools.startup-cache.cancel",
+                cache.state() != top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache.State.STOPPING,
+                nextActions, () -> {
+                    model.host.startupCache().ifPresent(value -> value.cancel(cache.executionId()));
+                    model.refreshStartupCache();
+                }));
+        cards.add(group("tools.startup", "gui.tools.startup-cache.title", column("tools.startup.content", startupNodes)));
         return List.copyOf(cards);
     }
 

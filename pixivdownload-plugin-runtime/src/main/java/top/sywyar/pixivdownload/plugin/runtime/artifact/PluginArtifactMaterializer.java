@@ -47,10 +47,18 @@ public final class PluginArtifactMaterializer {
         }
 
         try {
-            requireVerifiedSnapshotHash(frozen, expectedSha256, "after verification");
+            Path restored = snapshot.restoredLoadPath();
+            // 只有实际展开归档才需要前后各验一次；复用路径仍在封存前核对当前摘要。
+            if (restored == null && (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY
+                    || inspection.containsPrivateLibraries())) {
+                requireVerifiedSnapshotHash(frozen, expectedSha256, "after verification");
+            }
             Path loadPath;
             boolean materialized;
-            if (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY) {
+            if (restored != null) {
+                loadPath = restored;
+                materialized = !loadPath.equals(frozen);
+            } else if (inspection.format() == PluginPackageFormat.EXPLODED_DIRECTORY) {
                 loadPath = snapshot.createLoadDirectory();
                 extractExplodedZip(snapshot, frozen, loadPath);
                 materialized = true;
@@ -64,6 +72,7 @@ public final class PluginArtifactMaterializer {
             }
             requireVerifiedSnapshotHash(frozen, expectedSha256, "during materialization");
             snapshot.sealLoadPath(loadPath);
+            snapshot.rememberPreparation();
             return new MaterializedPluginArtifact(original, loadPath, materialized);
         } catch (IOException e) {
             throw new PluginRuntimeOperationException("failed to materialize plugin artifact " + original, e);

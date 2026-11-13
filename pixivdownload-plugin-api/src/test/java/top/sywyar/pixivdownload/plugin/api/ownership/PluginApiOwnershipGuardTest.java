@@ -170,7 +170,7 @@ class PluginApiOwnershipGuardTest {
                     "DesktopAutomationSnapshot", "DesktopAutomationSource", "DesktopAutomationTaskContribution",
                     "DesktopControlCenterAvailability", "DesktopDashboardCardContribution", "DesktopDashboardSnapshot",
                     "DesktopDashboardSource", "DesktopEnvironmentTransfer", "DesktopRunningTaskContribution",
-                    "DesktopDirectorySuggestion", "DesktopDirectorySuggestionSource", "DesktopDatabaseSettings",
+                    "DesktopDirectorySuggestion", "DesktopDirectorySuggestionSource", "DesktopDatabaseSettings", "DesktopStartupCache",
                     "DesktopUiContext", "DesktopUiHost", "DesktopUiIcon", "DesktopUiPluginSnapshot",
                     "DesktopUiProvider", "DesktopUiSession", "DesktopUiText", "DesktopUiTone", "DesktopUiToolHost",
                     "GuiActionInvocationHeaders",
@@ -298,7 +298,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("数据库迁移合同", 12),
             Map.entry("数据库迁移 JDBC 支持", 4),
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 61),
+            Map.entry("GUI contribution 与桌面宿主契约", 62),
             Map.entry("Web 与请求身份协议", 22),
             Map.entry("采集调用上下文", 2),
             Map.entry("油猴脚本宿主目录协议", 2),
@@ -320,6 +320,10 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "gui.DesktopStartupCache$State",
+            API_PREFIX + "gui.DesktopStartupCache$Phase",
+            API_PREFIX + "gui.DesktopStartupCache$Failure",
+            API_PREFIX + "gui.DesktopStartupCache$Snapshot",
             API_PREFIX + "gui.DesktopEnvironmentTransfer$InstallationKind",
             API_PREFIX + "gui.DesktopEnvironmentTransfer$Installation",
             API_PREFIX + "gui.DesktopEnvironmentTransfer$FieldKey",

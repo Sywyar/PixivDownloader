@@ -38,18 +38,33 @@ public final class PluginCatalogTrustStateStore {
     public synchronized State read() {
         if (!Files.isRegularFile(path)) return State.empty();
         try {
-            long size = Files.size(path);
-            if (size <= 0L || size > MAX_BYTES) throw new IOException("state size outside accepted range");
-            byte[] bytes = Files.readAllBytes(path);
-            if (bytes.length > MAX_BYTES) throw new IOException("state grew beyond the accepted size");
-            State state = mapper.readValue(PluginCatalogStrictJson.strictUtf8(bytes), State.class);
-            if (state == null || state.schemaVersion() != 1) {
-                throw new IOException("unsupported plugin catalog trust state schema");
-            }
-            return state.normalized();
+            return readState();
         } catch (Exception failure) {
             LOGGER.error("Ignoring corrupt plugin catalog trust state {}: {}", path, failure.getMessage());
             return State.empty();
+        }
+    }
+
+    /** 冻结训练输入时不能把读取失败当成没有撤销状态。 */
+    public synchronized State readSnapshot() throws IOException {
+        if (Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return State.empty();
+        top.sywyar.pixivdownload.common.PlainFilePathGuard.requirePlainRegularFile(path);
+        return readState(java.nio.file.LinkOption.NOFOLLOW_LINKS);
+    }
+
+    private State readState(java.nio.file.OpenOption... options) throws IOException {
+        byte[] bytes;
+        try (var input = Files.newInputStream(path, options)) {
+            bytes = input.readNBytes((int) MAX_BYTES + 1);
+        }
+        if (bytes.length == 0 || bytes.length > MAX_BYTES) throw new IOException("state size outside accepted range");
+        try {
+            State state = mapper.readValue(PluginCatalogStrictJson.strictUtf8(bytes), State.class);
+            if (state == null || state.schemaVersion() != 1)
+                throw new IOException("unsupported plugin catalog trust state schema");
+            return state.normalized();
+        } catch (RuntimeException invalid) {
+            throw new IOException("invalid plugin catalog trust state", invalid);
         }
     }
 

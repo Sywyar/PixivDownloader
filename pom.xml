@@ -301,6 +301,7 @@
                                 <mkdir dir="${project.build.directory}/proguard/reports"/>
                                 <path id="pixivdownload.proguard.program">
                                     <pathelement path="${pixivdownload.proguard.additionalProgramPath}"/>
+                                    <dirset dir="${project.build.directory}" includes="spring-aot/classes"/>
                                 </path>
                                 <path id="pixivdownload.proguard.jmods">
                                     <fileset dir="${pixivdownload.toolchain.java.home}/jmods">

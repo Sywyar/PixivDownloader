@@ -105,7 +105,8 @@ class PluginRuntimeDependencyGuardTest {
                         "top.sywyar.pixivdownload.plugin.signature.community",
                         "top.sywyar.pixivdownload.core.schedule.capability..",
                         "top.sywyar.pixivdownload.core.schedule.migration..",
-                        "java..", "javax.sql", "org.springframework..", "org.pf4j..", "org.slf4j..")
+                        "java..", "javax.sql", "javax.crypto", "javax.crypto.spec",
+                        "org.springframework..", "org.pf4j..", "org.slf4j..")
                 .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
                         + "描述符 / 兼容性 / 状态模型 / 计划能力租约与迁移协议：只能依赖 JDK、Spring（条件 / 绑定）、"
                         + "PF4J（PluginManager 等）、slf4j、"

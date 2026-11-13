@@ -80,7 +80,9 @@ public class PluginRuntimeConfiguration {
             return existing.session();
         }
         PluginBootstrapSession session = PluginBootstrapSession.createContext(
-                RuntimeFiles.pluginsDirectory(), headlessEnabledSnapshot(toggles), verifierResolver);
+                RuntimeFiles.pluginsDirectory(), headlessEnabledSnapshot(toggles), verifierResolver)
+                .withScanCache(RuntimeFiles.pluginScanCacheDirectory())
+                .withPreparationCache(RuntimeFiles.pluginPreparationCacheDirectory());
         session.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(repositoryRegistry, trustStateStore));
         session.start();
         // 启动期快照持有插件实例 / classloader 引用，仅启动前短生命周期消费。headless 无主题消费者，接线完成后释放。

@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.jar.JarFile;
 
-/** 解包发行入口；Windows 原生入口直接使用随包准备的缓存。 */
+/** 解包发行与原生包入口，在创建应用 JVM 前选择兼容的启动缓存。 */
 public final class DistributionLauncher {
     public static final String JVM_MARKER = "-Dpixivdownload.distribution.launcher=true";
     private DistributionLauncher() { }
@@ -33,18 +33,29 @@ public final class DistributionLauncher {
         Path jar = Path.of(DistributionLauncher.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toRealPath();
         if (args.length == 3 && args[0].equals("prepare")) {
             prepare(jar, Path.of(args[1]).toAbsolutePath(), Path.of(args[2]).toAbsolutePath());
-        } else if (args.length > 0 && args[0].equals("run")) {
-            String[] applicationArgs = Arrays.copyOfRange(args, 1, args.length);
+        } else if (args.length == 3 && args[0].equals("prepare-gui")) {
+            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath(),
+                    RuntimeFiles.resolvePluginCatalogTrustStatePath());
+            StartupCacheTraining.train(jar, DesktopStartupCacheService.options(), inputs,
+                    Path.of(args[1]).toAbsolutePath(), Path.of(args[2]).toAbsolutePath(),
+                    phase -> System.out.println("AOT distribution: GUI training " + phase));
+            Path cache = Path.of(args[1]).toAbsolutePath();
+            Files.writeString(Path.of(cache + ".identity"),
+                    StartupCacheTraining.bundledIdentity(jar, DesktopStartupCacheService.options(), inputs) + "\n" + hash(cache),
+                    StandardCharsets.US_ASCII, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS);
+        } else if (args.length > 0 && args[0].equals("run") || System.getProperty("pixivdownload.aot.bundled") != null) {
+            String[] applicationArgs = args.length > 0 && args[0].equals("run")
+                    ? Arrays.copyOfRange(args, 1, args.length) : args;
             System.setProperty("pixivdownload.distribution.launcher", "true");
             int exit = run(jar, applicationArgs);
             if (exit >= 0) System.exit(exit);
             Class.forName(mainClass(jar)).getMethod("main", String[].class).invoke(null, (Object) applicationArgs);
         } else {
-            throw new IllegalArgumentException("Expected run <application arguments> or prepare <cache> <new training directory>");
+            throw new IllegalArgumentException("Expected run <application arguments>, prepare or prepare-gui <cache> <training directory>");
         }
     }
 
-    private static String java() {
+    static String java() {
         return Path.of(System.getProperty("java.home"), "bin", isWindows() ? "java.exe" : "java").toString();
     }
 
@@ -56,7 +67,7 @@ public final class DistributionLauncher {
         }
     }
 
-    private static List<String> command(Path jar, List<String> options, String... args) throws IOException {
+    static List<String> command(Path jar, List<String> options, String... args) throws IOException {
         var result = new ArrayList<String>();
         result.add(java());
         result.addAll(options);
@@ -116,7 +127,11 @@ public final class DistributionLauncher {
         if (options.stream().anyMatch(option -> option.startsWith("-agent") || option.startsWith("-javaagent:")
                 || option.startsWith("-Xrunjdwp:") || option.startsWith("-XX:AOT") || option.equals("-Xshare:off"))) {
             System.out.println("AOT distribution: explicit JVM cache or agent options; starting without managed cache");
+            System.setProperty("pixivdownload.aot.disabled", "true");
             return -1;
+        }
+        if (!List.of(args).contains("--no-gui") && !java.awt.GraphicsEnvironment.isHeadless()) {
+            return runDesktop(jar, args);
         }
         Path root;
         String key;
@@ -188,6 +203,29 @@ public final class DistributionLauncher {
         }
     }
 
+    private static int runDesktop(Path jar, String[] args) throws Exception {
+        var options = new ArrayList<>(DesktopStartupCacheService.options());
+        Path cache = null;
+        try {
+            var inputs = StartupCacheInputs.capture(RuntimeFiles.pluginsDirectory(), RuntimeFiles.resolveConfigYamlPath(),
+                    RuntimeFiles.resolvePluginCatalogTrustStatePath());
+            String key = StartupCacheTraining.identity(jar, options, inputs);
+            cache = new DesktopCacheStore(RuntimeFiles.aotCacheDirectory()).find(key)
+                    .map(DesktopCacheStore.Entry::cache).orElse(null);
+            if (cache == null) cache = StartupCacheTraining.bundledCache(jar, options, inputs);
+        } catch (Exception unavailable) {
+            System.err.println("AOT distribution: desktop cache unavailable (" + unavailable.getClass().getSimpleName() + ")");
+        }
+        if (cache == null) {
+            System.out.println("AOT distribution: desktop cache miss; starting normally");
+            return -1;
+        }
+        options.add("-XX:AOTMode=auto");
+        options.add("-XX:AOTCache=" + cache.toAbsolutePath());
+        System.out.println("AOT distribution: using desktop cache");
+        return execute(command(jar, options, args), null, false);
+    }
+
     static boolean validCache(Path cache, Path digest, String key) throws IOException {
         return Files.isRegularFile(cache, LinkOption.NOFOLLOW_LINKS)
                 && Files.isRegularFile(digest, LinkOption.NOFOLLOW_LINKS) && Files.size(digest) == 129
@@ -195,6 +233,10 @@ public final class DistributionLauncher {
     }
 
     static String identity(Path jar, List<String> options) throws Exception {
+        return identity(jar, options, false);
+    }
+
+    static String identity(Path jar, List<String> options, boolean portable) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         var paths = new ArrayList<Path>();
         paths.add(jar.toRealPath());
@@ -206,7 +248,8 @@ public final class DistributionLauncher {
                 home.resolve(isWindows() ? "bin/server/jvm.dll" : System.getProperty("os.name").equals("Mac OS X")
                         ? "lib/server/libjvm.dylib" : "lib/server/libjvm.so")));
         for (Path path : paths) {
-            digest.update(path.toAbsolutePath().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            digest.update((portable ? path.getFileName().toString() : path.toAbsolutePath().toString())
+                    .getBytes(StandardCharsets.UTF_8));
             digest.update(hash(path).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
         for (String option : options) {
@@ -215,7 +258,7 @@ public final class DistributionLauncher {
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    private static String hash(Path path) throws IOException {
+    static String hash(Path path) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             try (var input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {

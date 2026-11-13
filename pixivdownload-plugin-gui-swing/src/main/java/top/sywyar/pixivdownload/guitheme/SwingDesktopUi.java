@@ -36,9 +36,10 @@ final class SwingDesktopUi {
                             context.currentPluginSnapshots()),
                     GuiOnboardingContributionAggregator.fromRegisteredPlugins(startup));
             frameRef.set(frame);
-            boolean trayInstalled = SystemTrayManager.install(frame, context.rootFolder());
+            boolean training = context.host().startupCacheTraining();
+            boolean trayInstalled = !training && SystemTrayManager.install(frame, context.rootFolder());
             frame.setTrayAvailable(trayInstalled);
-            if (!context.startupLaunch() || !trayInstalled) frame.showWindow();
+            if (!training && (!context.startupLaunch() || !trayInstalled)) frame.showWindow();
         };
         try {
             runAndWait(create);
@@ -87,7 +88,7 @@ final class SwingDesktopUi {
     }
 
     private record Session(MainFrame frame, DesktopUiContext context) implements DesktopUiSession {
-        @Override public void activate() { onEdt(frame::showWindow); }
+        @Override public void activate() { if (!context.host().startupCacheTraining()) onEdt(frame::showWindow); }
         @Override public void showMessage(MessageLevel level, String title, String message) {
             int type = switch (level == null ? MessageLevel.INFO : level) {
                 case INFO -> JOptionPane.INFORMATION_MESSAGE;

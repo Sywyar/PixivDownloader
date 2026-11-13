@@ -204,8 +204,8 @@ if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
             function jlink { $global:LASTEXITCODE = 0 }
             function jpackage {
                 $image = Join-Path $args[[Array]::IndexOf($args, '--dest') + 1] 'PixivDownload'
-                Assert-Equal ($args -contains '-XX:AOTMode=auto') $true
-                Assert-Equal ($args -contains '-XX:AOTCache=$APPDIR/application.aot') $true
+                Assert-Equal ($args -contains 'top.sywyar.pixivdownload.startup.DistributionLauncher') $true
+                Assert-Equal ($args -contains '-Dpixivdownload.aot.bundled=$APPDIR/application.aot') $true
                 $input = $args[[Array]::IndexOf($args, '--input') + 1]
                 Write-FixtureFile (Join-Path $image 'PixivDownload.exe') 'launcher fixture'
                 Copy-Item -LiteralPath $input -Destination (Join-Path $image 'app') -Recurse

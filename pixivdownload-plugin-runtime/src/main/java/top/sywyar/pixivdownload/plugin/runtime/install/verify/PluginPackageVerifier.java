@@ -191,6 +191,11 @@ public final class PluginPackageVerifier {
 
     /** 对已经冻结的开发目录复用归档计量，保留独立契约的摘要和类来源校验。 */
     public static PluginClassSpace developmentClassSpace(Path directory, PluginPackageLimits limits) {
+        return measureDevelopment(directory, limits).classSpace();
+    }
+
+    /** 返回开发快照的实际用量与类空间，供内容绑定的扫描缓存复用。 */
+    public static VerificationUsage measureDevelopment(Path directory, PluginPackageLimits limits) {
         ScanBudget budget = new ScanBudget();
         Set<String> names = new HashSet<>();
         byte[] buffer = new byte[8192];
@@ -226,7 +231,42 @@ public final class PluginPackageVerifier {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
                     "failed to inspect development snapshot", failure);
         }
-        return new PluginClassSpace(budget.packages, budget.digests, budget.multiRelease, budget.implicitClassPaths);
+        return new VerificationUsage(budget.entryCount, budget.totalUncompressed,
+                new PluginClassSpace(budget.packages, budget.digests, budget.multiRelease, budget.implicitClassPaths));
+    }
+
+    /** 按实际扫描实现字节失效，覆盖开发 classes 与经过优化的发行 JAR。 */
+    public static String scanImplementationIdentity() throws IOException {
+        if (ScanImplementationIdentity.VALUE.isEmpty()) throw new IOException("SCAN_IMPLEMENTATION_UNAVAILABLE");
+        return ScanImplementationIdentity.VALUE;
+    }
+
+    private static final class ScanImplementationIdentity {
+        private static final String VALUE = create();
+
+        private static String create() {
+            MessageDigest digest = sha256();
+            try {
+                fingerprintClass(PluginPackageVerifier.class, digest);
+                fingerprintClass(ZipSafety.class, digest);
+                fingerprintClass(VerifiedZipInputStream.class, digest);
+                fingerprintClass(top.sywyar.pixivdownload.plugin.runtime.install.verify.cache.PluginScanCache.class, digest);
+                return HexFormat.of().formatHex(digest.digest());
+            } catch (IOException failure) {
+                return "";
+            }
+        }
+
+        private static void fingerprintClass(Class<?> type, MessageDigest digest) throws IOException {
+            try (var input = type.getResourceAsStream("/" + type.getName().replace('.', '/') + ".class")) {
+                if (input == null) throw new IOException("SCAN_IMPLEMENTATION_UNAVAILABLE");
+                digest.update(input.readAllBytes());
+            }
+            for (Class<?> nested : java.util.Arrays.stream(type.getDeclaredClasses())
+                    .sorted(java.util.Comparator.comparing(Class::getName)).toList()) {
+                if (nested != ScanImplementationIdentity.class) fingerprintClass(nested, digest);
+            }
+        }
     }
 
     private static void recordManifest(ScanBudget budget, String archive, String name, InputStream input, NestedArchiveKind kind)

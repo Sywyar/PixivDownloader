@@ -67,6 +67,23 @@ class PluginArtifactMaterializerTest {
     }
 
     @Test
+    @DisplayName("无需展开的裸 JAR 仍拒绝验签后被改写的冻结字节")
+    void rejectsThinSnapshotMutation() throws IOException {
+        Path plugins = Files.createDirectory(tempDir.resolve("thin-plugins"));
+        Path artifact = PluginPackageFixtures.bareJar(plugins.resolve("probe.jar"),
+                "probe", "1.0.0", "1.0", "com.example.Probe");
+        var layout = new PluginRuntimeLayout(plugins);
+        try (var snapshot = PluginArtifactSnapshot.create(layout, artifact, PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES)) {
+            var inspection = PluginPackageReader.inspect(snapshot.snapshotArtifact());
+            String verified = PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact());
+            Files.write(snapshot.snapshotArtifact(), new byte[]{1, 2, 3});
+            assertThatThrownBy(() -> new PluginArtifactMaterializer(layout).materialize(snapshot, inspection, verified))
+                    .isInstanceOf(PluginRuntimeOperationException.class)
+                    .rootCause().isInstanceOf(IOException.class).hasMessageContaining("snapshot changed");
+        }
+    }
+
+    @Test
     @DisplayName("物化器复用归档唯一名称规则并拒绝重复 entry")
     void rejectsDuplicateEntriesDuringMaterialization() throws IOException {
         Path plugins = tempDir.resolve("duplicate-plugins");

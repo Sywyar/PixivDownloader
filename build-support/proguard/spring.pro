@@ -13,6 +13,12 @@
 -keep,includedescriptorclasses @org.springframework.transaction.annotation.Transactional class * { <init>(...); !private <methods>; }
 -keep,includedescriptorclasses @org.apache.ibatis.annotations.Mapper interface * { *; }
 
+# 发行包的 Spring AOT 适配器由宿主按名称加载，其余生成代码沿调用图保留。
+-keep class top.sywyar.pixivdownload.startup.aot.GeneratedHostComponents {
+    public <init>();
+    public void initialize(org.springframework.context.support.GenericApplicationContext);
+}
+
 # spring.factories 按名称实例化环境处理器，静态调用图不包含该入口。
 -keep,includedescriptorclasses class * implements org.springframework.boot.EnvironmentPostProcessor {
     public <init>(...);
