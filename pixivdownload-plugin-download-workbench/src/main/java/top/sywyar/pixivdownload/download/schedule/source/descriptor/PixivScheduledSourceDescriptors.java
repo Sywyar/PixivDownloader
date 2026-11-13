@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 七类 Pixiv 计划任务来源的纯数据描述符事实源。 */
+/** Pixiv 来源的纯数据描述符事实源。 */
 public final class PixivScheduledSourceDescriptors {
 
     public static final String OVERUSE_GUARD_ID = "pixiv-overuse";
@@ -63,12 +63,17 @@ public final class PixivScheduledSourceDescriptors {
                     "collection",
                     "schedule.type.collection",
                     Set.of(DownloadAcquisitionMode.QUICK.code()),
-                    ILLUST_OR_NOVEL));
+                    ILLUST_OR_NOVEL),
+            new ScheduledSourceDescriptor("explicit-list", Set.of(),
+                    PixivSchedulePersistenceCodec.DEFINITION_SCHEMA, PixivSchedulePersistenceCodec.DEFINITION_VERSION,
+                    new ScheduledSourcePresentation("batch", "card.import", "card.import", "schedule", "pixiv"),
+                    Set.of(DownloadAcquisitionMode.SINGLE_IMPORT.code()), ILLUST_OR_NOVEL,
+                    Set.of(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID), Set.of(OVERUSE_GUARD_ID), null));
 
     private PixivScheduledSourceDescriptors() {
     }
 
-    /** 返回固定顺序、不可变的七类来源描述符。 */
+    /** 返回固定顺序、不可变的来源描述符。 */
     public static List<ScheduledSourceDescriptor> createAll() {
         return DESCRIPTORS;
     }

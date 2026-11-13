@@ -62,12 +62,23 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
 
     @Override public void exportConfiguration(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
                                               boolean includeState, boolean includeResources) throws IOException {
+        export(destination, password, includeCredentials, includeDatabases, includeState, includeResources, true);
+    }
+
+    /** 仅供已经确认关闭实际后端并持有启动预约的离线导出调用。 */
+    void exportStopped(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
+                       boolean includeState, boolean includeResources) throws IOException {
+        export(destination, password, includeCredentials, includeDatabases, includeState, includeResources, false);
+    }
+
+    private void export(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
+                        boolean includeState, boolean includeResources, boolean pauseBackend) throws IOException {
         try (var ignored = OfflineRestoreLock.acquire()) {
             requireIdle();
             if ((includeCredentials || includeDatabases || includeState) && (password == null || password.length == 0)) throw new IOException("transfer.password-required");
             if (includeResources && !includeDatabases) throw new IOException("transfer.files-require-database");
             Path run = newRun("export-" + UUID.randomUUID());
-            try (var pause = includeCredentials || includeDatabases || includeState || includeResources ? new TransferBackendPause() : null;
+            try (var pause = pauseBackend && (includeCredentials || includeDatabases || includeState || includeResources) ? new TransferBackendPause() : null;
                  var snapshot = configuration.export(includeCredentials)) {
                 var sources = new ArrayList<>(snapshot.sources());
                 sources.add(TransferInventory.export(host, session, plugins.get()));
@@ -245,7 +256,7 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
             };
         } catch (IllegalArgumentException invalid) { throw new IOException("transfer.restore-unknown-target"); }
     }
-    private static void requireIdle() throws IOException {
+    static void requireIdle() throws IOException {
         if (DatabaseSwitchService.pending()) throw new IOException("transfer.busy");
         Job job = readJob();
         if (job != null && !Set.of(Status.SUCCEEDED, Status.FAILED).contains(job.status())) throw new IOException("transfer.busy");

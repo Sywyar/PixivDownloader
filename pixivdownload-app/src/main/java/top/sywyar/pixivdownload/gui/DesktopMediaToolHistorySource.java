@@ -12,13 +12,13 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 执行终态直接落入已有历史，观察者只持有宿主值，与页面轮询和 provider 生命周期无关。 */
-final class DesktopMediaToolHistorySource implements Source {
+public final class DesktopMediaToolHistorySource implements Source {
     private static final org.slf4j.Logger LOG = LoggerFactory.getLogger(DesktopMediaToolHistorySource.class);
     private final Identity identity;
     private final Source source;
     private final DesktopToolHistory history;
 
-    DesktopMediaToolHistorySource(Identity identity, Source source, DesktopToolHistory history) {
+    public DesktopMediaToolHistorySource(Identity identity, Source source, DesktopToolHistory history) {
         this.identity = identity;
         this.source = source;
         this.history = history;
@@ -39,7 +39,7 @@ final class DesktopMediaToolHistorySource implements Source {
         // 回调不得捕获 source；插件撤回后，已接纳的任务仍须交付取消或失败终态。
         DesktopToolHistory store = history;
         Identity owner = identity;
-        return tracked.start(token, status -> {
+        java.util.function.Consumer<Status> completion = status -> {
             if (!recorded.compareAndSet(false, true)) return;
             var outcome = status.state().equals("cancelled") ? DesktopUiToolHost.ToolOutcome.CANCELLED
                     : status.state().equals("completed") && status.failed() == 0
@@ -49,7 +49,9 @@ final class DesktopMediaToolHistorySource implements Source {
                     status.state(), status.completed(), status.total(), status.failed());
             store.record(DesktopUiToolHost.ToolId.MEDIA_MAINTENANCE, outcome, started,
                     status.completed(), status.completed() - status.failed(), status.failed(), logPath, executionId, owner);
-        });
+        };
+        return source instanceof top.sywyar.pixivdownload.gui.media.MediaToolExecution execution
+                ? execution.start(token, executionId, completion) : tracked.start(token, completion);
     }
 
     private static Path sessionLog() {

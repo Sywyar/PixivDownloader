@@ -105,6 +105,7 @@ public record PixivNovelMetadata(
                 return false;
             }
         }
+        if (bookmarkCount < 0 && (filters.bookmarksMin() != null || filters.bookmarksMax() != null)) return false;
         if (bookmarkCount >= 0) {
             if (filters.bookmarksMin() != null && bookmarkCount < filters.bookmarksMin()) {
                 return false;

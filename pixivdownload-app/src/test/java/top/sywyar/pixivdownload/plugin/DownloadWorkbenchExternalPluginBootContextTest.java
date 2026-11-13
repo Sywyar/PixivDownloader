@@ -82,7 +82,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
             "series",
             "my-bookmarks",
             "follow-latest",
-            "collection");
+            "collection", "explicit-list");
     private static final Set<String> USERSCRIPT_IDS = Set.of(
             "all-in-one",
             "artwork-java",
@@ -223,7 +223,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(applicationContext.getBeanNamesForType(pageController)).isEmpty();
 
         assertThat(child.getBeansOfType(ScheduledSourceExecutor.class).values())
-                .hasSize(7)
+                .hasSize(8)
                 .allSatisfy(executor ->
                         assertThat(executor.getClass().getClassLoader())
                                 .isSameAs(externalClassLoader))

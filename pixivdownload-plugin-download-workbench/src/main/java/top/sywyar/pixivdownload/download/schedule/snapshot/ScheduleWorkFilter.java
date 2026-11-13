@@ -23,6 +23,7 @@ public final class ScheduleWorkFilter {
             if (filters.pagesMin() != null && artwork.pageCount() < filters.pagesMin()) return false;
             if (filters.pagesMax() != null && artwork.pageCount() > filters.pagesMax()) return false;
         }
+        if (artwork.bookmarkCount() < 0 && (filters.bookmarksMin() != null || filters.bookmarksMax() != null)) return false;
         if (artwork.bookmarkCount() >= 0) {
             if (filters.bookmarksMin() != null && artwork.bookmarkCount() < filters.bookmarksMin()) return false;
             if (filters.bookmarksMax() != null && artwork.bookmarkCount() > filters.bookmarksMax()) return false;

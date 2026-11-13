@@ -7,7 +7,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
@@ -30,20 +29,29 @@ import java.util.List;
  * 固定的测试消息发送，把每通道结果汇总回 GUI；明细绝不含密钥。<b>不</b>检查推送总开关，便于保存前测试。
  */
 @RestController
-@RequestMapping("/api/gui")
 @RequiredArgsConstructor
 public class PushTestController {
 
     private final PushDispatcher pushService;
     private final MessageResolver messages;
 
-    @PostMapping("/push-test")
+    @PostMapping("/api/gui/push-test")
     public ResponseEntity<?> test(@RequestBody PushTestRequest body,
                                   HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
+        return testSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @PostMapping("/api/admin/push/test")
+    public ResponseEntity<?> testAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody PushTestRequest body) {
+        return testSettings(body);
+    }
+
+    private ResponseEntity<?> testSettings(PushTestRequest body) {
         if (body == null) {
             return ResponseEntity.ok(PushTestResponse.from(
                     List.of(), messages, LocaleContextHolder.getLocale()));

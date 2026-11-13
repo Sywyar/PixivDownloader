@@ -6,7 +6,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
@@ -27,7 +26,6 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
  * {@link AiChatClient#chatTest}，把模型回复摘录 / 失败摘要原样回给 GUI；失败摘要绝不含 API Key。
  */
 @RestController
-@RequestMapping("/api/gui")
 @RequiredArgsConstructor
 public class AiTestController {
 
@@ -39,13 +37,23 @@ public class AiTestController {
 
     private final AiChatClient aiService;
 
-    @PostMapping("/ai-test")
+    @PostMapping("/api/gui/ai-test")
     public ResponseEntity<?> test(@RequestBody AiTestRequest body,
                                   HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
+        return testSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @PostMapping("/api/admin/ai/test")
+    public ResponseEntity<?> testAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody AiTestRequest body) {
+        return testSettings(body);
+    }
+
+    private ResponseEntity<?> testSettings(AiTestRequest body) {
         if (body == null) {
             return ResponseEntity.badRequest()
                     .body(ApiErrorResponse.of("ai.settings.missing", "missing settings"));
@@ -55,10 +63,14 @@ public class AiTestController {
         try {
             AiChatResult result = aiService.chatTest(ConnectivityProbeRequest.CALL_TYPE,
                     settings, PROBE.toMessages(), AiChatOptions.defaults());
-            return ResponseEntity.ok(AiTestResponse.ok(truncate(result.content())));
+            return ResponseEntity.ok(AiTestResponse.ok(truncate(redact(result.content(), settings.apiKey()))));
         } catch (AiClientException e) {
             return ResponseEntity.ok(AiTestResponse.fail(e.getMessage()));
         }
+    }
+
+    private static String redact(String reply, String secret) {
+        return reply == null || secret == null || secret.isBlank() ? reply : reply.replace(secret, "[redacted]");
     }
 
     private static String truncate(String reply) {

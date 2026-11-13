@@ -23,11 +23,23 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
     private final java.util.concurrent.Callable<ToolLogSession> logFactory;
     private boolean running;
     private Execution execution;
+    private volatile BackfillTask latest;
+    private DataSource dataSource;
+    private boolean migrationActive;
+    private java.util.function.Consumer<BackfillTask> completion = ignored -> {};
 
     @org.springframework.beans.factory.annotation.Autowired
+    public DesktopBackfillRunner(DataSource dataSource,
+            org.springframework.beans.factory.ObjectProvider<top.sywyar.pixivdownload.gui.DesktopToolHistory> history) {
+        this(dataSource);
+        var store = history.getIfAvailable();
+        if (store != null) completion = store::recordBackfill;
+    }
+
     public DesktopBackfillRunner(DataSource dataSource) {
         this((options, progress) -> ArtworksBackFill.runObserved(options, dataSource, progress),
                 () -> top.sywyar.pixivdownload.gui.ToolHtmlLogSession.openStatic("artworks-backfill", ArtworksBackFill.class));
+        this.dataSource = dataSource;
     }
 
     DesktopBackfillRunner(Operation operation, java.util.concurrent.Callable<ToolLogSession> logFactory) {
@@ -47,9 +59,10 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
     public BackfillTask start(ArtworksBackFill.Options options, Consumer<BackfillTask> observer) {
         Execution next;
         synchronized (this) {
-            if (!running || execution != null) throw new IllegalStateException("BACKFILL_BUSY");
+            if (!running || execution != null || migrationActive) throw new IllegalStateException("BACKFILL_BUSY");
             next = new Execution(options, observer);
             execution = next;
+            latest = next.snapshot;
             next.thread.start();
         }
         return next.snapshot;
@@ -59,6 +72,25 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
         Execution current;
         synchronized (this) { current = execution; }
         return current != null && current.id.equals(id) && current.cancel();
+    }
+
+    public java.util.Optional<BackfillTask> snapshot() {
+        return java.util.Optional.ofNullable(latest);
+    }
+
+    public int countCandidates(ArtworksBackFill.Options options) throws Exception {
+        if (dataSource == null || !isRunning()) throw new IllegalStateException("BACKFILL_UNAVAILABLE");
+        return ArtworksBackFill.countCandidates(options, dataSource);
+    }
+
+    /** 在线旧记录迁移与所有回填入口共用准入；执行过程中不持有执行器锁。 */
+    public <T> T whileIdle(java.util.concurrent.Callable<T> operation) throws Exception {
+        synchronized (this) {
+            if (!running || execution != null || migrationActive) throw new IllegalStateException("BACKFILL_BUSY");
+            migrationActive = true;
+        }
+        try { return operation.call(); }
+        finally { synchronized (this) { migrationActive = false; } }
     }
 
     @Override public void stop() {
@@ -165,6 +197,10 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
                             summary == null ? snapshot.summary() : summary, true);
                 }
                 try {
+                    try { completion.accept(terminal); }
+                    catch (RuntimeException failure) {
+                        LOG.warn("Could not record backfill history: executionId={}, failureType={}", id, failure.getClass().getSimpleName());
+                    }
                     publish(terminal);
                     LOG.info(MessageBundles.getForLog("gui.tools.backfill.task.finished", id, terminal.state(),
                             terminal.processed(), terminal.changed(), terminal.remaining()));
@@ -183,7 +219,12 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
             return snapshot;
         }
 
-        void publish(BackfillTask value) { observer.accept(value); }
+        void publish(BackfillTask value) {
+            synchronized (DesktopBackfillRunner.this) {
+                if (execution == this && (latest == null || value.revision() > latest.revision())) latest = value;
+            }
+            observer.accept(value);
+        }
     }
 
     public static BackfillSummary summary(ArtworksBackFill.Summary value) {

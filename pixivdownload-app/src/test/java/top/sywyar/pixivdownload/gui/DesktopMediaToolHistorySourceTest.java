@@ -15,6 +15,31 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class DesktopMediaToolHistorySourceTest {
+    @Test void httpReceiptAndPersistedCompletionUseTheSameExecutionId(@TempDir Path directory) throws Exception {
+        var registry = new top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry();
+        var history = new DesktopToolHistory(directory);
+        var source = mock(DesktopMediaTool.CompletionSource.class);
+        var callback = new AtomicReference<Consumer<DesktopMediaTool.Status>>();
+        var running = new DesktopMediaTool.Status("running", 1, 0, 0, List.of());
+        when(source.status()).thenReturn(running);
+        when(source.start(eq("preview"), any())).thenAnswer(call -> {
+            callback.set(call.getArgument(1));
+            return new DesktopMediaTool.Result<>(running, null);
+        });
+        registry.register(new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner("independent", "independent", 1, 1),
+                new DesktopMediaTool.Description(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("tool"), "independent", "png", "gif"), source);
+        var messages = top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages();
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new top.sywyar.pixivdownload.gui.media.MediaToolController(registry, history,
+                        new ToolApiRequests(messages, mock(top.sywyar.pixivdownload.i18n.WebI18nService.class)))).build();
+        var body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/tools/media/tasks")
+                .contentType("application/json").content("{\"identity\":{\"pluginId\":\"independent\",\"packageId\":\"independent\",\"generation\":1,\"publication\":1},\"token\":\"preview\"}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        var id = tools.jackson.databind.json.JsonMapper.builder().build().readTree(body).get("executionId").asString();
+        callback.get().accept(new DesktopMediaTool.Status("completed", 1, 1, 0, List.of()));
+        assertEquals(java.util.UUID.fromString(id), new DesktopToolHistory(directory).entries().getFirst().executionId());
+    }
     @Test
     @DisplayName("未知提供者经真实注册与桌面入口留下精确历史，撤回后旧句柄不能提交")
     void independentSourceRunsThroughHost(@TempDir Path directory) throws Exception {

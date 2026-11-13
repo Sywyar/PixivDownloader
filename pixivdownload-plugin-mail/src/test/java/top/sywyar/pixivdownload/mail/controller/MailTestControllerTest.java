@@ -46,6 +46,19 @@ class MailTestControllerTest {
     }
 
     @Test
+    @DisplayName("管理员入口与 GUI 使用同一临时 SMTP 设置和模板")
+    void adminUsesTemporarySettings() throws Exception {
+        var response = controller.testAdmin(validRequestBody());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var settings = org.mockito.ArgumentCaptor.forClass(MailSenderSettings.class);
+        verify(mailService).sendTest(settings.capture(), anyString(), anyString());
+        assertThat(settings.getValue()).isEqualTo(validRequestBody().toSenderSettings());
+        var all = controller.testAllAdmin(validRequestBody());
+        assertThat(all.getBody()).isInstanceOfSatisfying(MailTestAllResponse.class,
+                body -> assertThat(body.succeeded()).isEqualTo(templateRegistry.templates().size()));
+    }
+
+    @Test
     @DisplayName("testAll 在非本地请求时返回 403")
     void testAllRejectsNonLocalRequest() {
         MockHttpServletRequest request = new MockHttpServletRequest();

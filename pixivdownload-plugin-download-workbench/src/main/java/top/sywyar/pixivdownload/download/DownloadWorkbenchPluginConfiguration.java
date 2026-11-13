@@ -305,6 +305,12 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
+    public top.sywyar.pixivdownload.download.schedule.source.executor.PixivExplicitListScheduledSourceExecutor pixivExplicitListScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new top.sywyar.pixivdownload.download.schedule.source.executor.PixivExplicitListScheduledSourceExecutor(support);
+    }
+
+    @Bean
     public PixivUserNewScheduledSourceExecutor pixivUserNewScheduledSourceExecutor(
             PixivScheduledSourceSupport support) {
         return new PixivUserNewScheduledSourceExecutor(support);

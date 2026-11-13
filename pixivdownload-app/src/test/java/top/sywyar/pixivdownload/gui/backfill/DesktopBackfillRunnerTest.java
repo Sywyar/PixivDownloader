@@ -18,6 +18,24 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("后台回填任务状态与生命周期")
 class DesktopBackfillRunnerTest {
+    @Test
+    @DisplayName("在线迁移占用共享准入，异常退出后允许再次回填")
+    void migrationExcludesBackfillAndReleasesAdmission() throws Exception {
+        var runner = new DesktopBackfillRunner((options, progress) ->
+                new ArtworksBackFill.Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0, 0),
+                () -> log(new AtomicBoolean()));
+        runner.start();
+        try {
+            assertThrows(java.io.IOException.class, () -> runner.whileIdle(() -> {
+                assertThrows(IllegalStateException.class, () -> runner.start(options(), ignored -> {}));
+                assertThrows(IllegalStateException.class, () -> runner.whileIdle(() -> null));
+                throw new java.io.IOException("fixture");
+            }));
+            var receipt = runner.start(options(), ignored -> {});
+            assertEquals(receipt.executionId(), runner.snapshot().orElseThrow().executionId());
+        } finally { runner.stop(); }
+    }
+
     @ParameterizedTest
     @EnumSource(value = BackfillState.class, names = {"COMPLETED", "INCOMPLETE", "RATE_LIMITED", "FAILED"})
     @DisplayName("按真实结果区分终态，日志资源关闭后才发布结束")
@@ -46,6 +64,7 @@ class DesktopBackfillRunnerTest {
             var result = terminal.get();
             assertEquals(receipt.executionId(), result.executionId());
             assertEquals(expected, result.state());
+            assertEquals(result, runner.snapshot().orElseThrow());
             assertEquals(1, result.changed());
             assertEquals(1, result.processed());
             assertEquals(1, result.summary().filledUploadTime());

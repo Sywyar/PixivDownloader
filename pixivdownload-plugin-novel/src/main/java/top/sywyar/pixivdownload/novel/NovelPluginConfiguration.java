@@ -90,8 +90,8 @@ public class NovelPluginConfiguration {
 
     @Bean
     public top.sywyar.pixivdownload.novel.download.NovelSubmissionHandler novelSubmissionHandler(
-            PixivAjaxClient client, ObjectMapper mapper, NovelDownloadService downloads) {
-        return new top.sywyar.pixivdownload.novel.download.NovelSubmissionHandler(client, mapper, downloads);
+            PixivAjaxClient client, ObjectMapper mapper, NovelDownloadService downloads, jakarta.validation.Validator validator) {
+        return new top.sywyar.pixivdownload.novel.download.NovelSubmissionHandler(client, mapper, downloads, validator);
     }
     @Bean
     public top.sywyar.pixivdownload.novel.download.NovelFileImportHandler novelFileImportHandler(

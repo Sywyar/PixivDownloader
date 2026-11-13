@@ -160,6 +160,10 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     @Override
     public Snapshot snapshot(RequestOwnerIdentity owner) { return tasks.snapshot(owner); }
 
+    @Override public HistoryPage history(HistoryCursor before, int limit, RequestOwnerIdentity owner) {
+        return tasks.history(before, limit, owner);
+    }
+
     @Override
     public CancelResult cancel(UUID taskId, RequestOwnerIdentity owner) { return tasks.cancel(taskId, owner); }
 

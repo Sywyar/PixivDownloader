@@ -38,7 +38,7 @@ record PixivScheduledNovelDefinition(
         String kind = root.path("kind").asString(KIND);
         boolean novelDefinition = "novel".equalsIgnoreCase(kind);
         boolean mixedCollectionDefinition = "mixed".equalsIgnoreCase(kind)
-                && "collection".equals(definition.sourceType());
+                && java.util.Set.of("collection", "explicit-list").contains(definition.sourceType());
         if (!novelDefinition && !mixedCollectionDefinition) {
             throw new IllegalArgumentException("Pixiv schedule definition is not for novels");
         }

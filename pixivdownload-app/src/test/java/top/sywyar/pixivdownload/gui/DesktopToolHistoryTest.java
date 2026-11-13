@@ -21,6 +21,28 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DesktopToolHistoryTest {
+    @Test
+    @DisplayName("回填终态去重持久化并通过 HTTP 返回，预演不伪造写入计数")
+    void backfillHistoryIsAvailableOverHttp() throws Exception {
+        var id = java.util.UUID.randomUUID();
+        var history = new DesktopToolHistory(tempDir);
+        var task = new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask(id, 4,
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillState.COMPLETED,
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillPhase.FINISHED,
+                false, true, 1, 2, 3, 3, 2, 0, 0, null, null, null, null);
+        history.recordBackfill(task);
+        history.recordBackfill(task);
+        var reloaded = new DesktopToolHistory(tempDir);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new ToolHistoryController(reloaded)).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/tools/history"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.length()").value(1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].executionId").value(id.toString()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].processedCount").value(3))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].changedCount").doesNotExist());
+    }
+
     @TempDir
     Path tempDir;
 

@@ -7,7 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
@@ -42,7 +41,6 @@ import java.util.Map;
  * 双校验；这里再次显式校验作为深度防御。<b>不</b>检查推送总开关，便于保存前预览；密钥绝不回显。
  */
 @RestController
-@RequestMapping("/api/gui")
 @RequiredArgsConstructor
 public class NotificationPushTestController {
 
@@ -52,13 +50,23 @@ public class NotificationPushTestController {
     private final PushMessageFactory messageFactory;
     private final MessageResolver messages;
 
-    @PostMapping("/push-test-all")
+    @PostMapping("/api/gui/push-test-all")
     public ResponseEntity<?> testAll(@RequestBody PushTestRequest body,
                                      HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
+        return testAllSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @PostMapping("/api/admin/push/test-all")
+    public ResponseEntity<?> testAllAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody PushTestRequest body) {
+        return testAllSettings(body);
+    }
+
+    private ResponseEntity<?> testAllSettings(PushTestRequest body) {
         if (body == null) {
             return ResponseEntity.ok(PushTestResponse.from(
                     List.of(), messages, LocaleContextHolder.getLocale()));

@@ -53,6 +53,48 @@ import static org.mockito.Mockito.when;
 class ScheduleExecutionEngineWorkPersistenceTest extends ScheduleExecutionEngineTestSupport {
 
     @Test
+    @DisplayName("手动批次只重试已保留作品，不重新发现来源或提交新检查点")
+    void batchRetryDoesNotDiscoverNewWork() throws Exception {
+        var store = storeWithCredential();
+        var codec = new ScheduleWorkPersistenceCodec(JsonMapper.builder().build());
+        when(store.listPendingWork(1L)).thenReturn(List.of(codec.toPendingWork(
+                1L, work("retry-only"), "fixture.retry", "{}", 1, 1L, 2L)));
+        var discoveries = new AtomicInteger();
+        var executions = new AtomicInteger();
+        var fixture = credentialEngine(store,
+                sourceExecutor(1, ScheduledPendingReplayPolicy.REDISCOVERED_ONLY, context -> {
+                    discoveries.incrementAndGet();
+                    context.workSink().submit(work("new-work"));
+                    return ScheduledDiscoveryResult.withoutCheckpoint();
+                }), workExecutor(context -> {
+                    executions.incrementAndGet();
+                    return ScheduledWorkResult.completed();
+                }), credentialPolicy(new AtomicReference<>()), guard(context -> ScheduledGuardDecision.proceed()));
+        var result = fixture.engine().executeBatch(task(), fixture.activationToken(), true, ignored -> {});
+        assertThat(discoveries).hasValue(0);
+        assertThat(executions).hasValue(1);
+        assertThat(result.completedWorkCount()).isEqualTo(1);
+        assertThat(result.candidateCheckpoint()).isNull();
+        verify(store).deletePendingWork(1L, WORK, "retry-only");
+    }
+
+    @Test
+    @DisplayName("旧批次来源令牌在凭据读取和插件回调前拒绝")
+    void staleBatchFailsBeforePluginCalls() throws Exception {
+        var store = storeWithCredential();
+        var source = org.mockito.Mockito.spy(sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()));
+        var fixture = credentialEngine(store, source,
+                workExecutor(context -> ScheduledWorkResult.completed()),
+                credentialPolicy(new AtomicReference<>()), guard(context -> ScheduledGuardDecision.proceed()));
+        assertThatThrownBy(() -> fixture.engine().executeBatch(task(), "retired-publication", false, ignored -> {}))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("schedule.error.source-publication-changed"));
+        verify(source, never()).plan(any());
+        verify(source, never()).discover(any());
+        verify(store, never()).findCredentialCandidates(anyLong(), anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("作品类型容量在任务并发之内独立施加背压")
     void workTypeConcurrencyLimitAppliesInsidePlanLimit() throws Exception {
         CountDownLatch firstTwoEntered = new CountDownLatch(2);

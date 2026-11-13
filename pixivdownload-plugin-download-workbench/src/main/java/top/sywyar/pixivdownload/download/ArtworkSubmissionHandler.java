@@ -27,7 +27,9 @@ public final class ArtworkSubmissionHandler implements DownloadSubmissionHandler
     @Override
     public void submit(DownloadSubmission submission, DownloadAttempt attempt, String credential) {
         if (!submission.workId().matches("[1-9][0-9]{0,18}")
-                || !Set.of("fileNameTemplate", "imageFormats", "ugoiraFormats", "pathOverflowAction")
+                || !Set.of("fileNameTemplate", "imageFormats", "ugoiraFormats", "pathOverflowAction",
+                        "mediaQuality", "mediaWebpLossless", "mediaMaximumEdge", "bookmark", "collectionId",
+                        "acquisitionMode", "username")
                 .containsAll(submission.options().keySet()))
             throw new IllegalArgumentException("invalid artwork submission");
         long id = Long.parseLong(submission.workId());
@@ -37,6 +39,21 @@ public final class ArtworkSubmissionHandler implements DownloadSubmissionHandler
         other.setImageFormats(options.get("imageFormats"));
         other.setUgoiraFormats(options.get("ugoiraFormats"));
         other.setPathOverflowAction(options.get("pathOverflowAction"));
+        if (options.containsKey("mediaQuality")) other.setMediaQuality(Integer.parseInt(options.get("mediaQuality")));
+        if (options.containsKey("mediaMaximumEdge")) other.setMediaMaximumEdge(Integer.parseInt(options.get("mediaMaximumEdge")));
+        other.setMediaWebpLossless(booleanOption(options.get("mediaWebpLossless")));
+        other.setBookmark(booleanOption(options.get("bookmark")));
+        if (options.containsKey("collectionId")) {
+            long collectionId = Long.parseLong(options.get("collectionId"));
+            if (collectionId <= 0) throw new IllegalArgumentException("invalid collection id");
+            other.setCollectionId(collectionId);
+        }
+        String mode = options.get("acquisitionMode");
+        if (mode != null) top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode.fromCode(mode);
+        other.setAcquisitionMode(mode);
+        String username = options.get("username");
+        if (username != null && username.length() > 512) throw new IllegalArgumentException("invalid username");
+        other.setUsername(username);
         other.resolveMediaOutputSettings();
         try {
             var capture = fetch.fetchArtworkMetaCapture(submission.workId(), credential);
@@ -68,5 +85,11 @@ public final class ArtworkSubmissionHandler implements DownloadSubmissionHandler
         } catch (IOException failure) {
             throw new DownloadTaskException(DownloadTaskException.Code.REJECTED);
         }
+    }
+
+    private static boolean booleanOption(String value) {
+        if (value == null) return false;
+        if (!Set.of("true", "false").contains(value)) throw new IllegalArgumentException("invalid boolean option");
+        return Boolean.parseBoolean(value);
     }
 }

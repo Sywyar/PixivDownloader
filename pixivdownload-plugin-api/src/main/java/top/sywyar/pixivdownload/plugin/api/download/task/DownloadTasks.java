@@ -40,6 +40,26 @@ public interface DownloadTasks {
      */
     Snapshot snapshot(RequestOwnerIdentity owner);
     /**
+     * 按终态时间及执行 ID 降序读取持久化结果；游标排除自身，不恢复执行。
+     * @param before 上页末项，首屏为 null
+     * @param limit 1 至 200
+     * @param owner 可信请求身份
+     * @return 有界历史页及下一页游标
+     */
+    HistoryPage history(HistoryCursor before, int limit, RequestOwnerIdentity owner);
+
+    /** 终态排序游标，时间相同时以 UUID 字符串排序。 */
+    record HistoryCursor(java.time.Instant updatedAt, UUID taskId) {
+        public HistoryCursor {
+            java.util.Objects.requireNonNull(updatedAt);
+            java.util.Objects.requireNonNull(taskId);
+        }
+    }
+    /** 历史页；next 为 null 表示本次扫描没有更多可见结果。 */
+    record HistoryPage(List<DownloadTaskSnapshot> tasks, HistoryCursor next) {
+        public HistoryPage { tasks = List.copyOf(tasks); }
+    }
+    /**
      * 只取消该任务捕获的队列句柄；不按作品键改投其它任务或新 publication。
      * @param taskId 执行身份
      * @param owner 可信请求身份

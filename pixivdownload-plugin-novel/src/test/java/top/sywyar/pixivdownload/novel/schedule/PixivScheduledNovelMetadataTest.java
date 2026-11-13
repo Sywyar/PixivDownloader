@@ -17,6 +17,12 @@ class PixivScheduledNovelMetadataTest {
 
     private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
 
+    @Test void unknownBookmarkCountCannotSatisfyActiveRange() {
+        var filters = new PixivScheduledNovelDefinition.Filters("all", "all", java.util.List.of(), java.util.List.of(), null, null, 1, null);
+        assertThat(PixivNovelMetadata.parse(1, mapper.readTree("{}")).matches(filters)).isFalse();
+        assertThat(PixivNovelMetadata.parse(1, mapper.readTree("{\"bookmarkCount\":1}")).matches(filters)).isTrue();
+    }
+
     @Test
     @DisplayName("优先使用 ISO 日期串 uploadDate")
     void shouldPreferIsoUploadDate() {

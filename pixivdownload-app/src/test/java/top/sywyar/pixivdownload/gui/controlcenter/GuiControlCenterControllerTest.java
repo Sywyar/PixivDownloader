@@ -46,6 +46,13 @@ class GuiControlCenterControllerTest {
                 .standaloneSetup(new GuiControlCenterController(registry))
                 .build();
 
+        mockMvc.perform(get("/api/admin/control-center").with(request -> {
+                    request.setRemoteAddr("203.0.113.2"); return request;
+                }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cards[0].owner.generation").value(3))
+                .andExpect(jsonPath("$.cards[0].card.primaryValue.fallback").value("42"));
+
         mockMvc.perform(get("/api/gui/control-center"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cards[0].owner.pluginId").value("stats"))

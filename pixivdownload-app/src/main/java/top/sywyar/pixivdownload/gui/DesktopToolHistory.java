@@ -27,7 +27,8 @@ import java.util.UUID;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity;
 
 /** 桌面维护工具终态历史的有界持久化。 */
-final class DesktopToolHistory {
+@org.springframework.stereotype.Component
+public final class DesktopToolHistory {
     static final int MAX_ENTRIES = 100;
     static final int MAX_FILE_BYTES = 256 * 1024;
     private static final int SCHEMA_VERSION = 2;
@@ -43,13 +44,32 @@ final class DesktopToolHistory {
     private List<ToolHistoryEntry> entries;
     private boolean writable = true;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public DesktopToolHistory() {
+        this(top.sywyar.pixivdownload.config.RuntimeFiles.guiStateDirectory());
+    }
+
     DesktopToolHistory(Path guiStateDirectory) {
         file = guiStateDirectory.resolve(FILE_NAME);
         entries = load();
     }
 
-    synchronized List<ToolHistoryEntry> entries() {
+    public synchronized List<ToolHistoryEntry> entries() {
         return List.copyOf(entries);
+    }
+
+    public void recordBackfill(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask task) {
+        var outcome = switch (task.state()) {
+            case COMPLETED -> ToolOutcome.SUCCEEDED;
+            case INCOMPLETE -> ToolOutcome.INCOMPLETE;
+            case RATE_LIMITED -> ToolOutcome.RATE_LIMITED;
+            case CANCELLED -> ToolOutcome.CANCELLED;
+            default -> ToolOutcome.FAILED;
+        };
+        record(ToolId.ARTWORKS_BACKFILL, outcome, task.startedAtEpochMs(), task.processed(),
+                task.dryRun() ? null : task.changed(), null,
+                task.logFileName() == null ? null : top.sywyar.pixivdownload.config.RuntimeFiles.logDirectory()
+                        .resolve("html").resolve(task.logFileName()), task.executionId(), null);
     }
 
     synchronized void record(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,

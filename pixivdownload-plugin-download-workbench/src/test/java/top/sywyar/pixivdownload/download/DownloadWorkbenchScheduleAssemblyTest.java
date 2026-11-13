@@ -163,7 +163,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 configuration.pixivSeriesScheduledSourceExecutor(support),
                 configuration.pixivMyBookmarksScheduledSourceExecutor(support),
                 configuration.pixivFollowLatestScheduledSourceExecutor(support),
-                configuration.pixivCollectionScheduledSourceExecutor(support));
+                configuration.pixivCollectionScheduledSourceExecutor(support),
+                configuration.pixivExplicitListScheduledSourceExecutor(support));
 
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
         WorkbenchScheduleTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
@@ -183,14 +184,14 @@ class DownloadWorkbenchScheduleAssemblyTest {
         assertThat(sourceExecutors)
                 .extracting(ScheduledSourceExecutor::sourceType)
                 .containsExactly("user-new", "user-request", "search", "series",
-                        "my-bookmarks", "follow-latest", "collection");
+                        "my-bookmarks", "follow-latest", "collection", "explicit-list");
         assertThat(registry.snapshot().owners())
                 .filteredOn(view -> view.owner().equals(WORKBENCH_OWNER))
                 .singleElement()
                 .satisfies(view -> {
                     assertThat(view.sourceTypes()).containsExactlyInAnyOrder(
                             "user-new", "user-request", "search", "series",
-                            "my-bookmarks", "follow-latest", "collection");
+                            "my-bookmarks", "follow-latest", "collection", "explicit-list");
                     assertThat(view.sourceAliases()).containsExactlyInAnyOrder(
                             "USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
                             "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");

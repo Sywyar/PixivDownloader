@@ -71,15 +71,20 @@ public class ScheduleRunQueue {
     }
 
     /** 一轮运行的队列：保留发现顺序，按作品类型与 ID 的复合身份增量更新元数据与状态。 */
-    public static final class Run {
+    public static class Run {
 
         private final long startedTime;
         private final Map<ScheduledWorkKey, Item> byKey = new LinkedHashMap<>();
         private long retainedUtf8Bytes;
         private boolean truncated;
 
-        Run(long startedTime) {
+        protected Run(long startedTime) {
             this.startedTime = startedTime;
+        }
+
+        /** 手动批次跨暂停保留已结算作品；普通计划每轮重新发现。 */
+        public boolean alreadyResolved(ScheduledWorkKey key) {
+            return false;
         }
 
         /** 发现一个作品（按发现顺序追加，重复复合身份幂等）；超过上限只置 truncated、不再记录。 */

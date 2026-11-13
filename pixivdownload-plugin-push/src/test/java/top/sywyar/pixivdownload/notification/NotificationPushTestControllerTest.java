@@ -75,7 +75,7 @@ class NotificationPushTestControllerTest {
         when(pushService.test(anyList(), any(PushMessage.class)))
                 .thenReturn(List.of(PushResult.ok(PushChannelIds.BARK)));
 
-        ResponseEntity<?> response = controller.testAll(barkEnabledRequest(), localRequest());
+        ResponseEntity<?> response = controller.testAllAdmin(barkEnabledRequest());
 
         int scenarios = NotificationScenario.values().length;
         assertThat(response.getBody()).isInstanceOfSatisfying(PushTestResponse.class, body -> {

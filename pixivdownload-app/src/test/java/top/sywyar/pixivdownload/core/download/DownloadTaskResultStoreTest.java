@@ -49,6 +49,29 @@ class DownloadTaskResultStoreTest {
     }
 
     private DownloadAttempt attempt() { return new DownloadAttempt(UUID.randomUUID(), "example", "opaque/作品"); }
+
+    @Test void pagesPersistedResultsAcrossRestartWithStableTiesAndOwnerIsolation() throws Exception {
+        var store = new DownloadTaskResultStore(directory);
+        var timestamp = Instant.parse("2026-01-01T00:00:00Z");
+        for (int value = 1; value <= 5; value++) {
+            var id = new UUID(0, value);
+            var task = new top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot(
+                    new DownloadAttempt(id, "example", Integer.toString(value)), "example", "fixture",
+                    DownloadEvent.Phase.COMPLETED, timestamp, value);
+            store.save(task, value == 4 ? "other" : "mine");
+        }
+        var restarted = new DownloadTaskResultStore(directory);
+        var owner = RequestOwnerIdentity.owner("mine");
+        var first = restarted.history(null, 2, owner);
+        assertThat(first.tasks()).extracting(task -> task.attempt().workId()).containsExactly("5", "3");
+        var second = restarted.history(first.next(), 2, owner);
+        assertThat(second.tasks()).extracting(task -> task.attempt().workId()).containsExactly("2", "1");
+        assertThat(second.next()).isNull();
+        assertThat(restarted.history(null, 200, admin).tasks()).hasSize(5);
+        assertThatThrownBy(() -> restarted.history(null, 201, admin)).isInstanceOf(IllegalArgumentException.class);
+        Files.writeString(resultPath(new DownloadAttempt(new UUID(0, 1), "example", "1")), "invalid");
+        assertThatThrownBy(() -> restarted.history(null, 2, owner)).isInstanceOf(java.io.UncheckedIOException.class);
+    }
     private DownloadTaskRegistry registry() { return new DownloadTaskRegistry(clock, new DownloadTaskResultStore(directory)); }
     private Path resultPath(DownloadAttempt attempt) {
         String id = attempt.attemptId().toString();

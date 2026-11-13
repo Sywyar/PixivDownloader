@@ -591,6 +591,24 @@ public class UpdateService {
      * Inno Setup 安装包带有 UAC manifest，会请求管理员权限，
      * 当前进程退出后 installer 可以覆盖已安装文件。
      */
+    /** 不暴露安装缓存路径；确认必须绑定已验证文件的内容身份。 */
+    public record InstallerReceipt(String sha256, long sizeBytes) {}
+
+    public synchronized InstallerReceipt installerReceipt() {
+        var verified = verifiedInstaller;
+        return downloadInProgress || verified == null ? null
+                : new InstallerReceipt(verified.sha256(), verified.sizeBytes());
+    }
+
+    /** 防止远程确认误安装 GUI 或另一请求刚替换的安装包。 */
+    public synchronized void launchInstallerAndExit(String expectedSha256) throws IOException {
+        var receipt = installerReceipt();
+        if (receipt == null || !receipt.sha256().equalsIgnoreCase(expectedSha256)) {
+            throw new IllegalStateException("UPDATE_INSTALLER_STALE");
+        }
+        launchInstallerAndExit();
+    }
+
     public synchronized void launchInstallerAndExit() throws IOException {
         String platformKey = currentPlatformAssetKey();
         if (!ASSET_WIN_X64_INSTALLER.equals(platformKey)) {

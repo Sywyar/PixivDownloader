@@ -153,7 +153,7 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.schedule",
                             "ScheduledCredentialValue",
                             "ScheduleTaskDefinitionUpdate", "ScheduledPendingWork", "ScheduledTask",
-                            "ScheduledTaskCreate", "ScheduledTaskStore"),
+                            "ScheduledTaskCreate", "ScheduledTaskStore", "ScheduledWorkStore"),
                     types("top.sywyar.pixivdownload.core.schedule.state",
                             "ScheduleLastOutcome", "ScheduleRunCompletion", "ScheduleRunState",
                             "ScheduleRunToken", "ScheduleSuspendReason"))),

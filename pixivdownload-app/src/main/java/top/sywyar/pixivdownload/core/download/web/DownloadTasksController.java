@@ -72,6 +72,20 @@ public final class DownloadTasksController {
                 : failure(404, "NOT_FOUND", "download.status.not-found");
     }
 
+    @GetMapping("/history")
+    public ResponseEntity<HistoryView> history(@RequestParam(defaultValue = "50") int limit,
+                                              @RequestParam(required = false) String beforeTime,
+                                              @RequestParam(required = false) UUID beforeId,
+                                              HttpServletRequest request) {
+        var owner = admin(request);
+        if ((beforeTime == null) != (beforeId == null) || limit < 1 || limit > 200) throw new IllegalArgumentException();
+        var cursor = beforeTime == null ? null : new DownloadTasks.HistoryCursor(java.time.Instant.parse(beforeTime), beforeId);
+        var page = tasks.history(cursor, limit, owner);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new HistoryView(
+                page.tasks().stream().map(TaskView::from).toList(),
+                page.next() == null ? null : page.next().updatedAt().toString(), page.next() == null ? null : page.next().taskId()));
+    }
+
     @PostMapping("/{taskId}/cancel")
     public ResponseEntity<?> cancel(@PathVariable UUID taskId, HttpServletRequest request) {
         var result = tasks.cancel(taskId, admin(request));
@@ -100,6 +114,7 @@ public final class DownloadTasksController {
     }
 
     @ExceptionHandler({IllegalArgumentException.class,
+            java.time.DateTimeException.class,
             tools.jackson.core.JacksonException.class,
             java.io.IOException.class,
             org.springframework.http.converter.HttpMessageNotReadableException.class,
@@ -116,12 +131,13 @@ public final class DownloadTasksController {
     public record CancelResponse(DownloadTasks.CancelResult result) {}
     public record ReceiptView(TaskView task, boolean duplicate) {}
     public record SnapshotView(UUID epoch, long revision, java.util.List<TaskView> tasks) {}
+    public record HistoryView(java.util.List<TaskView> tasks, String beforeTime, UUID beforeId) {}
     /** HTTP 时间固定为 ISO-8601 字符串，不依赖宿主 ObjectMapper 的日期格式。 */
     public record TaskView(DownloadAttempt attempt, String queueType, String title, DownloadEvent.Phase phase,
-                           String updatedAt, long revision) {
+                           String updatedAt, long revision, DownloadEvent.FailureReason failureReason) {
         static TaskView from(DownloadTaskSnapshot task) {
             return new TaskView(task.attempt(), task.queueType(), task.title(), task.phase(),
-                    task.updatedAt().toString(), task.revision());
+                    task.updatedAt().toString(), task.revision(), task.failureReason());
         }
     }
 }

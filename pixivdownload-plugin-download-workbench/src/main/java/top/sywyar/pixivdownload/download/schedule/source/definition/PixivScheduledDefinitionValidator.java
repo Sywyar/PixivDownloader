@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import java.math.BigInteger;
 import java.util.Set;
 
-/** Pixiv 七类计划来源持久化定义的插件侧业务 schema。 */
+/** Pixiv 来源定义的插件侧业务 schema。 */
 public final class PixivScheduledDefinitionValidator {
 
     private static final String USER_NEW = "user-new";
@@ -40,6 +40,7 @@ public final class PixivScheduledDefinitionValidator {
             case USER_NEW, USER_REQUEST -> requirePositiveId(source.get("userId"));
             case SERIES -> requirePositiveId(source.get("seriesId"));
             case COLLECTION -> requirePositiveId(source.get("collectionId"));
+            case "explicit-list" -> validateExplicitList(root, source);
             case SEARCH -> validateSearchSource(source);
             case MY_BOOKMARKS -> validateBookmarksSource(source);
             case FOLLOW_LATEST -> {
@@ -50,6 +51,22 @@ public final class PixivScheduledDefinitionValidator {
             default -> throw invalidDefinition();
         }
         validateCommonSnapshot(root);
+    }
+
+    private static void validateExplicitList(JsonNode root, JsonNode source) throws ScheduledExecutionException {
+        if (!"mixed".equals(root.path("kind").asString(null))
+                || !"single-import".equals(source.path("acquisitionMode").asString(null))) throw invalidDefinition();
+        JsonNode works = source.path("works");
+        if (!works.isArray() || works.isEmpty() || works.size() > 5000) throw invalidDefinition();
+        Set<String> keys = new java.util.HashSet<>();
+        for (JsonNode work : works) {
+            String kind = work.path("kind").asString("");
+            JsonNode id = work.path("id");
+            if (!work.isObject() || work.size() != 2 || !Set.of("illust", "novel").contains(kind)
+                    || !id.isString() || !id.stringValue().matches("[1-9][0-9]{0,18}")) throw invalidDefinition();
+            requirePositiveId(id);
+            if (!keys.add(kind + ":" + id.stringValue())) throw invalidDefinition();
+        }
     }
 
     private static void validateSearchSource(JsonNode source)

@@ -16,7 +16,7 @@ import java.util.OptionalLong;
  * {@code claimToken + stateVersion} 做 CAS；管理员变更一旦推进版本，旧运行就不能覆盖它。
  * 凭证 secret 只经专用裸标量方法读取，绝不进入任务、pending 或元数据投影。
  */
-public interface ScheduledTaskStore {
+public interface ScheduledTaskStore extends ScheduledWorkStore {
 
     /**
      * 返回全部。

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.ai.controller;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.verify;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpHeaders;
@@ -30,6 +31,18 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 @DisplayName("AI GUI 模型查询端点")
 class AiModelsControllerTest {
+
+    @Test
+    @DisplayName("管理员模型查询透传临时服务配置而不读取已保存配置")
+    void adminModelsUseTemporarySettings() throws Exception {
+        var client = mock(OpenAiCompatibleAiClient.class);
+        when(client.listModels(any())).thenReturn(List.of(new AiModelInfo("fixture-model", "fixture-vendor")));
+        var body = new AiTestRequest("https://example.test/v1", "fixture-key", "fixture-model", true);
+        var response = new AiModelsController(client).modelsAdmin(body);
+        verify(client).listModels(body.toClientSettings());
+        assertThat(response.getBody()).isInstanceOfSatisfying(AiModelsResponse.class,
+                result -> assertThat(result.models()).extracting(AiModelInfo::id).containsExactly("fixture-model"));
+    }
 
     @ParameterizedTest
     @CsvSource({

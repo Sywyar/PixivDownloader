@@ -150,6 +150,11 @@ public final class BackendLifecycleManager {
     private static final BackendStarter DEFAULT_STARTER = PixivDownloadApplication::start;
 
     private static volatile ConfigurableApplicationContext context;
+
+    /** 判断指定后端是否由桌面生命周期持有，不能把无头后端当作已经关闭。 */
+    public static boolean owns(ConfigurableApplicationContext candidate) {
+        synchronized (LOCK) { return context == candidate; }
+    }
     private static volatile State state = State.STOPPED;
     private static volatile Throwable lastError;
     private static volatile String[] applicationArgs = new String[0];

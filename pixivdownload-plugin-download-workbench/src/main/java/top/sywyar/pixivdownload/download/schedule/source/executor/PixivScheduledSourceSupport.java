@@ -36,7 +36,7 @@ import java.util.Set;
 import java.util.function.IntSupplier;
 import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.*;
 
-/** 七类 Pixiv 来源适配器共享的纯计划解析与有背压发现驱动。 */
+/** Pixiv 来源适配器共享的纯计划解析与有背压发现驱动。 */
 @PluginManagedBean
 public final class PixivScheduledSourceSupport {
 
@@ -149,6 +149,24 @@ public final class PixivScheduledSourceSupport {
         return plan(definition, true, false, Set.of(
                 PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST,
                 PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL));
+    }
+
+    public ScheduledExecutionPlan planExplicitList(ScheduledTaskDefinition task) throws ScheduledExecutionException {
+        ParsedDefinition definition = parseDefinition(task, "explicit-list");
+        Set<String> types = new java.util.LinkedHashSet<>();
+        for (JsonNode work : definition.source().path("works")) types.add(work.path("kind").stringValue());
+        return plan(definition, false, false, types);
+    }
+
+    public ScheduledDiscoveryResult discoverExplicitList(ScheduledSourceContext context) throws ScheduledExecutionException {
+        ParsedDefinition definition = parseDefinition(task(context), "explicit-list");
+        for (JsonNode item : definition.source().path("works")) {
+            context.cancellation().throwIfCancellationRequested();
+            ScheduledWork work = persistenceCodec.createWorkEnvelope(item.path("kind").stringValue(), item.path("id").stringValue());
+            if (alreadyCompleted(definition, work)) context.workSink().completeLocally(work, ScheduledWorkResult.alreadyCompleted());
+            else context.workSink().submit(work);
+        }
+        return ScheduledDiscoveryResult.withoutCheckpoint();
     }
 
     public ScheduledDiscoveryResult discoverUserNew(ScheduledSourceContext context)

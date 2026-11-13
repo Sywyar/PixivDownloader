@@ -99,7 +99,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
             top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity identity) {
         return new DesktopMediaToolHistorySource(identity,
                 BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class).source(identity),
-                toolHistory);
+                historyStore());
     }
 
     private final DesktopUiLocalApiClient localApiClient;
@@ -111,7 +111,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private DatabaseTarget processDatabaseTarget;
     private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
-    private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private volatile DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
     private final Optional<top.sywyar.pixivdownload.startup.DesktopStartupCacheService> startupCache =
             top.sywyar.pixivdownload.startup.DesktopStartupCacheService.create((result, started) -> {
                 ToolOutcome outcome = switch (result.state()) {
@@ -370,10 +370,15 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }
     @Override public Optional<WindowStateSnapshot> loadWindowState() { return windowState.load(); }
     @Override public boolean saveWindowState(WindowStateSnapshot state) { return windowState.save(state); }
-    @Override public List<ToolHistoryEntry> toolHistory() { return toolHistory.entries(); }
+    private DesktopToolHistory historyStore() {
+        if (BackendLifecycleManager.isRunning()) toolHistory = BackendLifecycleManager.requiredBean(DesktopToolHistory.class);
+        return toolHistory;
+    }
+
+    @Override public List<ToolHistoryEntry> toolHistory() { return historyStore().entries(); }
     @Override public void recordToolHistory(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
             Integer processedCount, Integer changedCount, Integer failedCount, Path logPath) {
-        toolHistory.record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount, logPath);
+        historyStore().record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount, logPath);
     }
     @Override public Path pluginsDirectory() { return RuntimeFiles.pluginsDirectory(); }
     @Override public Path resolvePluginConfigPath(String id, String extension) { return RuntimeFiles.resolvePluginConfigPath(id, extension); }
@@ -522,33 +527,28 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public synchronized java.util.UUID startBackfill(BackfillOptions options, boolean automatic) throws Exception {
         if (migrationRunning) throw new IllegalStateException(message("gui.message.backend-busy"));
         var runner = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class);
+        var history = historyStore();
         var observation = new java.util.concurrent.atomic.AtomicReference<BackfillTask>();
         var mapped = map(options);
         var receipt = runner.start(automatic ? mapped.forStartup() : mapped, value -> {
             observation.accumulateAndGet(value, (previous, next) -> previous == null || next.revision() > previous.revision() ? next : previous);
-            if (!value.active()) {
-                var outcome = switch (value.state()) {
-                    case COMPLETED -> ToolOutcome.SUCCEEDED;
-                    case INCOMPLETE -> ToolOutcome.INCOMPLETE;
-                    case RATE_LIMITED -> ToolOutcome.RATE_LIMITED;
-                    case CANCELLED -> ToolOutcome.CANCELLED;
-                    default -> ToolOutcome.FAILED;
-                };
-                toolHistory.record(ToolId.ARTWORKS_BACKFILL, outcome, value.startedAtEpochMs(), value.processed(),
-                        value.dryRun() ? null : value.changed(), null,
-                        value.logFileName() == null ? null : RuntimeFiles.logDirectory().resolve("html").resolve(value.logFileName()),
-                        value.executionId(), null);
-            }
+            if (!value.active()) history.recordBackfill(value);
         });
         observation.compareAndSet(null, receipt);
         backfillObservation = observation;
         return receipt.executionId();
     }
 
-    @Override public Optional<BackfillTask> backfillTask() { return Optional.ofNullable(backfillObservation.get()); }
+    @Override public Optional<BackfillTask> backfillTask() {
+        if (BackendLifecycleManager.isRunning()) {
+            var current = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).snapshot();
+            if (current.isPresent()) return current;
+        }
+        return Optional.ofNullable(backfillObservation.get());
+    }
 
     @Override public boolean cancelBackfill(java.util.UUID executionId) {
-        var value = backfillObservation.get();
+        var value = backfillTask().orElse(null);
         if (value == null || !value.active() || !value.executionId().equals(executionId)) return false;
         return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).cancel(executionId);
     }
@@ -571,9 +571,12 @@ final class AppDesktopUiHost implements DesktopUiHost {
             migrationRunning = true;
         }
         try {
-            var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
-                    toolDatabaseTarget(options.dbPath())), reporter,
-                    BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
+            java.util.concurrent.Callable<JsonToSqliteMigration.Summary> operation = () -> JsonToSqliteMigration.run(
+                    new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(), toolDatabaseTarget(options.dbPath())),
+                    reporter, BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
+            var value = BackendLifecycleManager.isRunning()
+                    ? BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).whileIdle(operation)
+                    : operation.call();
             return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message(), value.failed());
         } finally {
             synchronized (this) { migrationRunning = false; }

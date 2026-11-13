@@ -99,7 +99,9 @@ public class PushPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         return List.of(
                 WebRouteContribution.gui("/api/gui/push-test"),
-                WebRouteContribution.gui("/api/gui/push-test-all"));
+                WebRouteContribution.gui("/api/gui/push-test-all"),
+                WebRouteContribution.admin("/api/admin/push/test"),
+                WebRouteContribution.admin("/api/admin/push/test-all"));
     }
 
     @Override

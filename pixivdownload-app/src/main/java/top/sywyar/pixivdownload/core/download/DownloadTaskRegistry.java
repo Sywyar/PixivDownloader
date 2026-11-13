@@ -194,6 +194,11 @@ public final class DownloadTaskRegistry {
         }
     }
 
+    public DownloadTasks.HistoryPage history(DownloadTasks.HistoryCursor before, int limit, RequestOwnerIdentity owner) {
+        if (results == null) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
+        return results.history(before, limit, owner);
+    }
+
     public DownloadTasks.CancelResult cancel(UUID taskId, RequestOwnerIdentity owner) {
         Objects.requireNonNull(owner, "owner");
         expire();

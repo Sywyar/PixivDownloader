@@ -28,12 +28,20 @@ class ArtworkSubmissionHandlerTest {
         when(fetch.resolveArtworkPages("42", "credential")).thenReturn(new PixivFetchService.ArtworkPages(urls, raw));
         var attempt = new DownloadAttempt(UUID.randomUUID(), "artwork", "42");
         new ArtworkSubmissionHandler(fetch, executor).submit(new DownloadSubmission(UUID.randomUUID(), "artwork", "42",
-                Map.of("imageFormats", "png")), attempt, "credential");
+                Map.of("imageFormats", "png", "mediaQuality", "83", "mediaMaximumEdge", "1080",
+                        "mediaWebpLossless", "true", "bookmark", "true", "collectionId", "9",
+                        "acquisitionMode", "search")), attempt, "credential");
         var other = ArgumentCaptor.forClass(DownloadRequest.Other.class);
         verify(executor).submitImages(eq(attempt), eq(42L), eq("Manga"), eq(urls),
                 eq("https://www.pixiv.net/artworks/42"), other.capture(), eq("credential"), isNull());
         assertThat(other.getValue().getAuthorId()).isEqualTo(7L);
         assertThat(other.getValue().getImageFormats()).isEqualTo("png");
+        assertThat(other.getValue().getMediaQuality()).isEqualTo(83);
+        assertThat(other.getValue().getMediaMaximumEdge()).isEqualTo(1080);
+        assertThat(other.getValue().isMediaWebpLossless()).isTrue();
+        assertThat(other.getValue().isBookmark()).isTrue();
+        assertThat(other.getValue().getCollectionId()).isEqualTo(9);
+        assertThat(other.getValue().getAcquisitionMode()).isEqualTo("search");
         assertThat(other.getValue().getRawMetaJson()).contains("Manga");
         verify(fetch).fetchArtworkMetaCapture("42", "credential");
         verify(fetch).resolveArtworkPages("42", "credential");
@@ -41,5 +49,20 @@ class ArtworkSubmissionHandlerTest {
                 new DownloadSubmission(UUID.randomUUID(), "artwork", "42", Map.of("title", "forged")), attempt, null))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoMoreInteractions(fetch, executor);
+    }
+
+    @Test @DisplayName("非法输出选项和超长用户名在读取上游前拒绝")
+    void invalidOptionsAreRejectedBeforeFetching() {
+        var fetch = mock(PixivFetchService.class);
+        var executor = mock(ArtworkDownloadExecutor.class);
+        var handler = new ArtworkSubmissionHandler(fetch, executor);
+        var attempt = new DownloadAttempt(UUID.randomUUID(), "artwork", "42");
+        for (var options : List.of(Map.of("bookmark", "yes"), Map.of("mediaQuality", "0"),
+                Map.of("mediaMaximumEdge", "-1"), Map.of("collectionId", "0"), Map.of("mediaWebpLossless", "1"),
+                Map.of("username", "x".repeat(513)))) {
+            assertThatThrownBy(() -> handler.submit(new DownloadSubmission(UUID.randomUUID(), "artwork", "42", options), attempt, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        verifyNoInteractions(fetch, executor);
     }
 }

@@ -143,6 +143,7 @@ public final class DatabaseSwitchService {
         try (var ignored = top.sywyar.pixivdownload.transfer.OfflineRestoreLock.acquire()) {
           synchronized (LOCK) {
             if (top.sywyar.pixivdownload.transfer.EnvironmentTransferService.pending()) throw new IOException("MIGRATION_BUSY");
+            if (pending()) throw new IOException("MIGRATION_BUSY");
             Pending pending = prepared;
             if (pending == null || !pending.plan().token().equals(token)) throw new IOException("MIGRATION_PLAN_CHANGED");
             config.withWriteLock(() -> {

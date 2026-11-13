@@ -37,6 +37,17 @@ import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 public class ScheduleHostConfiguration {
 
     @Bean
+    public top.sywyar.pixivdownload.schedule.batch.ManualBatchService manualBatchService(
+            ScheduleCapabilityAccess capabilities, ScheduledTaskStore store, ScheduleRunState runState,
+            PlatformTransactionManager transactionManager, ScheduleConfig config, ScheduleWorkPersistenceCodec codec,
+            ScheduleNetworkRouteResolver routes, @Qualifier("scheduleWorkTaskExecutor") TaskExecutor workers,
+            ScheduleWorkConcurrencyLimiter concurrency, ObjectMapper json,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new top.sywyar.pixivdownload.schedule.batch.ManualBatchService(capabilities, store, runState,
+                new TransactionTemplate(transactionManager), config, codec, routes, workers, concurrency, json, database);
+    }
+
+    @Bean
     public NotificationTemplateContributor scheduleNotificationTemplateContributor(
             MessageResolver messages,
             LocaleBundlePolicy localeBundlePolicy) {

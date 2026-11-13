@@ -70,6 +70,31 @@ class PixivScheduledSourceExecutorTest {
     }
 
     @Test
+    void explicitMixedListPreservesOrderSkipsLocalAndRejectsDuplicates() throws Exception {
+        var executor = new PixivExplicitListScheduledSourceExecutor(support);
+        String input = """
+                {"kind":"mixed","source":{"acquisitionMode":"single-import","works":[
+                {"kind":"illust","id":"12"},{"kind":"novel","id":"12"},{"kind":"illust","id":"13"}]}}
+                """;
+        var task = definition("explicit-list", input);
+        assertThat(executor.plan(task).requiredWorkTypes()).containsExactlyInAnyOrder("illust", "novel");
+        completeLocally("illust:13");
+        var context = context(task, null);
+        executor.discover(context);
+        assertThat(context.sink.submitted).extracting(ScheduledWork::key)
+                .containsExactly(new ScheduledWorkKey("illust", "12"), new ScheduledWorkKey("novel", "12"));
+        assertThat(context.sink.local).extracting(ScheduledWork::key).containsExactly(new ScheduledWorkKey("illust", "13"));
+        verifyNoInteractions(fetchService);
+        assertThatThrownBy(() -> executor.plan(definition("explicit-list", input.replace("\"13\"", "\"12\""))))
+                .isInstanceOf(ScheduledExecutionException.class);
+        assertThatThrownBy(() -> executor.plan(definition("explicit-list", input.replace("\"13\"", "\"013\""))))
+                .isInstanceOf(ScheduledExecutionException.class);
+        assertThat(executor.plan(definition("explicit-list", """
+                {"kind":"mixed","source":{"acquisitionMode":"single-import","works":[{"kind":"illust","id":"12"}]}}
+                """)).requiredWorkTypes()).containsExactly("illust");
+    }
+
+    @Test
     @DisplayName("旧任务经真实前端改名保存后仍使用相同的执行计划和搜索请求")
     void preservesExecutionAcrossFrontendEdit() throws Exception {
         for (String json : List.of(

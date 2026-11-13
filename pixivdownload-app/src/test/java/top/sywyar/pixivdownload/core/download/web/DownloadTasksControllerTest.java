@@ -26,6 +26,31 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @DisplayName("管理员公开下载任务 HTTP 契约")
 class DownloadTasksControllerTest {
+    @Test void historyRequiresAdminAndPreservesCursorAndStructuredFailure() throws Exception {
+        var tasks = mock(DownloadTasks.class);
+        var identities = mock(RequestOwnerIdentityResolver.class);
+        var owner = RequestOwnerIdentity.adminScope();
+        when(identities.resolve(any())).thenReturn(owner);
+        var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "opaque-key");
+        var time = Instant.parse("2026-01-01T00:00:00Z");
+        var failed = new DownloadTaskSnapshot(attempt, "example", "fixture", DownloadEvent.Phase.FAILED,
+                time, 0, DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE);
+        var cursor = new DownloadTasks.HistoryCursor(time, attempt.attemptId());
+        when(tasks.history(null, 1, owner)).thenReturn(new DownloadTasks.HistoryPage(List.of(failed), cursor));
+        when(tasks.history(cursor, 1, owner)).thenReturn(new DownloadTasks.HistoryPage(List.of(), null));
+        var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
+        mvc.perform(get("/api/download/tasks/history").param("limit", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.tasks[0].failureReason").value("CREDENTIALS_UNAVAILABLE"))
+                .andExpect(jsonPath("$.beforeTime").value(time.toString())).andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(get("/api/download/tasks/history").param("limit", "1")
+                .param("beforeTime", time.toString()).param("beforeId", attempt.attemptId().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.tasks.length()").value(0));
+        mvc.perform(get("/api/download/tasks/history").param("beforeTime", "bad").param("beforeId", attempt.attemptId().toString()))
+                .andExpect(status().isBadRequest());
+        when(identities.resolve(any())).thenReturn(RequestOwnerIdentity.owner("other"));
+        mvc.perform(get("/api/download/tasks/history")).andExpect(status().isForbidden());
+        verify(tasks, times(2)).history(any(), anyInt(), any());
+    }
     @Test @DisplayName("使用可信身份及独立凭据提交，快照和取消返回机器可读结果")
     void submitSnapshotAndCancel() throws Exception {
         var tasks = mock(DownloadTasks.class);

@@ -72,7 +72,9 @@ public class MailPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         return List.of(
                 WebRouteContribution.gui("/api/gui/mail-test"),
-                WebRouteContribution.gui("/api/gui/mail-test-all"));
+                WebRouteContribution.gui("/api/gui/mail-test-all"),
+                WebRouteContribution.admin("/api/admin/mail/test"),
+                WebRouteContribution.admin("/api/admin/mail/test-all"));
     }
 
     @Override
