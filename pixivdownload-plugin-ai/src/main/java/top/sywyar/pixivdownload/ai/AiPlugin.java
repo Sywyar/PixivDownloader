@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.ai;
 
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.ai.preset.AiPreset;
 import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -68,6 +70,9 @@ public class AiPlugin implements PixivFeaturePlugin {
     }
 
     private static final List<WebRouteContribution> ROUTES = List.of(
+                WebRouteContribution.admin("/api/admin/ai/status").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("status.read", "permission.status.read"))),
+                WebRouteContribution.admin("/api/admin/ai/models").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("models.read", "permission.models.read"))),
+                WebRouteContribution.admin("/api/admin/ai/test").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("connection.test", "permission.connection.test"))),
         WebRouteContribution.gui("/api/gui/ai-test"),
         WebRouteContribution.gui("/api/gui/ai-models"),
         WebRouteContribution.admin("/api/admin/ai/**"));

@@ -21,6 +21,32 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("RouteAccessRegistry 路由注册中心")
 class RouteAccessRegistryTest {
 
+    @Test
+    @DisplayName("浏览器兜底不阻止具体程序权限，撤回后不继承且其它 owner 不能接管")
+    void programRouteUnderBrowserFallback() {
+        var registry = emptyRegistry();
+        var business = route("/api/admin/example/status").withProgramPermissions(java.util.Map.of(
+                HttpMethod.GET, new top.sywyar.pixivdownload.plugin.api.web.ProgramPermission("status.read", "permission.read")));
+        registry.register("core", List.of(route("/api/admin/**")));
+        registry.register("example", List.of(business));
+        assertThat(registry.resolve("/api/admin/example/status", HttpMethod.GET)).get().satisfies(resolved -> {
+            assertThat(resolved.pluginId()).isEqualTo("example");
+            assertThat(resolved.route().programPermissions().get(HttpMethod.GET).id()).isEqualTo("status.read");
+        });
+        assertThatThrownBy(() -> registry.register("other", List.of(business)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> registry.register("public", List.of(WebRouteContribution.publicRoute("/api/admin/unsafe"))))
+                .isInstanceOf(IllegalStateException.class);
+        registry.unregister("example");
+        assertThat(registry.resolve("/api/admin/example/status", HttpMethod.GET)).get()
+                .satisfies(resolved -> assertThat(resolved.route().programPermissions()).isEmpty());
+        var reversed = emptyRegistry();
+        reversed.register("example", List.of(business));
+        reversed.register("core", List.of(route("/api/admin/**")));
+        assertThat(reversed.resolve("/api/admin/example/status", HttpMethod.GET)).get()
+                .satisfies(resolved -> assertThat(resolved.pluginId()).isEqualTo("example"));
+    }
+
     private static RouteAccessRegistry emptyRegistry() {
         return new RouteAccessRegistry(new PluginRegistry(List.of()));
     }

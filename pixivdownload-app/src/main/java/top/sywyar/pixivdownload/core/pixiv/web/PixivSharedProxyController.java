@@ -45,7 +45,9 @@ public final class PixivSharedProxyController {
             @jakarta.validation.Valid @RequestBody ScheduleRequestScope.Request context,
             @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String credential,
             HttpServletRequest request) throws IOException {
-        if (!requestOwnerIdentityResolver.isAdminAuthenticated(request)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", "authors.refresh"))
+                .orElseGet(() -> requestOwnerIdentityResolver.isAdminAuthenticated(request))) {
             return ResponseEntity.status(403).body(ApiErrorResponse.of("CREDENTIAL_FORBIDDEN", messages.get("auth.unauthorized")));
         }
         return scheduleRequests.read(context, AcquisitionCredentialResolver.resolve(credential), ScheduledNetworkRoute.inherit(),

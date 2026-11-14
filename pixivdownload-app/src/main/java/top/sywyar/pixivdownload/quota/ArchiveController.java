@@ -123,7 +123,9 @@ public class ArchiveController {
     @PostMapping("/api/archive/pack-artworks")
     public ResponseEntity<?> triggerAdminPack(@Valid @RequestBody AdminPackRequest request,
                                               HttpServletRequest httpRequest) {
-        if (!setupService.isAdminLoggedIn(httpRequest)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(httpRequest)
+                .map(identity -> identity.permits("core", "archives.create"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(httpRequest))) {
             return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
 
@@ -173,7 +175,9 @@ public class ArchiveController {
      */
     @GetMapping("/api/archive/list")
     public ResponseEntity<?> listAdminArchives(HttpServletRequest request) {
-        if (!setupService.isAdminLoggedIn(request)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", "archives.read"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(request))) {
             return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
         long now = System.currentTimeMillis();

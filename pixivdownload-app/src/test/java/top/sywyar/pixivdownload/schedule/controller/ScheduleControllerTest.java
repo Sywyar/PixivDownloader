@@ -36,6 +36,52 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("计划任务管理接口")
 class ScheduleControllerTest {
 
+    @Test
+    @DisplayName("程序不能修改其它来源的任务，列表只返回授权来源")
+    void isolatesProgramSourceTargets() throws Exception {
+        var allowed = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView.class);
+        var denied = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView.class);
+        when(allowed.sourceOwnerPluginId()).thenReturn("source-a");
+        when(denied.sourceOwnerPluginId()).thenReturn("source-b");
+        when(scheduleService.list()).thenReturn(List.of(allowed, denied));
+        when(scheduleService.get(42L)).thenReturn(denied);
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:schedule.read", "core:schedule.pause", "source-a:schedule.manage"));
+        mockMvc.perform(get("/api/schedule/tasks").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].sourceOwnerPluginId").value("source-a"));
+        mockMvc.perform(post("/api/schedule/tasks/42/pause").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.verify(scheduleService, org.mockito.Mockito.never()).pause(42L);
+        var permitted = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(identity.id(),
+                java.util.Set.of("core:schedule.pause", "source-b:schedule.manage"));
+        mockMvc.perform(post("/api/schedule/tasks/42/pause").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, permitted))
+                .andExpect(status().isOk());
+        verify(scheduleService).pause(42L);
+    }
+
+    @Test
+    @DisplayName("程序创建计划前核对当前来源和激活身份，拒绝时不调用保存")
+    void rejectsUnapprovedSourceBeforeCreate() throws Exception {
+        var source = org.mockito.Mockito.mock(ScheduleSourceManifestView.Source.class);
+        when(source.sourceType()).thenReturn("example");
+        when(source.activationToken()).thenReturn("active");
+        when(source.ownerPluginId()).thenReturn("source-b");
+        when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView("epoch", 1, List.of(source)));
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:schedule.create", "source-a:schedule.manage"));
+        mockMvc.perform(post("/api/schedule/tasks").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"worker\",\"sourceType\":\"example\",\"activationToken\":\"active\","
+                                + "\"definitionJson\":\"{}\",\"triggerKind\":\"interval\",\"intervalMinutes\":30}"))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.verify(scheduleService, org.mockito.Mockito.never()).create(org.mockito.ArgumentMatchers.any());
+    }
+
     private static final String WORK_TYPE = "novel/自定义?'\"#_%";
     private static final String WORK_ID = "001/路径?mode=\"人工\"&x='y'#_%";
 

@@ -21,6 +21,23 @@ import static org.mockito.Mockito.*;
 class ProgramPermissionCatalogTest {
     @TempDir Path directory;
 
+    @Test @DisplayName("未加载但已安装的可管理插件仍可签发目标权限，移除后不能新签发")
+    void managementTargetsFollowInstalledInventory() throws Exception {
+        var plugins = new PluginRegistry(List.of(new top.sywyar.pixivdownload.plugin.CorePlugin()));
+        var target = mock(top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry.class);
+        when(target.id()).thenReturn("inactive-provider");
+        when(target.toggleable()).thenReturn(true);
+        var targets = new java.util.concurrent.atomic.AtomicReference<>(List.of(target));
+        var keys = new ProgramKeyService(directory.resolve("keys.json"), new RouteAccessRegistry(plugins), plugins,
+                new DesktopMediaToolRegistry(), new DesktopFileImportToolRegistry(),
+                new top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry(), Set::of, Set::of, targets::get);
+        var policy = new ProgramKeyStore.Policy("manage inactive", Set.of("core:plugins.enabled", "inactive-provider:plugins.manage"), true, List.of());
+        assertThat(keys.create(policy).key().policy().permissions()).contains("inactive-provider:plugins.manage");
+        targets.set(List.of());
+        assertThatThrownBy(() -> keys.create(policy)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(keys.permissions()).anyMatch(value -> value.id().equals("core:credentials.use"));
+    }
+
     @Test @DisplayName("未知插件发布媒体工具后出现目标权限，撤回后不能继续签发")
     void followsIndependentProviderPublication() throws Exception {
         var core = mock(PixivFeaturePlugin.class);

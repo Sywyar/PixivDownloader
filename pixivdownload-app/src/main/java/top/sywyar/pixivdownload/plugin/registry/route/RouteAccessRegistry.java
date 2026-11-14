@@ -300,6 +300,13 @@ public class RouteAccessRegistry {
                 continue;
             }
             boolean samePattern = existing.pathPattern().equals(proposed.pathPattern());
+            // 宽浏览器策略不声明程序权限时，允许同策略的具体业务 owner 声明自己的权限。
+            boolean browserFallback = existing.pathPattern().endsWith("**") && existing.programPermissions().isEmpty()
+                    || proposed.pathPattern().endsWith("**") && proposed.programPermissions().isEmpty();
+            if (!samePattern && browserFallback && existing.accessPolicy() == proposed.accessPolicy()
+                    && existing.trustedWriteOrigins().equals(proposed.trustedWriteOrigins())) {
+                continue;
+            }
             boolean crossPluginOverlap = !registered.pluginId().equals(pluginId)
                     && pathPatternsOverlap(existing.pathPattern(), proposed.pathPattern());
             if (samePattern || crossPluginOverlap) {

@@ -28,13 +28,13 @@ public final class AcquisitionCredentialsController {
     }
     @GetMapping
     public ResponseEntity<?> read(HttpServletRequest request) throws IOException {
-        if (!identities.isAdminAuthenticated(request)) return failure(403, "CREDENTIAL_FORBIDDEN");
+        if (!allowed(request, "credentials.read")) return failure(403, "CREDENTIAL_FORBIDDEN");
         try { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(library.read()); }
         catch (IOException failure) { return failure(503, "CREDENTIAL_IO"); }
     }
     @PutMapping(consumes = "application/json")
     public ResponseEntity<?> save(HttpServletRequest request) throws IOException {
-        if (!identities.isAdminAuthenticated(request)) return failure(403, "CREDENTIAL_FORBIDDEN");
+        if (!allowed(request, "credentials.write")) return failure(403, "CREDENTIAL_FORBIDDEN");
         if (request.getContentLengthLong() > AcquisitionCredentialLibrary.MAX_BYTES) return failure(413, "CREDENTIAL_LIMIT");
         byte[] bytes = request.getInputStream().readNBytes(AcquisitionCredentialLibrary.MAX_BYTES + 1);
         try {
@@ -51,6 +51,12 @@ public final class AcquisitionCredentialsController {
             return failure(503, "CREDENTIAL_IO");
         } finally { java.util.Arrays.fill(bytes, (byte) 0); }
     }
+    private boolean allowed(HttpServletRequest request, String permission) {
+        return top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", permission))
+                .orElseGet(() -> identities.isAdminAuthenticated(request));
+    }
+
     private ResponseEntity<?> failure(int status, String code) {
         return ResponseEntity.status(status).cacheControl(CacheControl.noStore())
                 .body(ApiErrorResponse.of(code, messages.get(status == 503 ? "error.io" : "error.request.param.invalid")));

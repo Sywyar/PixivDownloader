@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.schedule.controller;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -35,10 +37,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 计划任务管理 API（管理员专用）。
+ * 计划任务管理 API，支持管理员会话与显式授权的程序身份。
  *
- * <p>所有路径都在 {@code /api/schedule/} 前缀下，由 {@code AuthFilter} 按 monitor 语义强制登录
- * （solo 与 multi 均仅管理员），不入 {@code isPublic()} / {@code GUEST_ALLOWED_*}。
+ * <p>浏览器入口保持 ADMIN 策略；程序由过滤器检查动作权限，本控制器检查来源或凭据策略 owner。
  *
  * <p>响应一律走 {@link ScheduleTaskView}。通用凭证绑定只接收中性取得凭证头与当前来源激活令牌；
  * 来源专属兼容路由由对应来源的适配器拥有。
@@ -59,39 +60,48 @@ public class ScheduleController {
     }
 
     @GetMapping("/tasks")
-    public List<ScheduleTaskView> list() {
-        return scheduleService.list();
+    public List<ScheduleTaskView> list(HttpServletRequest httpRequest) {
+        return scheduleService.list().stream()
+                .filter(task -> ProgramAccess.permits(httpRequest, task.sourceOwnerPluginId(), "schedule.manage"))
+                .toList();
     }
 
     @GetMapping("/tasks/{id}")
-    public ScheduleTaskView get(@PathVariable long id) {
+    public ScheduleTaskView get(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.get(id);
     }
 
     /** 最近一轮运行队列（本轮发现的每个作品及其处理结果），供前端卡片底部「本轮队列详情」展开展示。 */
     @GetMapping("/tasks/{id}/queue")
-    public ScheduleQueueView queue(@PathVariable long id) {
+    public ScheduleQueueView queue(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.queue(id);
     }
 
     @PostMapping("/tasks")
-    public ScheduleTaskView create(@Valid @RequestBody ScheduleTaskRequest req) {
+    public ScheduleTaskView create(@Valid @RequestBody ScheduleTaskRequest req, HttpServletRequest httpRequest) {
+        requireSource(httpRequest, req);
         return scheduleService.create(req);
     }
 
     @PutMapping("/tasks/{id}")
-    public ScheduleTaskView update(@PathVariable long id, @Valid @RequestBody ScheduleTaskRequest req) {
+    public ScheduleTaskView update(@PathVariable long id, @Valid @RequestBody ScheduleTaskRequest req, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
+        requireSource(httpRequest, req);
         return scheduleService.update(id, req);
     }
 
     @DeleteMapping("/tasks/{id}")
-    public SuccessResponse delete(@PathVariable long id) {
+    public SuccessResponse delete(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         scheduleService.delete(id);
         return new SuccessResponse(true);
     }
 
     @PostMapping("/tasks/{id}/enabled")
-    public ScheduleTaskView setEnabled(@PathVariable long id, @RequestParam boolean enabled) {
+    public ScheduleTaskView setEnabled(@PathVariable long id, @RequestParam boolean enabled, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.setEnabled(id, enabled);
     }
 
@@ -101,7 +111,8 @@ public class ScheduleController {
             @PathVariable long id,
             @Valid @RequestBody ScheduleCredentialBindRequest request,
             @RequestHeader(AcquisitionCredentialResolver.HEADER_NAME)
-            String acquisitionCredential) {
+            String acquisitionCredential, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         String credential = AcquisitionCredentialResolver.resolve(
                 acquisitionCredential);
         return scheduleService.bindCredential(id, credential, request.activationToken());
@@ -109,14 +120,16 @@ public class ScheduleController {
 
     /** 解除任务当前持久化的凭证策略绑定。 */
     @DeleteMapping("/tasks/{id}/credential")
-    public ScheduleTaskView revokeCredential(@PathVariable long id) {
+    public ScheduleTaskView revokeCredential(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.revokeCredential(id);
     }
 
     /** 只接受精确 policy publication 身份；动作语义由当前凭证策略纯值规划。 */
     @PostMapping("/credential-policies/actions")
     public SuccessResponse applyCredentialPolicyAction(
-            @Valid @RequestBody ScheduleCredentialPolicyActionRequest request) {
+            @Valid @RequestBody ScheduleCredentialPolicyActionRequest request, HttpServletRequest httpRequest) {
+        ProgramAccess.require(httpRequest, request.getOwnerPluginId(), "schedule.manage");
         scheduleService.applyCredentialPolicyAction(request);
         return new SuccessResponse(true);
     }
@@ -124,12 +137,14 @@ public class ScheduleController {
     /** 设置 / 清除任务级单独代理（host:port；body 的 proxy 为空 = 清除并回退全局代理设置）。 */
     @PostMapping("/tasks/{id}/proxy")
     public ScheduleTaskView updateProxy(@PathVariable long id,
-                                        @RequestBody ProxyOverrideRequest req) {
+                                        @RequestBody ProxyOverrideRequest req, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.updateProxy(id, req.getProxy());
     }
 
     @PostMapping("/tasks/{id}/run")
-    public SuccessResponse runOnce(@PathVariable long id) {
+    public SuccessResponse runOnce(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         scheduleService.manualRun(id);
         return new SuccessResponse(true);
     }
@@ -138,7 +153,8 @@ public class ScheduleController {
 
     /** 手动挂起当前运行（MANUAL，不冻账号、不发邮件）。 */
     @PostMapping("/tasks/{id}/pause")
-    public ScheduleTaskView pause(@PathVariable long id) {
+    public ScheduleTaskView pause(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.pause(id);
     }
 
@@ -149,13 +165,15 @@ public class ScheduleController {
      */
     @PostMapping("/tasks/{id}/pending/resolve")
     public ScheduleTaskView resolvePending(@PathVariable long id,
-            @Valid @RequestBody SchedulePendingResolveRequest request) {
+            @Valid @RequestBody SchedulePendingResolveRequest request, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.resolvePending(id, request.expectedStateVersion(), request.workType(),
                 request.workId(), request.userAction(), request.rememberForRun());
     }
 
     @PostMapping("/tasks/{id}/resume")
-    public ScheduleTaskView resume(@PathVariable long id) {
+    public ScheduleTaskView resume(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         ScheduleTaskView view = scheduleService.resume(id);
         // 仅对 enabled 任务即时触发后台运行；停用任务恢复后只清暂停态、不运行（停用 = 不执行）。
         if (view.enabled()) {
@@ -167,7 +185,8 @@ public class ScheduleController {
 
     /** 隔离表（待重试）行列表。 */
     @GetMapping("/tasks/{id}/pending")
-    public List<SchedulePendingView> pending(@PathVariable long id) {
+    public List<SchedulePendingView> pending(@PathVariable long id, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         return scheduleService.pending(id);
     }
 
@@ -175,9 +194,26 @@ public class ScheduleController {
     @DeleteMapping("/tasks/{id}/pending")
     public SuccessResponse clearPending(
             @PathVariable long id,
-            @Valid @RequestBody SchedulePendingDeleteRequest request) {
+            @Valid @RequestBody SchedulePendingDeleteRequest request, HttpServletRequest httpRequest) {
+        requireTask(httpRequest, id);
         scheduleService.clearPending(id, request.getWorkType(), request.getWorkId());
         return new SuccessResponse(true);
+    }
+
+    private void requireTask(HttpServletRequest request, long id) {
+        if (ProgramAccess.identity(request).isEmpty()) return;
+        ProgramAccess.require(request, scheduleService.get(id).sourceOwnerPluginId(), "schedule.manage");
+    }
+
+    private void requireSource(HttpServletRequest request, ScheduleTaskRequest body) {
+        if (ProgramAccess.identity(request).isEmpty()) return;
+        var source = scheduleService.sources().sources().stream()
+                .filter(value -> value.sourceType().equals(body.getSourceType().trim())
+                        && value.activationToken().equals(body.getActivationToken()))
+                .findFirst().orElseThrow(() -> new top.sywyar.pixivdownload.i18n.LocalizedException(
+                        org.springframework.http.HttpStatus.FORBIDDEN, "auth.program.forbidden",
+                        "The program key does not grant this operation"));
+        ProgramAccess.require(request, source.ownerPluginId(), "schedule.manage");
     }
 
     public record SuccessResponse(boolean success) {}

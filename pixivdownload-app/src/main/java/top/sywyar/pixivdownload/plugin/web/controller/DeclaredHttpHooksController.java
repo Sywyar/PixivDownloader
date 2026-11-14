@@ -31,7 +31,9 @@ public final class DeclaredHttpHooksController {
     }
     @FunctionalInterface private interface Action { Object run() throws IOException; }
     private ResponseEntity<?> run(HttpServletRequest request, Locale locale, Action action) {
-        if (!identities.isAdminAuthenticated(request)) return error(403, "HOOK_DECLARATION_FORBIDDEN", locale);
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", "GET".equals(request.getMethod()) ? "hooks.read" : "hooks.prepare"))
+                .orElseGet(() -> identities.isAdminAuthenticated(request))) return error(403, "HOOK_DECLARATION_FORBIDDEN", locale);
         if (!requests.tryAcquire()) return error(429, "HOOK_DECLARATION_CAPACITY", locale);
         try { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(action.run()); }
         catch (IOException | RuntimeException failure) {

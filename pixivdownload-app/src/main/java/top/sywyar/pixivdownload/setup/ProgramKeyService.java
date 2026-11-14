@@ -24,15 +24,22 @@ public final class ProgramKeyService {
     private final top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads;
 
     private final java.util.function.Supplier<Set<String>> batchOwners;
+    private final java.util.function.Supplier<Set<String>> scheduleOwners;
+    private final java.util.function.Supplier<List<top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry>> managementTargets;
 
     @Autowired
     public ProgramKeyService(RouteAccessRegistry routes, PluginRegistry plugins,
                              DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
                              top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
-                             top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess schedules) {
+                             top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess schedules,
+                             org.springframework.beans.factory.ObjectProvider<top.sywyar.pixivdownload.plugin.management.PluginManagementService> management) {
         this(RuntimeFiles.programKeysPath(), routes, plugins, media, imports, downloads, () -> schedules.snapshot().owners().stream()
                 .filter(owner -> !owner.sourceTypes().isEmpty() || !owner.workTypes().isEmpty())
-                .map(owner -> owner.owner().featurePluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet()));
+                .map(owner -> owner.owner().featurePluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                () -> schedules.snapshot().owners().stream()
+                        .filter(owner -> !owner.sourceTypes().isEmpty() || !owner.credentialPolicyIds().isEmpty())
+                        .map(owner -> owner.owner().featurePluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet()),
+                () -> management.getObject().list().plugins());
     }
     ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins) {
         this(path, routes, plugins, new DesktopMediaToolRegistry(), new DesktopFileImportToolRegistry());
@@ -50,8 +57,25 @@ public final class ProgramKeyService {
                       DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
                       top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
                       java.util.function.Supplier<Set<String>> batchOwners) {
+        this(path, routes, plugins, media, imports, downloads, batchOwners, batchOwners);
+    }
+    ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
+                      DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
+                      top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
+                      java.util.function.Supplier<Set<String>> batchOwners,
+                      java.util.function.Supplier<Set<String>> scheduleOwners) {
+        this(path, routes, plugins, media, imports, downloads, batchOwners, scheduleOwners, List::of);
+    }
+    ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
+                      DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
+                      top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
+                      java.util.function.Supplier<Set<String>> batchOwners,
+                      java.util.function.Supplier<Set<String>> scheduleOwners,
+                      java.util.function.Supplier<List<top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry>> managementTargets) {
         this.store = new ProgramKeyStore(path); this.routes = routes; this.plugins = plugins;
         this.media = media; this.imports = imports; this.downloads = downloads; this.batchOwners = batchOwners;
+        this.scheduleOwners = scheduleOwners;
+        this.managementTargets = managementTargets;
     }
     public record Permission(String id, String owner, String namespace, String ownerNamespace, String ownerLabelKey, String labelKey,
                              List<Endpoint> endpoints) {}
@@ -73,26 +97,55 @@ public final class ProgramKeyService {
                         plugin.get().displayName(), grant.getValue().labelKey(), List.copyOf(endpoints)));
             }
         }
+        var credentials = declarations.get("core:credentials.read");
+        if (credentials != null) declarations.put("core:credentials.use", new Permission("core:credentials.use", "core",
+                credentials.namespace(), credentials.ownerNamespace(), credentials.ownerLabelKey(), "permission.credentials.use",
+                List.of(new Endpoint("HEADER", "X-Acquisition-Credentials"))));
         var mediaOwners = media.tools().stream().map(tool -> tool.identity().pluginId()).collect(java.util.stream.Collectors.toSet());
         var importOwners = imports.tools().stream().map(tool -> tool.identity().pluginId()).collect(java.util.stream.Collectors.toSet());
         var downloadOwners = downloads.submissionOwners();
         var currentBatchOwners = batchOwners.get();
+        var currentScheduleOwners = scheduleOwners.get();
         for (var registered : plugins.registeredPlugins()) {
             var targets = new ArrayList<String>();
             if (currentBatchOwners.contains(registered.id())) targets.add("batches.execute");
+            if (currentScheduleOwners.contains(registered.id())) targets.add("schedule.manage");
             if (downloadOwners.contains(registered.id())) targets.add("downloads.create");
             if (!registered.plugin().guiConfigContributions().isEmpty()) targets.addAll(List.of("settings.read", "settings.write"));
             if (mediaOwners.contains(registered.id())) targets.addAll(List.of("media.read", "media.preview", "media.execute", "media.cancel"));
             if (importOwners.contains(registered.id())) targets.addAll(List.of("file-import.read", "file-import.preview", "file-import.execute", "file-import.cancel", "file-import.acknowledge"));
             for (String permission : targets) {
                 String id = registered.id() + ":" + permission;
-                var routePermission = declarations.get("core:" + (permission.equals("batches.execute") ? "batches.create" : permission));
+                String routeId = switch (permission) {
+                    case "batches.execute" -> "batches.create";
+                    case "schedule.manage" -> "schedule.read";
+                    default -> permission;
+                };
+                var routePermission = declarations.get("core:" + routeId);
                 if (routePermission == null) continue;
                 var endpoints = new ArrayList<>(routePermission.endpoints());
+                if (permission.equals("schedule.manage")) {
+                    endpoints.clear();
+                    declarations.values().stream().filter(value -> value.id().startsWith("core:schedule.")
+                            && !value.id().equals("core:schedule.sources.read"))
+                            .forEach(value -> endpoints.addAll(value.endpoints()));
+                }
                 if (permission.equals("batches.execute") && declarations.containsKey("core:batches.resume"))
                     endpoints.addAll(declarations.get("core:batches.resume").endpoints());
                 declarations.putIfAbsent(id, new Permission(id, registered.id(), "plugins", registered.plugin().displayNamespace(),
                         registered.plugin().displayName(), "program.permission." + permission, List.copyOf(endpoints)));
+            }
+        }
+        var managementEndpoints = declarations.values().stream()
+                .filter(value -> value.id().startsWith("core:plugins.") && !value.id().equals("core:plugins.read")
+                        && !value.id().equals("core:plugins.install") && !value.id().equals("core:plugins.revocations.refresh"))
+                .flatMap(value -> value.endpoints().stream()).toList();
+        if (!managementEndpoints.isEmpty()) {
+            for (var target : managementTargets.get()) {
+                if (!target.managed() && !target.toggleable()) continue;
+                String id = target.id() + ":plugins.manage";
+                declarations.put(id, new Permission(id, target.id(), "plugins", target.displayNamespace(),
+                        target.displayNameKey(), "program.permission.plugins.manage", managementEndpoints));
             }
         }
         return List.copyOf(declarations.values());

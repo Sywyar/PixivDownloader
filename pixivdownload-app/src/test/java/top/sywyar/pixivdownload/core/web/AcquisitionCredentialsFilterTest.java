@@ -13,6 +13,28 @@ import static org.mockito.Mockito.*;
 
 @DisplayName("多凭据请求鉴权与作用域")
 class AcquisitionCredentialsFilterTest {
+    @Test @DisplayName("程序读取凭据目录不授予使用权，显式使用权限才解析秘密")
+    void programRequiresExplicitCredentialUse() throws Exception {
+        var request = new MockHttpServletRequest();
+        request.addHeader(AcquisitionCredentialsFilter.HEADER, "selected");
+        request.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                        java.util.Set.of("core:credentials.read")));
+        var denied = new MockHttpServletResponse();
+        filter.doFilter(request, denied, (req, res) -> fail("Must not enter controller"));
+        assertThat(denied.getStatus()).isEqualTo(403);
+        verifyNoInteractions(library);
+        var permitted = new MockHttpServletRequest();
+        permitted.addHeader(AcquisitionCredentialsFilter.HEADER, "selected");
+        permitted.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                        java.util.Set.of("core:credentials.use")));
+        when(library.resolve(List.of("selected"))).thenReturn(new AcquisitionCredentials(List.of("fixture-secret")));
+        filter.doFilter(permitted, new MockHttpServletResponse(), (req, res) ->
+                assertThat(AcquisitionCredentials.current().primary()).isEqualTo("fixture-secret"));
+        assertThat(AcquisitionCredentials.current()).isNull();
+        verifyNoInteractions(identity);
+    }
     private final AcquisitionCredentialLibrary library = mock(AcquisitionCredentialLibrary.class);
     private final RequestOwnerIdentityResolver identity = mock(RequestOwnerIdentityResolver.class);
     private final AcquisitionCredentialsFilter filter = new AcquisitionCredentialsFilter(library, identity,

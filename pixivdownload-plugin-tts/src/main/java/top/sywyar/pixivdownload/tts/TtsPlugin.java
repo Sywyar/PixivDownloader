@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.tts;
 
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
@@ -62,6 +64,8 @@ public class TtsPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.visitorAndInvitedGuest("/api/tts/edge/voices").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("voices.read", "permission.voices.read"))),
+                WebRouteContribution.visitorAndInvitedGuest("/api/tts/edge/synthesize").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("synthesize", "permission.synthesize"))),
                 WebRouteContribution.visitorAndInvitedGuest("/api/tts/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/pixiv-tts/**"));
     }

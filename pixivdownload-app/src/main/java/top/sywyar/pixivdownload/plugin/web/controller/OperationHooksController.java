@@ -32,7 +32,7 @@ public final class OperationHooksController {
     }
     @GetMapping("/catalog")
     public ResponseEntity<List<OperationTargets.Endpoint>> catalog(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(endpoints.catalog(null));
     }
     public record BindingConfiguration(long revision, top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookSettings settings) { }
@@ -41,13 +41,13 @@ public final class OperationHooksController {
     public record Failure(String code) { }
     @GetMapping("/configuration")
     public ResponseEntity<BindingConfiguration> configuration(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         var snapshot = store.snapshot();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new BindingConfiguration(snapshot.revision(), snapshot.configuration().settings()));
     }
     @PostMapping("/prepare")
     public ResponseEntity<?> prepare(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.prepare")) return ResponseEntity.status(403).build();
         if (!configurations.tryAcquire()) return ResponseEntity.status(429).body(new Failure("HOOK_CONFIGURATION_CAPACITY"));
         try {
             var value = read(request, BindingConfiguration.class);
@@ -57,7 +57,7 @@ public final class OperationHooksController {
     }
     @PostMapping("/publish")
     public ResponseEntity<?> publish(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.publish")) return ResponseEntity.status(403).build();
         if (!configurations.tryAcquire()) return ResponseEntity.status(429).body(new Failure("HOOK_CONFIGURATION_CAPACITY"));
         try {
             var value = read(request, Publication.class);
@@ -79,18 +79,24 @@ public final class OperationHooksController {
     @GetMapping("/targets")
     public ResponseEntity<OperationTargets.Resolution> resolve(@RequestParam OperationTargets.Kind kind,
             @RequestParam String id, @RequestParam(defaultValue = "") String targetId, @RequestParam(required = false) String actionId, HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(endpoints.resolve(null, new OperationTargets.Reference(kind, id, targetId, actionId)));
     }
     @GetMapping("/definitions")
     public ResponseEntity<List<AvailableHook>> definitions(HttpServletRequest request) throws IOException {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         var keys = registry.serviceKeys(OperationHook.class);
         var hooks = registry.withServices(null, OperationHook.IMPORT, keys, List.of(), providers -> providers.stream()
                 .map(provider -> new AvailableHook(provider.service().id(), provider.publication().pluginId(), provider.publication().toString(),
                         HookContracts.definition(provider.service().definition()))).toList());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(hooks);
     }
+    private boolean allowed(HttpServletRequest request, String permission) {
+        return top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", permission))
+                .orElseGet(() -> identities.isAdminAuthenticated(request));
+    }
+
     public record AvailableHook(String id, String owner, String publication, OperationHook.Definition definition) { }
 }

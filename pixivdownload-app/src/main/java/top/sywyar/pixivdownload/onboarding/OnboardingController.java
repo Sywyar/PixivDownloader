@@ -58,7 +58,9 @@ public class OnboardingController {
      */
     @GetMapping("/profile")
     public ResponseEntity<ProfileResponse> getProfile(HttpServletRequest req) {
-        if (!setupService.hasAdminScope(req)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(req)
+                .map(identity -> identity.permits("core", "profile.read"))
+                .orElseGet(() -> setupService.hasAdminScope(req))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         return ResponseEntity.ok(new ProfileResponse(setupService.getDisplayName()));
@@ -68,7 +70,9 @@ public class OnboardingController {
     @PostMapping("/profile")
     public ResponseEntity<ProfileResponse> updateProfile(@RequestBody(required = false) ProfileRequest body,
                                                          HttpServletRequest req) throws IOException {
-        if (!setupService.isAdminLoggedIn(req)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(req)
+                .map(identity -> identity.permits("core", "profile.write"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(req))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         String name = body == null ? null : body.displayName();
@@ -85,7 +89,9 @@ public class OnboardingController {
      */
     @GetMapping("/connectivity")
     public ResponseEntity<ConnectivityResponse> connectivity(HttpServletRequest req) {
-        if (!setupService.isAdminLoggedIn(req)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(req)
+                .map(identity -> identity.permits("core", "system.check"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(req))) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         PixivConnectivityProbe.Result r = pixivConnectivityProbe.probe();

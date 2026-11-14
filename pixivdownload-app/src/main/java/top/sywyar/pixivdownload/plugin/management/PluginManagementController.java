@@ -30,7 +30,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
  * 管理入口复用同一后端语义。
  * <p>
  * 路由由 {@link CorePlugin#routes()} 以 {@code /api/plugins/**} = {@code AccessPolicy.ADMIN} 显式声明，鉴权由
- * {@code AuthFilter} 独立执行（管理操作必须管理员 / solo 会话，绝不入访客 / 公开清单）；本控制器不重复实现鉴权。
+ * {@code AuthFilter} 执行身份与动作授权；程序管理再检查目标和消费者，并在变更预留内确认影响未变化。
  * 端点全部位于 {@code /api/plugins/} 前缀下——与恢复模式访问放行 {@code /api/plugins/} 一致，使核心进入恢复模式时
  * 管理员仍可查询状态并驱动修复。
  * <ul>
@@ -99,97 +99,99 @@ public class PluginManagementController {
 
     @PostMapping("/{id}/actions/{verb}")
     public PluginActionResult performPreviewed(@PathVariable String id, @PathVariable String verb,
-                                               @RequestBody PluginImpactRequest request) {
+                                               @RequestBody PluginImpactRequest request, HttpServletRequest httpRequest) {
         LifecycleAction action = java.util.Arrays.stream(LifecycleAction.values())
                 .filter(value -> value.token().equals(verb)).findFirst()
                 .orElseThrow(() -> new PluginManagementException(PluginManagementErrorCode.ILLEGAL_TRANSITION,
                         id, verb, null, "unknown lifecycle action"));
-        return pluginManagementService.performPreviewed(id, action, request.fingerprint());
+        return withTarget(httpRequest, id, () -> pluginManagementService.performPreviewed(id, action, request.fingerprint()));
     }
 
     @PutMapping("/{id}/enabled-preview")
     public PluginEnabledConfigurationService.PluginEnabledState enabledPreviewed(
-            @PathVariable String id, @RequestBody PluginImpactRequest request) {
+            @PathVariable String id, @RequestBody PluginImpactRequest request, HttpServletRequest httpRequest) {
         if (request.enabled() == null) {
             throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
                     id, "update-enabled", null, "enabled is required");
         }
-        return pluginManagementService.confirmImpact(id, request.fingerprint(),
-                () -> enabledConfigurationService.update(id, request.enabled()));
+        return withTarget(httpRequest, id, () -> pluginManagementService.confirmImpact(id, request.fingerprint(),
+                () -> enabledConfigurationService.update(id, request.enabled())));
     }
 
     public record PluginImpactRequest(String fingerprint, Boolean enabled) { }
 
     /** 把一个已卸下的外置插件重新接入核心注册中心。 */
     @PostMapping("/{id}/load")
-    public PluginActionResult load(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.LOAD);
+    public PluginActionResult load(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.LOAD));
     }
 
     /** 启动（重建服务足迹）一个当前已停止 / 已加载的外置插件。 */
     @PostMapping("/{id}/start")
-    public PluginActionResult start(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.START);
+    public PluginActionResult start(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.START));
     }
 
     /** 静默一个正在服务的外置插件（停止接收新请求 / 新计划任务派发、清退在途任务）。 */
     @PostMapping("/{id}/quiesce")
-    public PluginActionResult quiesce(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.QUIESCE);
+    public PluginActionResult quiesce(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.QUIESCE));
     }
 
     /** 停止一个外置插件（拆除服务足迹）。 */
     @PostMapping("/{id}/stop")
-    public PluginActionResult stop(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.STOP);
+    public PluginActionResult stop(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.STOP));
     }
 
     /** 卸下一个外置插件（先确保停止，再从核心注册中心移除）。 */
     @PostMapping("/{id}/unload")
-    public PluginActionResult unload(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.UNLOAD);
+    public PluginActionResult unload(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.UNLOAD));
     }
 
     /** 卸下并删除磁盘插件包。 */
     @PostMapping("/{id}/remove")
-    public PluginActionResult remove(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.REMOVE);
+    public PluginActionResult remove(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.REMOVE));
     }
 
     /** 重启服务足迹，保留原 generation 与 classloader。 */
     @PostMapping("/{id}/restart")
-    public PluginActionResult restart(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.RESTART);
+    public PluginActionResult restart(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.RESTART));
     }
 
     /** 物理重载一个外置插件，创建新的 generation 与 classloader。 */
     @PostMapping("/{id}/reload")
-    public PluginActionResult reload(@PathVariable String id) {
-        return pluginManagementService.perform(id, LifecycleAction.RELOAD);
+    public PluginActionResult reload(@PathVariable String id, HttpServletRequest httpRequest) {
+        return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.RELOAD));
     }
 
     /** 持久化一个外置可选插件的期望启用态；实际生效方式由描述符生命周期策略决定。 */
     @PutMapping("/{id}/enabled")
     public PluginEnabledConfigurationService.PluginEnabledState updateEnabled(
-            @PathVariable String id, @RequestBody PluginEnabledRequest request) {
+            @PathVariable String id, @RequestBody PluginEnabledRequest request, HttpServletRequest httpRequest) {
         if (request == null || request.enabled() == null) {
             throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
                     id, "update-enabled", null, "Plugin enabled request must include enabled");
         }
-        return enabledConfigurationService.update(id, request.enabled());
+        return withTarget(httpRequest, id, () -> enabledConfigurationService.update(id, request.enabled()));
     }
 
     /** 以当前已安装 artifact 的精确 SHA-256 批准下一次执行。 */
     @PutMapping("/{id}/trust")
     public PluginManagementService.PluginTrustView approveTrust(
             @PathVariable String id,
-            @RequestParam("confirmArtifactSha256") String confirmArtifactSha256) {
+            @RequestParam("confirmArtifactSha256") String confirmArtifactSha256, HttpServletRequest httpRequest) {
+        top.sywyar.pixivdownload.setup.ProgramAccess.require(httpRequest, id, "plugins.manage");
         return pluginManagementService.approveTrust(id, confirmArtifactSha256);
     }
 
     /** 撤销持久化执行信任；当前 generation 不被强停，下一次加载前生效。 */
     @DeleteMapping("/{id}/trust")
-    public PluginManagementService.PluginTrustView revokeTrust(@PathVariable String id) {
+    public PluginManagementService.PluginTrustView revokeTrust(@PathVariable String id, HttpServletRequest httpRequest) {
+        top.sywyar.pixivdownload.setup.ProgramAccess.require(httpRequest, id, "plugins.manage");
         return pluginManagementService.revokeTrust(id);
     }
 
@@ -239,6 +241,16 @@ public class PluginManagementController {
                 ex.action(),
                 ex.runtimePhase());
         return ResponseEntity.status(ex.status()).body(body);
+    }
+
+    private <T> T withTarget(HttpServletRequest request, String id, java.util.function.Supplier<T> action) {
+        if (top.sywyar.pixivdownload.setup.ProgramAccess.identity(request).isEmpty()) return action.get();
+        top.sywyar.pixivdownload.setup.ProgramAccess.require(request, id, "plugins.manage");
+        var impact = pluginManagementService.previewImpact(id);
+        for (var consumer : impact.consumers()) {
+            top.sywyar.pixivdownload.setup.ProgramAccess.require(request, consumer.id(), "plugins.manage");
+        }
+        return pluginManagementService.confirmImpact(id, impact.fingerprint(), action);
     }
 
     /** 插件期望启用态写请求。 */

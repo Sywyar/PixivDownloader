@@ -43,7 +43,10 @@ public final class AcquisitionCredentialsFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String selection = request.getHeader(HEADER);
         if (selection == null) { chain.doFilter(request, response); return; }
-        if (!identities.isAdminAuthenticated(request)) { reject(request, response, 403, "CREDENTIAL_FORBIDDEN", "auth.unauthorized"); return; }
+        boolean allowed = top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", "credentials.use"))
+                .orElseGet(() -> identities.isAdminAuthenticated(request));
+        if (!allowed) { reject(request, response, 403, "CREDENTIAL_FORBIDDEN", "auth.unauthorized"); return; }
         AcquisitionCredentials credentials;
         try {
             if (selection.length() > 520 || request.getHeader(AcquisitionCredentialResolver.HEADER_NAME) != null

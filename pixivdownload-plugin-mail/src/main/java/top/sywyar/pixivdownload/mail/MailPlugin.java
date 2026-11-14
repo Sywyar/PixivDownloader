@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.mail;
 
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.mail.preset.MailPreset;
 import top.sywyar.pixivdownload.mail.preset.MailPresetRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -73,8 +75,8 @@ public class MailPlugin implements PixivFeaturePlugin {
         return List.of(
                 WebRouteContribution.gui("/api/gui/mail-test"),
                 WebRouteContribution.gui("/api/gui/mail-test-all"),
-                WebRouteContribution.admin("/api/admin/mail/test"),
-                WebRouteContribution.admin("/api/admin/mail/test-all"));
+                WebRouteContribution.admin("/api/admin/mail/test").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("test.send", "permission.test.send"))),
+                WebRouteContribution.admin("/api/admin/mail/test-all").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("templates.send", "permission.templates.send"))));
     }
 
     @Override

@@ -346,7 +346,10 @@ public class NovelDownloadController {
     @GetMapping("/novel/translate-status/{novelId}")
     public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
             @PathVariable Long novelId, HttpServletRequest httpRequest) {
-        if (!requestOwnerIdentityResolver.resolve(httpRequest).admin()) {
+        if (!top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.from(httpRequest.getAttribute(
+                top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE))
+                .map(identity -> identity.permits(top.sywyar.pixivdownload.novel.NovelPlugin.ID, "translation.read"))
+                .orElseGet(() -> requestOwnerIdentityResolver.resolve(httpRequest).admin())) {
             return ResponseEntity.status(403).build();
         }
         NovelAutoTranslateService.StatusView view = novelAutoTranslateService.getStatus(novelId);

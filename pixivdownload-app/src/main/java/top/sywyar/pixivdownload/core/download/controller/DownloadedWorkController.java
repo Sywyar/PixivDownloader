@@ -63,7 +63,7 @@ public class DownloadedWorkController {
     private final GalleryRepository galleryRepository;
     private final AppMessages messages;
 
-    @GetMapping("/downloaded/{artworkId}")
+    @GetMapping({"/downloaded/{artworkId}", "/library/artworks/{artworkId}"})
     public ResponseEntity<DownloadedResponse> getDownloaded(
             @PathVariable Long artworkId,
             @RequestParam(defaultValue = "false") boolean verifyFiles,
@@ -80,7 +80,7 @@ public class DownloadedWorkController {
      * 显式补齐已有记录的缺失元数据；标题已存在时保留原记录。
      * 无记录时须提供完整页数，且默认命名的文件全部齐备，才能登记；GET 查询不执行恢复。
      */
-    @PostMapping("/downloaded/{artworkId}/recover-metadata")
+    @PostMapping({"/downloaded/{artworkId}/recover-metadata", "/library/artworks/{artworkId}/recover-metadata"})
     public ResponseEntity<DownloadedResponse> recoverMetadata(
             @PathVariable Long artworkId,
             @RequestBody(required = false) RecoverMetadataRequest body,
@@ -157,7 +157,7 @@ public class DownloadedWorkController {
         return ResponseEntity.ok(new ArtworkIdResponse(artwork.artworkId()));
     }
 
-    @PostMapping("/downloaded/move/{artworkId}")
+    @PostMapping({"/downloaded/move/{artworkId}", "/library/artworks/{artworkId}/move"})
     public ResponseEntity<DownloadResponse> moveArtWork(
             @PathVariable Long artworkId,
             @Valid @RequestBody MoveArtworkRequest request) {

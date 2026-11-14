@@ -45,13 +45,21 @@ public final class GeneratedRemoteOperations implements PluginRemoteOperationsFa
             String operation, String identity, HttpServletRequest request) {
         String verifiedIdentity = "";
         try {
-            if (!identities.isAdminAuthenticated(request) || !csrf.allowsWrite(request)) return error(request, 403, "REMOTE_FORBIDDEN", "");
+            var program = top.sywyar.pixivdownload.setup.ProgramAccess.identity(request);
+            if ((program.isEmpty() && !identities.isAdminAuthenticated(request)) || !csrf.allowsWrite(request))
+                return error(request, 403, "REMOTE_FORBIDDEN", "");
             String path = SafeRequestPath.resolve(request).orElse("");
             if (!"POST".equals(request.getMethod())) return error(request, 404, "REMOTE_UNDECLARED", "");
             var route = routes.resolve(path, HttpMethod.POST).orElse(null);
             if (route == null || !route.pluginId().equals(pluginId) || route.route().accessPolicy() != AccessPolicy.ADMIN
                     || !route.route().pathPattern().equals(path) || !route.route().methods().equals(Set.of(HttpMethod.POST)))
                 return error(request, 404, "REMOTE_UNDECLARED", "");
+
+            if (program.isPresent()) {
+                var permission = route.route().programPermissions().get(HttpMethod.POST);
+                if (permission == null || !program.get().permits(pluginId, permission.id()))
+                    return error(request, 403, "REMOTE_FORBIDDEN", "");
+            }
 
             // 先取得精确代理：读取请求体期间 provider 撤回后，本次请求也不得转接替代者。
             Object service = services.require(key);

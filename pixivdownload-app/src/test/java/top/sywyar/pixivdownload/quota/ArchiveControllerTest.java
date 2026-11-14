@@ -115,10 +115,11 @@ class ArchiveControllerTest {
         verify(userQuotaService, never()).triggerAdminArchive(any());
     }
 
-    @Test
-    @DisplayName("存在有效文件夹时应触发管理员打包并优先使用 moveFolder")
-    void shouldTriggerAdminArchiveWithResolvedFolders() throws Exception {
-        when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("会话及获准程序打包均优先使用 moveFolder")
+    void shouldTriggerAdminArchiveWithResolvedFolders(boolean program) throws Exception {
+        if (!program) when(setupService.isAdminLoggedIn(any())).thenReturn(true);
         when(userQuotaService.triggerAdminArchive(any())).thenReturn("archive-token");
 
         Path movedFolder = Files.createDirectories(tempDir.resolve("12345-moved"));
@@ -127,7 +128,10 @@ class ArchiveControllerTest {
                 2, "jpg", 100L, true, movedFolder.toString(), 200L, 0, null, null, null
         ));
 
-        mockMvc.perform(post("/api/archive/pack-artworks")
+        var request = post("/api/archive/pack-artworks");
+        if (program) request.requestAttr(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(), java.util.Set.of("core:archives.create")));
+        mockMvc.perform(request
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"artworkIds\":[12345]}"))
                 .andExpect(status().isOk())
@@ -135,6 +139,7 @@ class ArchiveControllerTest {
                 .andExpect(jsonPath("$.archiveExpireSeconds").value(3600));
 
         verify(userQuotaService).triggerAdminArchive(argThat(pathListContains(movedFolder)));
+        if (program) verify(setupService, never()).isAdminLoggedIn(any());
     }
 
     private ArgumentMatcher<List<Path>> pathListContains(Path expected) {
