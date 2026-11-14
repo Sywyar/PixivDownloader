@@ -44,3 +44,15 @@ Document methods, paths, permissions, target scope, request fields and budgets, 
 Errors retain a stable `code` and localized `error`. Distinguish invalid input, denial, missing objects, revision conflicts, limits, unavailable capabilities and uncertain results. Query results after network interruption; do not automatically replay writes.
 
 Tests must exercise real filters or HTTP entry points and prove denied operations have no business effects. Cover methods, target plugins, source networks, revocation, replacement and failed persistence. Update the permission catalog, callers, five-language documentation and relevant regressions with the API. Declarations and compilation do not replace interaction and runtime verification.
+
+## Permission scope and dedicated workflows
+
+Scheduled tasks require the exact action permission under `core:schedule.*` and the source plugin's `schedule.manage`. Account-policy actions require the policy owner's same permission. Lists are filtered by authorized source. The `*` here groups permissions in documentation; it is not a grant you can save. Schedules are persistent installation settings, and authorization delegates the source's complete scheduling workflow. Revoking the creating key does not delete or disable schedules. Disable or delete a schedule to stop future runs.
+
+Plugin lifecycle, enabled-state and trust changes require both the corresponding `core:plugins.*` action and `<plugin>:plugins.manage` for the target. Dependency consumers also require authorization. Installed, manageable plugins remain selectable while unloaded. Installation grants allow packages and their dependencies to execute server-side code. Global Hook publication grants allow security-policy changes; grant them with that scope in mind.
+
+Shared credentials have separate `core:credentials.read`, `core:credentials.write` and `core:credentials.use` permissions. Reads return information, never secrets. Referencing stored credentials with `X-Acquisition-Credentials` requires `credentials.use` in addition to the business permission. Supply a credential for the current operation directly through `X-Acquisition-Credential`.
+
+Gallery, novel-library, collection, inbox, archive, page-editor, update and maintenance permissions apply to the shared installation, not just data created by the key. Download tasks and manual batches remain isolated by key identity. Local maintenance, recovery and legacy metadata migration still require a local source. Permissions do not replace origin checks, confirmations, revisions or leases.
+
+Identity setup, key management, GUI tokens, CAPTCHA, browser collection tickets, anonymous quotas and page assembly retain their dedicated workflows. Programs use `/api/download/tasks` for downloads and progress, `/api/tools/file-import` for file imports, `/api/library/artworks/{id}` for artwork management and `/api/page-editor` for page operations. Inbox tests use `/api/admin/notifications/test` or `/test-all`. Legacy browser compatibility routes do not receive separate program grants.

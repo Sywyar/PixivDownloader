@@ -139,8 +139,31 @@ GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반�
 
 시작 캐시는 GET `/api/tools/startup-cache`, POST `/api/tools/startup-cache/tasks`, POST `/api/tools/startup-cache/tasks/{id}/cancel`을 사용합니다. 시작 요청 본문은 `{}`입니다. 수락되었다고 학습이 성공한 것은 아니므로 상태를 계속 조회하세요.
 
+### 권한 범위와 전용 흐름
+
+예약 작업에는 `core:schedule.*`의 해당 동작 권한과 수집원 플러그인의 `schedule.manage`가 필요합니다. 계정 정책 동작에는 정책 owner의 같은 권한이 필요합니다. 목록은 허용된 수집원으로 필터링합니다. 여기서 `*`는 문서상의 분류이며 저장할 수 있는 권한이 아닙니다. 예약 작업은 설치의 영구 설정이며, 권한은 해당 수집원의 전체 예약 처리 흐름을 위임합니다. 생성한 키를 폐기해도 예약 작업은 삭제되거나 비활성화되지 않습니다. 이후 실행을 중단하려면 먼저 작업을 비활성화하거나 삭제하세요.
+
+플러그인 수명 주기, 활성 상태 및 신뢰 변경에는 해당 `core:plugins.*` 동작과 대상의 `<plugin>:plugins.manage`가 모두 필요합니다. 의존하는 소비자 플러그인이 있으면 해당 권한도 확인합니다. 설치된 관리 가능 플러그인은 로드되지 않은 상태에서도 선택할 수 있습니다. 설치 권한은 패키지와 종속 항목의 서버 코드 실행을 허용합니다. 전역 Hook 게시 권한은 보안 정책 변경을 허용하므로 이 범위를 고려하여 부여하세요.
+
+공유 자격 증명은 `core:credentials.read`, `core:credentials.write`, `core:credentials.use`로 나뉩니다. 읽기는 정보만 반환하며 비밀 값은 반환하지 않습니다. `X-Acquisition-Credentials`로 저장된 자격 증명을 참조하려면 업무 권한 외에 `credentials.use`가 필요합니다. 현재 작업의 자격 증명을 직접 전달할 때는 `X-Acquisition-Credential`을 사용합니다.
+
+갤러리, 소설 라이브러리, 컬렉션, 받은 편지함, 아카이브, 페이지 편집, 업데이트 및 유지 관리 권한은 공유 설치 전체에 적용되며 해당 키가 만든 데이터로 자동 제한되지 않습니다. 다운로드 작업과 수동 배치는 계속 키 식별자로 격리됩니다. 로컬 유지 관리, 복구 및 이전 메타데이터 마이그레이션에는 로컬 출발지도 필요합니다. 권한은 출처, 확인, 수정 번호 또는 임대 검증을 대체하지 않습니다.
+
+인증 설정, 키 관리, GUI token, CAPTCHA, 브라우저 수집 티켓, 익명 할당량 및 페이지 조립은 전용 흐름을 유지합니다. 프로그램은 다운로드와 진행 상황에 `/api/download/tasks`, 파일 가져오기에 `/api/tools/file-import`, 작품 관리에 `/api/library/artworks/{id}`, 페이지 작업에 `/api/page-editor`를 사용합니다. 받은 편지함 테스트는 `/api/admin/notifications/test` 또는 `/test-all`을 사용합니다. 이전 브라우저 호환 경로에는 별도 프로그램 권한을 부여하지 않습니다.
+
 | 권한 | 용도 | 메서드 및 경로 |
 | --- | --- | --- |
+| `ai:connection.test` | AI 연결 테스트(모델 호출) | POST `/api/admin/ai/test` |
+| `ai:models.read` | 사용 가능한 AI 모델 조회 | POST `/api/admin/ai/models` |
+| `ai:status.read` | AI 설정 상태 보기 | GET `/api/admin/ai/status` |
+| `core:application.read` | 앱 정보 및 UI 언어 리소스 읽기 | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
+| `core:archives.create` | 일러스트 내보내기 압축 파일 만들기 | POST `/api/archive/pack-artworks` |
+| `core:archives.download` | 이 설치의 내보내기 압축 파일 다운로드 | GET `/api/archive/download/*` |
+| `core:archives.read` | 이 설치의 내보내기 압축 파일 및 상태 보기 | GET `/api/archive/list`; GET `/api/archive/status/*` |
+| `core:assets.export` | 일러스트 원본 파일 다운로드 | GET `/api/downloaded/rawfile/*/*` |
+| `core:assets.read` | 일러스트 미리 보기 및 이미지 읽기 | GET `/api/downloaded/image/*/*`; GET `/api/downloaded/thumbnail-file/*/*`; GET `/api/downloaded/thumbnail/*/*` |
+| `core:authors.read` | 전체 라이브러리 작가 보기 | GET `/api/authors/paged`; GET `/api/authors` |
+| `core:authors.refresh` | Pixiv 작가 정보 새로 고침 | POST `/api/pixiv/user/*/meta/schedule` |
 | `core:backfill.cancel` | 기록 보충 취소 | POST `/api/tools/backfill/tasks/*/cancel` |
 | `core:backfill.execute` | 기록 보충 실행 | POST `/api/tools/backfill/tasks` |
 | `core:backfill.read` | 기록 보충 대상 및 상태 조회 | GET `/api/tools/backfill/defaults`; GET `/api/tools/backfill/tasks/*`; GET `/api/tools/backfill/tasks/current`; POST `/api/tools/backfill/candidates` |
@@ -156,14 +179,24 @@ GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반�
 | `core:classifier.delete` | 이미지 분류 디렉터리 삭제 | DELETE `/api/tools/classifier/folders` |
 | `core:classifier.read` | 이미지 분류 및 이미지 조회 | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
 | `core:classifier.write` | 분류된 이미지 이동 | POST `/api/tools/classifier/moves` |
+| `core:collections.delete` | 컬렉션 삭제 | DELETE `/api/collections/*` |
+| `core:collections.members.write` | 컬렉션 작품 추가 및 제거 | DELETE `/api/collections/*/artworks/*`; DELETE `/api/collections/*/novels/*`; POST `/api/collections/*/artworks/*`; POST `/api/collections/*/novels/*` |
+| `core:collections.read` | 전체 라이브러리 컬렉션 및 소속 읽기 | GET `/api/collections/*/icon`; GET `/api/collections/novels/of/*`; GET `/api/collections/of/*`; GET `/api/collections`; POST `/api/collections/memberships`; POST `/api/collections/novels/memberships` |
+| `core:collections.write` | 컬렉션, 아이콘 및 다운로드 폴더 만들기 및 수정 | DELETE `/api/collections/*/icon`; POST `/api/collections/*/icon`; POST `/api/collections`; PUT `/api/collections/*/download-root`; PUT `/api/collections/*/sort-order`; PUT `/api/collections/*` |
+| `core:control-center.directory` | 서버에서 제어 센터 폴더 열기 | POST `/api/admin/control-center/directory` |
+| `core:control-center.read` | 제어 센터 상태 보기 | GET `/api/admin/control-center` |
+| `core:credentials.read` | 수집 자격 증명 메타데이터 읽기(비밀 제외) | GET `/api/acquisition/credentials` |
+| `core:credentials.use` | 허용된 요청에서 공유 수집 자격 증명 사용 | HEADER `X-Acquisition-Credentials` |
+| `core:credentials.write` | 공유 수집 자격 증명 라이브러리 수정 | PUT `/api/acquisition/credentials` |
 | `core:database.check` | 데이터베이스 연결 확인 | POST `/api/settings/database/check` |
 | `core:database.migrate` | 설치 전체의 데이터베이스 마이그레이션 | POST `/api/settings/database/migrations` |
 | `core:database.preview` | 설치 전체의 데이터베이스 마이그레이션 미리 보기 | POST `/api/settings/database/migration-previews` |
 | `core:database.read` | 데이터베이스 설정 및 마이그레이션 상태 조회 | GET `/api/settings/database/migration`; GET `/api/settings/database/providers`; GET `/api/settings/database/status`; GET `/api/settings/database` |
 | `core:directories.read` | 작품 디렉터리 확인 | GET `/api/tools/directories` |
 | `core:directories.write` | 작품 디렉터리 기록 변경 | POST `/api/tools/directories` |
-| `core:downloads.cancel` | 이 키의 다운로드 작업 취소 | POST `/api/download/tasks/*/cancel` |
+| `core:downloads.cancel` | 이 키의 다운로드 작업 취소 | POST `/api/download/queue/*/cancel`; POST `/api/download/queue/clear`; POST `/api/download/tasks/*/cancel` |
 | `core:downloads.create` | 다운로드 작업 만들기 | POST `/api/download/tasks` |
+| `core:downloads.extensions.read` | 다운로드 확장 기능 보기 | GET `/api/download/extensions` |
 | `core:downloads.read` | 이 키의 다운로드 작업 조회 | GET `/api/download/tasks/*`; GET `/api/download/tasks/history`; GET `/api/download/tasks` |
 | `core:environment.export` | 전체 환경 아카이브 내보내기 | GET `/api/settings/environment/exports/*/archive`; POST `/api/settings/environment/exports` |
 | `core:environment.preview` | 전체 환경 복원 미리 보기 | POST `/api/settings/environment/preview` |
@@ -176,30 +209,130 @@ GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반�
 | `core:file-import.execute` | 파일 가져오기 실행 | POST `/api/tools/file-import/tasks` |
 | `core:file-import.preview` | 파일 가져오기 미리 보기 | POST `/api/tools/file-import/previews` |
 | `core:file-import.read` | 파일 가져오기 도구 및 작업 조회 | GET `/api/tools/file-import/tasks/current`; GET `/api/tools/file-import` |
+| `core:hooks.prepare` | 작업 훅 설정 변경 미리 보기 | POST `/api/web/operation-hooks/declarations/prepare`; POST `/api/web/operation-hooks/prepare` |
+| `core:hooks.publish` | 전역 작업 훅 보안 정책 게시 | POST `/api/web/operation-hooks/publish` |
+| `core:hooks.read` | 전역 작업 훅 및 권한 설정 읽기 | GET `/api/web/operation-hooks/catalog`; GET `/api/web/operation-hooks/configuration`; GET `/api/web/operation-hooks/declarations`; GET `/api/web/operation-hooks/definitions`; GET `/api/web/operation-hooks/targets` |
+| `core:legacy-migration.execute` | 이전 JSON 메타데이터 이전(로컬 전용) | GET `/api/migration/json-to-sqlite/stream`; POST `/api/migration/json-to-sqlite` |
+| `core:library.move` | 서버의 일러스트 파일 이동 | POST `/api/library/artworks/*/move` |
+| `core:library.read` | 전체 일러스트 등록 정보, 기록 및 경로 보기 | GET `/api/downloaded/by-move-folder`; GET `/api/downloaded/history/paged`; GET `/api/downloaded/history`; GET `/api/downloaded/statistics`; GET `/api/library/artworks/*`; POST `/api/downloaded/batch` |
+| `core:library.recover` | 일러스트 메타데이터 복구 | POST `/api/library/artworks/*/recover-metadata` |
+| `core:local-import.cancel` | 로컬 가져오기 검사 및 등록 취소 | POST `/api/local-import/previews/*/cancel`; POST `/api/local-import/tasks/*/cancel` |
+| `core:local-import.execute` | 로컬 일러스트를 데이터베이스에 등록 | POST `/api/local-import/tasks` |
+| `core:local-import.preview` | 서버의 로컬 일러스트 검사 | POST `/api/local-import/previews` |
+| `core:local-import.read` | 로컬 가져오기 프리셋 및 작업 읽기 | GET `/api/local-import/presets`; GET `/api/local-import/previews/*/items`; GET `/api/local-import/previews/*`; GET `/api/local-import/tasks/*/items`; GET `/api/local-import/tasks/*` |
 | `core:logs.read` | 실행 로그 조회 | GET `/api/tools/logs/*` |
+| `core:maintenance.read` | 유지 관리 상태 보기(로컬 전용) | GET `/api/admin/maintenance/status` |
+| `core:maintenance.run` | 유지 관리 실행(로컬 전용) | POST `/api/admin/maintenance/run` |
 | `core:media.cancel` | 미디어 처리 취소 | POST `/api/tools/media/tasks/cancel` |
 | `core:media.execute` | 미디어 처리 실행 | POST `/api/tools/media/tasks` |
 | `core:media.preview` | 미디어 처리 미리 보기 | POST `/api/tools/media/previews` |
 | `core:media.read` | 미디어 도구 및 작업 조회 | GET `/api/tools/media/tasks/current`; GET `/api/tools/media`; POST `/api/tools/media/capabilities` |
 | `core:paths.read` | 경로 접두사 조회 | GET `/api/tools/path-prefixes` |
 | `core:paths.write` | 경로 접두사 변경 | POST `/api/tools/path-prefixes/pin`; POST `/api/tools/path-prefixes` |
+| `core:pixiv.read` | Pixiv 온라인 데이터 조회 | GET `/api/pixiv/me/uid`; GET `/api/pixiv/thumbnail-proxy`; GET `/api/pixiv/user/*/meta` |
+| `core:plugins.enabled` | 허용된 플러그인의 활성화 상태 변경 | PUT `/api/plugins/*/enabled-preview`; PUT `/api/plugins/*/enabled` |
+| `core:plugins.install` | 로컬 플러그인 설치(서버 코드 실행 허용) | POST `/api/plugins/install` |
+| `core:plugins.load` | 허용된 플러그인 로드 | POST `/api/plugins/*/actions/load`; POST `/api/plugins/*/load` |
+| `core:plugins.quiesce` | 허용된 플러그인의 새 요청 중지 | POST `/api/plugins/*/actions/quiesce`; POST `/api/plugins/*/quiesce` |
+| `core:plugins.read` | 플러그인 상태, 의존성 및 설치 작업 보기 | GET `/api/plugins/*/impact`; GET `/api/plugins/acquisitions/*`; GET `/api/plugins/acquisitions`; GET `/api/plugins/status`; GET `/api/plugins/updates` |
+| `core:plugins.reload` | 허용된 플러그인 다시 로드 | POST `/api/plugins/*/actions/reload`; POST `/api/plugins/*/reload` |
+| `core:plugins.remove` | 허용된 플러그인 패키지 삭제 | POST `/api/plugins/*/actions/remove`; POST `/api/plugins/*/remove` |
+| `core:plugins.restart` | 허용된 플러그인 다시 시작 | POST `/api/plugins/*/actions/restart`; POST `/api/plugins/*/restart` |
+| `core:plugins.revocations.refresh` | 플러그인 저장소 폐기 정보 새로 고침 | POST `/api/plugins/revocations/*/refresh` |
+| `core:plugins.start` | 허용된 플러그인 시작 | POST `/api/plugins/*/actions/start`; POST `/api/plugins/*/start` |
+| `core:plugins.stop` | 허용된 플러그인 중지 | POST `/api/plugins/*/actions/stop`; POST `/api/plugins/*/stop` |
+| `core:plugins.trust` | 허용된 플러그인의 실행 신뢰 승인 및 취소 | DELETE `/api/plugins/*/trust`; PUT `/api/plugins/*/trust` |
+| `core:plugins.unload` | 허용된 플러그인 실행 인스턴스 언로드 | POST `/api/plugins/*/actions/unload`; POST `/api/plugins/*/unload` |
+| `core:profile.read` | 이 설치의 표시 이름 읽기 | GET `/api/onboarding/profile` |
+| `core:profile.write` | 이 설치의 표시 이름 변경 | POST `/api/onboarding/profile` |
+| `core:recovery.read` | 복구 모드 진단 보기 | GET `/api/plugins/recovery` |
 | `core:repositories.read` | 플러그인 저장소 설정 조회 | GET `/api/settings/repositories` |
 | `core:repositories.write` | 플러그인 저장소 설정 변경 | PUT `/api/settings/repositories` |
+| `core:schedule.create` | 영구 일정 만들기(키 폐기 후에도 유지) | POST `/api/schedule/tasks` |
+| `core:schedule.credentials` | 일정 자격 증명 및 계정 정책 관리 | DELETE `/api/schedule/tasks/*/credential`; POST `/api/schedule/credential-policies/actions`; POST `/api/schedule/tasks/*/credential` |
+| `core:schedule.delete` | 영구 일정 삭제 | DELETE `/api/schedule/tasks/*` |
+| `core:schedule.pause` | 영구 일정 일시 중지 | POST `/api/schedule/tasks/*/pause` |
+| `core:schedule.pending.write` | 일정 보류 항목 해결 및 지우기 | DELETE `/api/schedule/tasks/*/pending`; POST `/api/schedule/tasks/*/pending/resolve` |
+| `core:schedule.read` | 허용된 소스의 영구 일정 읽기 | GET `/api/schedule/tasks/*/pending`; GET `/api/schedule/tasks/*/queue`; GET `/api/schedule/tasks/*`; GET `/api/schedule/tasks` |
+| `core:schedule.run` | 영구 일정 활성화, 실행 및 재개 | POST `/api/schedule/tasks/*/enabled`; POST `/api/schedule/tasks/*/resume`; POST `/api/schedule/tasks/*/run` |
 | `core:schedule.sources.read` | 배치 및 예약 작업의 수집원 목록 조회 | GET `/api/schedule/sources` |
+| `core:schedule.write` | 영구 일정 및 프록시 수정 | POST `/api/schedule/tasks/*/proxy`; PUT `/api/schedule/tasks/*` |
+| `core:scripts.read` | 설치된 플러그인의 사용자 스크립트 읽기 | GET `/api/scripts/*.user.js`; GET `/api/scripts/*/install`; GET `/api/scripts/*`; GET `/api/scripts` |
+| `core:series.read` | 전체 라이브러리 일러스트 시리즈 보기 | GET `/api/series/*/cover`; GET `/api/series/*`; GET `/api/series/paged`; GET `/api/series` |
 | `core:settings.read` | 설정 및 프리셋 읽기 | GET `/api/settings/presets`; GET `/api/settings` |
 | `core:settings.write` | 설정 검증 및 저장 | POST `/api/settings/validate`; POST `/api/settings` |
 | `core:startup-cache.cancel` | 시작 캐시 학습 취소 | POST `/api/tools/startup-cache/tasks/*/cancel` |
 | `core:startup-cache.execute` | 시작 캐시 학습 | POST `/api/tools/startup-cache/tasks` |
 | `core:startup-cache.read` | 시작 캐시 상태 보기 | GET `/api/tools/startup-cache` |
-| `core:system.check` | 네트워크 연결 확인 | POST `/api/admin/system/connectivity` |
+| `core:system.check` | 네트워크 연결 확인 | GET `/api/onboarding/connectivity`; POST `/api/admin/system/connectivity` |
+| `core:system.exit` | 복구 모드 앱 종료(로컬 전용) | POST `/api/plugins/recovery/exit` |
 | `core:system.read` | 시스템 상태 조회 | GET `/api/admin/system` |
 | `core:system.reload` | 설정 다시 불러오기 | POST `/api/admin/system/reload` |
-| `core:system.restart` | 프로그램 다시 시작 | POST `/api/admin/system/restart` |
+| `core:system.restart` | 프로그램 다시 시작 | POST `/api/admin/system/restart`; POST `/api/plugins/backend-restart`; POST `/api/plugins/recovery/restart` |
 | `core:tools.history.read` | 도구 실행 기록 조회 | GET `/api/tools/history` |
+| `core:updates.download` | 앱 업데이트 다운로드 | POST `/api/admin/update/download` |
+| `core:updates.install` | 앱 업데이트 설치 | POST `/api/admin/update/install` |
+| `core:updates.read` | 앱 업데이트 및 다운로드 진행 상황 확인 | GET `/api/admin/update/check`; GET `/api/admin/update/download/progress`; GET `/api/admin/update/last` |
+| `download-workbench:page.write` | 다운로드 작업대 페이지 전환 | POST `/api/batch/page` |
+| `download-workbench:pixiv.read` | Pixiv 온라인 데이터 조회 | GET `/api/pixiv/artwork/*/meta`; GET `/api/pixiv/artwork/*/pages`; GET `/api/pixiv/artwork/*/ugoira`; GET `/api/pixiv/me/collection/*/works`; GET `/api/pixiv/me/collections`; GET `/api/pixiv/me/follow-latest`; GET `/api/pixiv/me/following`; GET `/api/pixiv/me/illust-bookmarks`; GET `/api/pixiv/search/range`; GET `/api/pixiv/search`; GET `/api/pixiv/series/*`; GET `/api/pixiv/user/*/artworks`; GET `/api/pixiv/user/*/illust-cards`; GET `/api/pixiv/user/*/request-artworks` |
+| `download-workbench:profiles.read` | 공유 다운로드 프리셋 읽기 | GET `/api/batch/profiles` |
+| `download-workbench:profiles.write` | 공유 다운로드 프리셋 수정 | PUT `/api/batch/profiles` |
+| `download-workbench:state.read` | 솔로 모드 작업대 상태 읽기 | GET `/api/batch/state` |
+| `download-workbench:state.write` | 솔로 모드 작업대 상태 수정 | POST `/api/batch/state` |
+| `gallery-tools:duplicates.read` | 중복 작품 및 검사 상태 보기 | GET `/api/duplicates/groups`; GET `/api/duplicates/scan/status` |
+| `gallery-tools:duplicates.scan` | 중복 작품 검사 | POST `/api/duplicates/rescan`; POST `/api/duplicates/scan` |
+| `gallery-tools:statistics.read` | 전체 라이브러리 통계 보기 | GET `/api/stats/dashboard` |
+| `gallery:collections.write` | 일러스트 컬렉션 소속 변경 | POST `/api/gallery/artworks/collect` |
+| `gallery:delete` | 라이브러리 일러스트 및 파일 삭제 | DELETE `/api/gallery/artwork/*`; POST `/api/gallery/artworks/delete` |
+| `gallery:export` | 라이브러리 일러스트 파일 내보내기 | POST `/api/gallery/artworks/export` |
+| `gallery:read` | 전체 라이브러리 일러스트 및 태그 보기 | GET `/api/gallery/artwork/*/by-author`; GET `/api/gallery/artwork/*/by-series`; GET `/api/gallery/artwork/*/related`; GET `/api/gallery/artwork/*/series`; GET `/api/gallery/artwork/*`; GET `/api/gallery/artworks`; GET `/api/gallery/tags/lookup`; GET `/api/gallery/tags` |
+| `mail:templates.send` | 모든 이메일 템플릿 보내기 | POST `/api/admin/mail/test-all` |
+| `mail:test.send` | 테스트 이메일 보내기 | POST `/api/admin/mail/test` |
+| `notification:inbox.delete` | 받은 메시지 삭제 | DELETE `/api/notifications/*` |
+| `notification:inbox.read` | 이 설치의 받은 메시지 읽기 | GET `/api/notifications/*/content`; GET `/api/notifications/*`; GET `/api/notifications` |
+| `notification:inbox.templates.test` | 모든 받은 메시지 템플릿 보내기 | POST `/api/admin/notifications/test-all` |
+| `notification:inbox.test` | 테스트 받은 메시지 보내기 | POST `/api/admin/notifications/test` |
+| `notification:inbox.update` | 받은 메시지를 읽음으로 표시하고 설문을 사용 불가로 설정 | POST `/api/notifications/*/read`; POST `/api/notifications/*/survey-unavailable`; POST `/api/notifications/read-all` |
+| `novel:collections.write` | 소설 컬렉션 소속 변경 | POST `/api/gallery/novels/collect` |
+| `novel:content.read` | 소설 본문 및 삽입 이미지 읽기 | GET `/api/gallery/novel/*/content`; GET `/api/gallery/novel/*/embed/*` |
+| `novel:downloads.read` | 이 키로 제출한 소설 다운로드 상태 읽기 | GET `/api/novel/status/*` |
+| `novel:glossary.delete` | 소설 용어집 삭제 | DELETE `/api/admin/glossary/*` |
+| `novel:glossary.read` | 소설 용어집 읽기 | GET `/api/admin/glossary/*`; GET `/api/admin/glossary/novel/*/default`; GET `/api/admin/glossary/series/*/default`; GET `/api/admin/glossary` |
+| `novel:glossary.write` | 소설 용어집 만들기 및 수정 | POST `/api/admin/glossary`; PUT `/api/admin/glossary/*/entries`; PUT `/api/admin/glossary/*` |
+| `novel:library.delete` | 소설 및 파일 삭제 | DELETE `/api/gallery/novel/*`; POST `/api/gallery/novels/delete` |
+| `novel:library.export` | 소설 파일 내보내기 | GET `/api/novel/*/export`; GET `/api/novel/series/*/merged`; POST `/api/gallery/novels/export/options`; POST `/api/gallery/novels/export` |
+| `novel:library.read` | 전체 라이브러리 소설 및 시리즈 보기 | GET `/api/gallery/novel/*/by-series`; GET `/api/gallery/novel/*/cover`; GET `/api/gallery/novel/*/series`; GET `/api/gallery/novel/*`; GET `/api/gallery/novel/series/*/cover`; GET `/api/gallery/novel/series/*`; GET `/api/gallery/novel/translated-titles`; GET `/api/gallery/novels/authors`; GET `/api/gallery/novels/series`; GET `/api/gallery/novels/tags`; GET `/api/gallery/novels`; GET `/api/novel/series/*/novel-ids`; POST `/api/gallery/novels/downloaded-batch` |
+| `novel:narration.read` | 낭독 배역 및 음성 읽기 | GET `/api/narration/availability`; GET `/api/narration/cast/voice/reference`; GET `/api/narration/cast`; GET `/api/narration/casts/*/voices`; GET `/api/narration/casts/novel/*/default`; GET `/api/narration/casts`; GET `/api/narration/narrator-presets` |
+| `novel:narration.script` | 낭독 대본 생성 | POST `/api/narration/script` |
+| `novel:narration.synthesize` | 낭독 및 참조 오디오 합성 | POST `/api/narration/cast/voice/reference/generate`; POST `/api/narration/tts/line`; POST `/api/narration/tts/preview` |
+| `novel:narration.write` | 낭독 배역 및 참조 오디오 수정 | DELETE `/api/narration/cast/voice/reference`; POST `/api/narration/cast/voice/reference`; POST `/api/narration/casts`; PUT `/api/narration/cast/voice` |
+| `novel:pixiv.read` | Pixiv 온라인 데이터 조회 | GET `/api/pixiv/me/novel-bookmarks`; GET `/api/pixiv/novel-search/range`; GET `/api/pixiv/novel-search`; GET `/api/pixiv/novel/*/bookmark-count`; GET `/api/pixiv/novel/*/meta`; GET `/api/pixiv/novel/series/*`; GET `/api/pixiv/user/*/novel-cards`; GET `/api/pixiv/user/*/novels` |
+| `novel:series.merge` | 소설 시리즈 합본 생성 | POST `/api/novel/series/*/merge` |
+| `novel:translation.execute` | 소설 및 시리즈 제목 번역 | POST `/api/novel/*/translate`; POST `/api/novel/series/*/translate-title` |
+| `novel:translation.probe` | 소설 번역 언어 감지 | POST `/api/novel/translate-lang-probe` |
+| `novel:translation.read` | 소설 자동 번역 상태 읽기 | GET `/api/novel/translate-status/*` |
+| `page-editor:components.preview` | 컴포넌트 미리 보기 | POST `/api/page-editor/components/preview`; POST `/api/page-editor/components/previews/*/close` |
+| `page-editor:components.publish` | 컴포넌트 게시 및 비활성화 | POST `/api/page-editor/components/*/availability`; POST `/api/page-editor/components/*/publish` |
+| `page-editor:components.read` | 컴포넌트 라이브러리 읽기 | GET `/api/page-editor/components/*/versions/*`; GET `/api/page-editor/components/*`; GET `/api/page-editor/components` |
+| `page-editor:components.write` | 컴포넌트 초안 저장 | POST `/api/page-editor/components/save` |
+| `page-editor:pages.preview` | 페이지 미리 보기 및 검증 | POST `/api/page-editor/documents/*/prepare`; POST `/api/page-editor/documents/*/preview`; POST `/api/page-editor/migrate`; POST `/api/page-editor/styles/parse` |
+| `page-editor:pages.publish` | 페이지 게시 및 복원 | POST `/api/page-editor/documents/*/publish`; POST `/api/page-editor/documents/*/restore` |
+| `page-editor:pages.read` | 페이지 목록 및 문서 읽기 | GET `/api/page-editor/catalog`; GET `/api/page-editor/documents/*/default`; GET `/api/page-editor/documents/*` |
+| `page-editor:pages.write` | 페이지 초안 저장 | POST `/api/page-editor/documents/*/save` |
+| `plugin-market:install` | 마켓 플러그인 및 의존성 설치(서버 코드 실행 허용) | POST `/api/plugin-market/*/*/*/install-preview`; POST `/api/plugin-market/*/*/*/install`; POST `/api/plugin-market/operations/*/execute` |
+| `plugin-market:operations.discard` | 대기 중인 플러그인 가져오기 작업 폐기 | POST `/api/plugin-market/operations/*/discard` |
+| `plugin-market:operations.prepare` | 플러그인 가져오기 작업 준비 | POST `/api/plugin-market/operations` |
+| `plugin-market:read` | 플러그인 마켓 및 설치 미리 보기 | GET `/api/plugin-market/*/*/*/install-preview`; GET `/api/plugin-market/catalog`; GET `/api/plugin-market/content/*/*/*/*`; GET `/api/plugin-market/content/*/*/image`; GET `/api/plugin-market/plugins/*/*/*/facts`; GET `/api/plugin-market/plugins/*/*`; GET `/api/plugin-market/repositories` |
+| `plugin-market:repositories.preview` | 가져올 플러그인 저장소 확인 | POST `/api/plugin-market/repositories/import/preview` |
+| `plugin-market:repositories.trust` | 플러그인 저장소 신뢰 및 가져오기 | POST `/api/plugin-market/repositories/import/trust` |
+| `push:templates.send` | 모든 푸시 알림 템플릿 보내기 | POST `/api/admin/push/test-all` |
+| `push:test.send` | 테스트 푸시 알림 보내기 | POST `/api/admin/push/test` |
 | `translation:cancel` | 번역 작업 일시 중지 또는 취소 | POST `/api/translation/jobs/*/cancel`; POST `/api/translation/jobs/*/pause` |
 | `translation:delete` | 번역 작업 기록 삭제 | DELETE `/api/translation/jobs/*` |
 | `translation:execute` | 소설 및 시리즈 번역 시작 또는 재개 | POST `/api/translation/jobs/*/resume`; POST `/api/translation/jobs`; POST `/api/translation/novel`; POST `/api/translation/series` |
 | `translation:read` | 번역 상태, 언어 및 작업 보기 | GET `/api/translation/jobs/*`; GET `/api/translation/jobs`; GET `/api/translation/languages`; GET `/api/translation/status`; POST `/api/translation/language` |
+| `tts:synthesize` | 온라인 읽기 오디오 합성 | POST `/api/tts/edge/synthesize` |
+| `tts:voices.read` | 온라인 읽기 음성 보기 | GET `/api/tts/edge/voices` |
 | `<plugin>:settings.read` | 설정 및 프리셋 읽기 | `core:settings.read` |
 | `<plugin>:settings.write` | 설정 검증 및 저장 | `core:settings.write` |
 | `<plugin>:media.read` | 미디어 도구 및 작업 조회 | `core:media.read` |
@@ -213,3 +346,5 @@ GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반�
 | `<plugin>:file-import.acknowledge` | 파일 가져오기 결과 확인 | `core:file-import.acknowledge` |
 | `<plugin>:downloads.create` | 다운로드 작업 만들기 | `core:downloads.create` |
 | `<plugin>:batches.execute` | 배치에서 이 플러그인의 수집원 및 작품 실행기 사용 허용 | `core:batches.create`, `core:batches.resume` |
+| `<plugin>:schedule.manage` | 이 플러그인의 영구 일정 및 자격 증명 정책 관리 | `core:schedule.*` |
+| `<plugin>:plugins.manage` | 이 플러그인의 수명 주기, 활성화 상태 및 신뢰 관리 허용 | `core:plugins.*` |

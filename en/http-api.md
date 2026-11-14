@@ -139,8 +139,31 @@ An installation supports at most 128 keys. Each key allows an 80-character name,
 
 Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/startup-cache/tasks` and POST `/api/tools/startup-cache/tasks/{id}/cancel`. Start with `{}`. Acceptance does not establish successful training; keep reading status.
 
-| Permission | Purpose | Methods and paths |
+### Permission scope and dedicated workflows
+
+Scheduled tasks require the exact action permission under `core:schedule.*` and the source plugin's `schedule.manage`. Account-policy actions require the policy owner's same permission. Lists are filtered by authorized source. The `*` here groups permissions in documentation; it is not a grant you can save. Schedules are persistent installation settings, and authorization delegates the source's complete scheduling workflow. Revoking the creating key does not delete or disable schedules. Disable or delete a schedule to stop future runs.
+
+Plugin lifecycle, enabled-state and trust changes require both the corresponding `core:plugins.*` action and `<plugin>:plugins.manage` for the target. Dependency consumers also require authorization. Installed, manageable plugins remain selectable while unloaded. Installation grants allow packages and their dependencies to execute server-side code. Global Hook publication grants allow security-policy changes; grant them with that scope in mind.
+
+Shared credentials have separate `core:credentials.read`, `core:credentials.write` and `core:credentials.use` permissions. Reads return information, never secrets. Referencing stored credentials with `X-Acquisition-Credentials` requires `credentials.use` in addition to the business permission. Supply a credential for the current operation directly through `X-Acquisition-Credential`.
+
+Gallery, novel-library, collection, inbox, archive, page-editor, update and maintenance permissions apply to the shared installation, not just data created by the key. Download tasks and manual batches remain isolated by key identity. Local maintenance, recovery and legacy metadata migration still require a local source. Permissions do not replace origin checks, confirmations, revisions or leases.
+
+Identity setup, key management, GUI tokens, CAPTCHA, browser collection tickets, anonymous quotas and page assembly retain their dedicated workflows. Programs use `/api/download/tasks` for downloads and progress, `/api/tools/file-import` for file imports, `/api/library/artworks/{id}` for artwork management and `/api/page-editor` for page operations. Inbox tests use `/api/admin/notifications/test` or `/test-all`. Legacy browser compatibility routes do not receive separate program grants.
+
+| Permission | Purpose | Method and path |
 | --- | --- | --- |
+| `ai:connection.test` | Test AI connections (invokes the model) | POST `/api/admin/ai/test` |
+| `ai:models.read` | Query available AI models | POST `/api/admin/ai/models` |
+| `ai:status.read` | View AI configuration status | GET `/api/admin/ai/status` |
+| `core:application.read` | Read application information and UI language resources | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
+| `core:archives.create` | Create artwork export archives | POST `/api/archive/pack-artworks` |
+| `core:archives.download` | Download this installation’s export archives | GET `/api/archive/download/*` |
+| `core:archives.read` | View this installation’s export archives and status | GET `/api/archive/list`; GET `/api/archive/status/*` |
+| `core:assets.export` | Download original artwork files | GET `/api/downloaded/rawfile/*/*` |
+| `core:assets.read` | Read artwork previews and images | GET `/api/downloaded/image/*/*`; GET `/api/downloaded/thumbnail-file/*/*`; GET `/api/downloaded/thumbnail/*/*` |
+| `core:authors.read` | View all library authors | GET `/api/authors/paged`; GET `/api/authors` |
+| `core:authors.refresh` | Refresh Pixiv author metadata | POST `/api/pixiv/user/*/meta/schedule` |
 | `core:backfill.cancel` | Cancel record backfill | POST `/api/tools/backfill/tasks/*/cancel` |
 | `core:backfill.execute` | Run record backfill | POST `/api/tools/backfill/tasks` |
 | `core:backfill.read` | View record backfill candidates and status | GET `/api/tools/backfill/defaults`; GET `/api/tools/backfill/tasks/*`; GET `/api/tools/backfill/tasks/current`; POST `/api/tools/backfill/candidates` |
@@ -156,14 +179,24 @@ Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/st
 | `core:classifier.delete` | Delete image classification folders | DELETE `/api/tools/classifier/folders` |
 | `core:classifier.read` | View image classification and images | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
 | `core:classifier.write` | Move classified images | POST `/api/tools/classifier/moves` |
+| `core:collections.delete` | Delete collections | DELETE `/api/collections/*` |
+| `core:collections.members.write` | Add and remove works in collections | DELETE `/api/collections/*/artworks/*`; DELETE `/api/collections/*/novels/*`; POST `/api/collections/*/artworks/*`; POST `/api/collections/*/novels/*` |
+| `core:collections.read` | Read all library collections and memberships | GET `/api/collections/*/icon`; GET `/api/collections/novels/of/*`; GET `/api/collections/of/*`; GET `/api/collections`; POST `/api/collections/memberships`; POST `/api/collections/novels/memberships` |
+| `core:collections.write` | Create and edit collections, icons and download directories | DELETE `/api/collections/*/icon`; POST `/api/collections/*/icon`; POST `/api/collections`; PUT `/api/collections/*/download-root`; PUT `/api/collections/*/sort-order`; PUT `/api/collections/*` |
+| `core:control-center.directory` | Open control center directories on the server | POST `/api/admin/control-center/directory` |
+| `core:control-center.read` | View control center status | GET `/api/admin/control-center` |
+| `core:credentials.read` | Read acquisition credential metadata (no secrets) | GET `/api/acquisition/credentials` |
+| `core:credentials.use` | Use shared acquisition credentials in authorized requests | HEADER `X-Acquisition-Credentials` |
+| `core:credentials.write` | Edit the shared acquisition credential library | PUT `/api/acquisition/credentials` |
 | `core:database.check` | Check database connections | POST `/api/settings/database/check` |
 | `core:database.migrate` | Migrate databases for the installation | POST `/api/settings/database/migrations` |
 | `core:database.preview` | Preview database migration for the installation | POST `/api/settings/database/migration-previews` |
 | `core:database.read` | Read database settings and migration status | GET `/api/settings/database/migration`; GET `/api/settings/database/providers`; GET `/api/settings/database/status`; GET `/api/settings/database` |
 | `core:directories.read` | Check artwork directories | GET `/api/tools/directories` |
 | `core:directories.write` | Change artwork directory records | POST `/api/tools/directories` |
-| `core:downloads.cancel` | Cancel this key's download tasks | POST `/api/download/tasks/*/cancel` |
+| `core:downloads.cancel` | Cancel this key's download tasks | POST `/api/download/queue/*/cancel`; POST `/api/download/queue/clear`; POST `/api/download/tasks/*/cancel` |
 | `core:downloads.create` | Create download tasks | POST `/api/download/tasks` |
+| `core:downloads.extensions.read` | View download extension capabilities | GET `/api/download/extensions` |
 | `core:downloads.read` | Read this key's download tasks | GET `/api/download/tasks/*`; GET `/api/download/tasks/history`; GET `/api/download/tasks` |
 | `core:environment.export` | Export a full environment archive | GET `/api/settings/environment/exports/*/archive`; POST `/api/settings/environment/exports` |
 | `core:environment.preview` | Preview a full environment restore | POST `/api/settings/environment/preview` |
@@ -176,30 +209,130 @@ Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/st
 | `core:file-import.execute` | Run file imports | POST `/api/tools/file-import/tasks` |
 | `core:file-import.preview` | Preview file imports | POST `/api/tools/file-import/previews` |
 | `core:file-import.read` | Read file import tools and tasks | GET `/api/tools/file-import/tasks/current`; GET `/api/tools/file-import` |
+| `core:hooks.prepare` | Preview operation hook configuration changes | POST `/api/web/operation-hooks/declarations/prepare`; POST `/api/web/operation-hooks/prepare` |
+| `core:hooks.publish` | Publish global operation hook security policies | POST `/api/web/operation-hooks/publish` |
+| `core:hooks.read` | Read global operation hooks and authorization configuration | GET `/api/web/operation-hooks/catalog`; GET `/api/web/operation-hooks/configuration`; GET `/api/web/operation-hooks/declarations`; GET `/api/web/operation-hooks/definitions`; GET `/api/web/operation-hooks/targets` |
+| `core:legacy-migration.execute` | Migrate legacy JSON metadata (local only) | GET `/api/migration/json-to-sqlite/stream`; POST `/api/migration/json-to-sqlite` |
+| `core:library.move` | Move artwork files on the server | POST `/api/library/artworks/*/move` |
+| `core:library.read` | View all artwork records, history and paths | GET `/api/downloaded/by-move-folder`; GET `/api/downloaded/history/paged`; GET `/api/downloaded/history`; GET `/api/downloaded/statistics`; GET `/api/library/artworks/*`; POST `/api/downloaded/batch` |
+| `core:library.recover` | Recover artwork metadata | POST `/api/library/artworks/*/recover-metadata` |
+| `core:local-import.cancel` | Cancel local import scans and registration | POST `/api/local-import/previews/*/cancel`; POST `/api/local-import/tasks/*/cancel` |
+| `core:local-import.execute` | Register local artworks in the database | POST `/api/local-import/tasks` |
+| `core:local-import.preview` | Scan local artworks on the server | POST `/api/local-import/previews` |
+| `core:local-import.read` | Read local import presets and tasks | GET `/api/local-import/presets`; GET `/api/local-import/previews/*/items`; GET `/api/local-import/previews/*`; GET `/api/local-import/tasks/*/items`; GET `/api/local-import/tasks/*` |
 | `core:logs.read` | Read application logs | GET `/api/tools/logs/*` |
+| `core:maintenance.read` | View maintenance status (local only) | GET `/api/admin/maintenance/status` |
+| `core:maintenance.run` | Run maintenance (local only) | POST `/api/admin/maintenance/run` |
 | `core:media.cancel` | Cancel media processing | POST `/api/tools/media/tasks/cancel` |
 | `core:media.execute` | Run media processing | POST `/api/tools/media/tasks` |
 | `core:media.preview` | Preview media processing | POST `/api/tools/media/previews` |
 | `core:media.read` | Read media tools and tasks | GET `/api/tools/media/tasks/current`; GET `/api/tools/media`; POST `/api/tools/media/capabilities` |
 | `core:paths.read` | View path prefixes | GET `/api/tools/path-prefixes` |
 | `core:paths.write` | Change path prefixes | POST `/api/tools/path-prefixes/pin`; POST `/api/tools/path-prefixes` |
+| `core:pixiv.read` | Query online Pixiv data | GET `/api/pixiv/me/uid`; GET `/api/pixiv/thumbnail-proxy`; GET `/api/pixiv/user/*/meta` |
+| `core:plugins.enabled` | Change authorized plugins’ enabled state | PUT `/api/plugins/*/enabled-preview`; PUT `/api/plugins/*/enabled` |
+| `core:plugins.install` | Install local plugin packages (allows server code execution) | POST `/api/plugins/install` |
+| `core:plugins.load` | Load authorized plugins | POST `/api/plugins/*/actions/load`; POST `/api/plugins/*/load` |
+| `core:plugins.quiesce` | Quiesce authorized plugins | POST `/api/plugins/*/actions/quiesce`; POST `/api/plugins/*/quiesce` |
+| `core:plugins.read` | View plugin status, dependencies and installation operations | GET `/api/plugins/*/impact`; GET `/api/plugins/acquisitions/*`; GET `/api/plugins/acquisitions`; GET `/api/plugins/status`; GET `/api/plugins/updates` |
+| `core:plugins.reload` | Reload authorized plugins | POST `/api/plugins/*/actions/reload`; POST `/api/plugins/*/reload` |
+| `core:plugins.remove` | Remove authorized plugin packages | POST `/api/plugins/*/actions/remove`; POST `/api/plugins/*/remove` |
+| `core:plugins.restart` | Restart authorized plugins | POST `/api/plugins/*/actions/restart`; POST `/api/plugins/*/restart` |
+| `core:plugins.revocations.refresh` | Refresh plugin repository revocations | POST `/api/plugins/revocations/*/refresh` |
+| `core:plugins.start` | Start authorized plugins | POST `/api/plugins/*/actions/start`; POST `/api/plugins/*/start` |
+| `core:plugins.stop` | Stop authorized plugins | POST `/api/plugins/*/actions/stop`; POST `/api/plugins/*/stop` |
+| `core:plugins.trust` | Approve and revoke execution trust for authorized plugins | DELETE `/api/plugins/*/trust`; PUT `/api/plugins/*/trust` |
+| `core:plugins.unload` | Unload authorized plugin instances | POST `/api/plugins/*/actions/unload`; POST `/api/plugins/*/unload` |
+| `core:profile.read` | Read this installation’s display name | GET `/api/onboarding/profile` |
+| `core:profile.write` | Change this installation’s display name | POST `/api/onboarding/profile` |
+| `core:recovery.read` | View recovery-mode diagnostics | GET `/api/plugins/recovery` |
 | `core:repositories.read` | Read plugin repository settings | GET `/api/settings/repositories` |
 | `core:repositories.write` | Change plugin repository settings | PUT `/api/settings/repositories` |
+| `core:schedule.create` | Create persistent schedules (key revocation does not delete them) | POST `/api/schedule/tasks` |
+| `core:schedule.credentials` | Manage schedule credentials and account policies | DELETE `/api/schedule/tasks/*/credential`; POST `/api/schedule/credential-policies/actions`; POST `/api/schedule/tasks/*/credential` |
+| `core:schedule.delete` | Delete persistent schedules | DELETE `/api/schedule/tasks/*` |
+| `core:schedule.pause` | Pause persistent schedules | POST `/api/schedule/tasks/*/pause` |
+| `core:schedule.pending.write` | Resolve and clear pending schedule items | DELETE `/api/schedule/tasks/*/pending`; POST `/api/schedule/tasks/*/pending/resolve` |
+| `core:schedule.read` | Read persistent schedules for authorized sources | GET `/api/schedule/tasks/*/pending`; GET `/api/schedule/tasks/*/queue`; GET `/api/schedule/tasks/*`; GET `/api/schedule/tasks` |
+| `core:schedule.run` | Enable, run and resume persistent schedules | POST `/api/schedule/tasks/*/enabled`; POST `/api/schedule/tasks/*/resume`; POST `/api/schedule/tasks/*/run` |
 | `core:schedule.sources.read` | Read batch and schedule source catalogs | GET `/api/schedule/sources` |
+| `core:schedule.write` | Edit persistent schedules and proxies | POST `/api/schedule/tasks/*/proxy`; PUT `/api/schedule/tasks/*` |
+| `core:scripts.read` | Read userscripts from installed plugins | GET `/api/scripts/*.user.js`; GET `/api/scripts/*/install`; GET `/api/scripts/*`; GET `/api/scripts` |
+| `core:series.read` | View all library artwork series | GET `/api/series/*/cover`; GET `/api/series/*`; GET `/api/series/paged`; GET `/api/series` |
 | `core:settings.read` | Read settings and presets | GET `/api/settings/presets`; GET `/api/settings` |
 | `core:settings.write` | Validate and save settings | POST `/api/settings/validate`; POST `/api/settings` |
 | `core:startup-cache.cancel` | Cancel startup cache training | POST `/api/tools/startup-cache/tasks/*/cancel` |
 | `core:startup-cache.execute` | Train the startup cache | POST `/api/tools/startup-cache/tasks` |
 | `core:startup-cache.read` | View startup cache status | GET `/api/tools/startup-cache` |
-| `core:system.check` | Check connectivity | POST `/api/admin/system/connectivity` |
+| `core:system.check` | Check connectivity | GET `/api/onboarding/connectivity`; POST `/api/admin/system/connectivity` |
+| `core:system.exit` | Exit the application in recovery mode (local only) | POST `/api/plugins/recovery/exit` |
 | `core:system.read` | View system status | GET `/api/admin/system` |
 | `core:system.reload` | Reload configuration | POST `/api/admin/system/reload` |
-| `core:system.restart` | Restart the application | POST `/api/admin/system/restart` |
+| `core:system.restart` | Restart the application | POST `/api/admin/system/restart`; POST `/api/plugins/backend-restart`; POST `/api/plugins/recovery/restart` |
 | `core:tools.history.read` | View tool history | GET `/api/tools/history` |
+| `core:updates.download` | Download application updates | POST `/api/admin/update/download` |
+| `core:updates.install` | Install application updates | POST `/api/admin/update/install` |
+| `core:updates.read` | Check application updates and download progress | GET `/api/admin/update/check`; GET `/api/admin/update/download/progress`; GET `/api/admin/update/last` |
+| `download-workbench:page.write` | Switch the download workbench page | POST `/api/batch/page` |
+| `download-workbench:pixiv.read` | Query online Pixiv data | GET `/api/pixiv/artwork/*/meta`; GET `/api/pixiv/artwork/*/pages`; GET `/api/pixiv/artwork/*/ugoira`; GET `/api/pixiv/me/collection/*/works`; GET `/api/pixiv/me/collections`; GET `/api/pixiv/me/follow-latest`; GET `/api/pixiv/me/following`; GET `/api/pixiv/me/illust-bookmarks`; GET `/api/pixiv/search/range`; GET `/api/pixiv/search`; GET `/api/pixiv/series/*`; GET `/api/pixiv/user/*/artworks`; GET `/api/pixiv/user/*/illust-cards`; GET `/api/pixiv/user/*/request-artworks` |
+| `download-workbench:profiles.read` | Read shared download profiles | GET `/api/batch/profiles` |
+| `download-workbench:profiles.write` | Edit shared download profiles | PUT `/api/batch/profiles` |
+| `download-workbench:state.read` | Read solo-mode workbench state | GET `/api/batch/state` |
+| `download-workbench:state.write` | Edit solo-mode workbench state | POST `/api/batch/state` |
+| `gallery-tools:duplicates.read` | View duplicate works and scan status | GET `/api/duplicates/groups`; GET `/api/duplicates/scan/status` |
+| `gallery-tools:duplicates.scan` | Scan for duplicate works | POST `/api/duplicates/rescan`; POST `/api/duplicates/scan` |
+| `gallery-tools:statistics.read` | View statistics for the entire library | GET `/api/stats/dashboard` |
+| `gallery:collections.write` | Change artwork collection membership | POST `/api/gallery/artworks/collect` |
+| `gallery:delete` | Delete artworks and files from the library | DELETE `/api/gallery/artwork/*`; POST `/api/gallery/artworks/delete` |
+| `gallery:export` | Export artwork files from the library | POST `/api/gallery/artworks/export` |
+| `gallery:read` | View all library artworks and tags | GET `/api/gallery/artwork/*/by-author`; GET `/api/gallery/artwork/*/by-series`; GET `/api/gallery/artwork/*/related`; GET `/api/gallery/artwork/*/series`; GET `/api/gallery/artwork/*`; GET `/api/gallery/artworks`; GET `/api/gallery/tags/lookup`; GET `/api/gallery/tags` |
+| `mail:templates.send` | Send all email templates | POST `/api/admin/mail/test-all` |
+| `mail:test.send` | Send a test email | POST `/api/admin/mail/test` |
+| `notification:inbox.delete` | Delete inbox messages | DELETE `/api/notifications/*` |
+| `notification:inbox.read` | Read this installation’s inbox | GET `/api/notifications/*/content`; GET `/api/notifications/*`; GET `/api/notifications` |
+| `notification:inbox.templates.test` | Send all inbox message templates | POST `/api/admin/notifications/test-all` |
+| `notification:inbox.test` | Send a test inbox message | POST `/api/admin/notifications/test` |
+| `notification:inbox.update` | Mark inbox messages read or surveys unavailable | POST `/api/notifications/*/read`; POST `/api/notifications/*/survey-unavailable`; POST `/api/notifications/read-all` |
+| `novel:collections.write` | Change novel collection membership | POST `/api/gallery/novels/collect` |
+| `novel:content.read` | Read novel text and embedded images | GET `/api/gallery/novel/*/content`; GET `/api/gallery/novel/*/embed/*` |
+| `novel:downloads.read` | Read novel download status for this key | GET `/api/novel/status/*` |
+| `novel:glossary.delete` | Delete novel glossaries | DELETE `/api/admin/glossary/*` |
+| `novel:glossary.read` | Read novel glossaries | GET `/api/admin/glossary/*`; GET `/api/admin/glossary/novel/*/default`; GET `/api/admin/glossary/series/*/default`; GET `/api/admin/glossary` |
+| `novel:glossary.write` | Create and edit novel glossaries | POST `/api/admin/glossary`; PUT `/api/admin/glossary/*/entries`; PUT `/api/admin/glossary/*` |
+| `novel:library.delete` | Delete novels and files | DELETE `/api/gallery/novel/*`; POST `/api/gallery/novels/delete` |
+| `novel:library.export` | Export novel files | GET `/api/novel/*/export`; GET `/api/novel/series/*/merged`; POST `/api/gallery/novels/export/options`; POST `/api/gallery/novels/export` |
+| `novel:library.read` | View all library novels and series | GET `/api/gallery/novel/*/by-series`; GET `/api/gallery/novel/*/cover`; GET `/api/gallery/novel/*/series`; GET `/api/gallery/novel/*`; GET `/api/gallery/novel/series/*/cover`; GET `/api/gallery/novel/series/*`; GET `/api/gallery/novel/translated-titles`; GET `/api/gallery/novels/authors`; GET `/api/gallery/novels/series`; GET `/api/gallery/novels/tags`; GET `/api/gallery/novels`; GET `/api/novel/series/*/novel-ids`; POST `/api/gallery/novels/downloaded-batch` |
+| `novel:narration.read` | Read narration casts and voices | GET `/api/narration/availability`; GET `/api/narration/cast/voice/reference`; GET `/api/narration/cast`; GET `/api/narration/casts/*/voices`; GET `/api/narration/casts/novel/*/default`; GET `/api/narration/casts`; GET `/api/narration/narrator-presets` |
+| `novel:narration.script` | Generate narration scripts | POST `/api/narration/script` |
+| `novel:narration.synthesize` | Synthesize narration and reference audio | POST `/api/narration/cast/voice/reference/generate`; POST `/api/narration/tts/line`; POST `/api/narration/tts/preview` |
+| `novel:narration.write` | Edit narration casts and reference audio | DELETE `/api/narration/cast/voice/reference`; POST `/api/narration/cast/voice/reference`; POST `/api/narration/casts`; PUT `/api/narration/cast/voice` |
+| `novel:pixiv.read` | Query online Pixiv data | GET `/api/pixiv/me/novel-bookmarks`; GET `/api/pixiv/novel-search/range`; GET `/api/pixiv/novel-search`; GET `/api/pixiv/novel/*/bookmark-count`; GET `/api/pixiv/novel/*/meta`; GET `/api/pixiv/novel/series/*`; GET `/api/pixiv/user/*/novel-cards`; GET `/api/pixiv/user/*/novels` |
+| `novel:series.merge` | Generate novel series compilations | POST `/api/novel/series/*/merge` |
+| `novel:translation.execute` | Translate novels and series titles | POST `/api/novel/*/translate`; POST `/api/novel/series/*/translate-title` |
+| `novel:translation.probe` | Detect novel translation languages | POST `/api/novel/translate-lang-probe` |
+| `novel:translation.read` | Read novel auto-translation status | GET `/api/novel/translate-status/*` |
+| `page-editor:components.preview` | Preview components | POST `/api/page-editor/components/preview`; POST `/api/page-editor/components/previews/*/close` |
+| `page-editor:components.publish` | Publish and disable components | POST `/api/page-editor/components/*/availability`; POST `/api/page-editor/components/*/publish` |
+| `page-editor:components.read` | Read the component library | GET `/api/page-editor/components/*/versions/*`; GET `/api/page-editor/components/*`; GET `/api/page-editor/components` |
+| `page-editor:components.write` | Save component drafts | POST `/api/page-editor/components/save` |
+| `page-editor:pages.preview` | Preview and validate pages | POST `/api/page-editor/documents/*/prepare`; POST `/api/page-editor/documents/*/preview`; POST `/api/page-editor/migrate`; POST `/api/page-editor/styles/parse` |
+| `page-editor:pages.publish` | Publish and restore pages | POST `/api/page-editor/documents/*/publish`; POST `/api/page-editor/documents/*/restore` |
+| `page-editor:pages.read` | Read page catalogs and documents | GET `/api/page-editor/catalog`; GET `/api/page-editor/documents/*/default`; GET `/api/page-editor/documents/*` |
+| `page-editor:pages.write` | Save page drafts | POST `/api/page-editor/documents/*/save` |
+| `plugin-market:install` | Install market plugins and dependencies (allows server code execution) | POST `/api/plugin-market/*/*/*/install-preview`; POST `/api/plugin-market/*/*/*/install`; POST `/api/plugin-market/operations/*/execute` |
+| `plugin-market:operations.discard` | Discard pending plugin acquisition operations | POST `/api/plugin-market/operations/*/discard` |
+| `plugin-market:operations.prepare` | Prepare plugin acquisition operations | POST `/api/plugin-market/operations` |
+| `plugin-market:read` | Browse the plugin market and installation previews | GET `/api/plugin-market/*/*/*/install-preview`; GET `/api/plugin-market/catalog`; GET `/api/plugin-market/content/*/*/*/*`; GET `/api/plugin-market/content/*/*/image`; GET `/api/plugin-market/plugins/*/*/*/facts`; GET `/api/plugin-market/plugins/*/*`; GET `/api/plugin-market/repositories` |
+| `plugin-market:repositories.preview` | Inspect plugin repositories before import | POST `/api/plugin-market/repositories/import/preview` |
+| `plugin-market:repositories.trust` | Trust and import plugin repositories | POST `/api/plugin-market/repositories/import/trust` |
+| `push:templates.send` | Send all push notification templates | POST `/api/admin/push/test-all` |
+| `push:test.send` | Send a test push notification | POST `/api/admin/push/test` |
 | `translation:cancel` | Pause or cancel translation jobs | POST `/api/translation/jobs/*/cancel`; POST `/api/translation/jobs/*/pause` |
 | `translation:delete` | Delete translation job records | DELETE `/api/translation/jobs/*` |
 | `translation:execute` | Start or resume novel and series translation | POST `/api/translation/jobs/*/resume`; POST `/api/translation/jobs`; POST `/api/translation/novel`; POST `/api/translation/series` |
 | `translation:read` | View translation status, languages and jobs | GET `/api/translation/jobs/*`; GET `/api/translation/jobs`; GET `/api/translation/languages`; GET `/api/translation/status`; POST `/api/translation/language` |
+| `tts:synthesize` | Synthesize reading audio online | POST `/api/tts/edge/synthesize` |
+| `tts:voices.read` | View online reading voices | GET `/api/tts/edge/voices` |
 | `<plugin>:settings.read` | Read settings and presets | `core:settings.read` |
 | `<plugin>:settings.write` | Validate and save settings | `core:settings.write` |
 | `<plugin>:media.read` | Read media tools and tasks | `core:media.read` |
@@ -213,3 +346,5 @@ Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/st
 | `<plugin>:file-import.acknowledge` | Acknowledge file import results | `core:file-import.acknowledge` |
 | `<plugin>:downloads.create` | Create download tasks | `core:downloads.create` |
 | `<plugin>:batches.execute` | Allow batches to use this plugin's sources and work executors | `core:batches.create`, `core:batches.resume` |
+| `<plugin>:schedule.manage` | Manage persistent schedules and credential policies for this plugin | `core:schedule.*` |
+| `<plugin>:plugins.manage` | Allow lifecycle, enabled-state and trust management for this plugin | `core:plugins.*` |
