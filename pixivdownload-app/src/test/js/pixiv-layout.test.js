@@ -34,33 +34,3 @@ test('工具栏换行和隐藏后向布局提供实际边框高度', () => {
     resized([{target: element}]);
     assert.equal(properties.get('--layout-header-height'), '0px');
 });
-
-test('介绍页导航使用真实段落位置并尊重减少动画设置', () => {
-    const scrolls = [];
-    const node = () => ({
-        dataset: {}, children: [], events: {},
-        classList: {add() {}, toggle() {}},
-        setAttribute() {},
-        addEventListener(type, callback) { this.events[type] = callback; },
-        appendChild(child) { this.children.push(child); }
-    });
-    const slides = Array.from({length: 3}, (_, index) => ({
-        ...node(), scrollIntoView(options) { scrolls.push({index, behavior: options.behavior}); }
-    }));
-    const dots = node();
-    const link = {...node(), dataset: {goto: '2'}};
-    let reduced = false;
-    vm.runInNewContext(source('intro/intro.js'), {
-        document: {
-            getElementById: id => id === 'dots' ? dots : node(),
-            querySelectorAll: selector => selector === '.slide' ? slides : selector === '[data-goto]' ? [link] : [],
-            createElement: node, addEventListener() {}
-        },
-        matchMedia: () => ({matches: reduced}),
-        IntersectionObserver: class { observe() {} }
-    });
-    link.events.click({preventDefault() {}});
-    reduced = true;
-    dots.children[1].events.click();
-    assert.deepEqual(scrolls, [{index: 2, behavior: 'smooth'}, {index: 1, behavior: 'instant'}]);
-});

@@ -14,18 +14,6 @@
       "inlineHandlers": 0,
       "nativeDialogs": 0
     },
-    "pixivdownload-app/src/main/resources/static/intro.html": {
-      "hardcodedColors": 8,
-      "inlineStyles": 20,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
-    "pixivdownload-app/src/main/resources/static/intro/intro.css": {
-      "hardcodedColors": 396,
-      "inlineStyles": 0,
-      "inlineHandlers": 0,
-      "nativeDialogs": 0
-    },
     "pixivdownload-app/src/main/resources/static/js/invite-modals.js": {
       "hardcodedColors": 47,
       "inlineStyles": 0,
