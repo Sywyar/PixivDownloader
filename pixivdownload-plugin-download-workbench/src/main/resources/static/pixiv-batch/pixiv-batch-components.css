@@ -561,6 +561,10 @@
             background: var(--surface-muted);
             border-radius: 0 4px 4px 0;
             font-size: 0.6875rem;
+            /* 队列可能有数千行：滚动区域外的行跳过样式、布局与绘制；
+               未渲染过的行按待下载行的内容高度占位（按默认与放大文字实测拟合），渲染后记住实际高度。 */
+            content-visibility: auto;
+            contain-intrinsic-block-size: auto calc(9px + 2.7625rem);
         }
 
         .queue-item .q-title {

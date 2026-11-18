@@ -56,6 +56,29 @@ test('前端规范守卫只拦截原生对话框调用', async function () {
     assert.equal(result.nativeDialogs, 2);
 });
 
+test('前端规范守卫识别右侧为通配的兄弟组合器', async function () {
+    const { analyzeSource } = await import(guardUrl.href);
+    const flagged = analyzeSource('sample.css', [
+        '.hint > * + * { margin-top: .5rem; }',
+        '.a~*, .list > li + * { color: inherit; }',
+        '.nested { color: inherit; & + * { margin: 0; } }'
+    ].join('\n'));
+    assert.equal(flagged.universalSiblingSelectors, 4);
+
+    const allowed = analyzeSource('sample.css', [
+        '/* .commented + * {} */',
+        '.hint > :not(:first-child) { margin-top: .5rem; }',
+        '.a + .b, .a ~ [data-x] { color: inherit; }',
+        'li:nth-child(2n + 1), li:nth-last-of-type(3n+1) { color: inherit; }',
+        '[class~="x"], [href*="pixiv"] + .y { color: inherit; }',
+        '.size { width: calc(100% - 2 * 1rem); }',
+        '.label::before { content: "+ *"; }',
+        '@media (min-width: 10px) { .a + .b { color: inherit; } }'
+    ].join('\n'));
+    assert.equal(allowed.universalSiblingSelectors, 0);
+    assert.equal(analyzeSource('sample.js', 'const s = ".a + * {}";').universalSiblingSelectors, 0);
+});
+
 test('前端规范基线允许偿还债务但拒绝新增债务', async function () {
     const { compareSnapshot } = await import(guardUrl.href);
     const baseline = { 'existing.css': { hardcodedColors: 2 } };
