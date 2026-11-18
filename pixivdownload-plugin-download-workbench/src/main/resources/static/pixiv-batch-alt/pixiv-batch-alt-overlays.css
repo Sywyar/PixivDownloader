@@ -78,7 +78,9 @@ html:has(.ab-drawer-root[open]) { overflow: hidden; }
 .ab-setting-hint > :is(p, small, .setting-item) {
     display: block; margin: 0; padding: 0; border: 0; color: inherit; font: inherit; opacity: 1;
 }
-.ab-setting-hint > * + * { margin-top: .5rem; }
+/* 不使用 `* + *`：右侧为通配的兄弟组合器会让浏览器在任意列表插入或移动子节点时重算整棵子树。
+   :where() 保持与原选择器相同的优先级，上方 :is(p, small, .setting-item) 的重置仍然生效。 */
+.ab-setting-hint > :where(:not(:first-child)) { margin-top: .5rem; }
 .download-profiles-heading .ab-setting-hint-label > label { font-size: 1rem; font-weight: 600; }
 .ab-download-sections { display: flex; margin-bottom: 1.25rem; }
 .ab-download-sections > button { flex: 1; min-width: 0; white-space: normal; }

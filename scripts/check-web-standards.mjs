@@ -10,11 +10,40 @@ const RULE_NAMES = Object.freeze([
     'hardcodedColors',
     'inlineStyles',
     'inlineHandlers',
-    'nativeDialogs'
+    'nativeDialogs',
+    'universalSiblingSelectors'
 ]);
 
 function countMatches(source, pattern) {
     return Array.from(source.matchAll(pattern)).length;
+}
+
+// 右侧为通配的兄弟组合器（`* + *`、`.a ~ *`）没有可用于缩小样式失效范围的特征，
+// Chromium 在任意元素插入或移动子节点时可能重算其整棵子树；下载队列等长列表每移动一行都要付出全量重算。
+function countUniversalSiblingSelectors(source) {
+    const css = source
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""');
+    let total = 0;
+    let prelude = '';
+    for (const character of css) {
+        if (character === '{') {
+            // @media、@supports 等规则的前导部分是条件而不是选择器。
+            if (!prelude.trim().startsWith('@')) {
+                // 属性选择器中的 `~=` / `*=` 与 `:nth-*()` 的 `an+b` 参数不是组合器。
+                const selector = prelude
+                    .replace(/\[[^\]]*\]/g, '[]')
+                    .replace(/:nth-[a-z-]+\([^)]*\)/gi, ':nth');
+                total += countMatches(selector, /[+~]\s*\*/g);
+            }
+            prelude = '';
+        } else if (character === '}' || character === ';') {
+            prelude = '';
+        } else {
+            prelude += character;
+        }
+    }
+    return total;
 }
 
 function countHardcodedColors(source) {
@@ -36,7 +65,8 @@ export function analyzeSource(relativePath, source) {
             : 0,
         nativeDialogs: extension === '.js' || extension === '.mjs'
             ? countMatches(source, /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/gm)
-            : 0
+            : 0,
+        universalSiblingSelectors: extension === '.css' ? countUniversalSiblingSelectors(source) : 0
     };
 }
 

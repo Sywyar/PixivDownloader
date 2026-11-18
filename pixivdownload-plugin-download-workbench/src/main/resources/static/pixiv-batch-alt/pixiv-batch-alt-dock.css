@@ -205,10 +205,9 @@
     flex-wrap: wrap;
 }
 
+/* 队列行按块级流纵向排列：列表可能有数千行，弹性布局会在单行进度变化时重新布局整列。 */
 .ab-queue-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
+    display: block;
     border: 0;
     border-radius: 0;
     overflow: clip;
@@ -221,6 +220,10 @@
 
     background: var(--surface);
     font-size: 0.8125rem;
+    /* 屏幕外的行跳过样式、布局与绘制；未渲染过的行按待下载行的内容高度占位
+       （按默认与放大文字实测拟合），渲染后记住实际高度。 */
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto calc(73.8px + 4.2875rem);
 }
 
 .ab-queue-item[data-status="downloading"] {
