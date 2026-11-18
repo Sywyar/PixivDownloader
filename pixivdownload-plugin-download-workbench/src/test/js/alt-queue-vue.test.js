@@ -201,6 +201,13 @@ function loadVue(opts) {
             return {downloading, queued};
         },
         currentRemainingLineText: (d, q) => (d || q) ? '还有 ' + d + ' 个正在下载、' + q + ' 个排队中' : '',
+        currentCardSummary: (keys, rows, isPaused) => {
+            const items = keys.map(key => rows.get(key));
+            const front = sandbox.currentFrontItem(items, isPaused);
+            if (!front) return {key: null, remaining: ''};
+            const counts = sandbox.currentRemainingCounts(items, front);
+            return {key: keys[items.indexOf(front)], remaining: sandbox.currentRemainingLineText(counts.downloading, counts.queued)};
+        },
         currentCardModel: front => {
             if (!front) return null;
             const pctV = front.totalImages > 0 ? Math.round((front.downloadedCount || 0) / front.totalImages * 100) : 0;
@@ -260,7 +267,7 @@ async function main() {
         // refreshFromState 经门面回灌 + flush：store 已反映当前 state。
         const store = api.__test.dockStore();
         ok('1: 挂载后回灌统计（成功 1 / 进行中 1 / 队列 1）', store.stats.success === 1 && store.stats.active === 1 && store.stats.pending === 1);
-        ok('1: 挂载后回灌列表（3 项快照）', store.items.length === 3);
+        ok('1: 挂载后回灌列表（3 项快照）', store.rowKeys.length === 3 && store.rows.size === 3);
         ok('1: 挂载后回灌暂停标志（false）', store.paused === false);
         ok('1: 当前卡由队列镜像派生队首（id=2）', api.isCurrentActive() === true
             && currentText(api).indexOf('作品 2') >= 0);
@@ -293,11 +300,11 @@ async function main() {
         const { api, record } = loadVue({ state: st });
         await api.ensure();
         const store = api.__test.dockStore();
-        // 连续 5 次改 state 并 syncList：未 flush 前 store.items 不更新（仍是挂载时回灌的空快照）。
+        // 连续 5 次改 state 并 syncList：未 flush 前 store.rowKeys 不更新（仍是挂载时回灌的空快照）。
         for (let i = 0; i < 5; i++) { st.queue.push({ id: 'x' + i, status: 'pending' }); api.syncList(); }
-        ok('4: flush 前未扇出（store.items 仍空）', store.items.length === 0);
+        ok('4: flush 前未扇出（store.rowKeys 仍空）', store.rowKeys.length === 0);
         api.flush();
-        ok('4: flush 后一次扇出到最新（5 项）', store.items.length === 5);
+        ok('4: flush 后一次扇出到最新（5 项）', store.rowKeys.length === 5 && store.rows.size === 5);
         // 统计同理：连续多次 syncStats，flush 后取最后一次（且只多跑一轮 rAF 合批）。
         api.syncStats({ pending: 1, success: 0, failed: 0, active: 0, skipped: 0 });
         api.syncStats({ pending: 9, success: 1, failed: 2, active: 3, skipped: 4 });

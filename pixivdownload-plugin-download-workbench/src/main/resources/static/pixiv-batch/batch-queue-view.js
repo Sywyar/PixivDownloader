@@ -92,7 +92,14 @@
         // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟踪单一 currentItemId 触发整卡重建；
         // item 参数仅为兼容既有调用点（processArtworkItem / processNovelItem / SSE 进度事件）与 currentItemId 语义。
         state.currentItemId = item ? String(item.id) : null;
-        if (!queueProgressRows.size) refreshCurrentCard(item);
+        if (queueProgressRows.size) return;
+        // 清除当前项不改变任何行：Vue 当前卡从队列镜像派生，变动行已由调用方按行同步，这里只同步暂停标志。
+        // 不得借此请求完整同步，否则长队列每结束一个作品都会重建全部行。
+        if (!item && downloadQueueVueActive() && queueVue().isDownloadCurrentActive()) {
+            queueVue().syncDownloadPaused(state.isPaused);
+            return;
+        }
+        refreshCurrentCard(item);
     }
 
     // 当前卡按队列顺序展示最前面的未完成项，避免并发进度事件改变卡片归属。

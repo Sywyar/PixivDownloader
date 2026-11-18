@@ -164,10 +164,11 @@ test('新版队列整批前置，终态沉底，保存恢复与从上往下领�
     Object.assign(h.context, {
         renderQueueRecovery() {}, refreshCurrentCard() {},
         altQueueVueActive: () => true,
-        altQueueVue: () => ({syncList: item => synced.push(item)})
+        altQueueVue: () => ({syncList: item => synced.push(item), syncOrder: () => synced.push('order')})
     });
     h.render(second, true);
-    assert.equal(synced.pop(), null, '重排必须同步行结构，不能把旧下标当成新下标');
+    assert.deepEqual(synced.splice(0), ['order', second],
+        '重排必须同步行结构，变动行仍按行同步，不请求整列表重建');
     const pendingArray = h.run('state.queue');
     const item = pendingArray[1];
     for (let i = 0; i < 100; i++) {

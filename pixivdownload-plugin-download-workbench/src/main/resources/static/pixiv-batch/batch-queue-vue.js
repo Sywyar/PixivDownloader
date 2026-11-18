@@ -128,8 +128,9 @@
             stats: { pending: 0, success: 0, failed: 0, active: 0, skipped: 0 },
             speed: { value: '0', unit: 'B/s' },
             paused: false,   // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
-            items: [],       // 行组件直接订阅对应下标，进度变化不触发列表结构重建。
-            rowKeys: []      // 仅完整同步时更新，与索引共用复合键，不保留另一份作品内容。
+            rows: new Map(), // 复合键 → 行快照；行组件按键订阅，进度与位置变化都不重建其它行。
+            rowKeys: [],     // 队列顺序；仅结构变化或完整同步时替换，不保留另一份作品内容。
+            statusRevision: 0   // 结构或任一行状态变化时递增；当前卡据此重新寻找队首。
         });
     }
 
@@ -215,31 +216,31 @@
     }
 
     // 与命令式回退共用队首、暂停收尾与剩余计数口径；更新保留卡内真实节点。
+    // 队首与剩余计数只依赖状态修订号与暂停标志，遍历原始快照不建立逐行依赖，纯数值进度不触发重算；
+    // 渲染时再按队首复合键订阅该行，队首自身的嵌套进度仍立即呈现。
     function currentComponent() {
         return {
             setup: function () {
-                var front = Vue.computed(function () {
-                    return callG('currentFrontItem', [dlStore.items, dlStore.paused], null);
+                var summary = Vue.computed(function () {
+                    void dlStore.statusRevision;
+                    return callG('currentCardSummary',
+                        [Vue.toRaw(dlStore.rowKeys), Vue.toRaw(dlStore.rows), dlStore.paused],
+                        { key: null, remaining: '' });
                 });
-                var remaining = Vue.computed(function () {
-                    if (!front.value) return '';
-                    var counts = callG('currentRemainingCounts', [dlStore.items, front.value], { downloading: 0, queued: 0 });
-                    return callG('currentRemainingLineText', [counts.downloading, counts.queued], '');
-                });
-                return { front: front, remaining: remaining };
+                return { summary: summary };
             },
             render: function () {
                 var h = Vue.h;
+                var summary = this.summary;
                 // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
-                var front = dlStore.rowKeys.length ? this.front : null;
+                var front = dlStore.rowKeys.length && summary.key != null ? dlStore.rows.get(summary.key) || null : null;
                 var children = [h('strong', null, tt('label.current', '当前下载:'))];
                 if (front) {
                     children.push(' ' + (front.title == null ? '' : front.title) + ' (ID: ' + (front.id == null ? '' : front.id) + ')');
                     children.push(queueTagsPart(callG('queueItemTags', [front], [])));
                     children.push(imageCountProgress(front, true));
                     children.push.apply(children, imageDetails(front));
-                    var remaining = this.remaining;
-                    if (remaining) children.push(h('div', { key: 'remaining', class: 'current-remaining' }, remaining));
+                    if (summary.remaining) children.push(h('div', { key: 'remaining', class: 'current-remaining' }, summary.remaining));
                 } else {
                     children.push(' ' + tt('status.current-idle', '无'));
                 }
@@ -248,11 +249,13 @@
         };
     }
 
-    // 独立行组件配合稳定快照；标签、按钮与进度节点随原位置 patch，不经 HTML 解析。
+    // 独立行组件按复合键读取自己的快照；标签、按钮与进度节点随原位置 patch，不经 HTML 解析。
+    // 重排、插入或删除其它行只移动节点，不重新渲染本行。
     var downloadRowComponent = {
-        props: ['index'],
+        props: ['rowKey'],
         render: function () {
-            var h = Vue.h, q = dlStore.items[this.index];
+            var h = Vue.h, q = dlStore.rows.get(this.rowKey);
+            if (!q) return null;
             var model = callG('queueItemModel', [q, { removable: true }], null);
             if (!model) return null;
             var title = [h('span', { class: 'q-title-main' }, model.title)];
@@ -300,8 +303,8 @@
                 };
             },
             render: function () {
-                return this.store.rowKeys.length ? this.store.rowKeys.map(function (key, index) {
-                    return Vue.h(downloadRowComponent, { key: key, index: index });
+                return this.store.rowKeys.length ? this.store.rowKeys.map(function (key) {
+                    return Vue.h(downloadRowComponent, { key: key, rowKey: key });
                 }) : Vue.h('div', { class: 'queue-empty' }, this.emptyText());
             }
         };

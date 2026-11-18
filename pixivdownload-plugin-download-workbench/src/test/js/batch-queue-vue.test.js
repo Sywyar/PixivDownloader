@@ -234,7 +234,7 @@ async function main() {
         // refreshDownloadFromState 经门面回灌 + flush：store 已反映当前 state。
         const store = api.__test.downloadStore();
         ok('1: 挂载后回灌统计（成功 1 / 进行中 1 / 队列 1）', store.stats.success === 1 && store.stats.active === 1 && store.stats.pending === 1);
-        ok('1: 挂载后回灌列表（3 项快照）', store.items.length === 3);
+        ok('1: 挂载后回灌列表（3 项快照）', store.rowKeys.length === 3 && store.rows.size === 3);
         ok('1: 挂载后回灌暂停标志（false）', store.paused === false);
         ok('1: 幂等：再次挂载不重复挂 app', (await api.mountDownloadQueue()) === true && record.mounts.length === 3);
     }
@@ -265,11 +265,11 @@ async function main() {
         const { api, record } = loadVue({ state: st });
         await api.mountDownloadQueue();
         const store = api.__test.downloadStore();
-        // 连续 5 次改 state 并 syncDownloadList：未 flush 前 store.items 不更新（仍是挂载时回灌的空快照）。
+        // 连续 5 次改 state 并 syncDownloadList：未 flush 前 store.rowKeys 不更新（仍是挂载时回灌的空快照）。
         for (let i = 0; i < 5; i++) { st.queue.push({ id: 'x' + i, status: 'pending' }); api.syncDownloadList(); }
-        ok('4: flush 前未扇出（store.items 仍空）', store.items.length === 0);
+        ok('4: flush 前未扇出（store.rowKeys 仍空）', store.rowKeys.length === 0);
         api.flush();
-        ok('4: flush 后一次扇出到最新（5 项）', store.items.length === 5);
+        ok('4: flush 后一次扇出到最新（5 项）', store.rowKeys.length === 5 && store.rows.size === 5);
         // 统计同理：连续多次 syncDownloadStats，flush 后取最后一次。
         api.syncDownloadStats({ pending: 1, success: 0, failed: 0, active: 0, skipped: 0 });
         api.syncDownloadStats({ pending: 9, success: 1, failed: 2, active: 3, skipped: 4 });
@@ -306,7 +306,7 @@ async function main() {
         sandbox.window.PixivBatch.queueVue.flush();
         ok('7: 连续 10 次 renderQueue 未整队列重建 #queue-list（innerHTML 重写=0）', queueList.innerHTMLSets === before);
         const store = sandbox.window.PixivBatch.queueVue.__test.downloadStore();
-        ok('7: store 反映最新队列', store.items.length === 1);
+        ok('7: store 反映最新队列', store.rowKeys.length === 1 && store.rows.size === 1);
     }
 
     /* ===== 8) 集成：Vue 缺失时门面命令式回退（#queue-list 整块渲染、统计 / 速度写 DOM） ===== */

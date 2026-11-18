@@ -59,6 +59,11 @@ async function fixture(alt, size = 300, production = false) {
         currentFrontItem:items=>items.find(q=>q.status==='downloading')||null,
         currentCardModel:q=>q?{title:q.title,percent:q.downloadedCount,detail:'current:'+q.downloadedCount}:null,
         currentRemainingCounts:()=>({downloading:0,queued:0}),currentRemainingLineText:()=>'',
+        currentCardSummary:(keys,rows,paused)=>{
+            const items=keys.map(key=>rows.get(key));
+            const front=sandbox.currentFrontItem(items,paused);
+            return front?{key:keys[items.indexOf(front)],remaining:sandbox.currentRemainingLineText(0,0)}:{key:null,remaining:''};
+        },
         buildQueueItemHtml:q=>{builds.push(q.id);return '<div>'+q.id+':'+q.downloadedCount+'</div>';},
         computeCurrentCardHtml:items=>items[0] ? 'current:'+items[0].downloadedCount : 'empty',
         formatCurrentCardHtml:q=>q ? q.title : '',
@@ -70,13 +75,17 @@ async function fixture(alt, size = 300, production = false) {
         get:()=>null,dataSourceForType:()=>null}};
     sandbox.PixivBatchAlt = {};
     vm.createContext(sandbox, {codeGeneration:{strings:false,wasm:false}});
+    const facadeNames = ['updateStats','renderQueue','renderCurrent','setCurrent'];
+    // 生产渲染门面保留给需要验证真实调用链的用例；夹具默认仍以替身隔离其余外部依赖。
+    let real = {};
     if (production || !alt) {
         vm.runInContext(fs.readFileSync(path.join(staticRoot, 'pixiv-batch', 'queue-display.js'), 'utf8'), sandbox);
         vm.runInContext(fs.readFileSync(path.join(staticRoot,'pixiv-batch','batch-media-progress.js'),'utf8'), sandbox);
-        const facades = Object.fromEntries(['updateStats','renderQueue','renderCurrent','setCurrent'].map(key => [key, sandbox[key]]));
+        const facades = Object.fromEntries(facadeNames.map(key => [key, sandbox[key]]));
         for (const file of alt ? ['alt-core.js','alt-queue-model.js','alt-queue.js'] : ['batch-queue-model.js','batch-queue-view.js']) {
             vm.runInContext(fs.readFileSync(path.join(staticRoot,alt?'pixiv-batch-alt':'pixiv-batch',file),'utf8'), sandbox);
         }
+        real = Object.fromEntries(facadeNames.filter(key => sandbox[key] !== facades[key]).map(key => [key, sandbox[key]]));
         Object.assign(sandbox, facades);
         if (alt) vm.runInContext('pageI18n = {}', sandbox).t =
             (key, fallback, vars) => language + ':' + key + ':' + JSON.stringify(vars || {});
@@ -95,7 +104,7 @@ async function fixture(alt, size = 300, production = false) {
     const Vue = sandbox.Vue;
     const originalH = Vue.h;
     Vue.h = (type, props, ...children) => {
-        if (typeof type === 'object' && props && Object.hasOwn(props, 'index')) metrics.rowVnodes++;
+        if (typeof type === 'object' && props && Object.hasOwn(props, 'rowKey')) metrics.rowVnodes++;
         return originalH(type, props, ...children);
     };
     const renderer = Vue.createRenderer({
@@ -133,7 +142,7 @@ async function fixture(alt, size = 300, production = false) {
     vm.runInContext(fs.readFileSync(path.join(staticRoot, 'pixiv-batch/download-sse.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(path.join(staticRoot, alt
         ? 'pixiv-batch-alt/alt-engine-stream.js' : 'pixiv-batch/batch-sse.js'), 'utf8'), sandbox);
-    return {api,Vue,state,body,stats,current,list,builds,errors,removed,cancelled,sync,flush,metrics,sandbox,
+    return {api,Vue,state,body,stats,current,list,builds,errors,removed,cancelled,sync,flush,metrics,sandbox,real,
         unmountCurrent: () => currentApp.unmount(),
         wait: id => sandbox.waitForFinalStatusBySSE(id, 10000),
         emit: (id, event) => state.sseListeners[id].slice().forEach(listener => listener(event)),
@@ -414,6 +423,60 @@ for(const alt of [false,true]) {
             assert.equal(byClass(f.list,f.rowClass).length,0);
             assert.deepEqual(f.errors,[]);
         }
+    });
+
+    test((alt?'侧栏':'经典')+'长队列的纯进度不重新寻找队首，结束作品清除当前项不重建其它行',async()=>{
+        const f=await fixture(alt,2000,true), front=f.state.queue[0], next=f.state.queue[1];
+        const rows=()=>byClass(f.list,f.rowClass);
+        const summary=f.sandbox.currentCardSummary;let scans=0;
+        f.sandbox.currentCardSummary=(...args)=>{scans++;return summary(...args);};
+        if(alt) {
+            const title=f.sandbox.queueItemDisplayTitle;
+            f.sandbox.queueItemDisplayTitle=q=>{f.builds.push(String(q.id));return title(q);};
+        }
+        next.status='downloading';f.sync(next);await f.flush();
+        scans=0;f.metrics.rowVnodes=0;
+        const progressText=textOf(rows()[1]);
+        for(let i=1;i<=60;i++) {
+            next.downloadedCount=i;f.sync(next);await f.flush();
+        }
+        assert.equal(scans,0,'纯数值进度不遍历队列');
+        assert.equal(f.metrics.rowVnodes,0);
+        assert.notEqual(textOf(rows()[1]),progressText,'变动行仍呈现最新进度');
+        // 与下载 worker 收尾顺序一致：先按行同步终态，再清除当前项。
+        const stable=rows()[1999];
+        f.builds.length=0;
+        front.status='completed';f.sync(front);
+        f.real[alt?'renderCurrent':'setCurrent'](null);
+        await f.flush();
+        assert.equal(f.metrics.rowVnodes,0,'清除当前项不重建列表结构');
+        assert.deepEqual([...new Set(f.builds)].filter(id=>id!=='0'&&id!=='1'),[],'只重新渲染变动行与新队首');
+        assert.equal(rows()[1999],stable);
+        assert.equal(scans,1,'状态变化才重新寻找队首');
+        assert.match(textOf(f.current),/<unsafe 1>/);
+        assert.deepEqual(f.errors,[]);
+    });
+
+    if(alt) test('侧栏完成项沉底只移动行节点，不重建其它行',async()=>{
+        const f=await fixture(true,2000,true), done=f.state.queue[0];
+        const rows=()=>byClass(f.list,f.rowClass);
+        f.sandbox.renderQueueRecovery=()=>{};
+        const title=f.sandbox.queueItemDisplayTitle;
+        f.sandbox.queueItemDisplayTitle=q=>{f.builds.push(String(q.id));return title(q);};
+        const second=rows()[1], last=rows()[1999];
+        f.builds.length=0;
+        done.status='completed';
+        vm.runInContext('orderDownloadQueue()',f.sandbox);
+        assert.equal(f.state.queue[1999],done);
+        f.real.renderQueue(done,true);
+        await f.flush();
+        assert.equal(rows().length,2000);
+        assert.equal(rows()[0],second,'未变化的行保留原节点并随顺序移动');
+        assert.equal(rows()[1998],last);
+        assert.match(textOf(rows()[1999]),/<unsafe 0>/);
+        assert.deepEqual([...new Set(f.builds)].filter(id=>id!=='0'&&id!=='1'),[],'只重新渲染沉底行与新队首');
+        assert.match(textOf(f.current),/<unsafe 1>/);
+        assert.deepEqual(f.errors,[]);
     });
 
     test((alt?'侧栏':'经典')+'计划详情在禁止动态编译时响应状态与空列表',async()=>{
