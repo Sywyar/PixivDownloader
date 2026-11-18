@@ -101,8 +101,9 @@ function aqvBuildStore() {
         stats: {pending: 0, success: 0, failed: 0, active: 0, skipped: 0},
         speed: {value: '0', unit: 'B/s'},
         paused: false,      // 暂停标志镜像（当前卡响应式派生用；暂停 / 恢复时由渲染门面同步）
-        items: [],          // 行组件直接订阅对应下标，进度变化不触发列表结构重建。
-        rowKeys: []         // 仅完整同步时更新，与索引共用复合键，不保留另一份作品内容。
+        rows: new Map(),    // 复合键 → 行快照；行组件按键订阅，进度变化与完成项沉底都不重建其它行。
+        rowKeys: [],        // 队列顺序；仅结构变化或完整同步时替换，不保留另一份作品内容。
+        statusRevision: 0   // 结构或任一行状态变化时递增；当前卡据此重新寻找队首。
     });
 }
 
@@ -188,21 +189,22 @@ function aqvStatsComponent() {
     };
 }
 
+// 队首与剩余计数只依赖状态修订号与暂停标志，遍历原始快照不建立逐行依赖，纯数值进度不触发重算；
+// 渲染时再按队首复合键订阅该行，队首自身的嵌套进度仍立即呈现。
 function aqvCurrentComponent() {
     return {
         setup() {
-            const front = aqvVue.computed(() => currentFrontItem(aqvStore.items, aqvStore.paused));
-            const remaining = aqvVue.computed(() => {
-                if (!front.value) return '';
-                const counts = currentRemainingCounts(aqvStore.items, front.value);
-                return currentRemainingLineText(counts.downloading, counts.queued);
+            const summary = aqvVue.computed(() => {
+                void aqvStore.statusRevision;
+                return currentCardSummary(aqvVue.toRaw(aqvStore.rowKeys), aqvVue.toRaw(aqvStore.rows), aqvStore.paused);
             });
-            return {front, remaining};
+            return {summary};
         },
         render() {
+            const summary = this.summary;
             // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
-            const front = aqvStore.rowKeys.length ? this.front : null;
-            return aqvRenderCurrent(front, this.remaining);
+            const front = aqvStore.rowKeys.length && summary.key != null ? aqvStore.rows.get(summary.key) || null : null;
+            return aqvRenderCurrent(front, summary.remaining);
         }
     };
 }
@@ -274,9 +276,13 @@ function aqvRenderRow(item, vm) {
     ]);
 }
 
+// 行组件按复合键读取自己的快照；完成项沉底等重排只移动节点，不重新渲染未变化的行。
 const aqvDownloadRow = {
-    props: ['index', 'actions'],
-    render() { return aqvRenderRow(aqvStore.items[this.index], this.actions); }
+    props: ['rowKey', 'actions'],
+    render() {
+        const item = aqvStore.rows.get(this.rowKey);
+        return item ? aqvRenderRow(item, this.actions) : null;
+    }
 };
 
 function aqvListComponent() {
@@ -307,7 +313,7 @@ function aqvListComponent() {
             if (this.isEmpty) return h('div', {class: 'ab-empty ab-empty--dock'}, [
                 icon('download'), h('p', null, this.t('status.queue-empty', '队列为空'))
             ]);
-            return this.store.rowKeys.map((key, index) => h(aqvDownloadRow, {key, index, actions: this}));
+            return this.store.rowKeys.map(key => h(aqvDownloadRow, {key, rowKey: key, actions: this}));
         }
     };
 }
@@ -424,11 +430,19 @@ function aqvSyncPaused(paused) {
     });
 }
 
+function aqvSyncListJob() {
+    aqvRows.sync(typeof state === 'undefined' ? null : state.queue || [], aqvStore);
+}
+
 function aqvSyncList(changedItem) {
     aqvRows.mark(changedItem);
-    aqvSchedule('list', () => {
-        aqvRows.sync(typeof state === 'undefined' ? null : state.queue || [], aqvStore);
-    });
+    aqvSchedule('list', aqvSyncListJob);
+}
+
+// 队列只改变顺序（完成项沉底）时调用：重算结构键，内容未变化的行保留原快照与节点。
+function aqvSyncOrder() {
+    aqvRows.markStructure();
+    aqvSchedule('list', aqvSyncListJob);
 }
 
 /* ============================================================
@@ -570,6 +584,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
     syncSpeed: aqvSyncSpeed,
     syncPaused: aqvSyncPaused,
     syncList: aqvSyncList,
+    syncOrder: aqvSyncOrder,
     // 计划任务本轮队列详情
     ensureScheduleQueue: aqvEnsureScheduleQueue,
     isScheduleActive: aqvIsScheduleActive,

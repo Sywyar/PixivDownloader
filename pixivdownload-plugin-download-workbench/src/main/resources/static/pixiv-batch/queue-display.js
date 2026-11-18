@@ -86,8 +86,8 @@ function queueItemDisplayTitle(q) {
 // 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
 // 视为已结束）。含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」。暂停
 //（停止接受新任务）期间仍展示正在收尾下载的作品（drain）：有 downloading 项时照常展示队首；仅当没有任何
-// downloading 项时才回退 idle「无」。queue 参数传 reactive 队列镜像（Vue 路径）或 state.queue（命令式路径），
-// 两路共用同一口径。
+// downloading 项时才回退 idle「无」。queue 参数传按结构键排列的原始行快照（Vue 路径，经 currentCardSummary）
+// 或 state.queue（命令式路径），两路共用同一口径。
 function currentFrontItem(queue, isPaused) {
     for (let i = 0; i < queue.length; i++) {
         const s = queue[i].status;
@@ -114,6 +114,20 @@ function currentRemainingCounts(queue, front) {
         else queued--;
     }
     return {downloading, queued};
+}
+
+// 两版 Vue 当前卡共用：按结构键顺序在原始行快照中寻找队首并派生剩余计数文案，返回队首复合键，
+// 组件再按键订阅该行快照的嵌套进度。keys / rows 传原始对象，遍历不建立逐行响应式依赖；调用方只在
+// 结构、行状态或暂停标志变化时调用，纯数值进度不再逐帧遍历整个队列。
+function currentCardSummary(keys, rows, isPaused) {
+    const ordered = keys.map(key => rows.get(key));
+    const front = currentFrontItem(ordered, isPaused);
+    if (!front) return {key: null, remaining: ''};
+    const counts = currentRemainingCounts(ordered, front);
+    return {
+        key: keys[ordered.indexOf(front)],
+        remaining: currentRemainingLineText(counts.downloading, counts.queued)
+    };
 }
 
 // 剩余计数行文案（命令式回退与 Vue 路径共用；两项都为 0 时返回空串）。

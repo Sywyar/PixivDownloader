@@ -247,7 +247,14 @@ function renderCurrent(item) {
     // 当前下载卡现由队列派生（队首未完成项 + 剩余计数），不再跟随事件到达顺序在不同作品间跳变；
     // item 参数仅为兼容既有调用点（SSE 进度事件 / worker 启停 / 语言切换）与 currentItemId 语义。
     state.currentItemId = item ? String(item.id) : null;
-    if (!altQueueProgressRows.size) refreshCurrentCard(item);
+    if (altQueueProgressRows.size) return;
+    // 清除当前项不改变任何行：Vue 当前卡从队列镜像派生，变动行已由调用方按行同步，这里只同步暂停标志。
+    // 不得借此请求完整同步，否则长队列每结束一个作品都会重建全部行。
+    if (!item && altQueueVueActive() && altQueueVue().isCurrentActive()) {
+        altQueueVue().syncPaused(state.isPaused);
+        return;
+    }
+    refreshCurrentCard(item);
 }
 
 // 当前卡刷新门面：Vue 已接管**且当前卡已由 Vue 渲染**（isCurrentActive）→ 同步最新队列镜像 + 暂停标志
@@ -660,11 +667,15 @@ const altQueueProgressRows = new Set();
 let altQueueProgressScheduled = false;
 
 function renderQueue(changedItem, statusChanged = false) {
-    if (queueOrderChanged) {
-        changedItem = null;
-        queueOrderChanged = false;
+    const orderChanged = queueOrderChanged;
+    queueOrderChanged = false;
+    // 完成项沉底只改变顺序：Vue 列表按复合键保留未变化的行，只需结构同步；
+    // 命令式列表按位置替换行，顺序变化后仍须整列表重建。
+    if (orderChanged) {
+        if (altQueueVueActive('list')) altQueueVue().syncOrder();
+        else changedItem = null;
     }
-    if (!changedItem || statusChanged) renderQueueRecovery();
+    if (!changedItem || statusChanged || orderChanged) renderQueueRecovery();
     if (changedItem && !altQueueVueActive('list')) {
         altQueueProgressRows.add(changedItem);
         if (!altQueueProgressScheduled) {
