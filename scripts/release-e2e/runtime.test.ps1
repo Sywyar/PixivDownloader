@@ -599,6 +599,13 @@ exit 0
     $script:status.plugins[0].runtimePhase = 'STARTED'
     Assert-Rejected { Assert-ReleaseStatus 1 $null @('optional') -Recovery $true -CrashedIds @('optional') } 'not reported'
 
+    $script:status = [pscustomobject]@{recoveryMode=$false; plugins=@(
+        [pscustomobject]@{id='gui-compose'; status='INSTALLED'; runtimePhase=$null})}
+    Assert-ReleaseStatus 1 $null @('gui-compose') -Headless | Out-Null
+    Assert-Rejected { Assert-ReleaseStatus 1 $null @('gui-compose') } 'not healthy'
+    $script:status.plugins[0].runtimePhase = 'LOADED'
+    Assert-Rejected { Assert-ReleaseStatus 1 $null @('gui-compose') -Headless } 'without a runtime phase'
+
     $child = Start-Process $env:ComSpec -ArgumentList '/d /c "ping -n 2 127.0.0.1 >nul & exit 17"' `
         -PassThru -WindowStyle Hidden
     $children += $child

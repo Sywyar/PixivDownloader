@@ -173,7 +173,7 @@ function Assert-ReleaseHealth {
 function Assert-ReleaseStatus {
     param([int]$Port, $Session, [string[]]$ExpectedIds, [string[]]$CrashedIds = @(),
         [string[]]$UnavailableIds = @(), [bool]$Recovery = $false, [string]$EvidencePath = '',
-        [string]$ExpectedHealth = 'UP')
+        [string]$ExpectedHealth = 'UP', [switch]$Headless)
     Assert-ReleaseHealth $Port $ExpectedHealth
     $status = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/plugins/status" `
         -WebSession $Session -TimeoutSec 60
@@ -191,6 +191,10 @@ function Assert-ReleaseStatus {
         if ($CrashedIds -contains $id) {
             if ($rows[0].status -ne 'CRASHED' -or $rows[0].runtimePhase -in @('STARTED', 'QUIESCED')) {
                 throw "Plugin crash was not reported or services remain active: $id ($($rows[0].status)/$($rows[0].runtimePhase))"
+            }
+        } elseif ($Headless -and $id -in @('gui-swing', 'gui-compose')) {
+            if ($rows[0].status -ne 'INSTALLED' -or $null -ne $rows[0].runtimePhase) {
+                throw "Desktop plugin must be installed without a runtime phase in headless mode: $id"
             }
         } elseif ($rows[0].status -ne 'STARTED' -or $rows[0].runtimePhase -ne 'STARTED') {
             throw "Plugin is not healthy: $id ($($rows[0].status)/$($rows[0].runtimePhase))"
@@ -225,14 +229,14 @@ function Assert-ReleaseStable {
     param($Process, [string]$ProbeRoot, [int]$Port, $Session, [string[]]$ExpectedIds,
         [string]$Provider = '', [string[]]$CrashedIds = @(), [string[]]$UnavailableIds = @(),
         [bool]$Recovery = $false, [switch]$BootstrapPrompt, [int]$Seconds = 10,
-        [string]$ExpectedHealth = 'UP')
+        [string]$ExpectedHealth = 'UP', [switch]$Headless)
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         Assert-ArtifactAlive $Process 'Runtime observation'
         if ($null -ne $Session) {
             Assert-ReleaseStatus -Port $Port -Session $Session -ExpectedIds $ExpectedIds `
                 -CrashedIds $CrashedIds -UnavailableIds $UnavailableIds -Recovery $Recovery `
-                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') -ExpectedHealth $ExpectedHealth | Out-Null
+                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') -ExpectedHealth $ExpectedHealth -Headless:$Headless | Out-Null
         } elseif (-not $BootstrapPrompt) {
             Assert-ReleaseHealth $Port $ExpectedHealth
         }

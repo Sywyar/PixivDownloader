@@ -32,6 +32,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PluginBootstrapSessionVerificationTest extends PluginBootstrapSessionTestSupport {
 
     @Test
+    void headlessVerifiesDesktopPackageWithoutExecutingItAndDesktopStillStartsIt() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Path jar = stageProbeJarWithoutProvenance(plugins, true);
+        SigningFixture signing = SigningFixture.create();
+        new PluginProvenanceStore(plugins).write(jar, signing.originFor(jar, "bootstrap-probe", "1.0.0"),
+                signing.verifiedResult(jar));
+        Path marker = tempDir.resolve("desktop-events.log");
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        try (var backend = PluginBootstrapSession.createContext(plugins, PluginEnabledSnapshot.empty(), signing.verifier())) {
+            backend.start();
+            assertThat(backend.status().failures()).isEmpty();
+            assertThat(backend.status().loadedPluginIds()).isEmpty();
+            assertThat(backend.status().startedPluginIds()).isEmpty();
+            assertThat(backend.installer().listInstalled()).singleElement()
+                    .satisfies(installed -> assertThat(installed.descriptor().desktopOnly()).isTrue());
+            assertThat(new PluginProvenanceStore(plugins).read(jar).orElseThrow().offlineStatus())
+                    .isEqualTo(VerificationStatus.VERIFIED);
+            assertThat(marker).doesNotExist();
+        }
+        try (var desktop = PluginBootstrapSession.createProcess(plugins, PluginEnabledSnapshot.empty(), signing.verifier())) {
+            desktop.start();
+            assertThat(desktop.status().failures()).isEmpty();
+            assertThat(desktop.status().startedPluginIds()).containsExactly("bootstrap-probe");
+            assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load", "start");
+        }
+    }
+
+    @Test
     @DisplayName("诊断路径：缺失目录→ABSENT、坏包→failure、不抛、不阻断")
     void missingAndBadDirectoryConvergeToDiagnostics() throws Exception {
         PluginBootstrapSession absent = createContext(

@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspec
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -110,6 +111,31 @@ public final class PluginArtifactLoadPlan {
 
     public List<Entry> orderedEntries() {
         return orderedEntries;
+    }
+
+    /** 无头启动从非桌面专用包出发，仅沿必需依赖保留桌面包，沿用已验证的加载顺序。 */
+    public List<Entry> headlessEntries() {
+        if (orderedEntries.stream().noneMatch(entry -> entry.descriptor().desktopOnly())) {
+            return orderedEntries;
+        }
+        Map<String, Entry> byId = new HashMap<>();
+        Set<String> required = new LinkedHashSet<>();
+        var pending = new ArrayDeque<Entry>();
+        for (Entry entry : orderedEntries) {
+            byId.put(entry.pluginId(), entry);
+            if (!entry.descriptor().desktopOnly()) {
+                required.add(entry.pluginId());
+                pending.add(entry);
+            }
+        }
+        while (!pending.isEmpty()) {
+            for (PluginDependencyRef dependency : pending.remove().descriptor().dependencies()) {
+                if (!dependency.optional() && required.add(dependency.pluginId())) {
+                    pending.add(byId.get(dependency.pluginId()));
+                }
+            }
+        }
+        return orderedEntries.stream().filter(entry -> required.contains(entry.pluginId())).toList();
     }
 
     public List<PluginLoadFailure> failures() {

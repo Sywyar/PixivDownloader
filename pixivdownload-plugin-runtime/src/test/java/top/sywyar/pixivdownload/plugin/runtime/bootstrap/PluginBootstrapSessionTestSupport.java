@@ -194,11 +194,16 @@ abstract class PluginBootstrapSessionTestSupport {
     }
 
     protected static Path stageProbeJarWithoutProvenance(Path pluginsDir) throws IOException {
+        return stageProbeJarWithoutProvenance(pluginsDir, false);
+    }
+
+    protected static Path stageProbeJarWithoutProvenance(Path pluginsDir, boolean desktopOnly) throws IOException {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION + "\n"
                 + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
                 + "plugin.provider=test\nplugin.description=bootstrap probe\n"
+                + (desktopOnly ? "pixiv.desktop-only=true\n" : "")
                 + "pixiv.lifecycle-policy=process-restart\n"
                 + "pixiv.execution-mode=host-process-full-trust\n";
         try (OutputStream out = Files.newOutputStream(jar); ZipOutputStream zos = new ZipOutputStream(out)) {

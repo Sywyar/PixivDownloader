@@ -95,7 +95,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
                                    Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
-                RecoveryGatedPluginRuntimeManager::new);
+                PluginDevelopmentArtifacts::enabled);
     }
 
     PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
@@ -118,7 +118,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
                            BooleanSupplier developmentModeEnabled) {
         this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
                 (root, resolver, installer) -> new RecoveryGatedPluginRuntimeManager(
-                        root, resolver, installer, developmentModeEnabled),
+                        root, resolver, installer, developmentModeEnabled, ownership == Ownership.CONTEXT),
                 ExternalPluginInstaller::recoverPendingTransactions,
                 developmentModeEnabled);
     }
@@ -581,22 +581,21 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private static final class RecoveryGatedPluginRuntimeManager extends PluginRuntimeManager {
 
         private final ExternalPluginInstaller installer;
-
-        private RecoveryGatedPluginRuntimeManager(
-                Path pluginsRoot,
-                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
-                ExternalPluginInstaller installer) {
-            super(pluginsRoot, verifierResolver);
-            this.installer = Objects.requireNonNull(installer, "installer");
-        }
+        private final boolean headless;
 
         private RecoveryGatedPluginRuntimeManager(
                 Path pluginsRoot,
                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                 ExternalPluginInstaller installer,
-                BooleanSupplier developmentModeEnabled) {
+                BooleanSupplier developmentModeEnabled, boolean headless) {
             super(pluginsRoot, verifierResolver, developmentModeEnabled);
             this.installer = Objects.requireNonNull(installer, "installer");
+            this.headless = headless;
+        }
+
+        @Override
+        protected boolean headlessStartup() {
+            return headless;
         }
 
         @Override

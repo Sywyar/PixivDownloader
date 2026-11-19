@@ -268,7 +268,11 @@ public class PluginRuntimeManager {
         this.admissionPolicy = Objects.requireNonNull(admissionPolicy, "admissionPolicy");
     }
 
-    /** 启动扫描。每个候选包分别 load/start，单包失败不会阻止其它包。 */
+    protected boolean headlessStartup() {
+        return false;
+    }
+
+    /** 验证候选包，按依赖顺序加载当前启动模式需要的包，并逐包记录失败。 */
     public synchronized PluginRuntimeStatus start() {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
@@ -391,7 +395,13 @@ public class PluginRuntimeManager {
                 preparedByPath.put(prepared.originalArtifact(), prepared);
             }
             Set<String> failedPluginIds = new LinkedHashSet<>(loadPlan.skippedPluginIds());
-            for (PluginArtifactLoadPlan.Entry candidate : loadPlan.orderedEntries()) {
+            List<PluginArtifactLoadPlan.Entry> startupEntries =
+                    headlessStartup() ? loadPlan.headlessEntries() : loadPlan.orderedEntries();
+            if (startupEntries.size() < loadPlan.orderedEntries().size()) {
+                log.info("Skipping {} desktop-only plugin package(s) during headless startup",
+                        loadPlan.orderedEntries().size() - startupEntries.size());
+            }
+            for (PluginArtifactLoadPlan.Entry candidate : startupEntries) {
                 Optional<PluginLoadFailure> blocked =
                         loadPlan.blockedByFailedRequiredDependency(candidate, failedPluginIds);
                 if (blocked.isPresent()) {

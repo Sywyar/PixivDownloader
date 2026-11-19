@@ -358,10 +358,16 @@ public final class PluginPackageReader {
         PluginLifecyclePolicy lifecyclePolicy;
         PluginExecutionMode executionMode;
         PluginKind kind;
+        boolean desktopOnly;
         try {
             lifecyclePolicy = PluginLifecyclePolicy.parse(properties.getProperty(KEY_PIXIV_LIFECYCLE_POLICY));
             executionMode = PluginExecutionMode.parse(properties.getProperty(KEY_PIXIV_EXECUTION_MODE));
             kind = parseKind(properties.getProperty(KEY_PIXIV_KIND));
+            desktopOnly = switch (properties.getProperty("pixiv.desktop-only", "false").trim()) {
+                case "true" -> true;
+                case "false" -> false;
+                default -> throw new IllegalArgumentException("pixiv.desktop-only must be true or false");
+            };
         } catch (IllegalArgumentException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, e.getMessage(), e);
         }
@@ -374,7 +380,7 @@ public final class PluginPackageReader {
                 new PluginRiskDeclaration(
                         properties.containsKey(KEY_PIXIV_RISK_SIGNALS),
                         parseCommaSeparated(properties.getProperty(KEY_PIXIV_RISK_SIGNALS))),
-                readContract(properties));
+                readContract(properties), desktopOnly);
     }
 
     private static PluginContractDeclaration readContract(Properties properties) {

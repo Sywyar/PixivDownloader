@@ -43,7 +43,7 @@ function Test-ApplicationScenario {
         }
         Assert-ReleaseStable -Process $application -ProbeRoot $probeRoot -Port $port -Session $session `
             -ExpectedIds $expected -Provider $Provider -Recovery $Recovery -CrashedIds $CrashedIds `
-            -UnavailableIds $UnavailableIds -BootstrapPrompt:$BootstrapPrompt -ExpectedHealth $ExpectedHealth
+            -UnavailableIds $UnavailableIds -Headless:$Headless -BootstrapPrompt:$BootstrapPrompt -ExpectedHealth $ExpectedHealth
         if (-not $CrashedIds.Count -and -not $UnavailableIds.Count) { Assert-ReleaseNoFatalLog $Root }
         $run = [pscustomobject]@{ Process = $application; ProbeRoot = $probeRoot; Port = $port;
             Session = $session; ExpectedIds = $expected; Root = $Root; Launcher = $Launcher;

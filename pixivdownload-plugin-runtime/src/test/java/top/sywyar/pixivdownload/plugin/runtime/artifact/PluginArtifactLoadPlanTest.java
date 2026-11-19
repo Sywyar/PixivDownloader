@@ -7,7 +7,11 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -18,6 +22,28 @@ class PluginArtifactLoadPlanTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void headlessKeepsTransitiveRequiredDesktopPackagesButSkipsOptionalAndUnreferencedOnes() throws IOException {
+        var backend = entry("backend", false, "adapter,optional?");
+        var adapter = entry("adapter", true, "base");
+        var base = entry("base", true, "");
+        var optional = entry("optional", true, "");
+        var unused = entry("unused", true, "");
+        var plan = PluginArtifactLoadPlan.createInspected(List.of(backend, adapter, base, optional, unused));
+
+        assertThat(plan.failures()).isEmpty();
+        assertThat(plan.headlessEntries()).containsExactly(base, adapter, backend);
+        assertThat(plan.orderedEntries()).containsExactlyInAnyOrder(base, adapter, backend, optional, unused);
+    }
+
+    private PluginArtifactLoadPlan.Entry entry(String id, boolean desktopOnly, String dependencies) throws IOException {
+        Path file = tempDir.resolve(id + ".properties");
+        Files.writeString(file, "plugin.id=" + id + "\nplugin.version=1.0.0\nplugin.class=example.Plugin\n"
+                + "plugin.dependencies=" + dependencies + "\npixiv.execution-mode=host-process-full-trust\n"
+                + (desktopOnly ? "pixiv.desktop-only=true\n" : ""), StandardCharsets.UTF_8);
+        return new PluginArtifactLoadPlan.Entry(file, PluginPackageReader.inspectDescriptor(file));
+    }
 
     @Test
     @DisplayName("已检查描述符可在原路径不存在时规划且不会重新打开 artifact")
