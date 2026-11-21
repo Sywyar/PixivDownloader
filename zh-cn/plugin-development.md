@@ -129,7 +129,7 @@ public List<WebRouteContribution> routes() {
 2. **实现前端行为模块**：在 `moduleUrl` 中调用 `PixivBatch.queueTypes.registerModule(initializer)`，实现 `process(item, context)`（必填，通过 `context.updateItem(patch)` 更新状态，使用 `DownloadTasks` 时通过 `context.bindTask(taskId)` 绑定执行 UUID）及已声明的 `import`、`acquisition.*`、`filters`、`settings`。异步回调写回前须检查 `AbortSignal` / `isActive()`，并在 `onCleanup()` 释放资源。
 3. **后端解析可信身份**：Controller 注入父上下文提供的 `RequestOwnerIdentityResolver` 解析当前请求身份（严禁信任请求体或参数自报的 owner UUID），并在文件耐久落盘且记录提交后才标记完成。
 4. **实现 `QueueOperations` 与真实排空（Quiesce / Drain）**：`workKey` 为不透明字符串（由宿主通过 `POST /api/download/queue/{queueType}/cancel` 的 JSON 请求体传递）。凡有异步或后台任务的队列，必须覆写 `prepareQuiesce` 停止新接纳并返回正代际的真实 `QueueDrain`，待在途任务归零后完成 drain。
-5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。
+5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。来源需要在翻页或切换作品类别前等候时，可以调用 `context.workSink().drain()`。等待返回后，仍可通过 `context.isPending(key)` 检查本页是否有作品待重试。
 
 ## 新增插件自有画廊
 

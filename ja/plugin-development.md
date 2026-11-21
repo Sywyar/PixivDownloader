@@ -129,7 +129,7 @@ public List<WebRouteContribution> routes() {
 2. **フロントエンド動作モジュールを実装**：`moduleUrl` 内で `PixivBatch.queueTypes.registerModule(initializer)` を呼び、必須の `process(item, context)` と、宣言した `import`、`acquisition.*`、`filters`、`settings` を実装します。状態は `context.updateItem(patch)` で更新し、`DownloadTasks` を使う場合は `context.bindTask(taskId)` で実行 UUID に関連付けます。非同期コールバックが書き戻す前に `AbortSignal` / `isActive()` を確認し、`onCleanup()` でリソースを解放してください。
 3. **バックエンドで信頼できる利用者識別を解決**：Controller に親コンテキストの `RequestOwnerIdentityResolver` を注入して、現在のリクエストの利用者を解決します。本文やパラメーターで自己申告された owner UUID を信頼してはいけません。ファイルが耐久的に保存され、記録がコミットされてから完了とします。
 4. **`QueueOperations` と実際の処理完了待ち（Quiesce / Drain）を実装**：`workKey` は不透明な文字列で、ホストが `POST /api/download/queue/{queueType}/cancel` の JSON 本文に入れて渡します。非同期・バックグラウンドタスクを持つキューは、`prepareQuiesce` をオーバーライドして新規受付を停止し、正の世代番号を持つ実際の `QueueDrain` を返す必要があります。処理中のタスクがゼロになってから drain を完了します。
-5. **UI スロットとスケジュール機能（任意）**：`uiSlots()` で `WebUiSlotContribution` を提供します。ホストの `PixivVue.mountUiSlot` を使い、Vue runtime はパッケージに含めません。`scheduledSourceDescriptors()` と、子コンテキストの `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean でスケジュール機能を提供します。ホストはスケジューリング、ロック、認証情報、ウォーターマークのコミットを担当します。
+5. **UI スロットとスケジュール機能（任意）**：`uiSlots()` で `WebUiSlotContribution` を提供します。ホストの `PixivVue.mountUiSlot` を使い、Vue runtime はパッケージに含めません。`scheduledSourceDescriptors()` と、子コンテキストの `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean でスケジュール機能を提供します。ホストはスケジューリング、ロック、認証情報、ウォーターマークのコミットを担当します。次のページを取得する前や作品種別を切り替える前に、取得元は `context.workSink().drain()` を呼び出せます。完了後に `context.isPending(key)` を使うと、そのページに再試行待ちの作品があるか確認できます。
 
 ## プラグイン専用ギャラリーの追加
 

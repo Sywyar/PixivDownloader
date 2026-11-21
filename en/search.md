@@ -17,7 +17,9 @@ Enter keywords in Search mode on the download page. The backend calls Pixiv's se
 | Submode | Fetch scope |
 | --- | --- |
 | Search mode | Fetch only page 1, suitable for a quick keyword check |
-| Batch work fetch mode | Fetch through the specified last page, defaulting to 3 pages. Set the last page to `-1` to keep paging through all results, about 10 seconds between pages, up to 1,000 pages |
+| Batch work fetch mode | Preview the requested page range. With an end page of `-1`, a manual fetch reads only the starting page |
+
+Use **Download settings → Minimum page interval (ms)** to set the time between page requests. For example, enter 5000 for at least five seconds. The first page loads immediately. Choose works to download from the preview. Saving a search schedule also saves this setting.
 
 | Sort order | Description |
 | --- | --- |

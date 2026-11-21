@@ -129,7 +129,7 @@ public List<WebRouteContribution> routes() {
 2. **프런트엔드 동작 모듈 구현**: `moduleUrl`에서 `PixivBatch.queueTypes.registerModule(initializer)`를 호출합니다. 필수 `process(item, context)`를 구현하고 `context.updateItem(patch)`로 상태를 갱신합니다. `DownloadTasks`를 사용하면 `context.bindTask(taskId)`로 실행 UUID를 연결합니다. 선언한 `import`, `acquisition.*`, `filters`, `settings`도 구현합니다. 비동기 콜백이 값을 쓰기 전에 `AbortSignal` / `isActive()`를 확인하고 `onCleanup()`에서 리소스를 해제해야 합니다.
 3. **백엔드에서 신뢰할 수 있는 신원 해석**: Controller에 부모 컨텍스트의 `RequestOwnerIdentityResolver`를 주입하여 현재 요청의 신원을 해석합니다. 요청 본문이나 인수가 스스로 제공한 owner UUID를 신뢰해서는 안 됩니다. 파일을 내구성 있게 저장하고 기록을 커밋한 후에만 완료로 표시합니다.
 4. **`QueueOperations` 및 실제 Quiesce / Drain 구현**: `workKey`는 불투명 문자열이며 호스트가 `POST /api/download/queue/{queueType}/cancel`의 JSON 요청 본문으로 전달합니다. 비동기나 백그라운드 작업이 있는 대기열은 `prepareQuiesce`를 재정의하여 새 작업 수락을 중지하고 양의 세대를 가진 실제 `QueueDrain`을 반환해야 합니다. 진행 중인 작업이 0이 된 후 drain을 완료합니다.
-5. **UI 슬롯 및 예약 작업 기능(선택 사항)**: `uiSlots()`로 `WebUiSlotContribution`을 제공합니다. 호스트 `PixivVue.mountUiSlot`을 사용하며 Vue runtime을 패키징하지 않습니다. `scheduledSourceDescriptors()`와 자식 컨텍스트의 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean으로 예약 작업을 지원합니다. 호스트는 스케줄링, 잠금, 자격 증명과 워터마크 커밋을 담당합니다.
+5. **UI 슬롯 및 예약 작업 기능(선택 사항)**: `uiSlots()`로 `WebUiSlotContribution`을 제공합니다. 호스트 `PixivVue.mountUiSlot`을 사용하며 Vue runtime을 패키징하지 않습니다. `scheduledSourceDescriptors()`와 자식 컨텍스트의 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean으로 예약 작업을 지원합니다. 호스트는 스케줄링, 잠금, 자격 증명과 워터마크 커밋을 담당합니다. 다음 페이지를 요청하거나 작품 유형을 바꾸기 전에 소스에서 `context.workSink().drain()`을 호출할 수 있습니다. 대기가 끝난 뒤 `context.isPending(key)`로 현재 페이지에 재시도할 작품이 남았는지 확인하세요.
 
 ## 플러그인 자체 갤러리 추가
 
