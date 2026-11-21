@@ -587,3 +587,45 @@ test('插画和小说搜索创建与编辑仅在多页或不限页且零上限�
         }
     }
 });
+
+test('搜索计划从下载设置保存翻页间隔，恢复默认时不继承工作台的值', async () => {
+    for (const [stored, edited] of [[4500, 0], [0, null], [undefined, 8200]]) {
+        const h = setup({paramsJson: JSON.stringify({kind: 'illust',
+            source: {word: 'fixture', maxPages: '-1'}, download: {pageDelayMs: stored}})});
+        h.run('state.settings.pageDelayMs = 123');
+        h.confirm(true);
+        await h.context.openScheduleEditor(h.task);
+        assert.equal(h.run('scheduleState.editing.settings.pageDelayMs'), stored ?? null);
+        h.run('scheduleState.editing.settings.pageDelayMs = ' + JSON.stringify(edited));
+        await h.save();
+        const saved = JSON.parse(h.requests[0].body.definitionJson);
+        assert.equal(saved.source.maxPages, -1);
+        assert.equal(saved.download.pageDelayMs, edited ?? undefined);
+        assert.equal(h.run('state.settings.pageDelayMs'), 123);
+    }
+});
+
+test('另一版工作台的插画和小说批量预览按下载设置翻页，到最后一页立即结束', async () => {
+    for (const [kind, pageSize] of [['illust', 60], ['novel', 24]]) {
+        const h = setup();
+        h.load('../pixiv-batch/batch-pagination.js');
+        h.run("state.settings.pageDelayMs=50;searchState.submode='batch';searchState.word='test';"
+            + "searchState.startPage=2;searchState.endPage=8;renderSearchStage=()=>{};applySearchFilters=()=>{};");
+        h.run("searchState.kind=" + JSON.stringify(kind));
+        const calls = [];
+        let now = 0;
+        h.context.performance = {now: () => now};
+        h.context.setTimeout = (resolve, ms) => { now += ms; resolve(); };
+        h.context.PixivBatch.queueTypes.acquisition = () => ({pageSize, queueId: item => item.id,
+            buildRangeRequest: ({startPage, endPage}) => ({params: {startPage, endPage}})});
+        h.context.PixivBatch.queueTypes.acquisitionLease = () => ({assertCurrent() {}});
+        h.context.altAcquisitionJson = async (type, mode, {params}, operation) => {
+            calls.push([type, mode, operation, params.startPage, params.endPage, now]);
+            return {items: [{id: params.startPage}], total: pageSize * 3, ...params, fetchedPages: 1, limitPage: 0};
+        };
+        await h.context.runSearch(1);
+        assert.deepEqual(calls, [[kind, 'search', 'range', 2, 2, 0], [kind, 'search', 'range', 3, 3, 50]]);
+        assert.equal(h.run('searchState.batchInfo.fetchedPages'), 2);
+        assert.equal(now, 50);
+    }
+});

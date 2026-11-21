@@ -99,14 +99,14 @@
             || sourceType === SOURCE.FOLLOW_LATEST) return 'watermark';
         if (sourceType === SOURCE.MY_BOOKMARKS || sourceType === SOURCE.COLLECTION) return 'per-run';
         if (sourceType === SOURCE.SEARCH) {
-            return source && source.maxPages === -1
+            return source && Number(source.maxPages) === -1
                 && (source.order || defaults.source.order) === 'date_d' ? 'watermark' : 'per-run';
         }
         return null;
     }
 
     function fetchLimitPresentation(sourceType, source) {
-        if (sourceType === SOURCE.SEARCH && source.maxPages === 1) {
+        if (sourceType === SOURCE.SEARCH && Number(source.maxPages) === 1) {
             return {
                 ...FETCH_LIMIT_PRESENTATION,
                 perRunHintKey: 'schedule.pixiv.fetch-limit.hint.first-page',
@@ -198,6 +198,7 @@
             concurrent: Math.max(1, parseInt(state.settings.concurrent, 10) || defaults.download.concurrent),
             intervalMs: getIntervalMs(),
             imageDelayMs: getImageDelayMs(),
+            pageDelayMs: state.settings.pageDelayMs ?? undefined,
             verifyFiles: !!state.settings.verifyHistoryFiles,
             redownloadDeleted: !!state.settings.redownloadDeleted,
             novelFormat: state.settings.novelFormat || defaults.download.novelFormat,
@@ -356,6 +357,7 @@
             interval: download.intervalMs,
             intervalUnit: 'ms',
             imageDelay: download.imageDelayMs,
+            pageDelayMs: download.pageDelayMs ?? null,
             imageDelayUnit: 'ms',
             verifyHistoryFiles: !!download.verifyFiles,
             redownloadDeleted: !!download.redownloadDeleted,
@@ -371,6 +373,8 @@
             if (typeof setting.mount === 'function') setting.mount(document.getElementById('type-output-settings'));
         });
         state.settings.pathOverflowAction = download.pathOverflowAction;
+        const delay = document.getElementById('s-page-delay');
+        if (delay) delay.value = state.settings.pageDelayMs ?? '';
         const pathAction = document.getElementById('s-path-overflow-action');
         if (pathAction) pathAction.value = download.pathOverflowAction;
         if (typeof download.fileNameTemplate === 'string') {
@@ -487,8 +491,8 @@
             if (input) input.value = source.word || '';
             setRadio('search-order', source.order);
             setRadio('search-smode', source.sMode);
-            const maxPages = source.maxPages;
-            const batch = maxPages === -1 || (typeof maxPages === 'number' && maxPages >= 2);
+            const maxPages = Number(source.maxPages);
+            const batch = maxPages === -1 || maxPages >= 2;
             applySubmodeUI(batch ? 'batch' : 'search', {clear: false});
             const end = document.getElementById('batch-end-page');
             if (end && batch) end.value = maxPages;
@@ -667,6 +671,9 @@
             [bt('batch:label.settings.concurrent', '最大并发数:'), concurrent],
             [bt('batch:label.settings.interval', '作品间隔:'), ms(download.intervalMs)]
         ];
+        if (sourceType === SOURCE.SEARCH) {
+            downloadRows.push([bt('batch:label.settings.page-delay'), ms(download.pageDelayMs ?? window.PixivBatch.defaultSearchPageDelay(source.maxPages))]);
+        }
         if (kind !== 'novel') {
             downloadRows.push([bt('batch:label.settings.image-delay', '图片间隔:'), ms(download.imageDelayMs)]);
             downloadRows.push([bt('batch:label.settings.verify', '实际目录检测'), boolLabel(!!download.verifyFiles)]);

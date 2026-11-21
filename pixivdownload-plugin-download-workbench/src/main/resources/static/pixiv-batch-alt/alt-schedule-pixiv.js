@@ -27,7 +27,7 @@ window.PixivBatch.pixivScheduleRestore = (restored, sourceType) => {
             input: String(source.userId || ''), userId: '', rawItems: [], items: [], error: ''
         });
     } else if (mode === 'search') {
-        const maxPages = source.maxPages;
+        const maxPages = Number(source.maxPages);
         Object.assign(searchState, {
             source: 'pixiv', kind, word: source.word || '',
             order: source.order, sMode: source.sMode,

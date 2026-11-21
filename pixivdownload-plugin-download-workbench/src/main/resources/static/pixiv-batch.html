@@ -571,6 +571,12 @@
                         <button class="unit-toggle" id="s-image-delay-unit" data-pixiv-click="toggleImageDelayUnit()">ms</button>
                     </div>
                     <div class="setting-item">
+                        <label for="s-page-delay" data-i18n="label.settings.page-delay">最短翻页间隔（毫秒）</label>
+                        <input type="number" id="s-page-delay" min="0" max="2147483647" step="1" aria-describedby="s-page-delay-help">
+                        <span class="setting-help-icon" aria-hidden="true" data-i18n-title="label.settings.page-delay.hint">?</span>
+                        <span class="sr-only" id="s-page-delay-help" data-i18n="label.settings.page-delay.hint"></span>
+                    </div>
+                    <div class="setting-item">
                         <label data-i18n="label.settings.concurrent">最大并发数:</label>
                         <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
                     </div>

@@ -296,6 +296,26 @@ function buildSettingsDrawerBody() {
             v => { s.imageDelay = v; saveSettings(); },
             (unit, v) => { s.imageDelayUnit = unit; s.imageDelay = v; saveSettings(); })
     ));
+    const pageDelay = el('input', 'ab-input ab-input--num');
+    pageDelay.id = 's-page-delay';
+    pageDelay.type = 'number';
+    pageDelay.min = '0';
+    pageDelay.max = '2147483647';
+    pageDelay.step = '1';
+    const maxPages = isAdmin && state.mode === 'search' && searchState.submode === 'batch'
+        ? searchState.endPage : null;
+    pageDelay.placeholder = String(window.PixivBatch.defaultSearchPageDelay(maxPages));
+    pageDelay.value = s.pageDelayMs ?? '';
+    pageDelay.addEventListener('change', () => {
+        if (!pageDelay.reportValidity()) {
+            pageDelay.value = s.pageDelayMs ?? '';
+            return;
+        }
+        s.pageDelayMs = pageDelay.value === '' ? null : pageDelay.valueAsNumber;
+        saveSettings();
+    });
+    pace.appendChild(settingsRow(() => bt('batch:label.settings.page-delay'), pageDelay,
+        () => bt('batch:label.settings.page-delay.hint')));
     const concurrentInput = el('input', 'ab-input ab-input--num');
     concurrentInput.type = 'number';
     concurrentInput.min = '1';

@@ -10,6 +10,8 @@ public final class PixivScheduleDefaults {
     public static final String SOURCE_S_MODE = "s_tag";
     public static final int SOURCE_MAX_PAGES = 3;
     public static final String SOURCE_REST = "show";
+    public static final int SEARCH_FIXED_PAGE_DELAY_MS = 0;
+    public static final int SEARCH_INCREMENTAL_PAGE_DELAY_MS = 10000;
     public static final String FILTERS_CONTENT = "all";
     public static final String FILTERS_AI_FILTER = "all";
     public static final String FILTERS_TYPE_FILTER = "all";

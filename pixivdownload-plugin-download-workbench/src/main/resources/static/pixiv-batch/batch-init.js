@@ -19,6 +19,7 @@
         const workbench = document.getElementById('download-workbench');
         if (workbench) workbench.style.display = (normalizedMode === 'schedule') ? 'none' : '';
         storeSet('pixiv_mode', normalizedMode);
+        updateBatchLimitNote();
         applyNovelSettingsVisibility();
         updateSaveScheduleCardVisibility();
         updateExtraFiltersCardVisibility();

@@ -299,7 +299,8 @@ test('导入优先消费类型贡献，运行时缺席时保留区段、显式�
 });
 
 test('下载设置提供贡献槽位，来源选项派发真实选择值', () => {
-    const h = pageHarness('../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js', 'alt-mode-discovery.js');
+    const h = pageHarness('../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/pixiv-schedule-defaults.js',
+        '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js', 'alt-mode-discovery.js');
     h.context.scheduleState = {};
     h.context.cookieHasPhpsessid = () => false;
     let mounted;

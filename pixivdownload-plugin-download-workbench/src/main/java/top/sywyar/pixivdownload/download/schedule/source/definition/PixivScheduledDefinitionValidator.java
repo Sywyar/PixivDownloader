@@ -118,6 +118,11 @@ public final class PixivScheduledDefinitionValidator {
             } catch (IllegalArgumentException invalid) {
                 throw invalidDefinition();
             }
+            JsonNode interval = download.get("pageDelayMs");
+            if (interval != null && (!interval.isIntegralNumber() || !interval.canConvertToInt() || interval.intValue() < 0)) {
+                throw new ScheduledExecutionException(ScheduledFailure.Category.INVALID_DEFINITION,
+                        "schedule.pixiv.page-delay-invalid");
+            }
             validateMinimum(download, "concurrent", 1);
             validateLongMinimum(download, "intervalMs", 0L);
             validateMinimum(download, "imageDelayMs", 0);

@@ -859,20 +859,20 @@
         let request = null;
         try {
             const acq = window.PixivBatch.queueTypes.acquisition(kind, 'search');
-            request = prepareSearchRequest(acq, 'range', {
-                word, order, uiMode, searchMode: sMode, startPage: start, endPage: effEnd
-            });
+            const isCurrent = () => requestSeq === searchState.requestSeq && (!request || request.lease.isCurrent());
+            const fetchRange = async (startPage, endPage) => {
+                request = prepareSearchRequest(acq, 'range', {word, order, uiMode, searchMode: sMode, startPage, endPage});
+                document.getElementById('search-premium-tip').style.display = request.spec.premiumOrder ? 'block' : 'none';
+                const res = await fetch(request.lease.url, request.lease.init);
+                const data = await res.json();
+                request.lease.assertCurrent();
+                if (!res.ok) throw new Error(data.error || bt('queue.unknown-error', '未知错误'));
+                return data;
+            };
+            const data = await window.PixivBatch.pagination.fetchSearchRange(acq, start, effEnd, state.settings.pageDelayMs,
+                fetchRange, isCurrent);
+            if (!isCurrent()) return;
             const clientFilter = Number(request.spec.clientFilter || 0);
-            document.getElementById('search-premium-tip').style.display = request.spec.premiumOrder ? 'block' : 'none';
-            const res = await fetch(request.lease.url, request.lease.init);
-            const data = await res.json();
-            request.lease.assertCurrent();
-            if (requestSeq !== searchState.requestSeq) return;
-            if (!res.ok) {
-                document.getElementById('search-results-area').innerHTML =
-                    `<div class="preview-message preview-message--error">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
-                return;
-            }
             let items = data.items || [];
             if (clientFilter > 0) items = items.filter(it => Number(it.xRestrict ?? 0) === clientFilter);
             searchState.pixivPageCount = items.length;
@@ -912,7 +912,7 @@
         } catch (e) {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             document.getElementById('search-results-area').innerHTML =
-                `<div class="preview-message preview-message--error">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
+                `<div class="preview-message preview-message--error">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: e.message}))}</div>`;
         } finally {
             if (requestSeq !== searchState.requestSeq || (request && !request.lease.isCurrent())) return;
             btn.disabled = false;

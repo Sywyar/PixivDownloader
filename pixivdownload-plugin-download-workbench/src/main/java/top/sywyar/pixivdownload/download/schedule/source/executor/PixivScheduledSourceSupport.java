@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.source.executor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.core.JacksonException;
@@ -23,16 +25,20 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContex
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDraft;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.*;
 
@@ -40,8 +46,7 @@ import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleD
 @PluginManagedBean
 public final class PixivScheduledSourceSupport {
 
-    static final long SEARCH_PAGE_DELAY_MILLIS = 10_000L;
-
+    private static final Logger log = LoggerFactory.getLogger(PixivScheduledSourceSupport.class);
     private static final String USER_NEW = "user-new";
     private static final String USER_REQUEST = "user-request";
     private static final String SEARCH = "search";
@@ -63,7 +68,7 @@ public final class PixivScheduledSourceSupport {
             PixivScheduledLocalWorkLookup localWorkLookup,
             IntSupplier overuseWorkBatchSize) {
         this(objectMapper, fetchService, persistenceCodec, localWorkLookup,
-                overuseWorkBatchSize, SEARCH_PAGE_DELAY_MILLIS);
+                overuseWorkBatchSize, SEARCH_INCREMENTAL_PAGE_DELAY_MS);
     }
 
     PixivScheduledSourceSupport(
@@ -178,7 +183,7 @@ public final class PixivScheduledSourceSupport {
                     ? fetchService.discoverUserNovelIds(text(definition.source(), "userId"), cookie)
                     : fetchService.discoverUserArtworkIds(text(definition.source(), "userId"), cookie);
             return watermarkScan(context, definition, workType(definition), watermark,
-                    page -> page == 1 ? ids : List.of(), false);
+                    page -> page == 1 ? ids : List.of(), 0);
         });
     }
 
@@ -191,7 +196,7 @@ public final class PixivScheduledSourceSupport {
                     text(definition.source(), "userId"), cookie);
             return watermarkScan(context, definition,
                     PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST, watermark,
-                    page -> page == 1 ? ids : List.of(), false);
+                    page -> page == 1 ? ids : List.of(), 0);
         });
     }
 
@@ -210,24 +215,17 @@ public final class PixivScheduledSourceSupport {
             String searchMode = source.path("sMode").asString(SOURCE_S_MODE);
             int maxPages = source.path("maxPages").asInt(SOURCE_MAX_PAGES);
             String workType = workType(definition);
-            PageLoader pages = page -> definition.snapshot().novel()
-                    ? fetchService.discoverSearchNovelIdsPage(
-                            word, order, mode, searchMode, page, cookie)
-                    : fetchService.discoverSearchArtworkIdsPage(
-                            word, order, mode, searchMode, page, cookie);
+            SearchPageLoader pages = page -> fetchService.fetchSearchPage(definition.snapshot().novel(),
+                    word, order, mode, searchMode, page, cookie);
+            long defaultInterval = discoveryMode == SearchMode.FULL ? SEARCH_FIXED_PAGE_DELAY_MS : searchPageDelayMillis;
+            Integer configuredInterval = definition.snapshot().download().pageDelayMs();
+            long interval = configuredInterval == null ? defaultInterval : configuredInterval;
             return switch (discoveryMode) {
-                case WATERMARK -> watermarkScan(
-                        context, definition, workType, watermark, pages, true);
-                case DOWNLOADED_BOUNDARY -> downloadedBoundaryScan(context, definition, workType, pages);
-                case FULL -> {
-                    List<String> ids = definition.snapshot().novel()
-                            ? fetchService.discoverSearchNovelIds(
-                                    word, order, mode, searchMode, maxPages, cookie)
-                            : fetchService.discoverSearchArtworkIds(
-                                    word, order, mode, searchMode, maxPages, cookie);
-                    fullScan(context, definition, workType, ids, definition.snapshot().fetchLimit());
-                    yield ScheduledDiscoveryResult.withoutCheckpoint();
-                }
+                case WATERMARK -> watermarkScan(context, definition, workType, watermark,
+                        page -> pages.load(page).ids(), interval);
+                case DOWNLOADED_BOUNDARY -> downloadedBoundaryScan(context, definition, workType,
+                        page -> pages.load(page).ids(), interval);
+                case FULL -> fixedPageSearch(context, definition, workType, maxPages, pages, interval);
             };
         });
     }
@@ -278,7 +276,7 @@ public final class PixivScheduledSourceSupport {
                         reachedLastPage[0] = result.lastPage();
                         return result.ids();
                     },
-                    false);
+                    0);
         });
     }
 
@@ -343,7 +341,7 @@ public final class PixivScheduledSourceSupport {
             String workType,
             long watermark,
             PageLoader pages,
-            boolean delayBetweenPages) throws Exception {
+            long pageDelayMillis) throws Exception {
         int queueLimit = watermark == 0L && definition.snapshot().fetchLimit() > 0
                 ? definition.snapshot().fetchLimit()
                 : 0;
@@ -351,6 +349,7 @@ public final class PixivScheduledSourceSupport {
         long newestSeen = 0L;
         for (int page = 1; ; page++) {
             context.cancellation().throwIfCancellationRequested();
+            long pageStarted = System.nanoTime();
             List<String> ids = pages.load(page);
             if (ids == null || ids.isEmpty()) {
                 break;
@@ -382,9 +381,7 @@ public final class PixivScheduledSourceSupport {
             if (wholePageAlreadyCompleted) {
                 break;
             }
-            if (delayBetweenPages) {
-                delaySearchPage(context);
-            }
+            awaitNextPage(context, pageStarted, pageDelayMillis);
         }
         return checkpoint(newestSeen);
     }
@@ -393,11 +390,12 @@ public final class PixivScheduledSourceSupport {
             ScheduledSourceContext context,
             ParsedDefinition definition,
             String workType,
-            PageLoader pages) throws Exception {
+            PageLoader pages, long pageDelayMillis) throws Exception {
         int queueLimit = definition.snapshot().fetchLimit();
         int queued = 0;
         for (int page = 1; ; page++) {
             context.cancellation().throwIfCancellationRequested();
+            long pageStarted = System.nanoTime();
             List<String> ids = pages.load(page);
             if (ids == null || ids.isEmpty()) {
                 break;
@@ -418,7 +416,46 @@ public final class PixivScheduledSourceSupport {
                     return ScheduledDiscoveryResult.withoutCheckpoint();
                 }
             }
-            delaySearchPage(context);
+            awaitNextPage(context, pageStarted, pageDelayMillis);
+        }
+        return ScheduledDiscoveryResult.withoutCheckpoint();
+    }
+
+    private ScheduledDiscoveryResult fixedPageSearch(
+            ScheduledSourceContext context, ParsedDefinition definition, String workType,
+            int maxPages, SearchPageLoader pages, long pageDelayMillis) throws Exception {
+        int limit = definition.snapshot().fetchLimit();
+        int submitted = 0;
+        Set<String> seen = new HashSet<>();
+        for (int page = 1; ; page++) {
+            context.cancellation().throwIfCancellationRequested();
+            long pageStarted = System.nanoTime();
+            PixivFetchService.SearchPage result = pages.load(page);
+            int previousSize = seen.size();
+            List<ScheduledWorkKey> submittedOnPage = new ArrayList<>();
+            for (String id : result.ids()) {
+                context.cancellation().throwIfCancellationRequested();
+                if (!seen.add(id)) continue;
+                ScheduledWork work = createWork(workType, id);
+                if (work == null) continue;
+                if (alreadyCompleted(definition, work)) {
+                    context.workSink().completeLocally(work, ScheduledWorkResult.alreadyCompleted());
+                    continue;
+                }
+                context.workSink().submit(work);
+                submittedOnPage.add(work.key());
+                submitted++;
+                if (limit > 0 && submitted >= limit) return ScheduledDiscoveryResult.withoutCheckpoint();
+            }
+            if (page >= maxPages || seen.size() == previousSize
+                    || result.total() > 0 && seen.size() >= result.total()) break;
+            context.workSink().drain();
+            if (submittedOnPage.stream().anyMatch(context::isPending)) {
+                log.info("Stopping search discovery for task {} after page {} with pending work",
+                        context.task().taskId(), page);
+                break;
+            }
+            awaitNextPage(context, pageStarted, pageDelayMillis);
         }
         return ScheduledDiscoveryResult.withoutCheckpoint();
     }
@@ -519,18 +556,18 @@ public final class PixivScheduledSourceSupport {
                 : ScheduledDiscoveryResult.withoutCheckpoint();
     }
 
-    private void delaySearchPage(ScheduledSourceContext context) throws ScheduledExecutionException {
-        long remaining = searchPageDelayMillis;
-        while (remaining > 0L) {
+    private static void awaitNextPage(ScheduledSourceContext context, long pageStarted, long intervalMillis)
+            throws ScheduledExecutionException {
+        long interval = TimeUnit.MILLISECONDS.toNanos(intervalMillis);
+        long remaining;
+        while ((remaining = interval - (System.nanoTime() - pageStarted)) > 0) {
             context.cancellation().throwIfCancellationRequested();
-            long slice = Math.min(remaining, 250L);
             try {
-                Thread.sleep(slice);
+                TimeUnit.NANOSECONDS.sleep(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(250)));
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
                 throw ScheduledExecutionException.cancelled();
             }
-            remaining -= slice;
         }
     }
 
@@ -698,6 +735,11 @@ public final class PixivScheduledSourceSupport {
     @FunctionalInterface
     private interface PageLoader {
         List<String> load(int page) throws Exception;
+    }
+
+    @FunctionalInterface
+    private interface SearchPageLoader {
+        PixivFetchService.SearchPage load(int page) throws IOException;
     }
 
     @FunctionalInterface

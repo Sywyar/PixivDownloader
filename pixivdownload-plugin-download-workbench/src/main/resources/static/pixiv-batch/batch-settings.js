@@ -2,7 +2,7 @@
     let batchCollectionsRefreshPromise = null;
     const scopedBatchCollectionsRefreshPromises = new WeakMap();
     const AUTO_SAVE_SETTING_IDS = new Set([
-        's-interval', 's-image-delay', 's-concurrent', 's-auto-start', 's-skip', 's-verify-files',
+        's-interval', 's-image-delay', 's-page-delay', 's-concurrent', 's-auto-start', 's-skip', 's-verify-files',
         's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template', 's-path-overflow-action',
         's-novel-format', 's-novel-merge', 's-novel-merge-format',
         's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'
@@ -14,6 +14,13 @@
         const delegatedSave = event => {
             const el = event.target;
             if (!el || !AUTO_SAVE_SETTING_IDS.has(el.id)) return;
+            if (el.id === 's-page-delay' && !el.validity.valid) {
+                if (event.type === 'change') {
+                    el.reportValidity();
+                    el.value = settingsTarget().pageDelayMs ?? '';
+                }
+                return;
+            }
             if (event.type === 'input' && el.type !== 'number' && el.type !== 'text') return;
             save();
         };
@@ -130,6 +137,8 @@
         document.getElementById('s-redownload-deleted').checked = settingsTarget().redownloadDeleted ?? false;
         document.getElementById('s-bookmark').checked = settingsTarget().bookmark ?? false;
         document.getElementById('s-image-delay').value = settingsTarget().imageDelay ?? 0;
+        document.getElementById('s-page-delay').value = settingsTarget().pageDelayMs ?? '';
+        updatePageDelayPlaceholder();
         settingsTarget().fileNameTemplate = normalizeFileNameTemplate(settingsTarget().fileNameTemplate);
         document.getElementById('s-file-name-template').value = settingsTarget().fileNameTemplate;
         document.querySelectorAll('[data-template-variable]').forEach(button => {
@@ -286,6 +295,10 @@
     function syncSettings() {
         settingsTarget().interval = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
         settingsTarget().imageDelay = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
+        const pageDelay = document.getElementById('s-page-delay');
+        if (pageDelay && pageDelay.validity.valid) {
+            settingsTarget().pageDelayMs = pageDelay.value === '' ? null : pageDelay.valueAsNumber;
+        }
         settingsTarget().concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
         const autoStart = document.getElementById('s-auto-start');
         if (isAdmin && autoStart) settingsTarget().autoStartOnEnqueue = autoStart.checked;
@@ -364,7 +377,14 @@
         });
     }
 
+    function updatePageDelayPlaceholder() {
+        const maxPages = isAdmin && state.mode === 'search' && searchState.submode === 'batch'
+            ? document.getElementById('batch-end-page').value : null;
+        document.getElementById('s-page-delay').placeholder = String(window.PixivBatch.defaultSearchPageDelay(maxPages));
+    }
+
     function updateBatchLimitNote() {
+        updatePageDelayPlaceholder();
         const note = document.getElementById('batch-limit-note');
         if (!note) return;
         const limit = batchPageLimit();

@@ -63,7 +63,7 @@ function harness() {
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
-    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', '../pixiv-batch/download-profiles.js', 'alt-profiles.js'].forEach(name => load(alt + name));
+    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/pixiv-schedule-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', '../pixiv-batch/download-profiles.js', 'alt-profiles.js'].forEach(name => load(alt + name));
     context.PixivBatch.queueTypes = context.altQueueTypes();
     context.storeSet = (key, value) => {
         saved.set(key, value);
@@ -327,6 +327,21 @@ test('历史检查子项随开关展开且收起时保留已选参数', () => {
     toggle.dispatchEvent({type: 'change'});
     assert.equal(dependent.hidden, true);
     assert.equal(h.writes.at(-1).verifyHistoryFiles, true);
+});
+
+test('翻页间隔在抽屉内提示当前模式默认值，保留空值与显式零', () => {
+    const h = harness();
+    const defaults = h.context.PixivBatch.pixivScheduleDefaults.search;
+    const input = () => h.context.buildSettingsDrawerBody().querySelector('#s-page-delay');
+    assert.equal(input().placeholder, String(defaults.fixedPageDelayMs));
+    vm.runInContext("state.mode = 'search'; searchState.submode = 'batch'; searchState.endPage = -1", h.context);
+    assert.equal(input().placeholder, String(defaults.incrementalPageDelayMs));
+    assert.equal(input().value, '');
+    vm.runInContext('state.settings.pageDelayMs = 0', h.context);
+    assert.equal(String(input().value), '0');
+    vm.runInContext("state.settings.pageDelayMs = null; searchState.submode = 'search'", h.context);
+    assert.equal(input().placeholder, String(defaults.fixedPageDelayMs));
+    assert.equal(h.writes.length, 0);
 });
 
 test('自动开始下载开关默认关闭，保存后重开恢复，计划编辑和非管理员不显示', () => {
