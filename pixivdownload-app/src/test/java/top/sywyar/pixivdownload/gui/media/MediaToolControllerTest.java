@@ -28,11 +28,14 @@ class MediaToolControllerTest {
                 .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages)).build();
         var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
                 java.util.Set.of("core:media.execute", "another-tool:media.execute"));
+        when(registry.isPublished(any())).thenReturn(true);
         mvc.perform(post("/api/tools/media/tasks").contentType("application/json")
                 .requestAttr(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
                 .content("{\"identity\":" + ID + ",\"token\":\"preview\"}"))
-                .andExpect(status().isForbidden());
-        verifyNoInteractions(registry);
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.programPermission").value("independent-tool:media.execute"));
+        verify(registry).isPublished(any());
+        verifyNoMoreInteractions(registry);
     }
 
     @Test void unknownProviderUsesSameHttpAndDesktopExecutionAndOldOwnerIsRejected() throws Exception {
@@ -55,7 +58,9 @@ class MediaToolControllerTest {
         registry.source(identity).start("desktop-replacement");
         mvc.perform(post("/api/tools/media/tasks/cancel").contentType("application/json")
                 .content("{\"identity\":" + ID + ",\"executionId\":\"" + old + "\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_TOOL_REQUEST"))
+                .andExpect(jsonPath("$.in").value("body")).andExpect(jsonPath("$.field").value("/executionId"))
+                .andExpect(jsonPath("$.reason").value("invalid_value"));
         verify(source, never()).cancel();
         mvc.perform(get("/api/tools/media/tasks/current").param("pluginId", owner.pluginId())
                 .param("packageId", owner.packageId()).param("generation", "3").param("publication", "5"))

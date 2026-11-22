@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Service;
@@ -39,17 +40,17 @@ public final class SettingsApiService {
     }
 
     public enum Action { KEEP, SET, CLEAR }
-    public record Change(String owner, String packageId, long generation, String key, Action action, String value) {
+    public record Change(@HttpApiNullable String owner, @HttpApiNullable String packageId, long generation, String key, @HttpApiNullable Action action, @HttpApiNullable String value) {
         @Override public String toString() { return "Change[redacted]"; }
     }
-    public record Field(String owner, String packageId, long generation, String key, String groupId, String labelKey, String helpKey,
-                        String namespace, GuiConfigFieldType type, GuiConfigEffect effect, List<String> enumValues,
-                        Integer minValue, Integer maxValue, List<GuiConfigCondition> requiredWhen,
+    public record Field(@HttpApiNullable String owner, @HttpApiNullable String packageId, long generation, String key, String groupId, String labelKey, String helpKey,
+                        @HttpApiNullable String namespace, GuiConfigFieldType type, GuiConfigEffect effect, List<String> enumValues,
+                        @HttpApiNullable Integer minValue, @HttpApiNullable Integer maxValue, List<GuiConfigCondition> requiredWhen,
                         List<GuiConfigCondition> enabledWhen, List<GuiConfigCondition> visibleWhen,
-                        boolean sensitive, String value, boolean stored, String defaultValue,
+                        boolean sensitive, @HttpApiNullable String value, boolean stored, @HttpApiNullable String defaultValue,
                         Map<String, String> enumValueLabelKeys) {}
-    public record Preset(String owner, String packageId, long generation, String sectionId,
-                         String id, String namespace, String labelKey, String helpKey, Map<String, String> values) {}
+    public record Preset(@HttpApiNullable String owner, @HttpApiNullable String packageId, long generation, String sectionId,
+                         String id, @HttpApiNullable String namespace, String labelKey, String helpKey, Map<String, String> values) {}
 
     public List<Preset> presets() throws IOException {
         var result = new ArrayList<Preset>();
@@ -73,17 +74,27 @@ public final class SettingsApiService {
                     preset.i18nNamespace() == null ? owner.namespace() : preset.i18nNamespace(), preset.labelKey(), preset.helpKey(), preset.values()));
         }
     }
-    public record Saved(String owner, String key, GuiConfigEffect effect) {}
+    public record Saved(@HttpApiNullable String owner, String key, GuiConfigEffect effect) {}
     static final class InvalidField extends IllegalArgumentException {
         final String owner;
         final String key;
         final String messageKey;
         final String variable;
+        final String field;
+        final String reason;
         InvalidField(String code, String owner, String key) {
             this(code, owner, key, null, null);
         }
         InvalidField(String code, String owner, String key, String messageKey, String variable) {
+            this(code, owner, key, messageKey, variable, null);
+        }
+        InvalidField(String code, String owner, String key, String messageKey, String variable, String field) {
+            this(code, owner, key, messageKey, variable, field, code.equals("SETTINGS_REQUIRED") ? "required" : "invalid_value");
+        }
+        InvalidField(String code, String owner, String key, String messageKey, String variable, String field, String reason) {
             super(code);
+            this.field = field;
+            this.reason = reason;
             this.owner = owner;
             this.key = key;
             this.messageKey = messageKey;
@@ -117,32 +128,60 @@ public final class SettingsApiService {
         return List.copyOf(result);
     }
 
+    static InvalidField invalidChange(Change change, String field, String code) {
+        return new InvalidField(code, change == null ? null : change.owner(), change == null ? null : change.key(),
+                null, null, field);
+    }
+
+    static InvalidField missingChange(Change change, String field) {
+        return new InvalidField("INVALID_TOOL_REQUEST", change == null ? null : change.owner(), change == null ? null : change.key(),
+                null, null, field, "required");
+    }
+
     public List<Saved> save(List<Change> changes, boolean validateOnly) throws IOException {
-        if (changes == null || changes.isEmpty()) throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+        if (changes == null || changes.isEmpty()) throw missingChange(null, "/changes");
         var saved = new ArrayList<Saved>();
         host.applicationConfig().withWriteLock(() -> {
             var owners = catalog();
             var updates = new LinkedHashMap<Owner, Map<String, String>>();
             var seen = new HashSet<List<String>>();
-            for (var change : changes) {
-                if (change == null || change.key() == null) throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+            for (int i = 0; i < changes.size(); i++) {
+                var change = changes.get(i);
+                String path = "/changes/" + i;
+                if (change == null) throw missingChange(null, path);
+                if (change.key() == null) throw missingChange(change, path + "/key");
                 var owner = owners.get(change.owner());
-                if (owner == null || !Objects.equals(owner.packageId(), change.packageId()) || owner.generation() != change.generation())
-                    throw new InvalidField("SETTINGS_OWNER_CHANGED", null, null);
+                if (owner == null) throw invalidChange(change, path + "/owner", "SETTINGS_OWNER_CHANGED");
+                if (!Objects.equals(owner.packageId(), change.packageId()))
+                    throw invalidChange(change, path + "/packageId", "SETTINGS_OWNER_CHANGED");
+                if (owner.generation() != change.generation())
+                    throw invalidChange(change, path + "/generation", "SETTINGS_OWNER_CHANGED");
                 var field = owner.fields().get(change.key());
                 if (field == null || !seen.add(Arrays.asList(change.owner(), change.key())))
-                    throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+                    throw invalidChange(change, path + "/key", "INVALID_TOOL_REQUEST");
                 Action action = change.action() == null ? Action.SET : change.action();
-                if (action != Action.SET && (!field.sensitive() || change.value() != null))
-                    throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+                if (action != Action.SET && !field.sensitive())
+                    throw invalidChange(change, path + "/action", "INVALID_TOOL_REQUEST");
+                if (action != Action.SET && change.value() != null)
+                    throw invalidChange(change, path + "/value", "INVALID_TOOL_REQUEST");
                 if (action == Action.KEEP) continue;
                 if (action == Action.SET && (change.value() == null || field.sensitive() && change.value().isBlank()))
-                    throw new IllegalArgumentException("INVALID_SETTINGS_REQUEST");
+                    throw missingChange(change, path + "/value");
                 String value = action == Action.CLEAR ? "" : change.value();
                 updates.computeIfAbsent(owner, ignored -> new LinkedHashMap<>()).put(change.key(), value);
                 saved.add(new Saved(owner.id(), field.key(), field.effect()));
             }
-            host.withCredentialLocks(pluginOwners(updates.keySet()), () -> persist(updates, validateOnly));
+            try {
+                host.withCredentialLocks(pluginOwners(updates.keySet()), () -> persist(updates, validateOnly));
+            } catch (InvalidField invalid) {
+                for (int i = 0; i < changes.size(); i++) {
+                    Change change = changes.get(i);
+                    if (Objects.equals(change.owner(), invalid.owner) && Objects.equals(change.key(), invalid.key))
+                        throw new InvalidField(invalid.getMessage(), invalid.owner, invalid.key, invalid.messageKey, invalid.variable,
+                                "/changes/" + i + "/value");
+                }
+                throw invalid;
+            }
         });
         if (!validateOnly) LOG.info("Settings saved through HTTP fields={} owners={}", saved.size(),
                 saved.stream().map(Saved::owner).distinct().count());
@@ -224,6 +263,11 @@ public final class SettingsApiService {
         };
         if (!valid) throw new IllegalArgumentException("INVALID_SETTINGS_VALUE");
         if (owner.id() == null) host.validateCoreConfigValue(field.key(), value);
+    }
+
+    boolean hasSettingsOwner(String owner) {
+        return owner == null || plugins.get().stream().anyMatch(plugin -> plugin.id().equals(owner)
+                && plugin.configContributions().stream().anyMatch(group -> !group.fields().isEmpty()));
     }
 
     private Map<String, Owner> catalog() throws IOException {

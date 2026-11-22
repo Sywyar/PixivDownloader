@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.verification;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
 
@@ -16,22 +18,28 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
  * @param diagnosticCode         失败诊断码
  */
 public record PluginVerificationView(
-        String status,
+        @Schema(allowableValues = {PluginVerificationProjector.VERIFIED_OFFICIAL, PluginVerificationProjector.VERIFIED_CUSTOM,
+                PluginVerificationProjector.UNVERIFIED_LOCAL, PluginVerificationProjector.UNSIGNED_ALLOWED,
+                PluginVerificationProjector.SIGNATURE_REQUIRED, PluginVerificationProjector.UNKNOWN_KEY,
+                PluginVerificationProjector.REVOKED_KEY, PluginVerificationProjector.INVALID_SIGNATURE,
+                PluginVerificationProjector.HASH_MISMATCH, PluginVerificationProjector.IO_ERROR,
+                PluginVerificationProjector.PROVENANCE_INVALID, PluginVerificationProjector.NOT_INSTALLED,
+                "VERIFIED_COMMUNITY"}) String status,
         String source,
-        String keyId,
-        String publisher,
-        String trustLabel,
-        String lastVerifiedAt,
+        @HttpApiNullable String keyId,
+        @HttpApiNullable String publisher,
+        @HttpApiNullable String trustLabel,
+        @HttpApiNullable String lastVerifiedAt,
         boolean offlineReverifySuccess,
-        String diagnosticCode,
+        @HttpApiNullable String diagnosticCode,
         String repositoryTrustSource,
         String assuranceLevel,
         String revocationStatus,
-        String executionMode,
-        PluginRiskDeclaration riskDeclaration,
-        String previousExecutionMode,
-        PluginRiskDeclaration previousRiskDeclaration,
-        PluginRevocationView revocation) {
+        @HttpApiNullable String executionMode,
+        @HttpApiNullable PluginRiskDeclaration riskDeclaration,
+        @HttpApiNullable String previousExecutionMode,
+        @HttpApiNullable PluginRiskDeclaration previousRiskDeclaration,
+        @HttpApiNullable PluginRevocationView revocation) {
 
     public PluginVerificationView(String status, String source, String keyId, String publisher, String trustLabel,
                                   String lastVerifiedAt, boolean offlineReverifySuccess, String diagnosticCode) {

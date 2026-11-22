@@ -564,8 +564,18 @@ public final class ScheduleExecutionEngine {
     }
 
     private void requireOwner(String owner) throws ScheduledExecutionException {
-        if (!ownerAllowed.test(owner)) throw new ScheduledExecutionException(
-                ScheduledFailure.Category.ACCESS_UNAVAILABLE, "auth.program.forbidden");
+        if (!ownerAllowed.test(owner)) throw new OwnerDenied(owner);
+    }
+
+    public static final class OwnerDenied extends ScheduledExecutionException {
+        private final String owner;
+
+        private OwnerDenied(String owner) {
+            super(ScheduledFailure.Category.ACCESS_UNAVAILABLE, "auth.program.forbidden");
+            this.owner = owner;
+        }
+
+        public String owner() { return owner; }
     }
 
     private void requireWorkOwners(ScheduleExecutionLease execution) throws ScheduledExecutionException {

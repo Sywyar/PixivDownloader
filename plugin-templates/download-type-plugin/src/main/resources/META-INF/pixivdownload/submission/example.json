@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "required": ["requestId", "workType", "workId", "options"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workType": {
+      "const": "example-download"
+    },
+    "workId": {
+      "type": "string",
+      "pattern": "^[0-9]{1,18}$"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "x-max-total-utf8-bytes": 16384,
+      "properties": {
+        "title": {
+          "type": "string",
+          "examples": ["Example title"]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "requestId": "5d384b4e-662e-4b97-a2f2-c867b1b98070",
+      "workType": "example-download",
+      "workId": "42",
+      "options": {
+        "title": "Example title"
+      }
+    }
+  ]
+}

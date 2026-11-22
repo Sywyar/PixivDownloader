@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -11,7 +13,7 @@ import java.util.regex.Pattern;
  * @param fallback 无法解析 key 时的回退文本
  * @param arguments 消息格式化参数
  */
-public record DesktopUiText(String namespace, String key, String fallback, List<String> arguments) {
+public record DesktopUiText(@HttpApiNullable String namespace, String key, String fallback, List<String> arguments) {
     private static final int MAX_TEXT_LENGTH = 16_384;
     private static final Pattern STABLE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
 

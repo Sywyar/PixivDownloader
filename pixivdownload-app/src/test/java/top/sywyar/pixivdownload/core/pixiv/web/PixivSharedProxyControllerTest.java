@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv.web;
 
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,7 @@ class PixivSharedProxyControllerTest {
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.RATE_LIMITED, "limited", 9, 2));
         var response = controller.getUserMeta("123", null, request);
         assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("7200");
         assertThat(response.getBody()).isEqualTo(new PixivSharedProxyController.ProxyRateLimitResponse("limited", 9, 2));
         verifyNoInteractions(ajax);
     }
@@ -65,18 +68,25 @@ class PixivSharedProxyControllerTest {
         allow();
         assertThat(controller.getMeUid("PHPSESSID=24680_fixture", request).getBody())
                 .isEqualTo(new PixivSharedProxyController.MeUidResponse("24680"));
-        assertThat(controller.getMeUid(null, request).getStatusCode().value()).isEqualTo(401);
+        for (String credential : new String[]{null, "PHPSESSID=broken"}) {
+            var denied = controller.getMeUid(credential, request);
+            assertThat(denied.getStatusCode().value()).isEqualTo(400);
+            assertThat(denied.getBody()).isInstanceOfSatisfying(PixivSharedProxyController.ErrorResponse.class,
+                    error -> assertThat(error.code()).isEqualTo("ACQUISITION_CREDENTIAL_REQUIRED"));
+        }
         verifyNoInteractions(ajax);
     }
 
     @Test
     @DisplayName("超长凭据在权限查询和网络访问前拒绝")
     void oversizedCredentialFailsClosed() {
-        String oversized = "x".repeat(16_385);
+        String oversized = "x".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1);
         assertThatThrownBy(() -> controller.getUserMeta("123", oversized, request))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOfSatisfying(HttpParameterException.class, error ->
+                        assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME));
         assertThatThrownBy(() -> controller.getMeUid(oversized, request))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOfSatisfying(HttpParameterException.class, error ->
+                        assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME));
         verifyNoInteractions(ajax, access, identity);
     }
 }

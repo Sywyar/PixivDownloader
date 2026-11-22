@@ -91,6 +91,7 @@ class PluginManagementControllerTest {
                 .standaloneSetup(new PluginManagementController(
                         service, installService, installResponseMapper,
                         enabledConfigurationService, backendRestartService, messages, localeResolver))
+                .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages))
                 .build();
     }
 
@@ -100,6 +101,12 @@ class PluginManagementControllerTest {
         var target = mock(PluginManagementService.PluginManagementEntry.class);
         var consumer = mock(PluginManagementService.PluginManagementEntry.class);
         when(consumer.id()).thenReturn("consumer");
+        when(consumer.toggleable()).thenReturn(true);
+        when(target.id()).thenReturn("sample");
+        when(target.managed()).thenReturn(true);
+        var report = mock(PluginManagementService.PluginManagementReport.class);
+        when(report.plugins()).thenReturn(List.of(target, consumer));
+        when(service.list()).thenReturn(report);
         when(service.previewImpact("sample")).thenReturn(
                 new PluginManagementService.PluginImpactPreview("fingerprint", target, List.of(consumer)));
         var controller = new PluginManagementController(service, installService, null,
@@ -109,8 +116,12 @@ class PluginManagementControllerTest {
         for (var permissions : List.of(java.util.Set.<String>of(), java.util.Set.of("sample:plugins.manage"))) {
             request.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
                     new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id, permissions));
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.stop("sample", request))
-                    .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
+            mockMvc.perform(post("/api/plugins/sample/stop").requestAttr(
+                            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                            request.getAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE)))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("auth.program.forbidden"))
+                    .andExpect(jsonPath("$.programPermission").value(permissions.isEmpty()
+                            ? "sample:plugins.manage" : "consumer:plugins.manage"));
             verify(service, never()).perform(anyString(), any());
         }
         request.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,

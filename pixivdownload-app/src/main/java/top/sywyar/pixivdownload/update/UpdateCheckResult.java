@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.update;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.Builder;
 import lombok.Value;
 
@@ -18,30 +19,42 @@ public class UpdateCheckResult {
     /** 是否存在可用的更新（版本号 > 当前 && 平台资源存在）。 */
     private boolean updateAvailable;
     /** 当前版本（解析自 AppVersion，可能为空）。 */
+    @HttpApiNullable
     private String currentVersion;
     /** 清单中的最新版本号。 */
+    @HttpApiNullable
     private String latestVersion;
+    @HttpApiNullable
     private String releaseDate;
+    @HttpApiNullable
     private String releaseNotes;
+    @HttpApiNullable
     private String releaseNotesUrl;
     /** 适用于当前平台的安装包 URL；无可用资源时为空。 */
+    @HttpApiNullable
     private String assetUrl;
     private long assetSizeBytes;
+    @HttpApiNullable
     private String assetSha256;
     /** 平台 key，例如 win-x64-installer。 */
+    @HttpApiNullable
     private String assetPlatform;
     /** 检查发生时间。 */
+    @HttpApiNullable
     private Instant checkedAt;
     /** 是否为每夜版更新（而非正式发布）。 */
     private boolean nightly;
     /** 正式版检查失败的受控原因码；独立验签成功的每夜版仍可作为替代选项。 */
+    @HttpApiNullable
     private String error;
     /** 失败资源的 HTTP 状态；网络或本地校验失败时为空。 */
+    @HttpApiNullable
     private Integer errorHttpStatus;
     /**
      * 可选的每夜版替代选项。启用每夜版检查且发现可信更新时，若正式版检查失败，或每夜版
      * 严格新于已验证的最新正式版，则提供该选项。嵌套对象本身的
      * {@code nightlyAlternative} 字段始终为 {@code null}。
      */
+    @HttpApiNullable
     private UpdateCheckResult nightlyAlternative;
 }

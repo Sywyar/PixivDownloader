@@ -514,7 +514,9 @@ class PluginCatalogServiceTest {
     void loadFetchesAndParses() {
         server = CatalogTestSupport.startServer();
         CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
-        String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
+        String json = """
+                {"entries":[{"pluginId":"demo","packages":[{"version":"1.0.0","packageUrl":"https://example.invalid/demo.jar","expectedSizeBytes":8}]}]}
+                """;
         serveSignedManifest("/catalog.json", "configured", json, signing);
         PluginCatalogService service = service(true, CatalogTestSupport.loopbackUrl(server, "/catalog.json"), signing);
 
@@ -522,6 +524,10 @@ class PluginCatalogServiceTest {
 
         assertThat(service.isEnabled()).isTrue();
         assertThat(manifest.findEntry("demo")).isPresent();
+        var stable = service.loadPage("configured", new PluginCatalogPageQuery(null, 24, null, null, null, "STABLE"));
+        assertThat(stable.items()).extracting(PluginCatalogEntry::pluginId).containsExactly("demo");
+        var custom = service.loadPage("configured", new PluginCatalogPageQuery(null, 24, null, null, null, "community"));
+        assertThat(custom.items()).isEmpty();
     }
 
     @ParameterizedTest

@@ -93,6 +93,30 @@ class PostgresHostStorageTest {
     }
 
     @Test
+    void partialArtworkPublishesOnlyAfterEverySourcePageIsSaved() throws Exception {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var mapper = new PixivMapper(main);
+        var media = new ArtworkMediaStoreImpl(main, initializer);
+        var original = new ArtworkMediaManifest("jpg", List.of("jpg"), true);
+        var converted = new ArtworkMediaManifest("jpg", List.of("webp"), false);
+        long id = 42;
+        mapper.insertPartialArtwork(new top.sywyar.pixivdownload.core.artwork.download.PartialArtwork(
+                id, directory.toString(), 2, "{artwork_id}_p{page}", 180, "webp", "revision",
+                List.of("42_p0", "42_p1"), java.util.Map.of(), java.util.Map.of()), directory.toString());
+        media.save(id, 0, original);
+        media.savePartial(id, 1, converted, "1:digest");
+        assertThat(mapper.findPartialArtwork(id)).containsEntry("source_revision", "revision");
+        assertThat(mapper.partialPages(id).get(1)).containsEntry("output_fingerprints", "1:digest");
+        assertThatThrownBy(() -> mapper.promotePartialArtwork(id, 2)).isInstanceOf(IllegalStateException.class);
+        assertThat(media.find(id, 0)).contains(original);
+        assertThat(media.find(id, 1)).isEmpty();
+        media.savePartial(id, 0, converted, "1:digest");
+        mapper.promotePartialArtwork(id, 2);
+        assertThat(media.find(id, 0)).contains(converted);
+        assertThat(media.find(id, 1)).contains(converted);
+    }
+
+    @Test
     @DisplayName("文件名池、作品、标签、哈希及统计保留生成键、三态布尔和毫秒时间")
     void artworkAndInternedValuesRoundTrip() {
         var mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));

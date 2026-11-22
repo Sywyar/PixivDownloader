@@ -22,6 +22,7 @@ class DownloadTasksTest {
     private final ExternalCapabilityOwner owner = new ExternalCapabilityOwner("example", "example", 1, 1);
     private final RequestOwnerIdentity admin = RequestOwnerIdentity.adminScope();
     private final List<DownloadEvent.Phase> events = new ArrayList<>();
+    private final java.nio.file.Path output = java.nio.file.Path.of("downloads", "作品").toAbsolutePath();
     private final List<Runnable> queue = new ArrayList<>();
     private final AtomicInteger executions = new AtomicInteger();
 
@@ -31,7 +32,7 @@ class DownloadTasksTest {
             @Override public String workType() { return "example"; }
             @Override public void submit(DownloadSubmission submission, DownloadAttempt attempt, String credential) {
                 var task = tracker.prepareQueued(null);
-                lifecycle.track(attempt, task, null, "example", "作品", true);
+                lifecycle.track(attempt, task, null, "example", "作品", true, output);
                 task.bind(() -> {
                     lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
                     executions.incrementAndGet();
@@ -58,13 +59,31 @@ class DownloadTasksTest {
         assertThat(duplicate.duplicate()).isTrue();
         assertThat(duplicate.task().attempt()).isEqualTo(first.task().attempt());
         assertThat(first.task().phase()).isEqualTo(DownloadEvent.Phase.QUEUED);
+        assertThat(first.task().outputPath()).isEqualTo(output.toString());
+        assertThat(duplicate.task().outputPath()).isEqualTo(first.task().outputPath());
         assertThat(queue).hasSize(1);
         queue.get(0).run();
         assertThat(executions).hasValue(1);
         assertThat(events).containsExactly(DownloadEvent.Phase.ACCEPTED, DownloadEvent.Phase.QUEUED,
                 DownloadEvent.Phase.STARTED, DownloadEvent.Phase.COMPLETED);
         assertThat(lifecycle.submit(command, "secret", admin).task().phase()).isEqualTo(DownloadEvent.Phase.COMPLETED);
+        assertThat(lifecycle.submit(command, "secret", admin).task().outputPath()).isEqualTo(output.toString());
         assertThat(lifecycle.snapshot(admin).toString()).doesNotContain("secret");
+    }
+
+    @Test void preparingDuplicatePicksUpTheDirectoryWhenTheProviderRegistersIt() {
+        var registry = new DownloadTaskRegistry(java.time.Clock.systemUTC());
+        var command = command();
+        var attempt = registry.reserve(command, null, admin).task().attempt();
+        var preparing = registry.reserve(command, null, admin);
+        assertThat(preparing.duplicate()).isTrue();
+        assertThat(preparing.task().outputPath()).isNull();
+
+        registry.register(attempt, null, "example", "title", output.toString());
+        registry.register(attempt, null, "example", "title");
+        assertThatThrownBy(() -> registry.register(attempt, null, "example", "title", output.resolve("other").toString()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(registry.find(attempt.attemptId(), admin).orElseThrow().outputPath()).isEqualTo(output.toString());
     }
 
     @Test @DisplayName("相同幂等键变更选项或凭据会冲突，不能再次执行")
@@ -118,9 +137,17 @@ class DownloadTasksTest {
 
     @Test @DisplayName("能力缺席不假报成功，未授权身份不能提交或读取管理员任务")
     void absenceAndOwnerIsolation() {
-        assertThatThrownBy(() -> lifecycle.submit(command(), null, admin))
+        var unsupported = command();
+        var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(),
+                java.util.Set.of("core:downloads.create"));
+        assertThatThrownBy(() -> lifecycle.submit(unsupported, null, admin))
                 .isInstanceOfSatisfying(DownloadTaskException.class,
-                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        assertThatThrownBy(() -> lifecycle.submitForProgram(unsupported, null, program))
+                .isInstanceOfSatisfying(DownloadTaskException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        assertThat(lifecycle.snapshot(admin).tasks()).isEmpty();
+        assertThat(lifecycle.snapshot(RequestOwnerIdentity.owner(program.id().toString())).tasks()).isEmpty();
         install();
         var item = lifecycle.submit(command(), null, admin).task();
         var visitor = RequestOwnerIdentity.owner("visitor");
@@ -210,7 +237,11 @@ class DownloadTasksTest {
             var denied = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), permissions);
             assertThatThrownBy(() -> lifecycle.submitForProgram(command, null, denied))
                     .isInstanceOfSatisfying(DownloadTaskException.class,
-                            failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.FORBIDDEN));
+                            failure -> {
+                                assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.FORBIDDEN);
+                                assertThat(failure.programPermission()).isEqualTo(permissions.contains("core:downloads.create")
+                                        ? "example:downloads.create" : "core:downloads.create");
+                            });
         }
         assertThat(queue).isEmpty();
         assertThat(events).isEmpty();
@@ -231,7 +262,7 @@ class DownloadTasksTest {
         assertThat(lifecycle.submissionOwners()).isEmpty();
         assertThatThrownBy(() -> lifecycle.submitForProgram(command(), null, first))
                 .isInstanceOfSatisfying(DownloadTaskException.class,
-                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
         assertThat(lifecycle.find(other.task().attempt().attemptId(), secondOwner).orElseThrow().phase())
                 .isEqualTo(DownloadEvent.Phase.COMPLETED);
     }

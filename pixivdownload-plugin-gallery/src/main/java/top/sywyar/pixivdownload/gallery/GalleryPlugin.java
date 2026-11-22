@@ -35,7 +35,7 @@ import java.util.Set;
  */
 public class GalleryPlugin implements PixivFeaturePlugin {
 
-    private static final String ID = "gallery";
+    static final String ID = "gallery";
 
     @Override
     public String id() {

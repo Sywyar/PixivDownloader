@@ -183,6 +183,50 @@ class DesktopSecurityControllerTest {
         }
     }
 
+    @Test void settingsShortcutReviewsGrantsAndDisplaysTheSecretOnlyForThisVisit() throws Exception {
+        verifyCreatedKey("example:read", true);
+        verifyCreatedKey("core:api-reference.read", true);
+        verifyCreatedKey("core:api-reference.read", false);
+    }
+
+    private void verifyCreatedKey(String grant, boolean addressAvailable) throws Exception {
+        var permission = Map.of("id", grant, "owner", "example", "ownerLabel", "Legacy Plugin", "label", "Read items");
+        var posts = new java.util.ArrayList<Object>();
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
+                "guiGet", args -> new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(
+                        args[0].equals("program-keys/permissions") ? List.of(permission) : List.of()), "", false),
+                "backendUri", args -> {
+                    if (!addressAvailable) throw new IllegalStateException("Address unavailable");
+                    return java.net.URI.create("https://studio.example.test:7443" + args[0]);
+                },
+                "guiPostJson", args -> { posts.add(args[1]); return reply(201, Map.of("secret", "one-time-test-value")); }))) {
+            model.dispatch(model.snapshot(), new Event(EventType.ACTIVATE, "config.program-keys", Value.empty()));
+            await(model);
+            assertEquals("program-keys", security(model).panel());
+            model.dispatch(model.snapshot(), new Event(EventType.ACTIVATE, "program.keys.create", Value.empty()));
+            var group = security(model).programKeys().groups().getFirst();
+            assertEquals("Legacy Plugin", group.label().fallback());
+            model.dispatch(model.snapshot(), new Event(EventType.ACTIVATE, group.actionId(), Value.empty()));
+            model.dispatch(model.snapshot(), new Event(EventType.CHANGE, "program.keys.name", Value.text("worker")));
+            model.dispatch(model.snapshot(), new Event(EventType.CHANGE, "program.keys.any", Value.bool(true)));
+            model.dispatch(model.snapshot(), new Event(EventType.ACTIVATE, "program.keys.review", Value.empty()));
+            assertEquals("review", security(model).programKeys().mode());
+            assertTrue(posts.isEmpty());
+            model.dispatch(model.snapshot(), new Event(EventType.ACTIVATE, "program.keys.save", Value.empty()));
+            await(model);
+            assertEquals(List.of(Map.of("name", "worker", "permissions", List.of(grant), "anyIp", true, "networks", List.of())), posts);
+            assertEquals("one-time-test-value", security(model).programKeys().secret());
+            var prompt = security(model).programKeys().agentPrompt();
+            if (addressAvailable) {
+                assertEquals(grant.equals("core:api-reference.read") ? "created.instructions" : "instructions.restricted", prompt.key());
+                assertEquals(List.of("https://studio.example.test:7443/api/openapi.json"), prompt.arguments());
+            } else assertNull(prompt);
+            assertFalse(model.snapshot().toString().contains("one-time-test-value"));
+            model.leaveSecurity();
+            assertNull(security(model).programKeys());
+        }
+    }
+
     private static DesktopUiPluginSnapshot source(long generation, String path) {
         return new DesktopUiPluginSnapshot("sample", false, "sample", generation, false, "sample", "name",
                 List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin(path)), List.of(

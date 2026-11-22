@@ -28,7 +28,7 @@ class DesktopLocalImportControllerTest {
             }
             public Snapshot status(UUID token) {
                 assertEquals(id.get(), token);
-                return new Snapshot(token, phase.get(), 1, 1, 0, 0, 0, 0, false, List.of());
+                return new Snapshot(token, phase.get(), 1, 1, 1, phase.get() == Phase.CANCELLED ? 1 : 0, 0, 0, false, List.of());
             }
             public List<Item> items(UUID token, int offset, int limit) {
                 assertEquals(id.get(), token);
@@ -53,8 +53,9 @@ class DesktopLocalImportControllerTest {
             assertTrue(itemRequests.contains(second));
             activate(model, "start");
             await(() -> second.equals(started.get()));
+            assertFalse(DesktopMediaToolsControllerTest.nodes(model).anyMatch(node -> node.id().equals("local-import.backfill")));
             activate(model, "cancel");
-            await(() -> button(model, "scan").enabled());
+            await(() -> DesktopMediaToolsControllerTest.nodes(model).anyMatch(node -> node.id().equals("local-import.backfill")));
             activate(model, "scan");
             await(() -> sampleArtwork(model).equals("44"));
             fail.set(true);

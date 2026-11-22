@@ -154,6 +154,10 @@ class GalleryExternalPluginBootContextTest {
                         "/pixiv-artwork/**",
                         "/pixiv-showcase/**",
                         "/pixiv-series/**",
+                        "/api/gallery/artworks", "/api/gallery/tags", "/api/gallery/tags/lookup",
+                        "/api/gallery/artwork/*", "/api/gallery/artwork/*/related", "/api/gallery/artwork/*/by-author",
+                        "/api/gallery/artwork/*/by-series", "/api/gallery/artwork/*/series",
+                        "/api/gallery/artworks/delete", "/api/gallery/artworks/collect", "/api/gallery/artworks/export",
                         "/api/gallery/artwork**",
                         "/api/gallery/tags**");
         assertThat(staticResourceRegistry.resources())

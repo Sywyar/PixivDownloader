@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.catalog.error;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
@@ -17,11 +21,11 @@ import java.util.List;
  * @param dependencyInstallResults 本次市场安装过程中已经自动安装成功的依赖插件结果
  */
 public record PluginCatalogErrorResponse(
-        String code,
+        @Schema(implementation = PluginCatalogErrorCode.class) String code,
         String error,
         int status,
-        String pluginId,
-        String version,
+        @HttpApiNullable String pluginId,
+        @HttpApiNullable String version,
         List<PluginDependencyInstallResult> dependencyInstallResults) implements ApiErrorResponse {
 
     public PluginCatalogErrorResponse {

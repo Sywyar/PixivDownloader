@@ -38,9 +38,12 @@ class SettingsControllerTest {
                 java.util.Set.of("core:settings.write", "allowed:settings.write")));
         request.setContent(("{\"changes\":[{\"owner\":\"allowed\",\"generation\":1,\"key\":\"a\",\"value\":\"yes\"},"
                 + "{\"owner\":\"other\",\"generation\":1,\"key\":\"b\",\"value\":\"yes\"}]}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertThatThrownBy(() -> controller.save(request)).isInstanceOfSatisfying(LocalizedException.class,
-                failure -> org.assertj.core.api.Assertions.assertThat(failure.getStatus().value()).isEqualTo(403));
-        verifyNoInteractions(settings);
+        when(settings.hasSettingsOwner("other")).thenReturn(true);
+        assertThatThrownBy(() -> controller.save(request)).isInstanceOfSatisfying(
+                top.sywyar.pixivdownload.setup.ProgramAccess.MissingPermission.class, failure ->
+                        org.assertj.core.api.Assertions.assertThat(failure.permission()).isEqualTo("other:settings.write"));
+        verify(settings).hasSettingsOwner("other");
+        verifyNoMoreInteractions(settings);
     }
 
     @Test

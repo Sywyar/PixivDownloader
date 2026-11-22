@@ -76,15 +76,8 @@ final class PixivProxyResponseMapper {
         return objectMapper.writeValueAsString(pruned);
     }
 
-    static ArtworkPagesResponse artworkPages(JsonNode body) {
-        List<String> urls = new ArrayList<>();
-        for (JsonNode page : body) {
-            String originalUrl = page.path("urls").path("original").asString("");
-            if (!originalUrl.isEmpty()) {
-                urls.add(originalUrl);
-            }
-        }
-        return new ArtworkPagesResponse(urls);
+    static ArtworkPagesResponse artworkPages(JsonNode body) throws IOException {
+        return new ArtworkPagesResponse(top.sywyar.pixivdownload.download.PixivFetchService.originalPageUrls(body));
     }
 
     static UgoiraMetaResponse ugoiraMeta(JsonNode body) {

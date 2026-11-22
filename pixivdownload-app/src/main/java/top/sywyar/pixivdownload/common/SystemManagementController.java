@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.common;
 
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 
 /** 管理员业务入口，复用进程管理与账号服务，不使用本地 GUI 凭据。 */
+@HttpApiGroup("core-system")
 @RestController
 @RequestMapping("/api/admin/system")
 public final class SystemManagementController {
@@ -40,7 +47,7 @@ public final class SystemManagementController {
         this.startedAt = context.getStartupDate();
     }
 
-    public record Status(String mode, boolean setupComplete, String startedAt, String address) {}
+    public record Status(String mode, boolean setupComplete, @io.swagger.v3.oas.annotations.media.Schema(format = "date-time") String startedAt, String address) {}
     public record Reload(List<String> changedKeys) {}
     public record Password(String oldPassword, String newPassword) {
         @Override public String toString() { return "Password[redacted]"; }
@@ -53,12 +60,21 @@ public final class SystemManagementController {
 
     @PostMapping("/connectivity") public PixivConnectivityProbe.Result connectivity() { return connectivity.probe(); }
 
+    @ApiResponse(responseCode = "202", description = "Accepted", content = @io.swagger.v3.oas.annotations.media.Content)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/restart") public ResponseEntity<?> restart(Locale locale) {
         LOG.info("Application restart requested through administrator HTTP");
         return restart.requestRestart() ? ResponseEntity.accepted().build()
                 : failure(503, "SYSTEM_RESTART_UNAVAILABLE", "gui.message.backend-busy", locale);
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Reload.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = RuntimeConfigReloadService.ReloadResult.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.InvalidRequest.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/reload", consumes = "application/json")
     public ResponseEntity<?> reload(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, Reload.class, BODY_LIMIT);
@@ -74,6 +90,16 @@ public final class SystemManagementController {
         }
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Password.class)))
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"CURRENT_PASSWORD_REQUIRED", "WEAK_PASSWORD", "SAME_PASSWORD", ToolApiRequests.INVALID_TOOL_REQUEST}))))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "SETUP_INCOMPLETE"))))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/password", consumes = "application/json")
     public ResponseEntity<?> password(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, Password.class, BODY_LIMIT);
@@ -94,6 +120,10 @@ public final class SystemManagementController {
         } catch (IOException failed) { return saveFailed(failed, locale); }
     }
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "SETUP_INCOMPLETE"))))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/logout-all") public ResponseEntity<?> logoutAll(Locale locale) {
         try {
             state.revokeAllSessions();

@@ -53,6 +53,11 @@ import java.util.function.Function;
  */
 @Slf4j
 public class ConfigPanel extends JPanel implements ConfigSectionContext {
+    private final JButton openProgramKeys = new JButton(SwingHost.context().resolveText(
+            new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText("security", "keys.title", "", List.of())));
+
+    public void onOpenProgramKeys(Runnable open) { openProgramKeys.addActionListener(event -> open.run()); }
+
     private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final List<String> MAINTENANCE_WEEKDAYS = List.of(
@@ -384,6 +389,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         JPanel content = new ConfigContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        if (category.id().equals("access-control")) content.add(openProgramKeys);
         String lastHeading = null;
         for (ScopedGroup group : groups) {
             if (!Objects.equals(lastHeading, group.label())) {

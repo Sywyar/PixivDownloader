@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.plugin.market.content;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
@@ -19,6 +25,7 @@ import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 
 /** 展示附件沿用市场的 ADMIN 路由，只接受目录身份与预期摘要。 */
 @PluginManagedBean
+@HttpApiGroup("core-market")
 @RestController
 @RequestMapping("/api/plugin-market/content")
 public final class PluginMarketContentController {
@@ -33,6 +40,9 @@ public final class PluginMarketContentController {
         this.locales = locales;
     }
 
+    @Parameter(name = "kind", in = ParameterIn.PATH, schema = @Schema(allowableValues = {"readme", "changelog", "releaseNotes"}))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/{repositoryId}/{pluginId}/{version}/{kind}")
     public ResponseEntity<PluginCatalogContentService.DocumentView> document(
             @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version,
@@ -41,6 +51,10 @@ public final class PluginMarketContentController {
                 .body(content.document(repositoryId, pluginId, version, kind, locale, sha256));
     }
 
+    @Parameter(name = "role", in = ParameterIn.QUERY, schema = @Schema(allowableValues = {"icon", "screenshot"}))
+    @Parameter(name = "index", in = ParameterIn.QUERY, schema = @Schema(type = "integer", format = "int32", defaultValue = "0", minimum = "0"))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/{repositoryId}/{pluginId}/image")
     public ResponseEntity<byte[]> image(@PathVariable String repositoryId, @PathVariable String pluginId,
             @RequestParam String role, @RequestParam(defaultValue = "0") int index, @RequestParam String sha256) {

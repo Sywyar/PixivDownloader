@@ -15,7 +15,7 @@ import java.util.Locale;
  * 由调用方解析为本地化提示。
  *
  * <p><b>仅前置提示，非权威</b>：真正的安全裁定（HTTPS / SSRF / 重定向 / 大小 / sha256 / 签名）仍由后端
- * {@code PluginRepositoryRegistry} 与安装器执行，本类不放宽任何后端校验。保留字 / 代理策略枚举直接取自领域模型
+ * 仓库服务与安装器执行。保留字与代理策略枚举直接取自领域模型
  * （仓库 owner / {@link RepositoryProxyPolicy}），与后端单一事实源同步、不另抄一份常量。
  */
 public final class RepositorySettingsValidation {

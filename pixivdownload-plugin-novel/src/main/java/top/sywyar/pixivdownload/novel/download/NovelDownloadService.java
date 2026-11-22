@@ -39,6 +39,7 @@ import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
 import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -159,7 +160,7 @@ public class NovelDownloadService implements NovelDownloader {
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.prepareQueued(NovelQueueTaskOwners.download(userUuid));
         try {
-            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true);
+            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true, plan.directory());
             task.bind(() -> downloadTracked(task, request, userUuid, plan, attempt));
             downloadExecutionLane.execute(task);
         } catch (RuntimeException | Error failure) {
@@ -281,7 +282,7 @@ public class NovelDownloadService implements NovelDownloader {
         QueueTaskTracker.Task task = taskTracker.beginRunning(NovelQueueTaskOwners.download(userUuid));
         Throwable failure = null;
         try {
-            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), false);
+            downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), false, plan.directory());
             return downloadTracked(task, request, userUuid, plan, attempt);
         } catch (RuntimeException | Error original) {
             failure = original;
@@ -307,6 +308,8 @@ public class NovelDownloadService implements NovelDownloader {
         NovelFormat format = NovelFormat.parse(other.getFormat());
         String title = request.getTitle() == null ? String.valueOf(novelId) : request.getTitle();
         NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext(), userUuid);
+        java.util.function.Consumer<DownloadTaskProgress> reportProgress =
+                progress -> downloadLifecycle.reportProgress(attempt, task, progress);
         String statusKey = statusKey(novelId, userUuid);
         AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
         task.onCancellation(() -> cancelTrackedStatus(status));
@@ -348,7 +351,7 @@ public class NovelDownloadService implements NovelDownloader {
             // 写入 HTML/EPUB 之前完成，使写入时即可解析为本地图片链接。
             Map<String, String> embeddedExts = mediaDownloader.downloadEmbeddedImages(
                     novelId, rawContent, other.getEmbeddedImages(), outputPath, request.getCookie(), status,
-                    remainingImageBytes);
+                    remainingImageBytes, reportProgress);
             ensureNotCancelled(status);
 
             // Best-effort 封面下载（与正文同目录、_thumb.{ext}）。
@@ -358,7 +361,7 @@ public class NovelDownloadService implements NovelDownloader {
             }
             String coverExt = mediaDownloader.downloadCover(
                     novelId, other.getCoverUrl(), outputPath, baseName, request.getCookie(), status,
-                    remainingImageBytes);
+                    remainingImageBytes, reportProgress);
             ensureNotCancelled(status);
 
             // Write file

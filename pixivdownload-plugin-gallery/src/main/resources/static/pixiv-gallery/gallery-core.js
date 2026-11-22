@@ -21,12 +21,14 @@ window.PixivGallery = window.PixivGallery || {};
     const thumbnailCancellations = new Map();
     let thumbnailsSuspended = false;
 
-    function releaseThumbnails(root = document) {
+    function releaseThumbnails(root = document, {keepLoaded = false} = {}) {
         root.querySelectorAll('img[data-src]').forEach(img => {
+            const cancel = thumbnailCancellations.get(img);
+            // 加载成功的封面保留图片地址和调度标记，返回画廊时可直接显示。
+            if (keepLoaded && !cancel && img.hasAttribute('src')) return;
             if (thumbnailObserver) thumbnailObserver.unobserve(img);
             delete img.dataset.thumbScheduled;
             delete img.dataset.thumbQueued;
-            const cancel = thumbnailCancellations.get(img);
             if (cancel) cancel();
             img.removeAttribute('src');
             setThumbnailState(img, 'loading');
@@ -41,7 +43,7 @@ window.PixivGallery = window.PixivGallery || {};
 
     function suspendThumbnails() {
         thumbnailsSuspended = true;
-        releaseThumbnails();
+        releaseThumbnails(document, {keepLoaded: true});
     }
 
     function resumeThumbnails() {

@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import java.io.IOException;
 import java.util.Locale;
 
+@HttpApiGroup("core-tools")
 @RestController
 @RequestMapping("/api/tools/ffmpeg")
 public final class FfmpegToolsController {
@@ -21,10 +28,10 @@ public final class FfmpegToolsController {
     public FfmpegToolsController(FfmpegInstallService service, ProxyConfig proxy, AppMessages messages, ToolApiRequests requests) {
         this.service = service; this.proxy = proxy; this.messages = messages; this.requests = requests;
     }
-    public record Status(boolean downloadSupported, boolean installing, FfmpegInstallation installation,
-                         Task task) {}
-    public record Task(java.util.UUID executionId, String state, FfmpegInstaller.ProgressStage stage,
-                       long current, long total, String failureCode, String error) {}
+    public record Status(boolean downloadSupported, boolean installing, @HttpApiNullable FfmpegInstallation installation,
+                         @HttpApiNullable Task task) {}
+    public record Task(java.util.UUID executionId, @Schema(allowableValues = {"RUNNING", "COMPLETED", "FAILED"}) String state, FfmpegInstaller.ProgressStage stage,
+                       long current, long total, String failureCode, @HttpApiNullable String error) {}
     public record InstallRequest(FfmpegInstaller.ProxySettings proxy) {}
 
     @GetMapping public Status status(Locale locale) {
@@ -32,6 +39,12 @@ public final class FfmpegToolsController {
                 FfmpegLocator.locate().orElse(null), view(service.snapshot(), locale));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = InstallRequest.class)))
+    @ApiResponse(responseCode = "202", description = "Accepted", content = @io.swagger.v3.oas.annotations.media.Content(mediaType = "application/json", schema = @Schema(implementation = Task.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.InvalidRequest.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
     @PostMapping(value = "/tasks", consumes = "application/json")
     public ResponseEntity<?> start(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, InstallRequest.class, 4096);

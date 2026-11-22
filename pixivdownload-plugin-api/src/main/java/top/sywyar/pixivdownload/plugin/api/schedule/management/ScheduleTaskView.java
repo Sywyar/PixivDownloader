@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.management;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 
 /**
@@ -57,21 +59,21 @@ public record ScheduleTaskView(
         String presentationJson,
         ScheduledTaskPresentation presentation,
         boolean sourceAvailable,
-        String sourceActivationToken,
+        @HttpApiNullable String sourceActivationToken,
         String triggerKind,
-        Integer intervalMinutes,
-        String cronExpr,
+        @HttpApiNullable Integer intervalMinutes,
+        @HttpApiNullable String cronExpr,
         ScheduleCredentialPolicyView credentialPolicy,
-        String proxy,
-        Long nextRunTime,
-        Long lastRunTime,
+        @HttpApiNullable String proxy,
+        @HttpApiNullable Long nextRunTime,
+        @HttpApiNullable Long lastRunTime,
         String lastOutcome,
-        String outcomeCode,
-        String outcomeMessage,
-        String suspendReason,
-        String suspendCode,
-        String suspendDetailJson,
-        String runState,
+        @HttpApiNullable String outcomeCode,
+        @HttpApiNullable String outcomeMessage,
+        @HttpApiNullable String suspendReason,
+        @HttpApiNullable String suspendCode,
+        @HttpApiNullable String suspendDetailJson,
+        @HttpApiNullable String runState,
         int storageVersion,
         long stateVersion,
         long createdTime

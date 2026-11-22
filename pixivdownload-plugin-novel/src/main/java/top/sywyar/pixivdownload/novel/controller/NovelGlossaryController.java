@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.novel.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -10,9 +13,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.novel.translation.NovelGlossaryService;
 import top.sywyar.pixivdownload.novel.db.NovelGlossary;
 import top.sywyar.pixivdownload.novel.db.NovelGlossaryEntry;
+import top.sywyar.pixivdownload.novel.translation.NovelGlossaryService;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +26,7 @@ import java.util.List;
  * 且不在任何访客邀请白名单（GUEST_ALLOWED_*）中 —— 因此 solo / multi 两种模式下都<b>仅管理员可用</b>，
  * 访客（含邀请访客）无法读取/修改映射表（与 {@code /api/gallery/} 的 GET 对访客开放不同）。
  */
+@HttpApiGroup("novel-glossary")
 @RestController
 @RequestMapping("/api/admin/glossary")
 @RequiredArgsConstructor
@@ -37,6 +42,8 @@ public class NovelGlossaryController {
         return new GlossaryListResponse(views);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
     @PostMapping
     public ResponseEntity<GlossaryView> create(@RequestBody CreateGlossaryRequest request) {
         if (request == null) {
@@ -47,6 +54,8 @@ public class NovelGlossaryController {
         return ResponseEntity.ok(toView(created));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/{id}")
     public ResponseEntity<GlossaryDetail> get(@PathVariable long id) {
         NovelGlossary glossary = glossaryService.find(id);
@@ -56,6 +65,9 @@ public class NovelGlossaryController {
         return ResponseEntity.ok(toDetail(glossary, glossaryService.entries(id)));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
+    @ApiResponse(responseCode = "404", content = @Content)
     @PutMapping("/{id}")
     public ResponseEntity<GlossaryView> rename(@PathVariable long id,
                                                @RequestBody RenameRequest request) {
@@ -68,6 +80,8 @@ public class NovelGlossaryController {
         return ResponseEntity.ok(toView(glossaryService.rename(id, request.name())));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @PutMapping("/{id}/entries")
     public ResponseEntity<GlossaryDetail> replaceEntries(@PathVariable long id,
                                                          @RequestBody EntriesRequest request) {
@@ -86,6 +100,8 @@ public class NovelGlossaryController {
         return ResponseEntity.ok(toDetail(glossary, glossaryService.entries(id)));
     }
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "404", content = @Content)
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable long id) {
         if (!glossaryService.exists(id)) {
@@ -95,6 +111,8 @@ public class NovelGlossaryController {
         return ResponseEntity.noContent().build();
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/{novelId}/default")
     public ResponseEntity<DefaultGlossaryResponse> novelDefault(@PathVariable long novelId) {
         NovelGlossaryService.DefaultGlossary def = glossaryService.resolveNovelDefault(novelId);
@@ -132,10 +150,10 @@ public class NovelGlossaryController {
 
     public record GlossaryListResponse(List<GlossaryView> glossaries) {}
 
-    public record GlossaryView(long id, String name, Long seriesId, Long novelId,
+    public record GlossaryView(long id, String name, @HttpApiNullable Long seriesId, @HttpApiNullable Long novelId,
                                int entryCount, long updatedTime) {}
 
-    public record GlossaryDetail(long id, String name, Long seriesId, Long novelId,
+    public record GlossaryDetail(long id, String name, @HttpApiNullable Long seriesId, @HttpApiNullable Long novelId,
                                  List<EntryDto> entries) {}
 
     public record EntryDto(String source, String lang, String target) {}
@@ -147,6 +165,7 @@ public class NovelGlossaryController {
     public record EntriesRequest(List<EntryDto> entries) {}
 
     /** {@code id} 为 {@code null} 表示该作品的默认映射表尚未创建，前端可据 {@code name} + 绑定按需创建。 */
-    public record DefaultGlossaryResponse(Long id, String name, Long seriesId, Long novelId,
+    public record DefaultGlossaryResponse(@HttpApiNullable Long id, String name, @HttpApiNullable Long seriesId,
+            @HttpApiNullable Long novelId,
                                           int entryCount) {}
 }

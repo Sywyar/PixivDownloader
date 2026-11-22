@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.setup.guest.dto;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.Builder;
 
 import java.util.List;
@@ -10,7 +11,7 @@ public record InviteDetail(
         String code,
         String url,
         String name,
-        Long expireTime,
+        @HttpApiNullable Long expireTime,
         boolean allowSfw,
         boolean allowR18,
         boolean allowR18g,
@@ -21,8 +22,8 @@ public record InviteDetail(
         boolean paused,
         boolean used,
         long totalRequestCount,
-        Long firstUsedTime,
-        Long lastUsedTime,
+        @HttpApiNullable Long firstUsedTime,
+        @HttpApiNullable Long lastUsedTime,
         long createdTime,
         List<TagBrief> tags,
         List<AuthorBrief> authors,
@@ -32,7 +33,7 @@ public record InviteDetail(
         List<Long> collectionIds,
         boolean collectionRestrictsWorks) {
 
-    public record TagBrief(long tagId, String name, String translatedName) {}
+    public record TagBrief(long tagId, String name, @HttpApiNullable String translatedName) {}
 
     public record AuthorBrief(long authorId, String name) {}
 }

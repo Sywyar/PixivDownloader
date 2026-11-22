@@ -207,6 +207,14 @@ class PixivScheduledCredentialPolicyTest {
                 .orElseThrow();
 
         assertThat(plan.nextRunTime()).isEqualTo(1_000L + 120L * 60_000L);
+        var schema = new JsonMapper().readTree(policy.taskPresentation(tasks.getFirst()).accountActionsSchemaJson());
+        for (var example : schema.path("examples")) {
+            var parameters = new java.util.HashMap<String, String>();
+            example.path("parameters").properties().forEach(entry ->
+                    parameters.put(entry.getKey(), entry.getValue().asString()));
+            assertThat(policy.prepareAccountAction(new ScheduledCredentialAccountActionRequest(
+                    "12345", example.path("actionId").asString(), parameters, 1_000L, tasks))).isPresent();
+        }
         assertThatThrownBy(() -> policy.prepareAccountAction(
                 new ScheduledCredentialAccountActionRequest(
                         "12345", PixivScheduledCredentialPolicy.ACTION_DEFER,

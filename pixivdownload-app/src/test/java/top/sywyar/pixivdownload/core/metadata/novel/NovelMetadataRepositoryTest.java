@@ -51,6 +51,7 @@ class NovelMetadataRepositoryTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TABLE external_work_files (work_type TEXT, work_id INTEGER, record_time INTEGER, page INTEGER)");
 
         jdbc.execute("""
                 CREATE TABLE novels (
@@ -131,7 +132,7 @@ class NovelMetadataRepositoryTest {
                         "novelId", "title", "folder", "count", "extensions", "time",
                         "xRestrict", "isAi", "authorId", "description", "fileName",
                         "fileAuthorNameId", "seriesId", "seriesOrder", "isOriginal",
-                        "coverExt", "deleted", "uploadTime", "createTime", "updateTime", "reuploadTime")
+                        "coverExt", "deleted", "uploadTime", "createTime", "updateTime", "reuploadTime", "fileManagement")
                 .doesNotContain("wordCount", "textLength", "readingTimeSeconds", "pageCount",
                         "xLanguage", "rawContent");
     }

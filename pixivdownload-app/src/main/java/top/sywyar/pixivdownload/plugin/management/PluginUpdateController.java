@@ -1,10 +1,12 @@
 package top.sywyar.pixivdownload.plugin.management;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 /** 管理员更新提示入口，沿用插件管理路由的权限。 */
+@HttpApiGroup("core-market")
 @RestController
 @PluginManagedBean
 public class PluginUpdateController {

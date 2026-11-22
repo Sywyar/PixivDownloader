@@ -65,6 +65,22 @@ public final class ArtworkSchemaContribution {
                                 explicitIndex("idx_artworks_reupload_time", false, "reupload_time", "artwork_id")
                         )
                 ),
+                new TableSpec("artwork_partial_pages", List.of(
+                        column("artwork_id", "INTEGER", true, null, 1),
+                        column("page", "INTEGER", true, null, 2),
+                        column("base_name", "TEXT", true, null, 0),
+                        column("original_extension", "TEXT", false, null, 0),
+                        column("extensions", "TEXT", false, null, 0),
+                        column("original_retained", "INTEGER", false, null, 0),
+                        column("output_fingerprints", "TEXT", false, null, 0)), List.of()),
+                new TableSpec("artwork_partial_downloads", List.of(
+                        column("artwork_id", "INTEGER", false, null, 1),
+                        column("folder", "TEXT", true, null, 0),
+                        column("total_pages", "INTEGER", true, null, 0),
+                        column("template", "TEXT", true, null, 0),
+                        column("max_length", "INTEGER", true, null, 0),
+                        column("output_settings", "TEXT", true, null, 0),
+                        column("source_revision", "TEXT", false, null, 0)), List.of()),
                 new TableSpec(
                         "artwork_file_names",
                         List.of(
@@ -98,7 +114,8 @@ public final class ArtworkSchemaContribution {
         );
 
         List<PathColumnSpec> pathColumns = List.of(
-                new PathColumnSpec("artworks", "artwork_id", List.of("folder", "move_folder"))
+                new PathColumnSpec("artworks", "artwork_id", List.of("folder", "move_folder")),
+                new PathColumnSpec("artwork_partial_downloads", "artwork_id", List.of("folder"))
         );
 
         return new SchemaContribution(tables, List.of(), pathColumns);

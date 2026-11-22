@@ -26,9 +26,9 @@ public class ExternalWorkFiles {
         this.database = database;
         this.paths = paths;
     }
-    private static Expression identity(WorkType type, long id) {
+    private static Expression identity(WorkType type, Expression id) {
         return call(AND, call(EQUAL, column(TABLE, "work_type"), value(type.name())),
-                call(EQUAL, column(TABLE, "work_id"), value(id)));
+                call(EQUAL, column(TABLE, "work_id"), id));
     }
     private static Query recordTime(WorkType type, long id) {
         String table = type == WorkType.ARTWORK ? "artworks" : "novels";
@@ -37,7 +37,15 @@ public class ExternalWorkFiles {
                 List.of(), List.of(), 1, 0);
     }
     private static Expression currentRecord(WorkType type, long id) {
-        return call(AND, identity(type, id), call(EQUAL, column(TABLE, "record_time"), new Scalar(recordTime(type, id))));
+        return matchesRecord(type, value(id), new Scalar(recordTime(type, id)));
+    }
+    private static Expression matchesRecord(WorkType type, Expression id, Expression time) {
+        return call(AND, identity(type, id), call(EQUAL, column(TABLE, "record_time"), time));
+    }
+    /** 当前登记可匹配外部引用时返回 1，否则为 NULL。 */
+    public static Expression referenceMarker(WorkType type, Expression id, Expression time) {
+        return new Scalar(new Query(TABLE, Map.of("found", value(1)), matchesRecord(type, id, time),
+                List.of(), List.of(), 1, 0));
     }
     public boolean contains(WorkType type, long id) {
         return !database.read(s -> s.query(new Query(TABLE, Map.of("found", value(1)), currentRecord(type, id),
@@ -63,7 +71,7 @@ public class ExternalWorkFiles {
     }
     public void save(LocalWorkFileImportRequest request) {
         database.transaction(s -> {
-            s.delete(TABLE, identity(request.workType(), request.workId()));
+            s.delete(TABLE, identity(request.workType(), value(request.workId())));
             var records = s.query(recordTime(request.workType(), request.workId()));
             if (records.isEmpty()) throw new org.springframework.dao.EmptyResultDataAccessException(1);
             Object time = records.get(0).get("time");
@@ -126,7 +134,7 @@ public class ExternalWorkFiles {
             var records = s.query(recordTime(request.workType(), request.workId()));
             if (records.isEmpty()) throw new org.springframework.dao.EmptyResultDataAccessException(1);
             Object time = records.getFirst().get("time");
-            s.delete(TABLE, identity(request.workType(), request.workId()));
+            s.delete(TABLE, identity(request.workType(), value(request.workId())));
             Set<String> extensions = new TreeSet<>();
             for (int page = 0; page < ordered.size(); page++) {
                 Reference ref = ordered.get(page);

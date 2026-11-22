@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.author;
 
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +20,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import java.util.List;
 import java.util.Set;
 
+@HttpApiGroup("core-library")
 @RestController
 @RequestMapping("/api/authors")
 @RequiredArgsConstructor
@@ -22,14 +29,19 @@ public class AuthorController {
     private final AuthorService authorService;
     private final GalleryRepository galleryRepository;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public List<Author> getAuthors(HttpServletRequest httpRequest) {
         Set<Long> filter = resolveGuestFilter(httpRequest);
         return authorService.getAllAuthors(filter);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/paged")
     public AuthorService.PagedAuthors getPagedAuthors(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size,
             @RequestParam(required = false) String search,

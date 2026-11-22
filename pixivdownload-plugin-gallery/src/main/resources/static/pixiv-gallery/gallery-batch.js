@@ -38,6 +38,7 @@
         batch.selected.clear();
         batch.excluded.clear();
         batch.mode = 'ids';
+        batch.fullLibrary = false;
         batch.filterSnapshot = null;
         batch.filterKey = '';
         batch.total = 0;
@@ -52,6 +53,7 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
+            fileManagement: state.fileManagement === 'any' ? null : state.fileManagement,
             formats: [...state.formats],
             collectionIds: [...state.collectionIds],
             tagIds: [...state.tagFilters.must],
@@ -116,6 +118,7 @@
         const total = Number(state.totalElements || 0);
         if (!total) return;
         batch.mode = 'filter';
+        batch.fullLibrary = !hasActiveGalleryFilters();
         batch.filterSnapshot = currentBatchFilterSnapshot();
         batch.filterKey = JSON.stringify(batch.filterSnapshot);
         batch.total = total;
@@ -146,7 +149,7 @@
         });
     }
 
-    function buildBatchPayload(collectionId) {
+    function buildBatchPayload(collectionId, deleting = false) {
         const payload = batch.mode === 'filter'
             ? {
                 mode: 'filter',
@@ -157,6 +160,7 @@
                 mode: 'ids',
                 ids: [...batch.selected],
             };
+        if (deleting && payload.mode === 'filter' && batch.fullLibrary) payload.confirmAll = true;
         if (collectionId != null) payload.collectionId = collectionId;
         return payload;
     }
@@ -192,7 +196,7 @@
         const res = await api('/api/gallery/artworks/delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(buildBatchPayload()),
+            body: JSON.stringify(buildBatchPayload(null, true)),
         });
         const deleted = res && typeof res.deleted === 'number' ? res.deleted : expected;
         toast(t('manage.delete-success', '已删除 {count} 个作品', {count: deleted}), 'success');
@@ -220,7 +224,7 @@
         const deleteAfter = document.getElementById('batchExportDeleteAfter').checked;
         confirmBtn.disabled = true;
         try {
-            const payload = buildBatchPayload();
+            const payload = buildBatchPayload(null, deleteAfter);
             payload.groupBy = document.getElementById('batchExportGroupBy').value;
             payload.format = document.getElementById('batchExportFormat').value;
             payload.deleteAfter = deleteAfter;

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.artwork;
 
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
+
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.junit.jupiter.api.AfterEach;
@@ -38,10 +40,26 @@ class GalleryRepositoryTest {
         dataSource.setSuppressClose(true);
 
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TABLE external_work_files (work_type TEXT, work_id INTEGER, record_time INTEGER, page INTEGER)");
         repository = new GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         createTables();
         seedArtworks();
+    }
+
+    @Test
+    void filtersCurrentFileReferencesBeforeCountingAndPaging() {
+        jdbc.update("INSERT INTO external_work_files SELECT 'ARTWORK', artwork_id, time, 0 FROM artworks WHERE artwork_id = ?", ARTWORK_B);
+        jdbc.update("INSERT INTO external_work_files SELECT 'ARTWORK', artwork_id, time, 1 FROM artworks WHERE artwork_id = ?", ARTWORK_B);
+        jdbc.update("INSERT INTO external_work_files SELECT 'ARTWORK', artwork_id, time - 1, 0 FROM artworks WHERE artwork_id = ?", ARTWORK_F);
+        jdbc.update("INSERT INTO external_work_files SELECT 'NOVEL', artwork_id, time, 0 FROM artworks WHERE artwork_id = ?", ARTWORK_H);
+        var query = WorkQuery.builder(WorkType.ARTWORK).size(1).build();
+        var external = query.withFileManagement(FileManagement.EXTERNAL_REFERENCE);
+        assertThat(repository.findArtworkIds(external).totalElements()).isEqualTo(1);
+        assertThat(repository.findAllArtworkIds(external)).containsExactly(ARTWORK_B);
+        var managed = query.withFileManagement(FileManagement.MANAGED);
+        assertThat(repository.findArtworkIds(managed).ids()).hasSize(1);
+        assertThat(repository.findAllArtworkIds(managed)).contains(ARTWORK_F, ARTWORK_H).doesNotContain(ARTWORK_B);
     }
 
     @AfterEach

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics.DailyOutcomes;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.StatisticsData;
+import top.sywyar.pixivdownload.core.stats.db.StatsQueryStoreImpl;
 import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
@@ -26,16 +27,18 @@ public class DownloadStatisticsService {
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
     private final Clock clock;
+    private final StatsQueryStoreImpl statsQueryStore;
 
     @Autowired
-    public DownloadStatisticsService(PixivDatabase pixivDatabase, AppMessages messages) {
-        this(pixivDatabase, messages, Clock.systemDefaultZone());
+    public DownloadStatisticsService(PixivDatabase pixivDatabase, StatsQueryStoreImpl statsQueryStore, AppMessages messages) {
+        this(pixivDatabase, statsQueryStore, messages, Clock.systemDefaultZone());
     }
 
-    DownloadStatisticsService(PixivDatabase pixivDatabase, AppMessages messages, Clock clock) {
+    DownloadStatisticsService(PixivDatabase pixivDatabase, StatsQueryStoreImpl statsQueryStore, AppMessages messages, Clock clock) {
         this.pixivDatabase = pixivDatabase;
         this.messages = messages;
         this.clock = clock;
+        this.statsQueryStore = statsQueryStore;
     }
 
     /**
@@ -71,7 +74,8 @@ public class DownloadStatisticsService {
 
     public StatisticsResponse getStatistics() {
         int[] stats = pixivDatabase.getStats();
-        return new StatisticsResponse(true, stats[0], stats[1], stats[2],
+        var inventory = statsQueryStore.inventory();
+        return new StatisticsResponse(true, stats[0], stats[1], stats[2], inventory.artworks(), inventory.images(),
                 messages.get("download.statistics.success"));
     }
 

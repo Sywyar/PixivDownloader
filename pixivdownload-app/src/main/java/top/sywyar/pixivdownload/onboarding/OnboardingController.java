@@ -1,5 +1,12 @@
 package top.sywyar.pixivdownload.onboarding;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,6 +35,7 @@ import java.util.regex.Pattern;
  * <p>称呼（displayName）是非敏感的个性化展示信息，写入 {@code setup_config.json}；连通性探测固定只访问
  * {@code https://www.pixiv.net/}，不携带 Cookie、不回显上游正文（见 {@link PixivConnectivityProbe}）。</p>
  */
+@HttpApiGroup("core-identity")
 @RestController
 @RequestMapping("/api/onboarding")
 @RequiredArgsConstructor
@@ -41,6 +49,10 @@ public class OnboardingController {
     private final SetupService setupService;
     private final PixivConnectivityProbe pixivConnectivityProbe;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
+    @ApiResponse(responseCode = "403", content = @Content)
+    @HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
     @PostMapping("/steps/{stepId}/complete")
     public ResponseEntity<Void> completeStep(@PathVariable String stepId, HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -56,6 +68,7 @@ public class OnboardingController {
     /**
      * 读取当前称呼；前端把 403 作为不参与新手向导的信号，读取资格与写入、探测权限分别判定。
      */
+    @HttpApiAccess(HttpApiAccess.Condition.SOLO_OR_ADMIN)
     @GetMapping("/profile")
     public ResponseEntity<ProfileResponse> getProfile(HttpServletRequest req) {
         if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(req)
@@ -67,6 +80,7 @@ public class OnboardingController {
     }
 
     /** 更新称呼；空白视为清除。仅真正已登录的管理员可写，避免 solo 模式未登录请求覆盖 displayName。 */
+    @HttpApiAccess(HttpApiAccess.Condition.ADMIN_SESSION)
     @PostMapping("/profile")
     public ResponseEntity<ProfileResponse> updateProfile(@RequestBody(required = false) ProfileRequest body,
                                                          HttpServletRequest req) throws IOException {
@@ -87,6 +101,9 @@ public class OnboardingController {
      * 探测后端到 Pixiv 的网络连通性（往返耗时）。仅真正已登录的管理员可触发，避免 solo 模式未登录请求
      * 被未授权方反复打到外网探测端点。
      */
+    @HttpApiAccess(HttpApiAccess.Condition.ADMIN_SESSION)
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/connectivity")
     public ResponseEntity<ConnectivityResponse> connectivity(HttpServletRequest req) {
         if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(req)
@@ -101,9 +118,9 @@ public class OnboardingController {
     public record ProfileRequest(String displayName) {
     }
 
-    public record ProfileResponse(String displayName) {
+    public record ProfileResponse(@HttpApiNullable String displayName) {
     }
 
-    public record ConnectivityResponse(boolean reachable, long latencyMs, String errorType) {
+    public record ConnectivityResponse(boolean reachable, long latencyMs, @HttpApiNullable String errorType) {
     }
 }

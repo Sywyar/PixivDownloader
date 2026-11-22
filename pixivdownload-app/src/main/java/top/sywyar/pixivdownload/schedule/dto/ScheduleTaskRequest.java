@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
@@ -12,6 +13,7 @@ import lombok.Data;
 public class ScheduleTaskRequest {
 
     @NotBlank
+    @Schema(example = "Evening downloads")
     private String name;
 
     @NotBlank
@@ -34,9 +36,11 @@ public class ScheduleTaskRequest {
 
     /** {@code interval} 或 {@code cron} */
     @NotBlank
+    @Schema(allowableValues = {"interval", "cron"}, example = "interval")
     private String triggerKind;
 
     /** interval 模式的周期分钟数 */
+    @Schema(example = "60")
     private Integer intervalMinutes;
 
     /** cron 模式的 Spring Cron 表达式 */

@@ -111,6 +111,7 @@
             && state.view === 'all'
             && state.r18 === 'any'
             && state.ai === 'any'
+            && state.fileManagement === 'any'
             && state.formats.size === 0
             && getFilterCount('tag') === 0
             && getFilterCount('author') === 0

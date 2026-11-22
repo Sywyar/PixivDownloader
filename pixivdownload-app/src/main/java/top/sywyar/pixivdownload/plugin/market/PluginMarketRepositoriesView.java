@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.List;
 
 /**
@@ -14,7 +16,7 @@ import java.util.List;
 public record PluginMarketRepositoriesView(
         boolean enabled,
         String sdkVersion,
-        String defaultRepositoryId,
+        @HttpApiNullable String defaultRepositoryId,
         List<PluginMarketRepositoryView> repositories) {
 
     public PluginMarketRepositoriesView {

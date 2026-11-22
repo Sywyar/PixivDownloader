@@ -69,7 +69,9 @@ class ImageClassifierControllerTest {
                 .andExpect(status().isOk()).andExpect(header().string("Content-Disposition", "attachment"))
                 .andExpect(content().bytes(new byte[]{1, 2, 3}));
         mvc.perform(get("/api/tools/classifier/image").param("path", root.resolve("config.properties").toString()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_TOOL_REQUEST"))
+                .andExpect(jsonPath("$.in").value("query")).andExpect(jsonPath("$.field").value("path"))
+                .andExpect(jsonPath("$.reason").value("unsupported"));
     }
 
     @Test

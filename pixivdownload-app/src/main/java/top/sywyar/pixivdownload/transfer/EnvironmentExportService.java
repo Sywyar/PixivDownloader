@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.transfer;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -37,7 +39,7 @@ public final class EnvironmentExportService {
                           boolean includeState, boolean includeResources, boolean confirmRestart) {
         @Override public String toString() { return "Request[redacted]"; }
     }
-    public record View(UUID id, State state, String failureCode, long bytes, String sha256, String downloadUrl) {}
+    public record View(UUID id, State state, String failureCode, long bytes, String sha256, @HttpApiNullable String downloadUrl) {}
     private record Job(UUID id, State state, long requester, String destination, String failureCode, long bytes, String sha256) {
         View view() { return new View(id, state, failureCode, bytes, sha256,
                 state == State.SUCCEEDED ? "/api/settings/environment/exports/" + id + "/archive" : null); }

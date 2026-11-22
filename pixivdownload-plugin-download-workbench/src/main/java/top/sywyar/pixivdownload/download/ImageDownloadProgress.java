@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
@@ -12,7 +13,9 @@ public class ImageDownloadProgress {
     public static final String STATUS_COMPLETED = "completed";
     public static final String STATUS_FAILED = "failed";
 
+    @Schema(allowableValues = {STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED})
     private final String status;
+    @Schema(examples = {"processing", "verifying", "ffmpeg-waiting", "ffmpeg", "thumbnail", "finalizing"})
     private final String phase;
     private final String outputFormat;
     private final Integer outputIndex;

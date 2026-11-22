@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.config.credential;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationFeature;
@@ -23,7 +24,7 @@ public final class AcquisitionCredentialLibrary {
     private final PluginCredentialStore store;
 
     public AcquisitionCredentialLibrary(PluginCredentialStore store) { this.store = store; }
-    public record Entry(String id, String name, boolean enabled, String secret) {
+    public record Entry(String id, String name, boolean enabled, @HttpApiNullable String secret) {
         @Override public String toString() { return "Entry[redacted]"; }
     }
     public record View(String id, String name, boolean enabled) {}

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.push.controller;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.push.PushPluginMessages;
 import top.sywyar.pixivdownload.push.PushResult;
@@ -22,7 +24,7 @@ public record PushTestResponse(boolean success, int total, int succeeded, List<I
      * @param status  {@code OK} / {@code FAILED} / {@code SKIPPED}
      * @param detail  失败 / 跳过原因（已脱敏）；成功时为 {@code null}
      */
-    public record Item(String channel, String status, String detail) {
+    public record Item(String channel, @Schema(implementation = PushResult.Status.class) String status, @HttpApiNullable String detail) {
     }
 
     public static PushTestResponse from(List<PushResult> results, MessageResolver messages, Locale locale) {

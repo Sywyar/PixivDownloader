@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.core.web;
 
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import java.io.IOException;
 
 /** 管理员的共享采集凭据库；HTTP 投影从不返回 secret。 */
+@HttpApiGroup("core-credentials")
 @RestController
 @RequestMapping("/api/acquisition/credentials")
 public final class AcquisitionCredentialsController {
@@ -26,12 +31,32 @@ public final class AcquisitionCredentialsController {
         this.identities = identities;
         this.messages = messages;
     }
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = AcquisitionCredentialLibrary.Snapshot.class),
+            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(value = """
+                    {"revision":"1111111111111111111111111111111111111111111111111111111111111111","entries":[{"id":"primary","name":"Pixiv","enabled":true}]}
+                    """)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<?> read(HttpServletRequest request) throws IOException {
         if (!allowed(request, "credentials.read")) return failure(403, "CREDENTIAL_FORBIDDEN");
         try { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(library.read()); }
         catch (IOException failure) { return failure(503, "CREDENTIAL_IO"); }
     }
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = AcquisitionCredentialLibrary.Update.class),
+            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(value = """
+                    {"revision":"1111111111111111111111111111111111111111111111111111111111111111","entries":[{"id":"primary","name":"Pixiv","enabled":true,"secret":""}]}
+                    """)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = AcquisitionCredentialLibrary.Snapshot.class),
+            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(value = """
+                    {"revision":"1111111111111111111111111111111111111111111111111111111111111111","entries":[{"id":"primary","name":"Pixiv","enabled":true}]}
+                    """)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PutMapping(consumes = "application/json")
     public ResponseEntity<?> save(HttpServletRequest request) throws IOException {
         if (!allowed(request, "credentials.write")) return failure(403, "CREDENTIAL_FORBIDDEN");

@@ -15,7 +15,6 @@ import top.sywyar.pixivdownload.core.work.model.WorkFileNameTemplateRef;
 import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.util.List;
@@ -60,8 +59,7 @@ class CoreWorkMetadataRepositoryTest {
             when(pixivDatabase.getArtworks(anyCollection())).thenReturn(List.of(
                     artwork(7L, 88L, 600L, 5L, false)));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(88L, "作者甲"));
-            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of(
-                    new MangaSeries(600L, "系列标题", 88L, 0L, null, null, null)));
+            when(mangaSeriesService.titlesForArtworks(anyCollection())).thenReturn(Map.of(600L, "系列标题"));
             when(pixivDatabase.getArtworkTags(anyCollection())).thenReturn(Map.of(
                     7L, List.of(new TagDto(11L, "魔法", "magic"))));
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(
@@ -174,7 +172,7 @@ class CoreWorkMetadataRepositoryTest {
                     artwork(1L, 88L, 600L, 5L, false),
                     artwork(2L, 99L, 601L, 6L, false)));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
-            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of());
+            when(mangaSeriesService.titlesForArtworks(anyCollection())).thenReturn(Map.of());
             when(pixivDatabase.getArtworkTags(anyCollection())).thenReturn(Map.of());
             when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
 
@@ -183,7 +181,7 @@ class CoreWorkMetadataRepositoryTest {
             verify(pixivDatabase, times(1)).getArtworks(anyCollection());
             verify(pixivDatabase, never()).getArtwork(anyLong());
             verify(authorService, times(1)).getAuthorNames(anyCollection());
-            verify(mangaSeriesService, times(1)).getSeriesByIds(anyCollection());
+            verify(mangaSeriesService, times(1)).titlesForArtworks(anyCollection());
             verify(pixivDatabase, times(1)).getArtworkTags(anyCollection());
             verify(pixivDatabase, never()).getArtworkTags(anyLong());
             verify(pixivDatabase, times(1)).getFileNameTemplates(anyCollection());

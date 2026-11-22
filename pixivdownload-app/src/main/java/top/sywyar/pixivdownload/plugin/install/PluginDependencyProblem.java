@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.install;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 
 /**
@@ -17,8 +19,8 @@ public record PluginDependencyProblem(
         String pluginId,
         String versionSupport,
         boolean optional,
-        String installedVersion,
-        String status,
+        @HttpApiNullable String installedVersion,
+        @HttpApiNullable @Schema(examples = {"DISABLED", "REJECTED_INCOMPATIBLE"}) String status,
         Reason reason,
         String detail) {
 

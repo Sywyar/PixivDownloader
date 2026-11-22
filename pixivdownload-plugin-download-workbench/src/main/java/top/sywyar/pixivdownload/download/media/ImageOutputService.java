@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.media;
 
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
+import top.sywyar.pixivdownload.core.artwork.download.PartialArtwork;
 import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler;
@@ -37,7 +38,7 @@ public final class ImageOutputService {
 
     public List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                 BooleanSupplier cancelled) throws IOException {
-        return process(artworkId, page, stem, sourceExtension, settings, cancelled, null, null);
+        return process(page, stem, sourceExtension, settings, cancelled, null, null, downloadedMedia(artworkId, false));
     }
 
     /** 只报告机器阶段与输出序号；原始路径、命令和异常诊断不进入队列状态。 */
@@ -45,18 +46,23 @@ public final class ImageOutputService {
 
     public List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                 BooleanSupplier cancelled, Consumer<Progress> progress) throws IOException {
-        return process(artworkId, page, stem, sourceExtension, settings, cancelled, null, progress);
+        return process(page, stem, sourceExtension, settings, cancelled, null, progress, downloadedMedia(artworkId, false));
     }
 
-    private List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
+    public List<String> process(int page, Path stem, String sourceExtension, MediaOutputSettings settings,
+                                BooleanSupplier cancelled, Consumer<Progress> progress, MediaSink sink) throws IOException {
+        return process(page, stem, sourceExtension, settings, cancelled, null, progress, sink);
+    }
+
+    private List<String> process(int page, Path stem, String sourceExtension, MediaOutputSettings settings,
                                  BooleanSupplier cancelled, ArtworkMediaManifest previous,
-                                 Consumer<Progress> progress) throws IOException {
+                                 Consumer<Progress> progress, MediaSink sink) throws IOException {
         List<String> selected = MediaOutputSettings.parseFormats(
                 settings.getImageFormats(), MediaOutputSettings.IMAGE_FORMATS);
         if (selected.stream().allMatch(format -> format.equals("original") || format.equals(sourceExtension)
                 || format.equals("jpg") && sourceExtension.equals("jpeg"))) {
             checkCancelled(cancelled);
-            mediaStore.save(artworkId, page, previous == null
+            sink.save(page, stem, previous == null
                     ? new ArtworkMediaManifest(sourceExtension, List.of(sourceExtension)) : previous);
             return List.of(sourceExtension);
         }
@@ -125,7 +131,7 @@ public final class ImageOutputService {
             LinkedHashSet<String> recorded = new LinkedHashSet<>();
             if (previous != null) recorded.addAll(previous.extensions());
             recorded.addAll(outputs);
-            mediaStore.save(artworkId, page, new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
+            sink.save(page, stem, new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
                     previous == null ? outputs.contains(sourceExtension) : previous.originalRetained()));
             if (!outputs.contains(sourceExtension)) Files.delete(source);
             return List.copyOf(outputs);
@@ -161,8 +167,19 @@ public final class ImageOutputService {
         if (missing.size() == 1) return;
         var settings = new MediaOutputSettings();
         settings.setImageFormats(String.join(",", missing));
-        process(artworkId, page, stem, extension, settings, cancelled,
-                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null);
+        process(page, stem, extension, settings, cancelled,
+                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null, downloadedMedia(artworkId, false));
+    }
+
+    @FunctionalInterface
+    public interface MediaSink {
+        void save(int page, Path stem, ArtworkMediaManifest media) throws IOException;
+    }
+
+    public MediaSink downloadedMedia(long artworkId, boolean partial) {
+        return partial
+                ? (page, stem, media) -> mediaStore.savePartial(artworkId, page, media, PartialArtwork.fingerprint(stem, media))
+                : (page, stem, media) -> mediaStore.save(artworkId, page, media);
     }
 
     private void checkInput(Path source, BooleanSupplier cancelled, Consumer<FfmpegRunner.Phase> progress) throws IOException {

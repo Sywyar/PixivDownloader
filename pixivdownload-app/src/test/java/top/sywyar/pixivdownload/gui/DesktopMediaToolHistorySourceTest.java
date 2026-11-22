@@ -51,7 +51,9 @@ class DesktopMediaToolHistorySourceTest {
         var source = new IndependentSource();
         try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext();
              var paths = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var history = mockStatic(DesktopToolHistory.class);
              var backend = mockStatic(BackendLifecycleManager.class)) {
+            history.when(DesktopToolHistory::shared).thenReturn(new DesktopToolHistory(directory));
             paths.when(top.sywyar.pixivdownload.config.RuntimeFiles::guiStateDirectory).thenReturn(directory);
             paths.when(top.sywyar.pixivdownload.config.RuntimeFiles::logDirectory).thenReturn(directory.resolve("logs"));
             backend.when(() -> BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class))

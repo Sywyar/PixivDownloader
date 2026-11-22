@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.multimodesurvey;
 
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -8,8 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +26,7 @@ import java.util.regex.Pattern;
 
 /** Returns a survey-scoped anonymous hash and deterministic submission UUID, never the raw installation identity. */
 @PluginManagedBean
+@HttpApiGroup("multi-mode-decision-survey-survey")
 @RestController
 @RequestMapping("/api/multi-mode-decision-survey/identity")
 public class MultiModeDecisionSurveyIdentityController {
@@ -36,8 +42,12 @@ public class MultiModeDecisionSurveyIdentityController {
         this.installIdentityProvider = installIdentityProvider;
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = IdentityResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<?> identity(
+            @Parameter(required = true, schema = @Schema(format = "uuid"))
             @RequestParam(value = "surveyId", required = false) String surveyId) {
         if (surveyId == null || !SURVEY_ID_PATTERN.matcher(surveyId).matches()) {
             return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())

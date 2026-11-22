@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.download.response.status;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import lombok.Builder;
 import lombok.Getter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
@@ -12,18 +14,18 @@ public class DownloadStatusResponse {
     private boolean success;
     private String message;
     private Long artworkId;
-    private String title;
+    @HttpApiNullable private String title;
     private int totalImages;
     private int downloadedCount;
     private int currentImageIndex;
     private boolean completed;
     private boolean failed;
-    private String errorCode;
+    @HttpApiNullable private String errorCode;
     private boolean cancelled;
     private double progressPercentage;
-    private String downloadPath;
-    private WorkActionResult bookmarkResult;
-    private WorkActionResult collectionResult;
-    private UgoiraProgress ugoiraProgress;
-    private ImageDownloadProgress imageProgress;
+    @HttpApiNullable private String downloadPath;
+    @HttpApiNullable private WorkActionResult bookmarkResult;
+    @HttpApiNullable private WorkActionResult collectionResult;
+    @HttpApiNullable private UgoiraProgress ugoiraProgress;
+    @HttpApiNullable private ImageDownloadProgress imageProgress;
 }

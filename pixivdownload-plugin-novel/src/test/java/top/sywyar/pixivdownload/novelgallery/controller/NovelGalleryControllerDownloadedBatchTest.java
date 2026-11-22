@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novelgallery.controller;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +50,16 @@ class NovelGalleryControllerDownloadedBatchTest {
                 novelDatabase,
                 assets,
                 workVisibilityService, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class));
+    }
+
+    @Test
+    void rejectsMalformedTranslationLookupBeforeCheckingAnyWork() {
+        assertThatThrownBy(() -> controller.translatedTitles("ja", null, "9,no-id", WorkVisibilityScope.unrestricted()))
+                .isInstanceOfSatisfying(HttpParameterException.class, failure -> {
+                    assertThat(failure.in()).isEqualTo("query");
+                    assertThat(failure.field()).isEqualTo("ids");
+                });
+        verifyNoInteractions(workVisibilityService, novelDatabase);
     }
 
     @Test

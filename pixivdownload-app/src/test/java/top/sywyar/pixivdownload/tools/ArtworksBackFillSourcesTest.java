@@ -520,6 +520,50 @@ class ArtworksBackFillSourcesTest {
         }
     }
 
+    @Test
+    void scopedRunFillsTagsAndSeriesOnlyForSelectedArtwork() throws Exception {
+        verifyScopedRun(DatabaseProviderTestFixtures.sqlite(directory.resolve("scoped.db")));
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "PIXIV_TEST_POSTGRES_URL", matches = ".+")
+    void scopedPostgresRunFillsTagsAndSeriesOnlyForSelectedArtwork() throws Exception {
+        try (var db = new top.sywyar.pixivdownload.core.db.PostgresTestDatabase()) {
+            verifyScopedRun(DatabaseProviderTestFixtures.resolve(db.properties(), "unused"));
+        }
+    }
+
+    private void verifyScopedRun(top.sywyar.pixivdownload.core.db.DatabaseTarget target) throws Exception {
+        initialize(target);
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            sql.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(2,'','folder',1,'jpg',2)");
+        }
+        var client = mock(ArtworksBackFillPixivClient.class);
+        var source = mapper.readTree("""
+                {"id":"2","title":"imported","userId":"42","userName":"author","seriesNavData":{"seriesId":7,"title":"series","order":1},
+                 "tags":{"tags":[{"tag":"fixture"}]}}
+                """);
+        when(client.query(2)).thenReturn(ArtworksBackFillPixivClient.parsePayload(source, 4567L, true));
+        try (var files = mockStatic(RuntimeFiles.class, CALLS_REAL_METHODS); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+                invocation -> invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
+            files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
+            for (boolean preview : new boolean[]{true, false}) {
+                var options = new ArtworksBackFill.Options(target.displayName(), "", 0, false, 0, 1, preview, target)
+                        .withSources(directory.toString(), false).withArtworkIds(java.util.List.of(2L));
+                assertThat(ArtworksBackFill.countCandidates(options)).isEqualTo(1);
+                ArtworksBackFill.run(options);
+                try (var connection = target.openConnection(); var sql = connection.createStatement();
+                     var row = sql.executeQuery("SELECT title,series_id,(SELECT COUNT(*) FROM artwork_tags WHERE artwork_id=2) FROM artworks WHERE artwork_id=2")) {
+                    assertThat(row.next()).isTrue();
+                    assertThat(row.getString(1)).isEqualTo(preview ? "" : "imported");
+                    assertThat(row.getLong(2)).isEqualTo(preview ? 0 : 7);
+                    assertThat(row.getInt(3)).isEqualTo(preview ? 0 : 1);
+                }
+            }
+            verify(client, never()).query(1);
+        }
+    }
+
     private void initialize(top.sywyar.pixivdownload.core.db.DatabaseTarget target) throws Exception {
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
             DatabaseInitializer.prepareOffline(connection, target);

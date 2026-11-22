@@ -31,7 +31,7 @@ class LocalArtworkImportPanelTest {
                 if (scanFailure.get() != null) throw scanFailure.get();
                 captured.set(value); return status(id);
             }
-            public Snapshot status(UUID token) { return new Snapshot(id, phase.get(), 1, 1, 0, 0, 0, 0, false, List.of()); }
+            public Snapshot status(UUID token) { return new Snapshot(id, phase.get(), 1, 1, 1, phase.get() == Phase.CANCELLED ? 1 : 0, 0, 0, false, List.of()); }
             public List<Item> items(UUID token, int offset, int limit) { return List.of(new Item(42, List.of(new File("D:/42/pic.png", null, Map.of())), Disposition.NEW, "")); }
             public Snapshot start(UUID token) { starts.incrementAndGet(); phase.set(Phase.IMPORTING); return status(id); }
             public Snapshot cancel(UUID token) { phase.set(Phase.CANCELLED); return status(id); }
@@ -71,7 +71,7 @@ class LocalArtworkImportPanelTest {
         SwingUtilities.invokeAndWait(() -> {
             panel.set(new LocalArtworkImportPanel(context)); frame.set(new JFrame("Local import fixture"));
             frame.get().setContentPane(panel.get()); frame.get().setSize(500, 300); frame.get().setVisible(true);
-            button(panel.get(), "title").doClick();
+            entry(panel.get()).doClick();
             dialog.set((JDialog) frame.get().getOwnedWindows()[0]); dialog.get().setSize(480, 360);
         });
         try {
@@ -103,13 +103,15 @@ class LocalArtworkImportPanelTest {
                 Rectangle bounds = SwingUtilities.convertRectangle(start.getParent(), start.getBounds(), dialog.get().getContentPane());
                 assertTrue(dialog.get().getContentPane().getBounds().contains(bounds));
                 dialog.get().setVisible(false);
-                button(panel.get(), "title").doClick();
+                entry(panel.get()).doClick();
                 assertTrue(start.isEnabled(), "重新打开后仍可确认同一预览");
                 start.doClick();
             });
             await(() -> starts.get() == 1 && button(dialog.get(), "cancel").isEnabled());
             SwingUtilities.invokeAndWait(() -> button(dialog.get(), "cancel").doClick());
             await(() -> phase.get() == Phase.CANCELLED && button(dialog.get(), "scan").isEnabled());
+            await(() -> descendants(dialog.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                    .anyMatch(area -> area.getText().contains("local-import.after-import")));
             assertEquals(1, starts.get());
             for (String variable : List.of("foo", "ai")) {
                 scanFailure.set(new VariableException(variable, variable.equals("ai")));
@@ -124,6 +126,10 @@ class LocalArtworkImportPanelTest {
                 assertFalse(button(dialog.get(), "start").isEnabled());
             }
         } finally { SwingUtilities.invokeAndWait(() -> { panel.get().close(); frame.get().dispose(); }); }
+    }
+    private static JButton entry(Container container) {
+        return descendants(container).filter(c -> "tools.local-import".equals(c.getName()))
+                .map(JButton.class::cast).findFirst().orElseThrow();
     }
     private static JButton button(Container container, String name) {
         return descendants(container).filter(JButton.class::isInstance).map(JButton.class::cast)

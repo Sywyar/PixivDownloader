@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.tts.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,8 +16,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.tts.EdgeTtsClient;
 import top.sywyar.pixivdownload.tts.EdgeTtsException;
 import top.sywyar.pixivdownload.tts.EdgeTtsVoiceService;
@@ -32,6 +36,7 @@ import java.util.concurrent.TimeUnit;
  * <p>这些端点不在 {@code AuthFilter} 的公共白名单中：solo 模式需要登录会话、multi 模式访客受常规接口限流约束，
  * 与其它 {@code /api/pixiv/**} 代理端点的访问语义一致。
  */
+@HttpApiGroup("tts-tts")
 @RestController
 @RequestMapping("/api/tts/edge")
 @Slf4j
@@ -54,6 +59,10 @@ public class TtsController {
                 .body(voiceService.listVoices());
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "audio/mpeg", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/synthesize")
     public ResponseEntity<?> synthesize(@RequestBody EdgeTtsSynthesizeRequest request,
                                         HttpServletRequest httpRequest) {

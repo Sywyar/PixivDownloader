@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.i18n;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +16,7 @@ import top.sywyar.pixivdownload.config.InstanceCookies;
 import java.util.List;
 import java.util.Locale;
 
+@HttpApiGroup("core-languages")
 @RestController
 @RequestMapping("/api/i18n")
 @RequiredArgsConstructor
@@ -46,6 +52,8 @@ public class I18nController {
         );
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/messages/{namespace}")
     public I18nBundleResponse messages(@PathVariable String namespace, Locale locale) {
         return webI18nService.loadBundle(namespace, locale);

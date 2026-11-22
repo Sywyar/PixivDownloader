@@ -14,7 +14,6 @@ import top.sywyar.pixivdownload.gui.imageclassifier.ImageClassifier;
 import top.sywyar.pixivdownload.gui.tools.FolderChecker;
 
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
@@ -40,9 +39,12 @@ public class ToolsPanel extends JPanel {
     private final StartupCachePanel startupCache = new StartupCachePanel(SwingHost.host());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
-    private final JLabel exclusiveToolLabel = new JLabel(message("gui.tools.exclusive-tool", message("gui.value.none")));
-    private final JLabel backfillStatusLabel = secondaryLabel(message("gui.tools.backfill.status.idle"));
-    private final JLabel migrationStatusLabel = secondaryLabel(message("gui.tools.migration.status.idle"));
+    private final JLabel exclusiveToolLabel = SwingPage.text(SwingPage.Style.SECONDARY,
+            message("gui.tools.exclusive-tool", message("gui.value.none")));
+    private final SwingPage.Dot backendDot = new SwingPage.Dot(SwingPage::secondaryColor);
+    private final SwingPage.Block mediaSection = new SwingPage.Block();
+    private final JLabel backfillStatusLabel = SwingPage.text(SwingPage.Style.BODY, message("gui.tools.backfill.status.idle"));
+    private final JLabel migrationStatusLabel = SwingPage.text(SwingPage.Style.BODY, message("gui.tools.migration.status.idle"));
 
     private final JButton imageClassifierButton = new JButton(message("gui.tools.action.open-image-classifier"));
     private final JButton folderCheckerButton = new JButton(message("gui.tools.action.open-folder-checker"));
@@ -70,9 +72,9 @@ public class ToolsPanel extends JPanel {
     private boolean disposed;
     private JPanel backfillForm;
     private final JProgressBar backfillProgress = new JProgressBar();
-    private final JLabel backfillCounts = secondaryLabel("");
-    private final JLabel backfillCurrent = secondaryLabel("");
-    private final JLabel backfillFields = secondaryLabel("");
+    private final JLabel backfillCounts = SwingPage.text(SwingPage.Style.SECONDARY, "");
+    private final JLabel backfillCurrent = SwingPage.text(SwingPage.Style.SECONDARY, "");
+    private final JLabel backfillFields = SwingPage.text(SwingPage.Style.SECONDARY, "");
     private final JButton backfillStopButton = new JButton(message("gui.tools.backfill.action.stop"));
     private final JButton backfillEditButton = new JButton(message("gui.tools.backfill.action.edit"));
     private final JCheckBox backfillDetails = new JCheckBox(message("gui.tools.backfill.action.details"));
@@ -99,87 +101,65 @@ public class ToolsPanel extends JPanel {
 
     private void buildUi() {
         setLayout(new BorderLayout(0, 0));
-        setBorder(BorderFactory.createEmptyBorder(16, 24, 16, 24));
 
-        JPanel content = new ScrollablePagePanel();
-        content.add(buildOverviewCard());
-        content.add(Box.createVerticalStrut(12));
-        content.add(buildImageClassifierCard());
-        mediaTools.setAlignmentX(Component.LEFT_ALIGNMENT);
-        content.add(mediaTools);
+        JPanel content = SwingPage.page();
+        backendStateLabel.setIcon(backendDot);
+        backendStateLabel.setIconTextGap(8);
+        content.add(SwingPage.header(message("gui.tab.tools"), message("gui.tools.page.subtitle"),
+                SwingPage.inline(backendStateLabel, (JComponent) Box.createHorizontalStrut(10), exclusiveToolLabel)));
+
+        content.add(SwingPage.section(message("gui.tools.section.quick"), null));
+        SwingPage.RowList quickTools = new SwingPage.RowList();
+        quickTools.add(toolRow(imageClassifierButton, "gui.tools.card.image-classifier",
+                "gui.tools.action.open-image-classifier", this::openImageClassifier));
+        quickTools.add(toolRow(folderCheckerButton, "gui.tools.card.folder-checker",
+                "gui.tools.action.open-folder-checker", this::openFolderChecker));
+        quickTools.add(fileImports);
+        quickTools.add(localImports);
+        content.add(quickTools);
+        content.add(Box.createVerticalStrut(30));
+
+        content.add(SwingPage.section(message("gui.tools.section.maintenance"), message("gui.tools.card.overview.hint")));
+        SwingPage.RowList maintenance = new SwingPage.RowList();
+        backfillCard = buildBackfillCard();
+        maintenance.add(backfillCard);
+        maintenance.add(buildMigrationCard());
+        maintenance.add(startupCache);
+        content.add(maintenance);
+
+        mediaSection.add(Box.createVerticalStrut(30));
+        mediaSection.add(SwingPage.section(message("gui.tools.section.media"), null));
+        mediaSection.add(mediaTools);
+        mediaTools.addContainerListener(new java.awt.event.ContainerListener() {
+            @Override public void componentAdded(java.awt.event.ContainerEvent event) { updateMediaSection(); }
+            @Override public void componentRemoved(java.awt.event.ContainerEvent event) { updateMediaSection(); }
+        });
+        updateMediaSection();
+        content.add(mediaSection);
         addHierarchyListener(event -> {
             if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) mediaTools.refreshTools();
         });
-        content.add(Box.createVerticalStrut(12));
-        content.add(buildFolderCheckerCard());
-        content.add(Box.createVerticalStrut(12));
-        backfillCard = buildBackfillCard();
-        content.add(backfillCard);
-        content.add(Box.createVerticalStrut(12));
-        content.add(buildMigrationCard());
-        content.add(Box.createVerticalStrut(12));
-        content.add(startupCache);
-        content.add(Box.createVerticalStrut(12));
-        content.add(fileImports);
-        content.add(localImports);
         content.add(Box.createVerticalGlue());
 
-        JScrollPane scrollPane = new JScrollPane(content);
-        scrollPane.setBorder(null);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        add(scrollPane, BorderLayout.CENTER);
+        add(SwingPage.scroll(content), BorderLayout.CENTER);
     }
 
-    private JComponent buildOverviewCard() {
-        JPanel panel = createCard(message("gui.tools.card.overview.title"));
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        backendStateLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        exclusiveToolLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JLabel hint = secondaryLabel(message("gui.tools.card.overview.hint"));
-        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        panel.add(backendStateLabel);
-        panel.add(Box.createVerticalStrut(6));
-        panel.add(exclusiveToolLabel);
-        panel.add(Box.createVerticalStrut(10));
-        panel.add(hint);
-        return panel;
+    private void updateMediaSection() {
+        mediaSection.setVisible(mediaTools.getComponentCount() > 0);
     }
 
-    private JComponent buildImageClassifierCard() {
-        JPanel panel = createCard(message("gui.tools.card.image-classifier.title"));
-        panel.setLayout(new BorderLayout(0, 10));
-
-        JLabel desc = secondaryLabel(message("gui.tools.card.image-classifier.description"));
-        panel.add(desc, BorderLayout.CENTER);
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        actions.setOpaque(false);
-        imageClassifierButton.addActionListener(e -> openImageClassifier());
-        actions.add(imageClassifierButton);
-        panel.add(actions, BorderLayout.SOUTH);
-        return panel;
-    }
-
-    private JComponent buildFolderCheckerCard() {
-        JPanel panel = createCard(message("gui.tools.card.folder-checker.title"));
-        panel.setLayout(new BorderLayout(0, 10));
-
-        JLabel desc = secondaryLabel(message("gui.tools.card.folder-checker.description"));
-        panel.add(desc, BorderLayout.CENTER);
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        actions.setOpaque(false);
-        folderCheckerButton.addActionListener(e -> openFolderChecker());
-        actions.add(folderCheckerButton);
-        panel.add(actions, BorderLayout.SOUTH);
-        return panel;
+    /** 快捷工具行：标题与说明在左，打开按钮在右；按钮的无障碍名称保留完整动作。 */
+    private JComponent toolRow(JButton button, String cardKey, String actionKey, Runnable action) {
+        button.setText(SwingHost.host().message("desktop.ui.action.open"));
+        button.setToolTipText(message(actionKey));
+        button.getAccessibleContext().setAccessibleName(message(actionKey));
+        button.addActionListener(event -> action.run());
+        return SwingPage.row(message(cardKey + ".title"), message(cardKey + ".description"), button);
     }
 
     private JComponent buildBackfillCard() {
-        JPanel panel = createCard(message("gui.tools.card.backfill.title"));
-        panel.setLayout(new BorderLayout(0, 12));
+        SwingPage.Row panel = SwingPage.row(message("gui.tools.card.backfill.title"), null,
+                SwingPage.primary(backfillRunButton), backfillStopButton);
 
         JPanel form = new JPanel(new GridBagLayout());
         backfillForm = form;
@@ -210,6 +190,8 @@ public class ToolsPanel extends JPanel {
         form.add(new JLabel(message("gui.tools.form.proxy")), g);
         JPanel proxyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         proxyPanel.setOpaque(false);
+        proxyPanel.setBorder(BorderFactory.createEmptyBorder(0, -8, 0, 0));
+        proxyEnabledCheck.setOpaque(false);
         proxyEnabledCheck.addActionListener(e -> updateProxyFieldState());
         proxyPanel.add(proxyEnabledCheck);
         proxyPanel.add(new JLabel(message("gui.tools.form.proxy-host")));
@@ -228,148 +210,100 @@ public class ToolsPanel extends JPanel {
         g.weightx = 0;
         form.add(new JLabel(message("gui.tools.form.delay-ms")), g);
         g.gridx = 1;
-        g.weightx = 0;
-        form.add(delaySpinner, g);
-        g.gridx = 2;
-        form.add(new JLabel(message("gui.tools.form.limit-hint")), g);
+        g.gridwidth = 2;
+        form.add(leading(delaySpinner), g);
+        g.gridwidth = 1;
 
         row++;
         g.gridy = row;
         g.gridx = 0;
         form.add(new JLabel(message("gui.tools.form.limit")), g);
         g.gridx = 1;
-        form.add(limitSpinner, g);
-        g.gridx = 2;
+        g.gridwidth = 2;
+        JLabel limitHint = SwingPage.text(SwingPage.Style.SECONDARY, message("gui.tools.form.limit-hint"));
+        form.add(leading(limitSpinner, limitHint), g);
+        g.gridy = ++row;
+        g.gridx = 1;
+        dryRunCheck.setOpaque(false);
         form.add(dryRunCheck, g);
         g.gridy = ++row;
-        g.gridx = 0;
-        g.gridwidth = 3;
+        alwaysNetworkCheck.setOpaque(false);
         alwaysNetworkCheck.setToolTipText(message("gui.tools.form.always-network-hint"));
         form.add(alwaysNetworkCheck, g);
         g.gridwidth = 1;
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        actions.setOpaque(false);
+        backfillStopButton.addActionListener(event -> stopBackfill());
         backfillRunButton.addActionListener(e -> startBackfill());
         backfillLogButton.addActionListener(e -> openBackfillLogPage());
-        actions.add(backfillRunButton);
-        actions.add(backfillLogButton);
-        backfillStopButton.addActionListener(event -> stopBackfill());
-        backfillEditButton.addActionListener(event -> {
-            backfillForm.setVisible(true);
-            backfillEditButton.setVisible(false);
-            revalidate();
-        });
-        actions.add(backfillStopButton);
-        actions.add(backfillEditButton);
-        backfillEditButton.setVisible(false);
+        SwingPage.plain(backfillLogButton);
+        SwingPage.plain(backfillEditButton);
+        backfillEditButton.setIcon(UIManager.getIcon("Tree.collapsedIcon"));
+        backfillEditButton.addActionListener(event -> setBackfillOptionsVisible(!backfillForm.isVisible()));
+        backfillForm.setVisible(false);
 
-        JPanel bottom = new JPanel();
-        bottom.setOpaque(false);
-        bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
-        backfillStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        bottom.add(backfillStatusLabel);
-        backfillProgress.setAlignmentX(Component.LEFT_ALIGNMENT);
+        backfillStatusLabel.setText(message("gui.tools.backfill.status.idle"));
         backfillProgress.setStringPainted(true);
         backfillProgress.setVisible(false);
-        bottom.add(backfillProgress);
-        bottom.add(backfillCounts);
-        bottom.add(backfillCurrent);
         backfillDetails.setOpaque(false);
-        backfillDetails.setAlignmentX(Component.LEFT_ALIGNMENT);
         backfillDetails.addActionListener(event -> {
             backfillFields.setVisible(backfillDetails.isSelected());
             revalidate();
         });
+        backfillDetails.setVisible(false);
         backfillFields.setVisible(false);
-        bottom.add(backfillDetails);
-        bottom.add(backfillFields);
-        bottom.add(Box.createVerticalStrut(8));
-        bottom.add(actions);
 
-        panel.add(form, BorderLayout.CENTER);
-        panel.add(bottom, BorderLayout.SOUTH);
+        panel.texts.add(Box.createVerticalStrut(4));
+        panel.texts.add(backfillStatusLabel);
+        panel.texts.add(Box.createVerticalStrut(6));
+        panel.texts.add(SwingPage.capped(backfillProgress, SwingPage.FORM_WIDTH));
+        panel.texts.add(backfillCounts);
+        panel.texts.add(backfillCurrent);
+        panel.texts.add(Box.createVerticalStrut(4));
+        panel.texts.add(SwingPage.links(backfillEditButton, backfillLogButton, backfillDetails));
+        panel.texts.add(backfillFields);
+        panel.texts.add(SwingPage.capped(form, SwingPage.FORM_WIDTH + 80));
         return panel;
+    }
+
+    private void setBackfillOptionsVisible(boolean visible) {
+        backfillForm.setVisible(visible);
+        backfillEditButton.setIcon(UIManager.getIcon(visible ? "Tree.expandedIcon" : "Tree.collapsedIcon"));
+        backfillForm.revalidate();
+        revalidate();
+        repaint();
+    }
+
+    private static JPanel leading(JComponent... components) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createEmptyBorder(0, -8, 0, 0));
+        for (JComponent component : components) row.add(component);
+        return row;
     }
 
     private JComponent buildMigrationCard() {
-        JPanel panel = createCard(message("gui.tools.card.migration.title"));
-        panel.setLayout(new BorderLayout(0, 12));
+        SwingPage.Row panel = SwingPage.row(message("gui.tools.card.migration.title"),
+                message("gui.tools.card.migration.description"), SwingPage.primary(migrationRunButton));
 
-        JLabel desc = secondaryLabel(message("gui.tools.card.migration.description"));
-
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setOpaque(false);
-        GridBagConstraints g = new GridBagConstraints();
-        g.insets = new Insets(4, 0, 4, 8);
-        g.anchor = GridBagConstraints.WEST;
-        g.fill = GridBagConstraints.HORIZONTAL;
-        g.weightx = 0;
-
-        int row = 0;
-        g.gridx = 0;
-        g.gridy = row;
-        form.add(new JLabel(message("gui.tools.form.database-path")), g);
-        g.gridx = 1;
-        g.weightx = 1;
-        form.add(migrationDbPathField, g);
-        g.gridx = 2;
-        g.weightx = 0;
         JButton browseDbButton = new JButton(message("gui.button.browse"));
         browseDbButton.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
         browseDbButton.addActionListener(e -> browseDatabase(migrationDbPathField));
-        form.add(browseDbButton, g);
-
-        row++;
-        g.gridy = row;
-        g.gridx = 0;
-        g.weightx = 0;
-        form.add(new JLabel(message("gui.tools.form.root-folder")), g);
-        g.gridx = 1;
-        g.weightx = 1;
-        form.add(migrationRootFolderField, g);
-        g.gridx = 2;
-        g.weightx = 0;
         JButton browseRootButton = new JButton(message("gui.button.browse"));
         browseRootButton.addActionListener(e -> browseMigrationRootFolder());
-        form.add(browseRootButton, g);
+        SwingPage.Form form = new SwingPage.Form(SwingPage.FORM_WIDTH + 80)
+                .field(message("gui.tools.form.database-path"), migrationDbPathField, browseDbButton)
+                .field(message("gui.tools.form.root-folder"), migrationRootFolderField, browseRootButton);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        actions.setOpaque(false);
         migrationRunButton.addActionListener(e -> startMigration());
         migrationLogButton.addActionListener(e -> openMigrationLogPage());
-        actions.add(migrationRunButton);
-        actions.add(migrationLogButton);
+        SwingPage.plain(migrationLogButton);
 
-        JPanel bottom = new JPanel();
-        bottom.setOpaque(false);
-        bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
-        desc.setAlignmentX(Component.LEFT_ALIGNMENT);
-        migrationStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        bottom.add(desc);
-        bottom.add(Box.createVerticalStrut(8));
-        bottom.add(migrationStatusLabel);
-        bottom.add(Box.createVerticalStrut(8));
-        bottom.add(actions);
-
-        panel.add(form, BorderLayout.CENTER);
-        panel.add(bottom, BorderLayout.SOUTH);
-        return panel;
-    }
-
-    private JPanel createCard(String title) {
-        JPanel panel = new JPanel();
-        panel.setOpaque(false);
-        TitledBorder border = BorderFactory.createTitledBorder(title);
-        border.setTitleJustification(TitledBorder.LEFT);
-        panel.setBorder(BorderFactory.createCompoundBorder(
-                border,
-                BorderFactory.createEmptyBorder(10, 12, 12, 12)
-        ));
-        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        panel.texts.add(Box.createVerticalStrut(8));
+        panel.texts.add(SwingPage.capped(form, SwingPage.FORM_WIDTH + 80));
+        panel.texts.add(Box.createVerticalStrut(4));
+        panel.texts.add(migrationStatusLabel);
+        panel.texts.add(Box.createVerticalStrut(2));
+        panel.texts.add(SwingPage.links(migrationLogButton));
         return panel;
     }
 
@@ -529,8 +463,7 @@ public class ToolsPanel extends JPanel {
         backfillRunning = task.active();
         if (task.equals(backfillTask)) return;
         backfillTask = task;
-        backfillForm.setVisible(false);
-        backfillEditButton.setVisible(!task.active());
+        backfillDetails.setVisible(task.summary() != null);
         String key = task.state() == DesktopUiHost.BackfillState.RUNNING
                 ? "gui.tools.backfill.phase." + task.phase().name().toLowerCase(java.util.Locale.ROOT)
                 : "gui.tools.backfill.state." + task.state().name().toLowerCase(java.util.Locale.ROOT);
@@ -865,6 +798,13 @@ public class ToolsPanel extends JPanel {
         mediaTools.refreshTools();
         fileImports.refreshTools();
         localImports.refreshTools();
+        backendDot.color(switch (snapshot.state()) {
+            case RUNNING -> SwingPage::successColor;
+            case STARTING, STOPPING -> SwingPage::warningColor;
+            case FAILED -> SwingPage::errorColor;
+            case STOPPED -> SwingPage::secondaryColor;
+        });
+        backendStateLabel.repaint();
         backendStateLabel.setText(message("gui.tools.backend-status", switch (snapshot.state()) {
             case RUNNING -> message("gui.backend.state.running");
             case STARTING -> message("gui.tools.backend-status.starting");
@@ -968,10 +908,6 @@ public class ToolsPanel extends JPanel {
 
     private void setMigrationStatus(String text) {
         SwingUtilities.invokeLater(() -> migrationStatusLabel.setText(text));
-    }
-
-    private static JLabel secondaryLabel(String text) {
-        return ScrollablePagePanel.secondaryLabel(text);
     }
 
     public void dispose() {

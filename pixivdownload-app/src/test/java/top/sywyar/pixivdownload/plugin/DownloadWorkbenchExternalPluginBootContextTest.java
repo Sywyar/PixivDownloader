@@ -491,6 +491,15 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     }
 
     private void assertServiceFootprintPresent(ClassLoader expectedClassLoader) {
+        var port = top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission.class;
+        var child = externalPluginContextManager.contextFor(PLUGIN_ID).orElseThrow();
+        assertThat(child.getBean(port)).isSameAs(applicationContext.getBean(port));
+        assertThat(handlerBean("/api/pixiv/user/{userId}/downloads").getClass().getClassLoader()).isSameAs(expectedClassLoader);
+        assertThat(applicationContext.getBean(top.sywyar.pixivdownload.setup.ProgramKeyService.class).permissions())
+                .filteredOn(permission -> permission.id().equals(PLUGIN_ID + ":batches.execute")).singleElement()
+                .satisfies(permission -> assertThat(permission.endpoints())
+                        .extracting(top.sywyar.pixivdownload.setup.ProgramKeyService.Endpoint::path)
+                        .contains("/api/pixiv/user/*/downloads", "/api/download/batches", "/api/download/batches/*/resume"));
         assertThat(routeAccessRegistry.routes())
                 .anyMatch(route -> route.pluginId().equals(PLUGIN_ID));
         assertThat(staticResourceRegistry.resources())
@@ -526,6 +535,8 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     }
 
     private void assertServiceFootprintAbsent(ClassLoader previousClassLoader) {
+        assertThat(requestMappingHandlerMapping.getHandlerMethods().keySet())
+                .noneMatch(mapping -> mapping.getPatternValues().contains("/api/pixiv/user/{userId}/downloads"));
         assertThat(routeAccessRegistry.routes())
                 .noneMatch(route -> route.pluginId().equals(PLUGIN_ID));
         assertThat(staticResourceRegistry.resources())

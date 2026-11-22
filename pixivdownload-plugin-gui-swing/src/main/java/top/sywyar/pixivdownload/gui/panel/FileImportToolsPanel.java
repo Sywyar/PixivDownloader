@@ -14,7 +14,7 @@ import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 
 /** Swing 工具入口及原生导入表单；离开只停止观察，取消由独立按钮发起。 */
-final class FileImportToolsPanel extends JPanel implements AutoCloseable {
+final class FileImportToolsPanel extends SwingPage.RowList implements AutoCloseable {
     private final DesktopUiContext context;
     private final Map<DesktopFileImportTool.Identity, ImportForm> forms = new LinkedHashMap<>();
     private final javax.swing.Timer timer = new javax.swing.Timer(1000, event ->
@@ -24,8 +24,6 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
 
     FileImportToolsPanel(DesktopUiContext context) {
         this.context = context;
-        setOpaque(false);
-        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         refreshTools();
     }
     void refreshTools() {
@@ -36,14 +34,14 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
         forms.entrySet().removeIf(entry -> {
             if (identities.contains(entry.getKey())) return false;
             entry.getValue().dispose();
-            remove(entry.getValue().entry);
+            remove(entry.getValue().row);
             return true;
         });
         for (var tool : tools) {
             if (!forms.containsKey(tool.identity())) {
                 ImportForm form = new ImportForm(tool);
                 forms.put(tool.identity(), form);
-                add(form.entry);
+                add(form.row);
             }
         }
         revalidate();
@@ -56,6 +54,7 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
     private final class ImportForm {
         final DesktopFileImportTool tool;
         final JButton entry;
+        final JComponent row;
         final JPanel panel = new JPanel(new BorderLayout(12, 12));
         final JTextField file = new JTextField(34), root = new JTextField(34);
         final JPasswordField credential = new JPasswordField(34);
@@ -73,9 +72,12 @@ final class FileImportToolsPanel extends JPanel implements AutoCloseable {
 
         ImportForm(DesktopFileImportTool tool) {
             this.tool = tool;
-            entry = new JButton(context.resolveText(tool.description().title()));
+            String title = context.resolveText(tool.description().title());
+            entry = new JButton(context.host().message("desktop.ui.action.open"));
             entry.setName("tools.import." + tool.identity().pluginId());
+            entry.getAccessibleContext().setAccessibleName(title);
             entry.addActionListener(event -> open());
+            row = SwingPage.row(title, context.resolveText(tool.description().help()), entry);
             panel.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
             JPanel fields = new ScrollablePagePanel();
             fields.add(help(context.resolveText(tool.description().help())));

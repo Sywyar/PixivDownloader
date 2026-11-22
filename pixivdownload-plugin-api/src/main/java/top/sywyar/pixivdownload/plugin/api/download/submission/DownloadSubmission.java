@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.plugin.api.download.submission;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import java.util.Objects;
+import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
 import java.util.UUID;
 
 /**
@@ -28,8 +28,37 @@ public record DownloadSubmission(UUID requestId, String workType, String workId,
      * @param options 类型自有选项
      */
     public DownloadSubmission {
-        new DownloadAttempt(Objects.requireNonNull(requestId, "requestId"), workType, workId);
+        if (requestId == null) throw new InputFieldException("/requestId", "required");
+        new DownloadAttempt(requestId, workType, workId);
         options = copyOptions(options);
+    }
+
+    /** 将作品 ID 解析为不带前导零的十进制正整数，仅由需要整数 ID 的提供方调用。
+     * @return 数值形式的作品 ID
+     */
+    public long positiveDecimalWorkId() {
+        if (!workId.matches("[1-9][0-9]{0,18}")) throw new InputFieldException("/workId", "invalid_format");
+        try {
+            return Long.parseLong(workId);
+        } catch (NumberFormatException outsideLong) {
+            throw new InputFieldException("/workId", "out_of_range");
+        }
+    }
+
+    /** 对已提供的选项执行提供方的解析，并将解析失败归到对应字段。
+     * @param name 提供方声明的选项名
+     * @param setter 提供方的解析和赋值操作
+     */
+    public void readOption(String name, java.util.function.Consumer<String> setter) {
+        String value = options.get(name);
+        if (value == null) return;
+        try {
+            setter.accept(value);
+        } catch (InputFieldException invalid) {
+            throw invalid;
+        } catch (IllegalArgumentException invalid) {
+            throw new InputFieldException("/options/" + name, "invalid_value");
+        }
     }
 
     /**
@@ -38,19 +67,20 @@ public record DownloadSubmission(UUID requestId, String workType, String workId,
      * @return 不可变选项
      */
     public static Map<String, String> copyOptions(Map<String, String> options) {
-        Objects.requireNonNull(options, "options");
-        if (options.size() > MAX_OPTIONS) throw new IllegalArgumentException("too many download options");
+        if (options == null) throw new InputFieldException("/options", "required");
+        if (options.size() > MAX_OPTIONS) throw new InputFieldException("/options", "too_many_properties");
         int bytes = 0;
         for (var entry : options.entrySet()) {
-            String key = Objects.requireNonNull(entry.getKey(), "option key");
-            String value = Objects.requireNonNull(entry.getValue(), "option value");
-            if (!key.matches("[a-zA-Z][a-zA-Z0-9.-]{0,63}"))
-                throw new IllegalArgumentException("invalid download option key");
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key == null || !key.matches("[a-zA-Z][a-zA-Z0-9.-]{0,63}"))
+                throw new InputFieldException("/options", "invalid_property");
+            if (value == null) throw new InputFieldException("/options/" + key, "type");
             // 先按字符拒绝巨大输入，再计算有界编码。
             if (value.length() > MAX_OPTIONS_BYTES)
-                throw new IllegalArgumentException("download option too large");
+                throw new InputFieldException("/options/" + key, "too_large");
             bytes += key.getBytes(StandardCharsets.UTF_8).length + value.getBytes(StandardCharsets.UTF_8).length;
-            if (bytes > MAX_OPTIONS_BYTES) throw new IllegalArgumentException("download options too large");
+            if (bytes > MAX_OPTIONS_BYTES) throw new InputFieldException("/options", "too_large");
         }
         return Map.copyOf(options);
     }

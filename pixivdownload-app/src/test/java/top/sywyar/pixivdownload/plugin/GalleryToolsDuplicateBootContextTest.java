@@ -146,7 +146,8 @@ class GalleryToolsDuplicateBootContextTest {
                 .filteredOn(r -> r.pluginId().equals("gallery-tools")
                         && r.route().pathPattern().contains("duplicates"))
                 .extracting(r -> r.route().pathPattern())
-                .containsExactlyInAnyOrder("/pixiv-duplicates.html", "/pixiv-duplicates/**", "/api/duplicates/**");
+                .containsExactlyInAnyOrder("/pixiv-duplicates.html", "/pixiv-duplicates/**", "/api/duplicates/**",
+                        "/api/duplicates/groups", "/api/duplicates/scan/status", "/api/duplicates/scan", "/api/duplicates/rescan");
         assertThat(staticResourceRegistry.resources())
                 .filteredOn(s -> s.pluginId().equals("gallery-tools")
                         && s.contribution().publicPathPrefix().startsWith("/pixiv-duplicates"))

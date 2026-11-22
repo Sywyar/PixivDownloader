@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.context.annotation.*;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
@@ -76,7 +78,8 @@ class ServiceBindingLifecycleTest {
         final Queue<Runnable> work = new ConcurrentLinkedQueue<>();
         final Control control = new Control();
         final PluginLifecycleService lifecycle;
-        Fixture() {
+        Fixture() { this(null); }
+        Fixture(Executor bindingExecutor) {
             parent.registerBean(Control.class, () -> control); parent.refresh();
             var consumer = new PluginRegistry.RegisteredPlugin(plugin("consumer"), PluginSource.EXTERNAL,
                     getClass().getClassLoader(), "consumer", 1);
@@ -93,7 +96,7 @@ class ServiceBindingLifecycleTest {
             var streams = new PluginStreamRegistry(); var queues = new QueueOperationRegistry(List.of());
             var schedules = mock(PluginScheduleContributionRegistrar.class);
             var invocations = new ExternalCapabilityInvocationRegistry(state);
-            invocations.configureBindings(tasks, work::add);
+            invocations.configureBindings(tasks, bindingExecutor == null ? work::add : bindingExecutor);
             var registrar = new PluginCapabilityContributionRegistrar(List.of(), List.of(), List.of(), invocations);
             var web = mock(PluginWebContributionRegistrar.class);
             when(web.currentHandle(any())).thenReturn(Optional.of(mock(PluginWebContributionHandle.class)));
@@ -133,6 +136,39 @@ class ServiceBindingLifecycleTest {
             f.lifecycle.restart("provider"); f.flush();
             assertThat(f.control.activated).hasValue(2);
             f.lifecycle.stopAll();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void shutdownReportsFailedBindingCleanupAndKeepsBothContextsForRetry(boolean rejectScheduling) throws Exception {
+        var reject = new AtomicBoolean();
+        try (var executor = Executors.newSingleThreadExecutor(); var f = new Fixture(task -> {
+            if (reject.get()) throw new RejectedExecutionException();
+            executor.execute(task);
+        })) {
+            f.lifecycle.startAll();
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            assertThat(f.control.activated).hasValue(1);
+            reject.set(rejectScheduling);
+            f.control.failClose.set(!rejectScheduling);
+            var shutdown = CompletableFuture.runAsync(f.lifecycle::stopAll);
+            try {
+                assertThatThrownBy(() -> shutdown.get(5, TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(PluginLifecycleException.class);
+                assertThat(f.control.binding.diagnostic().code())
+                        .isEqualTo(rejectScheduling ? "SCHEDULING_REJECTED" : "CLOSE_FAILED");
+                assertThat(f.lifecycle.contextFor("provider").orElseThrow().isActive()).isTrue();
+                assertThat(f.lifecycle.contextFor("consumer").orElseThrow().isActive()).isTrue();
+            } finally {
+                reject.set(false);
+                f.control.failClose.set(false);
+                shutdown.handle((ignored, failure) -> null).get(5, TimeUnit.SECONDS);
+            }
+            f.lifecycle.stopAll();
+            assertThat(f.control.closed).hasValue(1);
+            assertThat(f.lifecycle.contextFor("provider")).isEmpty();
+            assertThat(f.lifecycle.contextFor("consumer")).isEmpty();
         }
     }
 

@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.plugin.catalog.operation;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 
 /** 获取动作归市场贡献；已发起操作的只读查询归核心管理面，市场卸下后仍可查询。 */
+@HttpApiGroup("core-market")
 @RestController
 public class PluginAcquisitionController {
     private final PluginAcquisitionOperations operations;
@@ -30,22 +37,33 @@ public class PluginAcquisitionController {
         this.locales = locales;
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "410", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @PostMapping("/api/plugin-market/operations")
     public View prepare(@RequestBody PrepareRequest body, HttpServletRequest request) {
         return view(operations.prepare(body.repositoryId(), body.pluginId(), body.version(),
                 body.fingerprint(), body.confirmTrust(), body.previousOperationId()), request);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "410", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @PostMapping("/api/plugin-market/operations/{id}/execute")
     public View execute(@PathVariable String id, HttpServletRequest request) {
         return view(operations.execute(id), request);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "410", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @PostMapping("/api/plugin-market/operations/{id}/discard")
     public View discard(@PathVariable String id, HttpServletRequest request) {
         return view(operations.discard(id), request);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "410", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/api/plugins/acquisitions/{id}")
     public View get(@PathVariable String id, HttpServletRequest request) {
         return view(operations.get(id), request);
@@ -77,5 +95,5 @@ public class PluginAcquisitionController {
                                  String confirmTrust, String previousOperationId) { }
     public record View(String id, String repositoryId, String pluginId, String version, String currentPluginId,
             ExternalPluginOperation operation, String transactionId, Instant createdAt, Instant updatedAt,
-            boolean started, boolean finished, PluginInstallResponse result, PluginCatalogErrorResponse failure) { }
+            boolean started, boolean finished, @HttpApiNullable PluginInstallResponse result, PluginCatalogErrorResponse failure) { }
 }

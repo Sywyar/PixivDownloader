@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.web.page;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import java.util.List;
 
 /**
@@ -21,7 +22,7 @@ import java.util.List;
  */
 public record PageComponent(String type, int version, String labelKey, String namespace,
         String moduleUrl, String propertiesModuleUrl, String schema, String defaults,
-        boolean publicRenderable, List<PagePort> inputs, List<PagePort> outputs, PageInteraction.Participant participation) {
+        boolean publicRenderable, List<PagePort> inputs, List<PagePort> outputs, @HttpApiNullable PageInteraction.Participant participation) {
     /**
      * 复制端口列表，声明快照不再依赖贡献者的可变集合。
      * @param type 组件身份

@@ -16,6 +16,7 @@ import java.util.Set;
  * @param credentialPolicyIds 凭证策略标识集合
  * @param guardIds 守卫标识集合
  * @param frontend 来源提供的前端模块声明；没有时为 null
+ * @param inputSchemaJson 来源本次发布的完整、自包含 JSON Schema 文本。顶层 examples 给出可提交的定义对象，旧提供方可为空。
  */
 public record ScheduledSourceDescriptor(
         String sourceType,
@@ -27,7 +28,8 @@ public record ScheduledSourceDescriptor(
         Set<String> possibleWorkTypes,
         Set<String> credentialPolicyIds,
         Set<String> guardIds,
-        ScheduledSourceFrontendContribution frontend
+        ScheduledSourceFrontendContribution frontend,
+        String inputSchemaJson
 ) {
 
     /**
@@ -43,6 +45,29 @@ public record ScheduledSourceDescriptor(
      * @param credentialPolicyIds 凭证策略标识集合
      * @param guardIds 守卫标识集合
      * @param frontend 前端
+     */
+    public ScheduledSourceDescriptor(String sourceType, Set<String> legacyAliases, String definitionSchema,
+                                     int definitionVersion, ScheduledSourcePresentation presentation,
+                                     Set<String> acquisitionModes, Set<String> possibleWorkTypes,
+                                     Set<String> credentialPolicyIds, Set<String> guardIds,
+                                     ScheduledSourceFrontendContribution frontend) {
+        this(sourceType, legacyAliases, definitionSchema, definitionVersion, presentation,
+                acquisitionModes, possibleWorkTypes, credentialPolicyIds, guardIds, frontend, null);
+    }
+
+    /**
+     * 注册来源及该次发布所接受的定义结构。
+     * @param sourceType 来源标识
+     * @param legacyAliases 可识别的历史来源名称
+     * @param definitionSchema 格式标识
+     * @param definitionVersion 格式版本
+     * @param presentation 来源的展示信息
+     * @param acquisitionModes 支持的取得模式
+     * @param possibleWorkTypes 可发现的作品类型
+     * @param credentialPolicyIds 可用凭证策略
+     * @param guardIds 执行守卫标识
+     * @param frontend 来源自有前端声明
+     * @param inputSchemaJson 带有输入示例的自包含 JSON Schema，未声明时为空
      */
     public ScheduledSourceDescriptor {
         sourceType = requireText(sourceType, "source type");

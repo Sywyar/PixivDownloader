@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download.web;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,7 @@ import java.util.Map;
  * 由宿主以 {@link top.sywyar.pixivdownload.plugin.api.web.AccessPolicy#VISITOR} 声明：
  * multi 游客可读，solo 需会话，邀请访客不可访问；插件撤回后其贡献自然缺席。
  */
+@HttpApiGroup("core-downloads")
 @RestController
 @RequestMapping("/api/download/extensions")
 @RequiredArgsConstructor

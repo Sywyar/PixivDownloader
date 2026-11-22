@@ -39,6 +39,7 @@ class StatsQueryStoreImplTest {
         jdbc.update("INSERT INTO artworks(artwork_id, author_id, series_id, time, count) VALUES (?,?,?,?,?)", 3, 100, null, ts + 2000, 3);
         jdbc.update("INSERT INTO artworks(artwork_id, author_id, series_id, time, count) VALUES (?,?,?,?,?)", 4, 200, null, ts + 3000, 1);
         jdbc.update("INSERT INTO artworks(artwork_id, author_id, series_id, time, count) VALUES (?,?,?,?,?)", 5, null, null, ts + 4000, 1);
+        jdbc.update("INSERT INTO artworks(artwork_id,time,count,deleted) VALUES (?,?,?,1)", 6, ts, 9);
         jdbc.execute("CREATE TABLE tags (tag_id INTEGER PRIMARY KEY, name TEXT, translated_name TEXT)");
         jdbc.execute("INSERT INTO tags(tag_id, name, translated_name) VALUES (1, 'tagA', '甲'), (2, 'tagB', NULL), (3, 'tagC', NULL)");
         jdbc.execute("CREATE TABLE artwork_tags (artwork_id INTEGER, tag_id INTEGER)");
@@ -64,6 +65,8 @@ class StatsQueryStoreImplTest {
         StatsAggregates.Overview o = store.overview();
         assertThat(o.totalArtworks()).isEqualTo(5);
         assertThat(o.totalImages()).isEqualTo(20);
+        assertThat(o.libraryArtworks()).isEqualTo(5);
+        assertThat(o.libraryImages()).isEqualTo(8);
         assertThat(o.totalMoved()).isEqualTo(2);
         assertThat(o.totalNovels()).isEqualTo(2);
         assertThat(o.totalAuthors()).isEqualTo(3);

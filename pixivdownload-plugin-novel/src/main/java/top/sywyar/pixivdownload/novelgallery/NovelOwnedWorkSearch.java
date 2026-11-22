@@ -102,6 +102,7 @@ public final class NovelOwnedWorkSearch {
                 .searchType(query.searchType())
                 .r18(query.r18())
                 .ai(query.ai())
+                .fileManagement(query.fileManagement())
                 .formats(query.formats())
                 .collectionIds(query.collectionIds())
                 .tagIds(query.tagIds())

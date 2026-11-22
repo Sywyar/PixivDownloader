@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 /**
  * 文本模型（LLM）配置状态查询端点。
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.ai.AiChatClient;
  * <p>
  * 仅下发一个 {@code configured} 布尔值，<b>绝不</b>回显 base-url / api-key / model 等配置明文。
  */
+@HttpApiGroup("ai-ai")
 @RestController
 @RequestMapping("/api/admin/ai")
 @RequiredArgsConstructor

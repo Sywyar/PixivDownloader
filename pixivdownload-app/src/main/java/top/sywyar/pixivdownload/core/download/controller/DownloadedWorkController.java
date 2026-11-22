@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.core.download.controller;
 
+import top.sywyar.pixivdownload.series.MangaSeriesService;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,15 +49,18 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Gatherers;
 
+@HttpApiGroup("core-library")
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
 public class DownloadedWorkController {
+    private static final int METADATA_QUERY_BATCH_SIZE = 500;
 
     private final DownloadedArtworkService downloadedArtworkService;
     private final ArtworkMetadataRecoveryService artworkMetadataRecoveryService;
@@ -59,10 +68,13 @@ public class DownloadedWorkController {
     private final ArtworkMoveService artworkMoveService;
     private final PixivDatabase pixivDatabase;
     private final AuthorService authorService;
+    private final MangaSeriesService mangaSeriesService;
     private final GuestAccessGuard guestAccessGuard;
     private final GalleryRepository galleryRepository;
     private final AppMessages messages;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
     @GetMapping({"/downloaded/{artworkId}", "/library/artworks/{artworkId}"})
     public ResponseEntity<DownloadedResponse> getDownloaded(
             @PathVariable Long artworkId,
@@ -76,21 +88,39 @@ public class DownloadedWorkController {
         return ResponseEntity.ok(downloadedResponse);
     }
 
+    public record PartialFiles(long artworkId, int totalPages, String folder, Map<Integer, List<String>> files) {}
+
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @GetMapping("/library/artworks/{artworkId}/partial")
+    public ResponseEntity<PartialFiles> partial(@PathVariable long artworkId, HttpServletRequest request)
+            throws java.io.IOException {
+        guestAccessGuard.requireVisible(request, artworkId);
+        try (var lease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.ARTWORK, artworkId)) {
+            var partial = pixivDatabase.partialArtwork(artworkId);
+            if (partial == null) return ResponseEntity.notFound().build();
+            return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(
+                    new PartialFiles(artworkId, partial.totalPages(), partial.folder(), partial.availableFiles()));
+        }
+    }
+
     /**
-     * 显式补齐已有记录的缺失元数据；标题已存在时保留原记录。
+     * 使用调用方提供的元数据逐项补缺。
      * 无记录时须提供完整页数，且默认命名的文件全部齐备，才能登记；GET 查询不执行恢复。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
     @PostMapping({"/downloaded/{artworkId}/recover-metadata", "/library/artworks/{artworkId}/recover-metadata"})
     public ResponseEntity<DownloadedResponse> recoverMetadata(
             @PathVariable Long artworkId,
-            @RequestBody(required = false) RecoverMetadataRequest body,
+            @Valid @RequestBody RecoverMetadataRequest body,
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         ArtworkRecord artwork = artworkMetadataRecoveryService.recoverMetadata(artworkId, body);
         if (artwork == null) {
             return ResponseEntity.status(400).build();
         }
-        return ResponseEntity.ok(toDownloadedResponse(artwork, resolveAuthorNames(List.of(artwork))));
+        return ResponseEntity.ok(toDownloadedResponses(List.of(artwork)).getFirst());
     }
 
     @PostMapping("/downloaded/batch")
@@ -119,19 +149,7 @@ public class DownloadedWorkController {
             artworks.add(artwork);
         }
 
-        Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        List<Long> activeArtworkIds = artworks.stream().map(ArtworkRecord::artworkId).toList();
-        Map<Long, List<TagDto>> tagsByArtworkId = pixivDatabase.getArtworkTags(activeArtworkIds);
-        Set<Long> fileNameIds = new HashSet<>();
-        for (ArtworkRecord artwork : artworks) {
-            fileNameIds.add(resolveFileNameId(artwork));
-        }
-        Map<Long, String> fileNameTemplates = pixivDatabase.getFileNameTemplates(fileNameIds);
-        List<DownloadedResponse> downloadedResponses = artworks.stream()
-                .map(artwork -> toDownloadedResponse(
-                        artwork, authorNames, tagsByArtworkId, fileNameTemplates))
-                .toList();
-        return ResponseEntity.ok(new BatchArtworksResponse(downloadedResponses, deletedArtworkIds));
+        return ResponseEntity.ok(new BatchArtworksResponse(toDownloadedResponses(artworks), deletedArtworkIds));
     }
 
     @GetMapping("/downloaded/statistics")
@@ -143,6 +161,8 @@ public class DownloadedWorkController {
         return ResponseEntity.ok(downloadStatisticsService.getStatistics());
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/downloaded/by-move-folder")
     public ResponseEntity<ArtworkIdResponse> getArtworkByMoveFolder(@RequestParam String path,
                                                                     HttpServletRequest httpRequest) {
@@ -187,13 +207,16 @@ public class DownloadedWorkController {
 
     @GetMapping("/downloaded/history/paged")
     public ResponseEntity<PagedHistoryResponse> getPagedHistory(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "time") String sort,
             HttpServletRequest httpRequest) {
+        page = Math.max(0, page);
+        size = Math.max(1, size);
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session != null) {
-            return ResponseEntity.ok(getGuestPagedHistory(page, size, sort, session));
+            return ResponseEntity.ok(getGuestPagedHistory(page, Math.min(size, 200), sort, session));
         }
         long totalElements = downloadedArtworkService.getArtworkCount();
         List<Long> artWorkIds = "author_id".equals(sort)
@@ -213,23 +236,21 @@ public class DownloadedWorkController {
         if (artwork == null) {
             return null;
         }
-        return toDownloadedResponse(artwork, resolveAuthorNames(List.of(artwork)));
+        return toDownloadedResponses(List.of(artwork)).getFirst();
     }
 
     private StatisticsResponse getGuestStatistics(GuestInviteSession session) {
         GalleryRepository.GuestStatistics stats = galleryRepository.findGuestStatistics(
                 GuestWorkVisibilityScopeFactory.artworkRestriction(session));
-        return new StatisticsResponse(true, stats.artworks(), stats.images(), stats.moved(),
+        return new StatisticsResponse(true, stats.artworks(), stats.images(), stats.moved(), stats.artworks(), stats.images(),
                 messages.get("download.statistics.success"));
     }
 
     private PagedHistoryResponse getGuestPagedHistory(int page, int size, String sort,
                                                       GuestInviteSession session) {
-        int safePage = Math.max(0, page);
-        int safeSize = Math.max(1, Math.min(size, 200));
         WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
-                .page(safePage)
-                .size(safeSize)
+                .page(page)
+                .size(size)
                 .sort("author_id".equals(sort) ? "authorId" : "date")
                 .order("desc")
                 .r18("any")
@@ -239,21 +260,16 @@ public class DownloadedWorkController {
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
         List<DownloadedResponse> responses = loadDownloadedResponses(result.ids());
         long total = result.totalElements();
-        int totalPages = (int) Math.ceil((double) total / safeSize);
-        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
+        int totalPages = (int) Math.ceil((double) total / size);
+        return new PagedHistoryResponse(responses, total, page, size, totalPages);
     }
 
     private List<DownloadedResponse> loadDownloadedResponses(List<Long> artworkIds) {
-        List<ArtworkRecord> artworks = new LinkedList<>();
-        for (Long artworkId : artworkIds) {
-            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
-            if (artwork != null) {
-                artworks.add(artwork);
-            }
-        }
-        Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        return artworks.stream()
-                .map(artwork -> toDownloadedResponse(artwork, authorNames))
+        return artworkIds.stream()
+                .map(downloadedArtworkService::getDownloadedRecord)
+                .filter(Objects::nonNull)
+                .gather(Gatherers.windowFixed(METADATA_QUERY_BATCH_SIZE))
+                .flatMap(artworks -> toDownloadedResponses(artworks).stream())
                 .toList();
     }
 
@@ -270,24 +286,32 @@ public class DownloadedWorkController {
         return galleryRepository.findArtworkIds(query).ids();
     }
 
-    private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames) {
-        List<TagDto> tags = pixivDatabase.getArtworkTags(artwork.artworkId());
-        long fileNameId = resolveFileNameId(artwork);
-        Map<Long, String> fileNameTemplates = new HashMap<>();
-        fileNameTemplates.put(fileNameId, pixivDatabase.getFileNameTemplate(fileNameId));
-        return toDownloadedResponse(
-                artwork,
-                authorNames,
-                tags == null ? Map.of() : Map.of(artwork.artworkId(), tags),
-                fileNameTemplates);
+    private List<DownloadedResponse> toDownloadedResponses(List<ArtworkRecord> artworks) {
+        if (artworks.isEmpty()) return List.of();
+        Map<Long, String> authorNames = resolveAuthorNames(artworks);
+        Map<Long, String> seriesTitles = mangaSeriesService.titlesForArtworks(artworks);
+        List<Long> activeArtworkIds = artworks.stream().map(ArtworkRecord::artworkId).toList();
+        Map<Long, List<TagDto>> tagsByArtworkId = pixivDatabase.getArtworkTags(activeArtworkIds);
+        Set<Long> fileNameIds = new HashSet<>();
+        for (ArtworkRecord artwork : artworks) {
+            fileNameIds.add(resolveFileNameId(artwork));
+        }
+        Map<Long, String> fileNameTemplates = pixivDatabase.getFileNameTemplates(fileNameIds);
+        return artworks.stream()
+                .map(artwork -> toDownloadedResponse(
+                        artwork, authorNames, seriesTitles, tagsByArtworkId, fileNameTemplates))
+                .toList();
     }
 
     private DownloadedResponse toDownloadedResponse(
             ArtworkRecord artwork,
             Map<Long, String> authorNames,
+            Map<Long, String> seriesTitles,
             Map<Long, List<TagDto>> tagsByArtworkId,
             Map<Long, String> fileNameTemplates) {
         long fileNameId = resolveFileNameId(artwork);
+        Long seriesId = artwork.seriesId();
+        boolean inSeries = seriesId != null && seriesId > 0;
         return DownloadedResponse.builder()
                 .artworkId(artwork.artworkId())
                 .title(artwork.title())
@@ -302,10 +326,14 @@ public class DownloadedWorkController {
                 .isAi(artwork.isAi())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
+                .seriesId(inSeries ? seriesId : null)
+                .seriesOrder(inSeries ? artwork.seriesOrder() : null)
+                .seriesTitle(inSeries ? seriesTitles.get(seriesId) : null)
                 .description(artwork.description())
                 .fileName(artwork.fileName())
                 .fileNameTemplate(PixivWorkFileNameFormatter.normalizeTemplate(fileNameTemplates.get(fileNameId)))
                 .tags(tagsByArtworkId.getOrDefault(artwork.artworkId(), List.of()))
+                .fileManagement(artwork.fileManagement())
                 .deleted(artwork.deleted())
                 .build();
     }

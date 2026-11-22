@@ -94,7 +94,8 @@ internal fun ToolPanelLayout(
                 }
             } else ToolIcon(icon)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                CupertinoText(title, Modifier.semantics { heading(); paneTitle = title }, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                CupertinoText(title, Modifier.semantics { heading(); paneTitle = title }, fontSize = 22.sp, lineHeight = 28.sp,
+                    fontWeight = FontWeight.SemiBold)
                 if (description.isNotBlank()) CupertinoText(description, fontSize = 12.sp, color = palette.secondaryText)
             }
             if (!backNavigation) {

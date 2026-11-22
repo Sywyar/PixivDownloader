@@ -79,6 +79,10 @@ class AcquisitionCredentialsFilterTest {
             var response = new MockHttpServletResponse();
             filter.doFilter(request, response, (req, res) -> fail("Must not enter controller"));
             assertThat(response.getStatus()).isEqualTo(400);
+            var error = tools.jackson.databind.json.JsonMapper.shared().readTree(response.getContentAsString());
+            assertThat(error.path("code").asString()).isEqualTo(AcquisitionCredentialsFilter.CREDENTIAL_SELECTION_REJECTED);
+            assertThat(error.path("in").asString()).isEqualTo("header");
+            assertThat(error.path("field").asString()).isEqualTo(AcquisitionCredentialsFilter.HEADER);
         }
         verifyNoInteractions(library);
     }

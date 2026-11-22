@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.setup;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 import tools.jackson.databind.json.JsonMapper;
 import java.io.IOException;
@@ -26,7 +29,17 @@ final class ProgramKeyStore {
     private final Map<UUID, Long> lastUsed = new HashMap<>();
     private Map<UUID, Stored> keys;
 
-    record Policy(String name, Set<String> permissions, boolean anyIp, List<String> networks) {
+    private static final java.util.regex.Pattern PERMISSION_ID =
+            java.util.regex.Pattern.compile("[a-z][a-z0-9.-]{0,95}:[a-z][a-z0-9.-]{0,95}");
+
+    static boolean isPermissionId(String id) {
+        return id != null && PERMISSION_ID.matcher(id).matches();
+    }
+
+    @Schema(requiredProperties = {"name", "permissions", "networks"})
+    record Policy(@Schema(minLength = 1, maxLength = MAX_NAME_LENGTH) String name,
+                  @ArraySchema(maxItems = MAX_PERMISSIONS) Set<String> permissions, boolean anyIp,
+                  @ArraySchema(maxItems = MAX_NETWORKS) List<String> networks) {
         Policy {
             if (name == null || name.isBlank() || name.length() > MAX_NAME_LENGTH || name.chars().anyMatch(Character::isISOControl))
                 throw new IllegalArgumentException("PROGRAM_KEY_NAME");
@@ -34,7 +47,7 @@ final class ProgramKeyStore {
             if (permissions == null || permissions.size() > MAX_PERMISSIONS)
                 throw new IllegalArgumentException("PROGRAM_KEY_PERMISSIONS");
             for (String permission : permissions)
-                if (permission == null || !permission.matches("[a-z][a-z0-9.-]{0,95}:[a-z][a-z0-9.-]{0,95}"))
+                if (!isPermissionId(permission))
                     throw new IllegalArgumentException("PROGRAM_KEY_PERMISSIONS");
             permissions = Set.copyOf(permissions);
             if (networks == null || networks.size() > MAX_NETWORKS || (!anyIp && networks.isEmpty())
@@ -55,12 +68,14 @@ final class ProgramKeyStore {
             networks = List.copyOf(validated);
         }
     }
-    record View(UUID id, long revision, Policy policy, long createdAt, Long lastUsedAt) {}
+    enum Transport { HTTPS_REQUIRED, REVIEWED, HTTP_ALLOWED }
+    record View(UUID id, long revision, Policy policy, long createdAt, @HttpApiNullable Long lastUsedAt, Transport transport) {}
     record Created(View key, String secret) {
         @Override public String toString() { return "Created[redacted]"; }
     }
-    record Stored(UUID id, long revision, Policy policy, long createdAt, String digest) {
+    record Stored(UUID id, long revision, Policy policy, long createdAt, String digest, Transport transport) {
         Stored {
+            if (transport == null) transport = Transport.HTTPS_REQUIRED; // Existing keys require HTTPS.
             Objects.requireNonNull(id); Objects.requireNonNull(policy);
             if (revision < 1 || createdAt < 0 || digest == null || !digest.matches("[0-9a-f]{64}"))
                 throw new IllegalArgumentException("Invalid program key record");
@@ -76,6 +91,13 @@ final class ProgramKeyStore {
         return keys.values().stream().map(this::view).toList();
     }
 
+    synchronized View get(UUID id) throws IOException {
+        load();
+        var key = keys.get(id);
+        if (key == null) throw new NoSuchElementException("PROGRAM_KEY_NOT_FOUND");
+        return view(key);
+    }
+
     synchronized Created create(Policy policy) throws IOException {
         load();
         if (keys.size() >= MAX_KEYS) throw new IllegalStateException("PROGRAM_KEY_CAPACITY");
@@ -83,7 +105,7 @@ final class ProgramKeyStore {
         UUID id = UUID.randomUUID();
         String secret = "pdk_" + id + "_" + Base64.getUrlEncoder().withoutPadding().encodeToString(random);
         Arrays.fill(random, (byte) 0);
-        var stored = new Stored(id, 1, policy, System.currentTimeMillis(), digest(secret));
+        var stored = new Stored(id, 1, policy, System.currentTimeMillis(), digest(secret), Transport.HTTPS_REQUIRED);
         var next = new LinkedHashMap<>(keys); next.put(id, stored);
         save(next);
         return new Created(view(stored), secret);
@@ -92,8 +114,23 @@ final class ProgramKeyStore {
     synchronized View update(UUID id, long revision, Policy policy) throws IOException {
         Stored old = current(id, revision);
         var next = new LinkedHashMap<>(keys);
-        var changed = new Stored(id, Math.incrementExact(old.revision()), policy, old.createdAt(), old.digest());
+        var changed = new Stored(id, Math.incrementExact(old.revision()), policy, old.createdAt(), old.digest(), Transport.HTTPS_REQUIRED);
         next.put(id, changed); save(next);
+        return view(changed);
+    }
+
+    synchronized View transport(UUID id, long revision, Transport requested) throws IOException {
+        Stored old = current(id, revision);
+        boolean valid = switch (requested) {
+            case REVIEWED -> old.transport() == Transport.HTTPS_REQUIRED;
+            case HTTP_ALLOWED -> old.transport() == Transport.REVIEWED;
+            case HTTPS_REQUIRED -> true;
+        };
+        if (!valid) throw new IllegalStateException("PROGRAM_KEY_CHANGED");
+        var next = new LinkedHashMap<>(keys);
+        var changed = new Stored(id, Math.incrementExact(old.revision()), old.policy(), old.createdAt(), old.digest(), requested);
+        next.put(id, changed);
+        save(next);
         return view(changed);
     }
 
@@ -102,7 +139,7 @@ final class ProgramKeyStore {
         var next = new LinkedHashMap<>(keys); next.remove(id); save(next); lastUsed.remove(id);
     }
 
-    synchronized View authenticate(String secret, String remoteAddress) throws IOException {
+    synchronized View authenticate(String secret, String remoteAddress, boolean secure) throws IOException {
         load();
         if (secret == null || !secret.matches("pdk_[0-9a-f-]{36}_[A-Za-z0-9_-]{43}")) return null;
         UUID id;
@@ -114,9 +151,13 @@ final class ProgramKeyStore {
         byte[] address = IpNetwork.parseNumericAddress(remoteAddress);
         if (address == null || (!key.policy().anyIp() && key.policy().networks().stream()
                 .map(IpNetwork::parse).noneMatch(network -> network.contains(address)))) return null;
+        if (!secure && key.transport() != Transport.HTTP_ALLOWED && !IpNetwork.isLocalOrLan(address))
+            throw new HttpsRequired();
         lastUsed.put(id, System.currentTimeMillis());
         return view(key);
     }
+
+    static final class HttpsRequired extends RuntimeException {}
 
     private Stored current(UUID id, long revision) throws IOException {
         load();
@@ -126,7 +167,7 @@ final class ProgramKeyStore {
         return value;
     }
 
-    private View view(Stored key) { return new View(key.id(), key.revision(), key.policy(), key.createdAt(), lastUsed.get(key.id())); }
+    private View view(Stored key) { return new View(key.id(), key.revision(), key.policy(), key.createdAt(), lastUsed.get(key.id()), key.transport()); }
 
     private void load() throws IOException {
         if (keys != null) return;

@@ -1,5 +1,12 @@
 package top.sywyar.pixivdownload.setup;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +37,7 @@ import top.sywyar.pixivdownload.setup.response.SetupStatusResponse;
 import java.io.IOException;
 import java.time.Duration;
 
+@HttpApiGroup("core-identity")
 @RestController
 @Slf4j
 public class SetupController {
@@ -63,6 +71,11 @@ public class SetupController {
         );
     }
 
+    @HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/setup/init")
     public SetupInitResponse init(@Valid @RequestBody SetupInitRequest request,
                                   HttpServletRequest httpRequest) throws IOException {
@@ -140,6 +153,12 @@ public class SetupController {
     private record ProxySettings(boolean enabled, String host, int port) {
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = AuthResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/auth/login")
     @top.sywyar.pixivdownload.plugin.api.operation.OperationEndpoint(operation = "core:login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
@@ -152,7 +171,7 @@ public class SetupController {
 
     private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request, HttpServletRequest httpRequest) throws IOException {
         String token = setupService.createSession(request.isRememberMe());
-        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(InstanceCookies.name(httpRequest, "pixiv_session"), token)
+        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from(InstanceCookies.name(httpRequest, SessionUtils.COOKIE_NAME), token)
                 .path("/")
                 .httpOnly(true)
                 .secure(sslEnabled)
@@ -168,6 +187,7 @@ public class SetupController {
                 .body(new AuthResponse(true));
     }
 
+    @HttpApiAccess(HttpApiAccess.Condition.OPTIONAL_SESSION)
     @PostMapping("/api/auth/logout")
     public ResponseEntity<AuthResponse> logout(HttpServletRequest request) throws IOException {
         if (GuestInviteSession.isGuestRequest(request)) {
@@ -179,7 +199,7 @@ public class SetupController {
         String token = SessionUtils.extractToken(request);
         setupService.removeSession(token);
 
-        ResponseCookie cookie = ResponseCookie.from(InstanceCookies.name(request, "pixiv_session"), "")
+        ResponseCookie cookie = ResponseCookie.from(InstanceCookies.name(request, SessionUtils.COOKIE_NAME), "")
                 .path("/")
                 .httpOnly(true)
                 .secure(sslEnabled)
@@ -192,6 +212,7 @@ public class SetupController {
                 .body(new AuthResponse(true));
     }
 
+    @HttpApiAccess(HttpApiAccess.Condition.OPTIONAL_ADMIN)
     @GetMapping("/api/auth/check")
     public AuthCheckResponse check(HttpServletRequest request) {
         return new AuthCheckResponse(setupService.isAdminLoggedIn(request));

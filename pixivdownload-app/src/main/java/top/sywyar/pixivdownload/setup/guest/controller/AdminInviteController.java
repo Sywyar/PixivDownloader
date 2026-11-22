@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.setup.guest.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
@@ -16,6 +21,7 @@ import java.util.List;
  *
  * <p>所有 {@code /api/admin/**} 路径在 AuthFilter 中视为管理员专属，访客邀请会话即使持 cookie 也 403。
  */
+@HttpApiGroup("core-invites")
 @RestController
 @RequestMapping("/api/admin/invites")
 @RequiredArgsConstructor
@@ -28,6 +34,8 @@ public class AdminInviteController {
         return new AccessCheckResponse(true);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping
     public InviteCreateResponse create(@RequestBody InviteCreateRequest request) {
         long id = guestInviteService.createInvite(request);
@@ -41,23 +49,32 @@ public class AdminInviteController {
         return new InviteListResponse(items);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/{id}")
     public InviteDetail detail(@PathVariable long id) {
         return guestInviteService.detail(id);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PutMapping("/{id}")
     public InviteDetail update(@PathVariable long id, @RequestBody InviteCreateRequest request) {
         guestInviteService.updateInvite(id, request);
         return guestInviteService.detail(id);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/pause")
     public SuccessResponse pause(@PathVariable long id) {
         guestInviteService.pause(id);
         return new SuccessResponse(true);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/resume")
     public SuccessResponse resume(@PathVariable long id) {
         guestInviteService.resume(id);
@@ -70,12 +87,16 @@ public class AdminInviteController {
         return new DeleteExpiredResponse(true, deleted);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}")
     public SuccessResponse delete(@PathVariable long id) {
         guestInviteService.delete(id);
         return new SuccessResponse(true);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/{id}/stats")
     public InviteStatsResponse stats(
             @PathVariable long id,

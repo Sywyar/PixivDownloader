@@ -64,6 +64,20 @@ class ArchiveControllerTest {
     }
 
     @Test
+    void emptyAndFailedArchivesStopAskingClientsToRetry() throws Exception {
+        var token = java.util.UUID.randomUUID().toString();
+        var entry = new UserQuotaService.ArchiveEntry(token, null, Long.MAX_VALUE);
+        when(userQuotaService.getArchive(token)).thenReturn(entry);
+        var download = "/api/archive/download/" + token;
+        mockMvc.perform(get(download)).andExpect(status().isAccepted());
+        entry.setStatus("empty");
+        mockMvc.perform(get(download)).andExpect(status().isNoContent());
+        entry.setStatus("error");
+        mockMvc.perform(get(download)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("archive.download.failed"));
+    }
+
+    @Test
     @DisplayName("管理员初始化配额时应返回 adminMode")
     void shouldReturnAdminModeForLoggedInAdmin() throws Exception {
         when(setupService.isAdminLoggedIn(any())).thenReturn(true);

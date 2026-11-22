@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.download.request;
 
+import jakarta.validation.constraints.Size;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackCommandType;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
@@ -23,11 +27,21 @@ import java.util.List;
  * 未知 JSON 字段由严格 ObjectReader 拒绝。校验失败抛出 {@link IllegalArgumentException}，
  * 由控制器映射为 400。
  */
+@Schema(requiredProperties = {"surveyId", "command"}, additionalProperties = Schema.AdditionalPropertiesValue.FALSE,
+        oneOf = {LayoutFeedbackCommandRequest.Seen.class, LayoutFeedbackCommandRequest.StateChange.class})
 public record LayoutFeedbackCommandRequest(
         String surveyId,
         String command,
-        List<String> layoutIds
+        @HttpApiNullable List<String> layoutIds
 ) {
+
+    @Schema(requiredProperties = {"command", "layoutIds"}, additionalProperties = Schema.AdditionalPropertiesValue.TRUE)
+    record Seen(@Schema(allowableValues = "record_seen") String command,
+                @ArraySchema(minItems = 1, maxItems = 3, uniqueItems = true,
+                        schema = @Schema(allowableValues = {"pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt"})) List<String> layoutIds) {}
+    @Schema(requiredProperties = "command", additionalProperties = Schema.AdditionalPropertiesValue.TRUE)
+    record StateChange(@Schema(allowableValues = {"snooze", "never", "submitted"}) String command,
+                       @Schema(types = {"array", "null"}) @Size(max = 0) List<String> layoutIds) {}
 
     public LayoutFeedbackCommandRequest {
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {

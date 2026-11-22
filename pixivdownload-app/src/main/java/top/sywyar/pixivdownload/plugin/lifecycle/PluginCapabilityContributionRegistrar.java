@@ -193,6 +193,10 @@ public class PluginCapabilityContributionRegistrar {
         return invocationRegistry.serviceBindingsPending(pluginId);
     }
 
+    public boolean serviceBindingsDraining(String pluginId) {
+        return invocationRegistry.serviceBindingsDraining(pluginId);
+    }
+
 
     public void prepareInto(PreparedOwner preparedOwner, ConfigurableApplicationContext context) {
         if (preparedOwner == null) {

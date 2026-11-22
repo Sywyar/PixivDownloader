@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui.media;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.*;
 
@@ -20,7 +22,7 @@ public class MediaToolExecution implements Source {
 
     private MediaToolExecution(Source delegate) { this.delegate = delegate; }
 
-    record Snapshot(UUID executionId, boolean previewing, Status status) {}
+    record Snapshot(@HttpApiNullable UUID executionId, boolean previewing, Status status) {}
 
     synchronized Snapshot snapshot() { return new Snapshot(executionId, previewing, delegate.status()); }
 

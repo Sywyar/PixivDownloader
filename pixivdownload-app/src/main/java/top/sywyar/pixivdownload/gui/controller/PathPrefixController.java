@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.gui.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,6 +30,7 @@ import java.util.List;
  *
  * <p>只改写 {@code path_prefixes} 记录，不移动磁盘文件。
  */
+@HttpApiGroup("core-files")
 @RestController
 @RequestMapping("/api/gui/path-prefixes")
 @RequiredArgsConstructor
@@ -32,6 +38,8 @@ public class PathPrefixController {
 
     private final PathPrefixMigrationService migrationService;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping
     public ResponseEntity<PathPrefixListResponse> list(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -48,6 +56,8 @@ public class PathPrefixController {
      * 两个调用场景：GUI 配置页修改下载根目录前冻结旧记录（路径 = 符号根当前解析结果）；
      * GUI 启动检查发现孤儿 {@code {0}} 行后按使用者输入的旧路径修复。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @PostMapping("/pin")
     public ResponseEntity<PathPrefixMigrationResult> pin(@RequestBody(required = false) PinRequest body,
                                                          HttpServletRequest req) {
@@ -57,6 +67,8 @@ public class PathPrefixController {
         return ResponseEntity.ok(migrationService.pinSymbolicRoot(body == null ? null : body.path()));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @PostMapping
     public ResponseEntity<PathPrefixMigrationResult> apply(@RequestBody(required = false) PathPrefixMigrationRequest body,
                                                            HttpServletRequest req) {
@@ -76,7 +88,7 @@ public class PathPrefixController {
      */
     public record PathPrefixListResponse(List<PathPrefixView> prefixes, String appRoot,
                                          boolean symbolicReferenced, boolean symbolicOrphan,
-                                         String symbolicOrphanSuggestedPath) {
+                                         @HttpApiNullable String symbolicOrphanSuggestedPath) {
     }
 
     public record PathPrefixMigrationRequest(List<PathPrefixUpdate> updates, List<String> registerPaths) {

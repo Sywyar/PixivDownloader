@@ -1,13 +1,15 @@
 package top.sywyar.pixivdownload.series;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 public record MangaSeriesDetail(
         long seriesId,
         String title,
-        Long authorId,
-        String authorName,
+        @HttpApiNullable Long authorId,
+        @HttpApiNullable String authorName,
         long artworkCount,
         Long updatedTime,
-        String description,
-        String coverExt,
-        String coverFolder
+        @HttpApiNullable String description,
+        @HttpApiNullable String coverExt,
+        @HttpApiNullable String coverFolder
 ) {}

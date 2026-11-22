@@ -25,6 +25,23 @@ public class ArtworkDownloadHistoryAdapter implements ArtworkDownloadHistory {
     }
 
     @Override
+    public top.sywyar.pixivdownload.core.artwork.download.PartialArtwork partial(long artworkId) {
+        return pixivDatabase.partialArtwork(artworkId);
+    }
+
+    @Override
+    public boolean startPartial(top.sywyar.pixivdownload.core.artwork.download.PartialArtwork layout) {
+        return pixivDatabase.startPartialArtwork(layout);
+    }
+
+    @Override
+    @Transactional
+    public void completePartial(ArtworkDownloadCompletion completion) {
+        pixivDatabase.promotePartialArtwork(completion.artworkId(), completion.imageCount());
+        record(completion);
+    }
+
+    @Override
     public long allocateRecordTime(long preferredTime) {
         return preferredTime > 0
                 ? pixivDatabase.getUniqueTime(preferredTime)

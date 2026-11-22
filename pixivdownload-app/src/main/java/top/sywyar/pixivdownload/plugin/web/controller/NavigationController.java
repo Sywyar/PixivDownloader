@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +41,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 功能页面其次、管理入口最大，故同一 slot 内自带页面在前、后续在后）；③ id 兜底稳定。来源层级只区分
  * 内置 / 第三方这条硬边界；内置项之间的基础页面 vs 功能页面先后由 priority 表达。
  */
+@HttpApiGroup("core-extensions")
 @RestController
 @RequestMapping("/api/navigation")
 @RequiredArgsConstructor

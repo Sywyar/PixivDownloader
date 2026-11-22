@@ -12,4 +12,10 @@ public interface GuiTokenProvider {
 
     /** 当前进程的一次性 GUI 令牌；Spring 初始化完成前可能为 null。 */
     String getToken();
+
+    static boolean accepts(GuiTokenProvider provider, jakarta.servlet.http.HttpServletRequest request) {
+        if (!NetworkUtils.isTrustedLocalRequest(request)) return false;
+        String token = provider.getToken();
+        return token != null && !token.isEmpty() && token.equals(request.getHeader(HEADER_NAME));
+    }
 }

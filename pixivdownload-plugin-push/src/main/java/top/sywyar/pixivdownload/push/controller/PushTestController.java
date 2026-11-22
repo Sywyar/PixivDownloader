@@ -1,21 +1,25 @@
 package top.sywyar.pixivdownload.push.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.util.List;
 
@@ -28,6 +32,7 @@ import java.util.List;
  * 接收 GUI 当前推送表单的临时设置（含各通道密钥，仅在 localhost 同进程内传递），对其中已勾选启用的通道用一条
  * 固定的测试消息发送，把每通道结果汇总回 GUI；明细绝不含密钥。<b>不</b>检查推送总开关，便于保存前测试。
  */
+@HttpApiGroup("push-push")
 @RestController
 @RequiredArgsConstructor
 public class PushTestController {
@@ -35,6 +40,8 @@ public class PushTestController {
     private final PushDispatcher pushService;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PushTestResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/gui/push-test")
     public ResponseEntity<?> test(@RequestBody PushTestRequest body,
                                   HttpServletRequest request) {
@@ -46,6 +53,7 @@ public class PushTestController {
     }
 
     /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PushTestResponse.class)))
     @PostMapping("/api/admin/push/test")
     public ResponseEntity<?> testAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody PushTestRequest body) {
         return testSettings(body);

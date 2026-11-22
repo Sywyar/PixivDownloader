@@ -130,7 +130,8 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.download", "InteractiveDownloadExecutionLane"),
                     types("top.sywyar.pixivdownload.core.ffmpeg",
                             "FfmpegCommandResolver", "FfmpegProcessGate", "FfmpegRunner", "ResolvedFfmpegCommand"),
-                    types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver"),
+                    types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver", "MissingProgramPermissionException",
+                            "CsvIds", "HttpIds", "KnownErrorCodes", "HttpParameterError", "HttpParameterException"),
                     types("top.sywyar.pixivdownload.i18n",
                             "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver", "LocaleBundlePolicy"),
                     types("top.sywyar.pixivdownload.setup",
@@ -144,7 +145,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("核心归档与收藏能力", union(
                     types("top.sywyar.pixivdownload.core.archive",
                             "ArchiveExportEntry", "ArchiveExportRequest", "ArchiveExportResult",
-                            "ArchiveExportRules", "ArchiveExportService", "ArchiveWorkDeletion"),
+                            "ArchiveExportRules", "ArchiveExportService", "ArchiveWorkDeletion", "UnsupportedArchiveFormatException"),
                     types("top.sywyar.pixivdownload.core.collection",
                             "CollectionDownloadRootResolver", "WorkCollectionMembership"))),
             Map.entry("游客下载配额", types("top.sywyar.pixivdownload.core.quota",
@@ -164,12 +165,13 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler", "FileTransactionService"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
-                            "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
+                            "ArtworkDownloadLookup", "ArtworkDownloadStatistics", "PartialArtwork",
                             "ArtworkSeriesObservation", "ArtworkSeriesObserver"),
                     types("top.sywyar.pixivdownload.core.hash",
                             "ArtworkHashEntry", "ArtworkHashFingerprint", "ArtworkHashIndexMaintenance",
                             "ArtworkHashIndexQuery"),
                     types("top.sywyar.pixivdownload.core.pixiv",
+                            "PixivQueryParameters",
                             "PixivAjaxClient", "PixivAjaxException", "PixivAjaxFailure",
                             "PixivBookmarkActions", "PixivCookieUserResolver",
                             "PixivCoverUrlResolver", "PixivDescriptionHtml", "PixivImageDownloader",
@@ -185,11 +187,11 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.work",
                             "WorkActionResult"),
                     types("top.sywyar.pixivdownload.core.work.model",
-                            "LocalWorkAsset", "PagedResult", "WorkAssetFile", "WorkFileNameTemplateRef",
+                            "FileManagement", "LocalWorkAsset", "PagedResult", "WorkAssetFile", "WorkFileNameTemplateRef",
                             "WorkMetadata", "WorkRestriction", "WorkSummary", "WorkTag", "WorkType",
                             "WorkVisibilityScope"),
                     types("top.sywyar.pixivdownload.core.work.query",
-                            "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery"),
+                            "AuthorQuery", "AuthorSummary", "SeriesNeighbors", "TagOption", "TagQuery", "WorkQuery", "WorkSelectionException"),
                     types("top.sywyar.pixivdownload.core.work.service",
                             "AuthorObservationService", "DownloadPathGuard", "DownloadPathRejectedException",
                             // 宿主查询卷能力，插画和小说共用授权码与命名规划，不包含插件目录布局。
@@ -213,6 +215,12 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.web.KnownErrorCodes$Group",
+            "top.sywyar.pixivdownload.core.work.query.WorkQuery$InvalidField",
+            "top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Order",
+            "top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Mode",
+            "top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$SearchMode",
+            "top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Rest",
             "top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter$Context",
             "top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables$Variable",
             "top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver$Context",
@@ -236,6 +244,8 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, Object> APPROVED_PUBLIC_CONSTANTS = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException#CODE:java.lang.String",
+                    "validation.archive.export.format.unsupported"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_SYSTEM:java.lang.String", "system"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_USER:java.lang.String", "user"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_ASSISTANT:java.lang.String", "assistant"),
@@ -248,6 +258,8 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.schedule.ScheduledTask#TRIGGER_CRON:java.lang.String", "cron"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#HEADER_NAME:java.lang.String",
                     "X-Acquisition-Credential"),
+            Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#REQUIRED_CODE:java.lang.String",
+                    "ACQUISITION_CREDENTIAL_REQUIRED"),
             Map.entry("top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver#MAX_LENGTH:int", 16_384),
             Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver#MAX_IMAGE_BYTES:long",
                     100L * 1024L * 1024L),
@@ -258,6 +270,8 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter#MAX_BASENAME_LENGTH:int", 180),
             Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathLimits#UNKNOWN:top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
                     new DownloadPathLimits(0, 0, false)),
+            Map.entry("top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables#COLLECTION_ROOT_PLACEHOLDER:java.lang.String",
+                    "{collection_name}"),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkAssetService#PUBLICATION_TEMPORARY_NAME_LENGTH:int", 64),
             Map.entry("top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles#SIDECAR_SUFFIX:java.lang.String",
                     ".meta.json"),
@@ -291,6 +305,10 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, List<String>> APPROVED_ENUM_CONSTANTS_BY_TYPE = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Order", List.of("date_d", "date", "popular_d")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Mode", List.of("all", "safe", "r18")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$SearchMode", List.of("s_tag", "s_tc")),
+            Map.entry("top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Rest", List.of("show", "hide")),
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool", List.of("FFMPEG", "FFPROBE")),
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase", List.of("WAITING", "RUNNING")),
             Map.entry("top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand$Source",
@@ -310,6 +328,8 @@ class CoreApiOwnershipGuardTest {
                             "QUIESCED", "MIGRATION_ERROR")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathAction",
                     List.of("ASK", "TRUNCATE", "DEFAULT_NAME", "CANCEL")),
+            Map.entry("top.sywyar.pixivdownload.core.work.model.FileManagement",
+                    List.of("MANAGED", "EXTERNAL_REFERENCE")),
             Map.entry("top.sywyar.pixivdownload.core.work.model.WorkType",
                     List.of("ARTWORK", "NOVEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
@@ -646,6 +666,9 @@ class CoreApiOwnershipGuardTest {
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadHistory.class))
                 .containsExactlyInAnyOrder(
                         "public abstract allocateRecordTime(long):long",
+                        "public abstract completePartial(top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion):void",
+                        "public abstract partial(long):top.sywyar.pixivdownload.core.artwork.download.PartialArtwork",
+                        "public abstract startPartial(top.sywyar.pixivdownload.core.artwork.download.PartialArtwork):boolean",
                         "public abstract record(top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion):void");
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadLookup.class))
                 .containsExactly("public abstract isDownloaded(long,boolean):boolean");

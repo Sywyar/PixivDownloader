@@ -27,6 +27,7 @@ function harness(observed = false) {
             closest: () => null,
             addEventListener: (type, fn) => listeners.set(type, fn),
             removeEventListener: (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type); },
+            hasAttribute(name) { return name === 'src' && !!this.url; },
             removeAttribute(name) { if (name === 'src') this.url = null; },
             set src(url) { this.url = url; requests.push(url); },
             listeners};
@@ -79,4 +80,24 @@ test('观察器仅加载进入范围的图片，释放后忽略旧通知且返�
     assert.equal(h.watched.size, 1);
     h.intersect(img);
     assert.equal(h.requests.length, 1);
+});
+
+test('离页保留已显示的封面，返回只继续未完成的请求，替换列表仍释放封面', () => {
+    const h = harness();
+    for (let i = 0; i < 6; i++) h.add(i);
+    const [cover] = h.images;
+    cover.listeners.get('load')();
+    const requested = h.requests.slice();
+
+    h.sandbox.suspendThumbnails();
+    assert.equal(cover.url, '/thumbnail/0');
+    assert.ok(h.images.slice(1).every(img => !img.url && img.listeners.size === 0));
+    assert.deepEqual(h.requests, requested);
+
+    h.sandbox.resumeThumbnails();
+    assert.deepEqual(h.requests.slice(requested.length), requested.slice(1));
+    h.images[1].listeners.get('load')();
+    assert.equal(h.requests.at(-1), '/thumbnail/5');
+    h.sandbox.releaseThumbnails(h.root);
+    assert.ok(h.images.every(img => !img.url));
 });

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.trust;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -24,8 +26,8 @@ public record PluginTrustRequirement(
         String artifactSha256,
         PluginExecutionMode executionMode,
         PluginRiskDeclaration riskDeclaration,
-        PluginRiskDeclaration previousRiskDeclaration,
-        PluginExecutionMode previousExecutionMode,
+        @HttpApiNullable PluginRiskDeclaration previousRiskDeclaration,
+        @HttpApiNullable PluginExecutionMode previousExecutionMode,
         String repositoryTrustSource,
         String assuranceLevel) {
 

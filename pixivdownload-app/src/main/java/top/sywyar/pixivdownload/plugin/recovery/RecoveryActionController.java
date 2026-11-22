@@ -1,5 +1,13 @@
 package top.sywyar.pixivdownload.plugin.recovery;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +28,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 
 /** ADMIN 路由和 CSRF 过滤器之外，恢复操作还要求本机请求和当下的恢复状态。 */
+@HttpApiGroup("core-system")
 @RestController
 @RequestMapping("/api/plugins/recovery")
 public class RecoveryActionController {
@@ -51,6 +60,9 @@ public class RecoveryActionController {
         this.desktopFailure = desktopFailure;
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = RecoveryView.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<?> status(HttpServletRequest request) {
         var guiFailure = desktopFailure.get();
@@ -91,11 +103,23 @@ public class RecoveryActionController {
                         database.providerOwner(), report, failures.keySet())));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ActionResult.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
     @PostMapping("/restart")
     public ResponseEntity<?> restart(HttpServletRequest request) {
         return act(request, application::requestRestart);
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ActionResult.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
     @PostMapping("/exit")
     public ResponseEntity<?> exit(HttpServletRequest request) {
         return act(request, application::requestExit);
@@ -120,6 +144,6 @@ public class RecoveryActionController {
 
     public record ActionResult(boolean accepted) { }
     public record RecoveryView(boolean active, boolean recoveryMode, boolean desktopUnavailable,
-            boolean actionsAllowed, boolean installationBlocked, String advice, List<String> errors,
+            boolean actionsAllowed, boolean installationBlocked, @HttpApiNullable String advice, List<String> errors,
             RecoveryPluginFocus focus) { }
 }

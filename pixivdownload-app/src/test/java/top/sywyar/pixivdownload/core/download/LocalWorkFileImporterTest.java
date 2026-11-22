@@ -156,12 +156,12 @@ class LocalWorkFileImporterTest {
     }
     @Test @DisplayName("元数据写入失败整笔回滚，不留文件引用且不触碰原文件")
     void rollsBackFailedRegistration() throws Exception {
-        ArtworkDownloadHistory failing = new ArtworkDownloadHistory() {
-            public long allocateRecordTime(long time) { return history.allocateRecordTime(time); }
-            public void record(ArtworkDownloadCompletion completion) {
-                history.record(completion); throw new IllegalStateException("forced rollback");
-            }
-        };
+        ArtworkDownloadHistory failing = org.mockito.Mockito.mock(ArtworkDownloadHistory.class,
+                org.mockito.AdditionalAnswers.delegatesTo(history));
+        org.mockito.Mockito.doAnswer(call -> {
+            history.record(call.getArgument(0));
+            throw new IllegalStateException("forced rollback");
+        }).when(failing).record(org.mockito.ArgumentMatchers.any());
         assertThatThrownBy(() -> importer(failing).importFiles(request(List.of(Path.of("custom.png")))))
                 .isInstanceOf(IllegalStateException.class).hasMessage("forced rollback");
         assertThat(database.getArtwork(42)).isNull();

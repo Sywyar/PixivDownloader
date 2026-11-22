@@ -34,6 +34,8 @@ Replace all template identities consistently across Java classes, `plugin.proper
 - **Download type & queue lifecycle**:
   - `DownloadTypeDescriptor` (contract version 1) declaring `single-import`, `user`, `series`, `search`, and `quick` modes, `cancelSupported=true`, filters, settings, and behavior module URL.
   - `DownloadSubmissionHandler`, `DownloadOptionsHook`, and `DownloadObserver` wired through `DownloadLifecycle` / `QueueTaskTracker` (admin submission via `DownloadTasks.submit` or `POST /api/download/tasks`).
+  - Declare the accepted command and a valid example next to the submission handler. This template's `inputSchemaResource()` returns `/META-INF/pixivdownload/submission/example.json`. The active handler's work type, option schema and example appear on `POST /api/download/tasks` in OpenAPI.
+  - For a scheduled source, set `inputSchemaJson` on its `ScheduledSourceDescriptor`. A caller can read the schema and activation token together from `GET /api/schedule/sources`, fill in a value using the schema's example, then serialize it into `definitionJson` when creating the task.
   - `QueueOperations` with opaque `workKey` cancellation (sent by the host bridge in JSON to `POST /api/download/queue/{queueType}/cancel`). Real asynchronous downloaders must override `prepareQuiesce` to return and drain a positive generation `QueueDrain` and report completion only after files and records are durably committed.
 - **Trusted request identity**: Controllers resolve the caller via the host-provided `RequestOwnerIdentityResolver` and never trust caller-supplied owner UUIDs.
 - **Frontend isolation & independent gallery**:

@@ -178,7 +178,7 @@ class GalleryToolsExternalPluginIntegrationTest {
                         && r.route().pathPattern().contains("stats"))
                 .allSatisfy(route -> assertThat(route.requestOwner()).isNotNull())
                 .extracting(r -> r.route().pathPattern())
-                .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**");
+                .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**", "/api/stats/dashboard");
         assertThat(requestLeases.currentOwner("gallery-tools")).isPresent();
 
         // navigation：stats 导航项进入 NavigationRegistry

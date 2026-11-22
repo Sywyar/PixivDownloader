@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -8,14 +9,14 @@ public record NotificationMessage(
         String id,
         String category,
         String severity,
-        String scenarioId,
+        @HttpApiNullable String scenarioId,
         String title,
         String body,
-        String contentUrl,
+        @HttpApiNullable String contentUrl,
         @JsonIgnore String contentHtml,
-        String actionUrl,
+        @HttpApiNullable String actionUrl,
         long createdTime,
-        Long readTime
+        @HttpApiNullable Long readTime
 ) {
 
     static final String PERSISTENT_SURVEY_ID_PREFIX = "persistent-survey:";
@@ -44,6 +45,7 @@ public record NotificationMessage(
         return !persistentSurvey();
     }
 
+    @HttpApiNullable
     @JsonProperty("embeddedContentUrl")
     public String embeddedContentUrl() {
         return persistentSurvey() ? actionUrl : null;

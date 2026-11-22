@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -81,6 +82,10 @@ public class PluginEnabledConfigurationService {
     }
 
     /** 插件启用态写入结果。 */
-    public record PluginEnabledState(String id, boolean enabled, PluginLifecyclePolicy lifecyclePolicy) {
+    @Schema(name = "PluginEnabledState")
+    public record PluginEnabledState(
+            @Schema(example = "example-plugin") String id,
+            @Schema(example = "true") boolean enabled,
+            PluginLifecyclePolicy lifecyclePolicy) {
     }
 }

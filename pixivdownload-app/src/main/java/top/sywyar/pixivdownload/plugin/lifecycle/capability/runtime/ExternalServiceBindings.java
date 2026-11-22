@@ -71,9 +71,20 @@ final class ExternalServiceBindings {
         }
     }
 
-    boolean pending(String pluginId) {
+    boolean pending(String pluginId, boolean requireProgress) {
         synchronized (lock) {
-            return bindings.stream().anyMatch(b -> b.round != null && b.round.owners.contains(pluginId));
+            boolean pending = false;
+            for (Binding binding : bindings) {
+                if (binding.round == null || !binding.round.owners.contains(pluginId)) continue;
+                if (!requireProgress) return true;
+                if (!binding.queued && (binding.state == ServiceBinding.State.CLOSE_FAILED
+                        || binding.code.equals("SCHEDULING_REJECTED"))) {
+                    throw new IllegalStateException("Service binding cleanup failed for plugin '" + pluginId
+                            + "' (binding=" + binding.id + ", code=" + binding.code + ")");
+                }
+                pending = true;
+            }
+            return pending;
         }
     }
 

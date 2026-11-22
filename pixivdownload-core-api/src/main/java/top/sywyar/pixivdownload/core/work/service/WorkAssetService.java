@@ -115,14 +115,25 @@ public interface WorkAssetService {
     }
 
     /**
-     * 取指定页的原始文件。作品不存在、页号越界或文件缺失时返回 {@link Optional#empty()}。
+     * 取指定页保留的原文件或可用的转换产物。作品不存在、页号越界或产物缺失时返回 {@link Optional#empty()}。
      *
      * @param workType 工作类型
      * @param workId 作品标识
      * @param page 页码
-     * @return 满足条件时返回 {@code true}，否则返回 {@code false}
+     * @return 用于导出的文件
      */
     Optional<WorkAssetFile> rawFile(WorkType workType, long workId, int page);
+
+    /**
+     * 取用于展示的页文件。插画优先选择可播放或可显示的媒体，必要时回退到已保存的缩略图。
+     * @param workType 工作类型
+     * @param workId 作品标识
+     * @param page 从零开始的页码
+     * @return 可用于展示的本地文件
+     */
+    default Optional<WorkAssetFile> previewFile(WorkType workType, long workId, int page) {
+        return rawFile(workType, workId, page);
+    }
 
     /**
      * 删除作品在磁盘上的全部留存文件（各页图片与缩略图、缩略图缓存、独占空目录）。

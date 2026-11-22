@@ -111,6 +111,7 @@
     "page.heading": "外掛程式管理",
     "page.subtitle": "擴充下載助手的能力——翻譯、轉碼、備份與通知，依需求啟用／停用。",
     "page.title": "外掛程式管理 · Pixiv 下載助手",
+    "permission.api-reference.read": "讀取 HTTP 介面參考文件",
     "permission.application.read": "讀取程式資訊與介面語言資源",
     "permission.archives.create": "建立插畫匯出封存檔",
     "permission.archives.download": "下載安裝實例的匯出封存檔",

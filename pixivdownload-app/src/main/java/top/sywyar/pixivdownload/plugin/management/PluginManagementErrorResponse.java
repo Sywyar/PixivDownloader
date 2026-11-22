@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.media.Schema;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
@@ -16,10 +18,10 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
  * @param runtimePhase 目标插件当时的运行期阶段（仅在已知时附带，可空）
  */
 public record PluginManagementErrorResponse(
-        String code,
+        @Schema(implementation = PluginManagementErrorCode.class) String code,
         String error,
         int status,
-        String pluginId,
-        String action,
-        PluginRuntimePhase runtimePhase) implements ApiErrorResponse {
+        @HttpApiNullable String pluginId,
+        @HttpApiNullable String action,
+        @HttpApiNullable PluginRuntimePhase runtimePhase) implements ApiErrorResponse {
 }

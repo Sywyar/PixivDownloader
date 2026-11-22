@@ -32,7 +32,7 @@ class BackfillControllerTest {
                 new DownloadConfig(), TestI18nBeans.appMessages())).build();
     }
 
-    @Test @DisplayName("真实后台执行共用准入、查询及精确取消，终态保留到下一次执行")
+    @Test @DisplayName("真实后台执行共用准入、查询及精确取消，后续任务期间仍能读取原终态")
     void executionLifecycle() throws Exception {
         var entered = new CountDownLatch(1);
         var interrupted = new CountDownLatch(1);
@@ -58,7 +58,7 @@ class BackfillControllerTest {
         try {
             mvc.perform(get("/api/tools/backfill/tasks/current")).andExpect(status().isNoContent());
             var result = mvc.perform(post("/api/tools/backfill/tasks").contentType("application/json")
-                            .content("{\"dryRun\":true,\"limit\":3,\"delayMs\":0,\"alwaysNetwork\":true}"))
+                            .content("{\"dryRun\":true,\"artworkIds\":[42,42],\"limit\":3,\"delayMs\":0,\"alwaysNetwork\":true}"))
                     .andExpect(status().isAccepted()).andReturn();
             String location = result.getResponse().getHeader("Location");
             assertNotNull(location);
@@ -66,6 +66,7 @@ class BackfillControllerTest {
             assertTrue(options.get().dryRun());
             assertTrue(options.get().alwaysNetwork());
             assertFalse(options.get().useProxy());
+            assertEquals(List.of(42L), options.get().artworkIds());
             assertEquals(3, options.get().limit());
             assertEquals("configured-database", options.get().dbPath());
             mvc.perform(get(location)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("RUNNING"));
@@ -80,6 +81,13 @@ class BackfillControllerTest {
             runner.stop();
             mvc.perform(get(location)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
             mvc.perform(post(location + "/cancel")).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
+            runner.start();
+            var second = mvc.perform(post("/api/tools/backfill/tasks").contentType("application/json").content("{}"))
+                    .andExpect(status().isAccepted()).andReturn().getResponse().getHeader("Location");
+            assertNotEquals(location, second);
+            mvc.perform(get(location)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
+            mvc.perform(post(location + "/cancel")).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
+            mvc.perform(get(second)).andExpect(status().isOk()).andExpect(jsonPath("$.state").value("RUNNING"));
         } finally { release.countDown(); runner.stop(); }
     }
 
@@ -87,12 +95,17 @@ class BackfillControllerTest {
     void invalidInputDoesNotStartWork() throws Exception {
         var runner = mock(DesktopBackfillRunner.class);
         var mvc = mvc(runner);
-        for (String body : List.of("null", "{} {}", "{\"limit\":1,\"limit\":2}", "{\"limit\":1.5}",
+        for (String body : List.of("", "null", "{} {}", "{\"limit\":1,\"limit\":2}", "{\"limit\":1.5}",
                 "{\"limit\":\"3\"}", "{\"dryRun\":\"true\"}", "{\"limit\":-1}", "{\"delayMs\":-1}",
-                "{\"dbPath\":\"private.db\"}", "{\"proxyHost\":\"remote\"}", "{\"rootFolder\":\"private\"}")) {
+                "{\"artworkIds\":null}", "{\"artworkIds\":[]}", "{\"artworkIds\":[null]}", "{\"artworkIds\":[0]}", "{\"dbPath\":\"private.db\"}", "{\"proxyHost\":\"remote\"}", "{\"rootFolder\":\"private\"}")) {
             mvc.perform(post("/api/tools/backfill/tasks").contentType("application/json").content(body))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BACKFILL_INVALID_REQUEST"));
         }
+        mvc.perform(post("/api/tools/backfill/tasks").contentType("application/json")
+                        .content("{\"artworkIds\":[1,0]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BACKFILL_INVALID_REQUEST"))
+                .andExpect(jsonPath("$.in").value("body")).andExpect(jsonPath("$.field").value("/artworkIds/1"))
+                .andExpect(jsonPath("$.reason").value("out_of_range"));
         mvc.perform(post("/api/tools/backfill/tasks").contentType("application/json")
                         .content(" ".repeat(BackfillController.MAX_BODY_BYTES + 1)))
                 .andExpect(status().isPayloadTooLarge());

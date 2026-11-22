@@ -1,11 +1,13 @@
 package top.sywyar.pixivdownload.setup.response;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.Getter;
 
 @Getter
 public class SetupInitResponse {
     private final boolean ok;
     private final String mode;
+    @HttpApiNullable
     private final String warning;
 
     public SetupInitResponse(boolean ok, String mode) {

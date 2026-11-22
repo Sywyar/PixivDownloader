@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.common;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@HttpApiGroup("core-system")
 @RestController
 public class AppInfoController {
 

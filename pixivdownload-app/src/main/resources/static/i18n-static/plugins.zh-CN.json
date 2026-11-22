@@ -111,6 +111,7 @@
     "page.heading": "插件管理",
     "page.subtitle": "扩展下载助手的能力 — 翻译、转码、备份与通知，按需启用 / 停用。",
     "page.title": "插件管理 · Pixiv 下载助手",
+    "permission.api-reference.read": "读取 HTTP 接口参考文档",
     "permission.application.read": "读取程序信息与界面语言资源",
     "permission.archives.create": "创建插画导出归档",
     "permission.archives.download": "下载安装实例的导出归档",

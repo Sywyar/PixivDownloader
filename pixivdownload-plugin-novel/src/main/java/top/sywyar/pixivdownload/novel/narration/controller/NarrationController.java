@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,18 +17,19 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.config.DebugSettings;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
-import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
+import top.sywyar.pixivdownload.novel.narration.analysis.NarratorVoicePreset;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +43,7 @@ import java.util.Map;
  * 访客邀请白名单中——solo 与 multi 两种模式下都仅管理员可访问，限流绝不作用于 solo / 已登录管理员。
  * {@code controlInstruction} 仅在花名册 / 冲突相关响应中下发（admin-only），<b>不</b>随逐句脚本下发。
  */
+@HttpApiGroup("novel-narration")
 @RestController
 @RequestMapping("/api/narration")
 @RequiredArgsConstructor
@@ -84,20 +90,21 @@ public class NarrationController {
      * 花名册角色（含音色画像，仅 admin 可见）。{@code refAudioSource} 为该角色参考音 / 标准音来源
      * （{@code auto}=自动生成、{@code upload}=用户上传、{@code null}=未配，使用音色画像），供前端展示状态。
      */
-    public record VoiceView(int id, String name, String gender, String age,
-                            String controlInstruction, boolean editedByUser, String refAudioSource) {}
+    public record VoiceView(int id, String name, @HttpApiNullable String gender, @HttpApiNullable String age,
+                            String controlInstruction, boolean editedByUser, @HttpApiNullable String refAudioSource) {}
 
-    public record CastResponse(Long castId, String castName, List<VoiceView> voices) {}
+    public record CastResponse(@HttpApiNullable Long castId, @HttpApiNullable String castName, List<VoiceView> voices) {}
 
     /** 花名册概要（选择器用）。 */
-    public record CastSummary(long id, String name, Long seriesId, Long novelId, int voiceCount) {}
+    public record CastSummary(long id, String name, @HttpApiNullable Long seriesId, @HttpApiNullable Long novelId, int voiceCount) {}
 
     public record CastListResponse(List<CastSummary> casts) {}
 
     public record CreateCastRequest(String name, Long seriesId, Long novelId) {}
 
     /** 某作品的默认花名册；{@code castId} 为 {@code null} 表示尚未创建，前端可据 {@code name} + 绑定按需创建。 */
-    public record DefaultCastResponse(Long castId, String name, Long seriesId, Long novelId, int voiceCount) {}
+    public record DefaultCastResponse(@HttpApiNullable Long castId, String name, @HttpApiNullable Long seriesId,
+            @HttpApiNullable Long novelId, int voiceCount) {}
 
     /** 编辑某角色音色：优先用显式 {@code castId}，否则按 {@code novelId} 解析本作默认册（按需创建）。 */
     public record VoiceUpdateRequest(Long castId, Long novelId, Integer characterId, String controlInstruction) {}
@@ -121,6 +128,7 @@ public class NarrationController {
      * 当前配置的多角色朗读引擎是否可用（admin-only，由 {@code /api/narration/} 前缀按 monitor 语义保护）。
      * 前端「听书」据此把「富感情朗读」引擎选项置灰 / 禁用，避免后端未配置时点开即触发分析。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = AvailabilityResponse.class)))
     @GetMapping("/availability")
     public ResponseEntity<?> availability() {
         return ResponseEntity.ok(new AvailabilityResponse(
@@ -139,6 +147,11 @@ public class NarrationController {
     }
 
     /** 生成 / 取整章逐句脚本（缓存命中不调 LLM；{@code force} 重新分析）。 */
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ScriptResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
     @PostMapping("/script")
     public ResponseEntity<?> script(@RequestBody ScriptRequest request) {
         if (request == null || request.novelId() == null) {
@@ -210,6 +223,8 @@ public class NarrationController {
     }
 
     /** 查看某本小说的默认花名册（含音色画像，admin-only）；未分析时返回仅旁白、不强制创建。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = CastResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/cast")
     public ResponseEntity<?> cast(@RequestParam long novelId) {
         NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(novelId);
@@ -235,6 +250,8 @@ public class NarrationController {
     }
 
     /** 新建花名册（{@code seriesId}/{@code novelId} 二选一绑定，均空=无绑定的共享册）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content)
     @PostMapping("/casts")
     public ResponseEntity<CastSummary> createCast(@RequestBody CreateCastRequest request) {
         if (request == null) {
@@ -245,6 +262,8 @@ public class NarrationController {
     }
 
     /** 某本小说的默认花名册（{@code castId} 为 {@code null} 表示尚未创建，前端可按需创建）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/casts/novel/{novelId}/default")
     public ResponseEntity<DefaultCastResponse> novelDefaultCast(@PathVariable long novelId) {
         NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(novelId);
@@ -261,6 +280,8 @@ public class NarrationController {
     }
 
     /** 取某花名册的全部角色（含音色画像，admin-only）；供弹窗内「选角与音色」按 castId 编辑所选花名册。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/casts/{id}/voices")
     public ResponseEntity<CastResponse> castVoices(@PathVariable long id) {
         NovelNarrationCast cast = castService.find(id);
@@ -271,6 +292,9 @@ public class NarrationController {
     }
 
     /** 编辑某角色音色画像并锁定（{@code edited_by_user=1}）。冲突解决「采纳建议 / 改写」复用本端点；「保留」为无操作。 */
+    @ApiResponse(responseCode = "200", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content)
     @PutMapping("/cast/voice")
     public ResponseEntity<?> updateVoice(@RequestBody VoiceUpdateRequest request) {
         if (request == null || request.characterId() == null

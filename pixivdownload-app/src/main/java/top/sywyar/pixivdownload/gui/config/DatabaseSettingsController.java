@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /** 数据库管理先预检再确认；普通读取不返回密码，检查不保存连接。 */
+@HttpApiGroup("core-database")
 @RestController
 @RequestMapping("/api/settings/database")
 public final class DatabaseSettingsController {
@@ -50,21 +55,48 @@ public final class DatabaseSettingsController {
     }
     public record Confirm(String token) {}
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping public DatabaseSettingsService.EditableSettings settings() throws IOException { return settings.editableSettings(); }
     @GetMapping("/providers") public List<ProviderChoice> providers() { return settings.providers(); }
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/status") public State status() throws IOException { return settings.state(); }
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/migration") public MigrationState migration() throws IOException { return settings.migrationState(); }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Draft.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/check", consumes = "application/json")
     public CheckResult check(HttpServletRequest request) throws IOException {
         return settings.check(ToolApiRequests.read(request, Draft.class, BODY_LIMIT).updates());
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Draft.class)))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/migration-previews", consumes = "application/json")
     public MigrationPlan preview(HttpServletRequest request) throws IOException {
         return settings.previewMigration(ToolApiRequests.read(request, Draft.class, BODY_LIMIT).updates());
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Confirm.class)))
+    @ApiResponse(responseCode = "202", description = "Accepted", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/migrations", consumes = "application/json")
     public ResponseEntity<MigrationState> start(HttpServletRequest request) throws IOException {
         var body = ToolApiRequests.read(request, Confirm.class, BODY_LIMIT);

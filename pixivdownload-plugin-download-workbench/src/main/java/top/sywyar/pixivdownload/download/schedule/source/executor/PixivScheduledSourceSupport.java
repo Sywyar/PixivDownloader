@@ -559,8 +559,11 @@ public final class PixivScheduledSourceSupport {
                     "schedule.pixiv.discovery-credential-invalid");
         } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
             throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
-        } catch (PixivAjaxException ignored) {
-            if (ignored.failure() == PixivAjaxFailure.INVALID_TARGET) {
+        } catch (PixivAjaxException upstream) {
+            if (upstream.failure() == PixivAjaxFailure.HTTP_STATUS && upstream.statusCode() == 404) {
+                throw failure(ScheduledFailure.Category.NOT_FOUND, "schedule.pixiv.discovery-not-found");
+            }
+            if (upstream.failure() == PixivAjaxFailure.INVALID_TARGET) {
                 throw failure(ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.pixiv.discovery-definition-invalid");
             }

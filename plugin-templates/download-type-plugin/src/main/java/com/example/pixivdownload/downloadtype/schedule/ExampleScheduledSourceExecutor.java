@@ -57,7 +57,11 @@ public final class ExampleScheduledSourceExecutor implements ScheduledSourceExec
                 Set.of(),
                 new ScheduledSourceFrontendContribution(
                         ScheduledSourceFrontendContribution.CURRENT_CONTRACT_VERSION,
-                        FRONTEND_MODULE_URL));
+                        FRONTEND_MODULE_URL),
+                """
+                {"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["id"],
+                 "properties":{"id":{"type":"string","pattern":"^[0-9]{1,18}$"}},"examples":[{"id":"42"}]}
+                """);
     }
 
     @Override

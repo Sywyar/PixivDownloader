@@ -125,6 +125,8 @@ class AuthFilterServletTest {
         var assets = mock(WorkAssetService.class);
         when(assets.rawFile(eq(WorkType.ARTWORK), any(Long.class), eq(0)))
                 .thenReturn(Optional.of(new WorkAssetFile(0, file, "png")));
+        when(assets.previewFile(eq(WorkType.ARTWORK), any(Long.class), eq(0)))
+                .thenReturn(Optional.of(new WorkAssetFile(0, file, "png")));
         when(assets.thumbnail(eq(WorkType.ARTWORK), any(Long.class), eq(0), eq(512)))
                 .thenReturn(Optional.of(new WorkAssetFile(0, file, "png")));
         var visibility = mock(WorkVisibilityService.class);

@@ -552,7 +552,7 @@ public class PluginCatalogService {
         if (query.publisher() != null && (entry.market() == null
                 || !query.publisher().equalsIgnoreCase(entry.market().author()))) return false;
         return query.channel() == null || entry.packages().stream()
-                .anyMatch(pkg -> query.channel().equalsIgnoreCase(pkg.channel()));
+                .anyMatch(pkg -> query.channel().equalsIgnoreCase(pkg.channel() == null || pkg.channel().isBlank() ? "stable" : pkg.channel()));
     }
 
     private PluginCatalogHttpClient.FetchResult fetchPaged(PluginRepository repository, String url,

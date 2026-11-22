@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot;
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 
 import java.io.IOException;
@@ -28,7 +29,8 @@ import java.util.UUID;
 /** 终态按执行身份保存；历史结果不重放到活动快照。 */
 @Component
 public final class DownloadTaskResultStore {
-    static final int MAX_RECORD_BYTES = 64 * 1024;
+    // Includes one full-length filesystem path, even when JSON escapes each UTF-16 code unit.
+    static final int MAX_RECORD_BYTES = 256 * 1024;
     private final ObjectMapper mapper = JsonMapper.builderWithJackson2Defaults().build();
     private final Path directory;
 
@@ -36,12 +38,13 @@ public final class DownloadTaskResultStore {
     DownloadTaskResultStore(Path directory) { this.directory = directory; }
 
     private record Result(int version, DownloadAttempt attempt, String owner, String queueType,
-                          String title, DownloadEvent.Phase phase, String updatedAt, DownloadEvent.FailureReason failureReason) {}
+                          String title, DownloadEvent.Phase phase, String updatedAt,
+                          DownloadEvent.FailureReason failureReason, String outputPath, DownloadTaskProgress progress) {}
 
     void save(DownloadTaskSnapshot task, String owner) throws IOException {
         if (!task.terminal()) throw new IllegalArgumentException("download result is not terminal");
         byte[] bytes = mapper.writeValueAsBytes(new Result(1, task.attempt(), owner, task.queueType(),
-                task.title(), task.phase(), task.updatedAt().toString(), task.failureReason()));
+                task.title(), task.phase(), task.updatedAt().toString(), task.failureReason(), task.outputPath(), task.progress()));
         if (bytes.length > MAX_RECORD_BYTES) throw new IOException("download result too large");
         Path target = path(task.attempt().attemptId());
         Files.createDirectories(target.getParent());
@@ -73,7 +76,7 @@ public final class DownloadTaskResultStore {
                     || result.title() == null || result.title().length() > 512 || result.updatedAt() == null)
                 throw new IOException("invalid download result");
             DownloadTaskSnapshot task = new DownloadTaskSnapshot(result.attempt(), result.queueType(),
-                    result.title(), result.phase(), Instant.parse(result.updatedAt()), 0, result.failureReason());
+                    result.title(), result.phase(), Instant.parse(result.updatedAt()), 0, result.failureReason(), result.outputPath(), result.progress());
             if (!task.terminal()) throw new IOException("download result is not terminal");
             return owner.admin() || Objects.equals(owner.ownerUuid(), result.owner())
                     ? Optional.of(task) : Optional.empty();

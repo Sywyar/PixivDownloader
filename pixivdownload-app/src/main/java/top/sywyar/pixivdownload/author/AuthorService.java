@@ -120,6 +120,18 @@ public class AuthorService {
                 .collect(Collectors.toMap(Author::authorId, Author::name));
     }
 
+    public void fillMissing(long authorId, String hintName) {
+        requireDatabase();
+        String name = normalizeHintName(hintName);
+        long now = System.currentTimeMillis();
+        String id = String.valueOf(authorId);
+        if (authorMapper.insertIfAbsent(authorId, StringUtils.hasText(name) ? name : id, now) > 0) {
+            log.info(message("author.log.observe.first-record", authorId, StringUtils.hasText(name) ? name : id));
+        } else if (StringUtils.hasText(name)) {
+            authorMapper.fillMissingName(authorId, name, now);
+        }
+    }
+
     public void observe(long authorId, String hintName) {
         requireDatabase();
         Author existing = authorMapper.findById(authorId);

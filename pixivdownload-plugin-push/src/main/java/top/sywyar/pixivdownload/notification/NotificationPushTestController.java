@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.notification;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -9,6 +12,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushDispatcher;
 import top.sywyar.pixivdownload.push.PushMessage;
@@ -17,7 +22,6 @@ import top.sywyar.pixivdownload.push.PushResult;
 import top.sywyar.pixivdownload.push.controller.PushTestRequest;
 import top.sywyar.pixivdownload.push.controller.PushTestResponse;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -40,6 +44,7 @@ import java.util.Map;
  * 路径 {@code /api/gui/push-test-all} 由 {@code AuthFilter} 对 {@code /api/gui/**} 统一施加"本地请求 + GUI token"
  * 双校验；这里再次显式校验作为深度防御。<b>不</b>检查推送总开关，便于保存前预览；密钥绝不回显。
  */
+@HttpApiGroup("push-push")
 @RestController
 @RequiredArgsConstructor
 public class NotificationPushTestController {
@@ -50,6 +55,8 @@ public class NotificationPushTestController {
     private final PushMessageFactory messageFactory;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PushTestResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/gui/push-test-all")
     public ResponseEntity<?> testAll(@RequestBody PushTestRequest body,
                                      HttpServletRequest request) {
@@ -61,6 +68,7 @@ public class NotificationPushTestController {
     }
 
     /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PushTestResponse.class)))
     @PostMapping("/api/admin/push/test-all")
     public ResponseEntity<?> testAllAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody PushTestRequest body) {
         return testAllSettings(body);

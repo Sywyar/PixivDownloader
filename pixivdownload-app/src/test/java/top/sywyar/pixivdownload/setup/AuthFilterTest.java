@@ -12,10 +12,13 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.support.StaticMessageSource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import org.springframework.beans.factory.ObjectProvider;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
@@ -55,8 +58,7 @@ class AuthFilterTest {
     private RateLimitService rateLimitService;
     @Mock
     private AppLocaleResolver localeResolver;
-    @Mock
-    private AppMessages appMessages;
+    private final AppMessages appMessages = new AppMessages(new StaticMessageSource());
     @Mock
     private FilterChain filterChain;
     @Mock
@@ -77,9 +79,6 @@ class AuthFilterTest {
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         lenient().when(staticResourceRateLimitService.isAllowed(any())).thenReturn(true);
-        lenient().when(appMessages.getOrDefault(nullable(java.util.Locale.class), anyString(), anyString()))
-                .thenAnswer(inv -> inv.getArgument(2));
-        lenient().when(appMessages.getForLog(anyString(), any(), any())).thenReturn("rate limited");
         lenient().when(maintenanceProvider.getIfAvailable()).thenReturn(null);
         lenient().when(guestInviteService.resolveSession(any())).thenReturn(Optional.empty());
     }
@@ -233,9 +232,11 @@ class AuthFilterTest {
 
             assertThat(response.getStatus()).isEqualTo(401);
             assertThat(response.getContentType()).startsWith("application/json");
-            assertThat(response.getContentAsString())
-                    .contains("\"code\":\"auth.unauthorized\"")
-                    .contains("\"error\":\"Unauthorized\"");
+            assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Bearer realm=\"PixivDownloader\"");
+            var body = JsonMapper.shared().readTree(response.getContentAsByteArray());
+            assertThat(body.path("code").asString()).isEqualTo("auth.unauthorized");
+            assertThat(body.path("programPermission").asString()).isEqualTo("core:application.read");
+            assertThat(body.path("error").asString()).contains("Authorization: Bearer", "core:application.read");
             verify(filterChain, never()).doFilter(request, response);
         }
 
@@ -901,6 +902,7 @@ class AuthFilterTest {
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
             authFilter.doFilterInternal(request, response, filterChain);
             assertThat(response.getStatus()).isEqualTo(429);
+            assertThat(response.getHeader("Retry-After")).isEqualTo("60");
             verify(rateLimitService).isAllowedForInvite("invite:invite-code");
             verify(filterChain, never()).doFilter(request, response);
         }

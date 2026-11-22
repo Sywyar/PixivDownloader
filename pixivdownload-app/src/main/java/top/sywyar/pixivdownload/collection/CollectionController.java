@@ -1,5 +1,16 @@
 package top.sywyar.pixivdownload.collection;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,9 +39,11 @@ import java.util.LinkedHashMap;
 import java.util.function.LongPredicate;
 import java.util.Map;
 
+@HttpApiGroup("core-collections")
 @RestController
 @RequestMapping("/api/collections")
 @RequiredArgsConstructor
+@KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
 public class CollectionController {
 
     private static final int MAX_GUEST_MEMBERSHIP_IDS = 500;
@@ -58,18 +71,35 @@ public class CollectionController {
                 .toList());
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = CollectionCreateRequest.class),
+            examples = @ExampleObject(value = "{\"name\":\"Reading list\",\"downloadRoot\":null}")))
     @PostMapping
     public ResponseEntity<Collection> create(@Valid @RequestBody CollectionCreateRequest request) {
         Collection created = collectionService.create(request.getName(), request.getDownloadRoot());
         return ResponseEntity.ok(created);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = CollectionRenameRequest.class), examples = @ExampleObject(value = "{\"name\":\"Reading list\"}")))
     @PutMapping("/{id}")
     public ResponseEntity<Collection> rename(@PathVariable long id,
                                              @Valid @RequestBody CollectionRenameRequest request) {
         return ResponseEntity.ok(collectionService.rename(id, request.getName()));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = CollectionDownloadRootRequest.class), examples = @ExampleObject(value = "{\"downloadRoot\":null}")))
     @PutMapping("/{id}/download-root")
     public ResponseEntity<Collection> updateDownloadRoot(@PathVariable long id,
                                                          @RequestBody CollectionDownloadRootRequest request) {
@@ -77,6 +107,11 @@ public class CollectionController {
         return ResponseEntity.ok(collectionService.updateDownloadRoot(id, downloadRoot));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = SortOrderRequest.class), examples = @ExampleObject(value = "{\"sortOrder\":2}")))
     @PutMapping("/{id}/sort-order")
     public ResponseEntity<Collection> updateSortOrder(@PathVariable long id,
                                                       @RequestBody SortOrderRequest body) {
@@ -84,13 +119,24 @@ public class CollectionController {
         return ResponseEntity.ok(collectionService.updateSortOrder(id, sortOrder == null ? 0 : sortOrder));
     }
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable long id) throws IOException {
         collectionService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{id}/icon")
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true)
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-codeSamples", parseValue = true, value = """
+            [{"lang":"Shell","label":"cURL","source":"curl --header \\"Authorization: Bearer $PROGRAM_KEY\\" --header \\"Origin: $INSTANCE\\" --form \\"file=@icon.png\\" \\"$INSTANCE/api/collections/$COLLECTION_ID/icon\\""}]
+            """)))
+    @PostMapping(value = "/{id}/icon", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Collection> uploadIcon(@PathVariable long id,
                                                  @RequestParam("file") MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
@@ -103,12 +149,20 @@ public class CollectionController {
         return ResponseEntity.ok(updated);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}/icon")
     public ResponseEntity<Collection> clearIcon(@PathVariable long id) throws IOException {
         return ResponseEntity.ok(collectionService.clearIcon(id));
     }
 
     @GetMapping("/{id}/icon")
+    @ApiResponse(responseCode = "200", content = {
+            @Content(mediaType = "image/png", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "image/jpeg", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "image/webp", schema = @Schema(type = "string", format = "binary"))})
+    @ApiResponse(responseCode = "404", content = @Content)
     public ResponseEntity<byte[]> downloadIcon(@PathVariable long id,
                                                HttpServletRequest httpRequest) throws IOException {
         requireGuestCollectionVisible(httpRequest, id);
@@ -129,12 +183,18 @@ public class CollectionController {
                 .body(bytes);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/artworks/{artworkId}")
     public ResponseEntity<AddedResponse> addArtwork(@PathVariable long id, @PathVariable long artworkId) {
         boolean added = collectionService.addArtwork(id, artworkId);
         return ResponseEntity.ok(new AddedResponse(added));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}/artworks/{artworkId}")
     public ResponseEntity<RemovedResponse> removeArtwork(@PathVariable long id, @PathVariable long artworkId) {
         boolean removed = collectionService.removeArtwork(id, artworkId);
@@ -150,6 +210,10 @@ public class CollectionController {
         return ResponseEntity.ok(new CollectionIdsResponse(visibleCollectionIds(ids, GuestAccessGuard.extractSession(httpRequest))));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = ArtworkMembershipsRequest.class), examples = @ExampleObject(value = "{\"artworkIds\":[123,456]}")))
     @PostMapping("/memberships")
     public ResponseEntity<MembershipsResponse> memberships(
             @RequestBody ArtworkMembershipsRequest body,
@@ -161,12 +225,18 @@ public class CollectionController {
         return ResponseEntity.ok(new MembershipsResponse(visibleMemberships(memberships, session)));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/novels/{novelId}")
     public ResponseEntity<AddedResponse> addNovel(@PathVariable long id, @PathVariable long novelId) {
         boolean added = collectionService.addNovel(id, novelId);
         return ResponseEntity.ok(new AddedResponse(added));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}/novels/{novelId}")
     public ResponseEntity<RemovedResponse> removeNovel(@PathVariable long id, @PathVariable long novelId) {
         boolean removed = collectionService.removeNovel(id, novelId);
@@ -182,6 +252,10 @@ public class CollectionController {
         return ResponseEntity.ok(new CollectionIdsResponse(visibleCollectionIds(ids, GuestAccessGuard.extractSession(httpRequest))));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = NovelMembershipsRequest.class), examples = @ExampleObject(value = "{\"novelIds\":[123,456]}")))
     @PostMapping("/novels/memberships")
     public ResponseEntity<MembershipsResponse> novelMemberships(
             @RequestBody NovelMembershipsRequest body,
@@ -221,7 +295,7 @@ public class CollectionController {
         return session == null ? ids : ids.stream().filter(session::isCollectionVisible).toList();
     }
 
-    public record SortOrderRequest(Integer sortOrder) {}
+    public record SortOrderRequest(@HttpApiNullable Integer sortOrder) {}
 
     public record ArtworkMembershipsRequest(List<Long> artworkIds) {}
 

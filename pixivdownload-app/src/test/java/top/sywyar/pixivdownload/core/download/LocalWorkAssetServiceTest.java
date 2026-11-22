@@ -111,7 +111,7 @@ class LocalWorkAssetServiceTest {
     @DisplayName("rawFile 委托原图定位并从文件名导出小写扩展名")
     void rawFileDelegatesToImageFile() {
         File imageFile = new File("folder/42", "42_p0.PNG");
-        when(artworkFileService.getImageFile(42L, 0)).thenReturn(imageFile);
+        when(artworkFileService.getImageFile(42L, 0, false)).thenReturn(imageFile);
 
         Optional<WorkAssetFile> raw = service.rawFile(WorkType.ARTWORK, 42L, 0);
 
@@ -122,8 +122,6 @@ class LocalWorkAssetServiceTest {
     @Test
     @DisplayName("rawFile 原图缺失时返回 empty")
     void rawFileReturnsEmptyWhenMissing() {
-        when(artworkFileService.getImageFile(42L, 3)).thenReturn(null);
-
         assertTrue(service.rawFile(WorkType.ARTWORK, 42L, 3).isEmpty());
     }
 

@@ -27,11 +27,14 @@ class FileImportToolControllerTest {
                 .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages)).build();
         var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
                 java.util.Set.of("core:file-import.execute", "independent-tool:file-import.read"));
+        when(registry.isPublished(any())).thenReturn(true);
         mvc.perform(post("/api/tools/file-import/tasks").contentType("application/json")
                 .requestAttr(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
                 .content("{\"identity\":{\"pluginId\":\"independent-tool\",\"packageId\":\"independent-tool\",\"generation\":3,\"publication\":5},\"token\":\"preview\",\"credential\":\"private-value\"}"))
-                .andExpect(status().isForbidden());
-        verifyNoInteractions(registry);
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.programPermission").value("independent-tool:file-import.execute"));
+        verify(registry).isPublished(any());
+        verifyNoMoreInteractions(registry);
     }
     @Test void acknowledgementCannotClearAReplacementCompletion() throws Exception {
         var registry = new DesktopFileImportToolRegistry();
@@ -97,6 +100,15 @@ class FileImportToolControllerTest {
         }
         mvc.perform(post("/api/tools/file-import/tasks").contentType("application/json").content(" ".repeat(65537)))
                 .andExpect(status().isContentTooLarge());
+        mvc.perform(post("/api/tools/file-import/tasks").contentType("application/json").content("{\"identity\":" + ID + "}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.in").value("body"))
+                .andExpect(jsonPath("$.field").value("/token")).andExpect(jsonPath("$.reason").value("required"));
+        mvc.perform(post("/api/tools/file-import/tasks").contentType("application/json")
+                        .content("""
+                                {"token":"known-token","identity":{"pluginId":"independent-import","packageId":"independent-import","generation":[],"publication":8}}
+                                """))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_TOOL_REQUEST"))
+                .andExpect(jsonPath("$.field").value("/identity/generation")).andExpect(jsonPath("$.reason").value("type"));
         verifyNoInteractions(registry);
     }
 }

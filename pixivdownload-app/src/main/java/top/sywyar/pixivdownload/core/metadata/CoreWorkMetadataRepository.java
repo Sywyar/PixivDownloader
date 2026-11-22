@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.util.ArrayList;
@@ -88,7 +87,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         }
 
         Map<Long, String> authorNames = resolveArtworkAuthorNames(records);
-        Map<Long, String> seriesTitles = resolveArtworkSeriesTitles(records);
+        Map<Long, String> seriesTitles = mangaSeriesService.titlesForArtworks(records);
         List<Long> artworkIds = records.stream().map(ArtworkRecord::artworkId).toList();
         Map<Long, List<TagDto>> tagsByArtwork = pixivDatabase.getArtworkTags(artworkIds);
         Set<Long> templateIds = new HashSet<>();
@@ -126,7 +125,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.moveTime(),
                     new WorkFileNameTemplateRef(rec.fileName(), templates.get(templateId)),
                     rec.uploadTime(),
-                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime()));
+                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime(), rec.fileManagement()));
         }
         return out;
     }
@@ -198,7 +197,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                             ? null
                             : new WorkFileNameTemplateRef(rec.fileName(), templates.get(rec.fileName())),
                     rec.uploadTime(),
-                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime()));
+                    rec.isOriginal(), rec.createTime(), rec.updateTime(), rec.reuploadTime(), rec.fileManagement()));
         }
         return out;
     }
@@ -211,23 +210,6 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             }
         }
         return authorService.getAuthorNames(authorIds);
-    }
-
-    private Map<Long, String> resolveArtworkSeriesTitles(List<ArtworkRecord> records) {
-        Set<Long> seriesIds = new HashSet<>();
-        for (ArtworkRecord rec : records) {
-            if (rec.seriesId() != null && rec.seriesId() > 0) {
-                seriesIds.add(rec.seriesId());
-            }
-        }
-        if (seriesIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        Map<Long, String> out = new HashMap<>(seriesIds.size());
-        for (MangaSeries series : mangaSeriesService.getSeriesByIds(seriesIds)) {
-            out.put(series.seriesId(), series.title());
-        }
-        return out;
     }
 
     private Map<Long, String> resolveNovelSeriesTitles(Set<Long> seriesIds) {

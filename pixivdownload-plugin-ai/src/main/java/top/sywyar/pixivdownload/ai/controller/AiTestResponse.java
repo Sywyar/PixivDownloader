@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.ai.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 /**
  * GUI "测试 AI 连接" 端点的响应。
  *
@@ -9,8 +11,8 @@ package top.sywyar.pixivdownload.ai.controller;
  */
 public record AiTestResponse(
         boolean success,
-        String error,
-        String reply
+        @HttpApiNullable String error,
+        @HttpApiNullable String reply
 ) {
     public static AiTestResponse ok(String reply) {
         return new AiTestResponse(true, null, reply);

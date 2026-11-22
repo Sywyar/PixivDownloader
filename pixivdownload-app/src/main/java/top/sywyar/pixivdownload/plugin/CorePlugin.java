@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.core.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteSchemaContribution;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 
 import java.util.List;
 import java.util.Map;
@@ -99,6 +100,7 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
+        var referenceRead = new ProgramPermission("api-reference.read", "permission.api-reference.read");
         // AuthFilter 复用本次请求按路径和方法解析的最具体声明；公开、邀请与本地授权不另走派生清单。
         // GUI、setup、PAC、actuator 等入口仍执行各自流程校验，声明本身不替代这些校验。
         return List.of(
@@ -111,6 +113,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/api/onboarding/profile").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("profile.read", "permission.profile.read"), HttpMethod.POST, new ProgramPermission("profile.write", "permission.profile.write"))),
                 WebRouteContribution.publicRoute("/api/onboarding/connectivity").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("system.check", "program.permission.system.check"))),
                 WebRouteContribution.admin("/api/library/artworks/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("library.read", "permission.library.read"))),
+                WebRouteContribution.admin("/api/library/artworks/*/partial").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("library.read", "permission.library.read"))),
                 WebRouteContribution.admin("/api/library/artworks/*/recover-metadata").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("library.recover", "permission.library.recover"))),
                 WebRouteContribution.admin("/api/library/artworks/*/move").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("library.move", "permission.library.move"))),
                 WebRouteContribution.admin("/api/plugins/recovery").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("recovery.read", "permission.recovery.read"))),
@@ -208,8 +211,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/admin/update/install").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("updates.install", "permission.updates.install"))),
                 // ── monitor：仅管理员（不在访客白名单）的页面与 API ───────────────────────────────
                 WebRouteContribution.admin("/monitor.html"),
-                WebRouteContribution.admin("/program-keys.html"),
-                WebRouteContribution.admin("/program-keys/**"),
                 WebRouteContribution.admin("/api/admin/system/connectivity").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("system.check", "program.permission.system.check"))),
                 WebRouteContribution.admin("/api/admin/system/restart").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("system.restart", "program.permission.system.restart"))),
                 WebRouteContribution.admin("/api/admin/system/reload").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("system.reload", "program.permission.system.reload"))),
@@ -230,6 +231,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/tools/startup-cache").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("startup-cache.read", "program.permission.startup-cache.read"))),
                 WebRouteContribution.admin("/api/tools/startup-cache/tasks").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("startup-cache.execute", "program.permission.startup-cache.execute"))),
                 WebRouteContribution.admin("/api/tools/startup-cache/tasks/*/cancel").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("startup-cache.cancel", "program.permission.startup-cache.cancel"))),
+                ProgramAccess.SELF_ROUTE,
                 WebRouteContribution.admin("/api/security/program-keys"),
                 WebRouteContribution.admin("/api/security/program-keys/**"),
                 WebRouteContribution.visitor("/api/scripts**"),
@@ -389,6 +391,13 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
                 WebRouteContribution.publicRoute("/index.html"),
+                // 接口参考页外壳与脚本不含安装信息，公开以便说明访问方式；接口目录本身只给管理员会话与授权的程序密钥。
+                new WebRouteContribution("/openapi", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                new WebRouteContribution("/api/openapi.json", AccessPolicy.ADMIN, Set.of(HttpMethod.GET, HttpMethod.HEAD), false)
+                        .withProgramPermissions(Map.of(HttpMethod.GET, referenceRead, HttpMethod.HEAD, referenceRead)),
+                new WebRouteContribution("/openapi/ui.css", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                new WebRouteContribution("/openapi/ui.js", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                new WebRouteContribution("/openapi/scalar.js", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
                 WebRouteContribution.publicRoute("/login.html"),
                 new WebRouteContribution("/api/web/page-publications/*", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
                 new WebRouteContribution("/api/web/page-publications/*/targets", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
@@ -487,6 +496,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("monitor", "i18n.web.monitor", 15),
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("security", "i18n.web.security", 23),
+                new I18nContribution("openapi", "i18n.web.openapi"),
                 new I18nContribution("tour", "i18n.web.tour", 18),
                 new I18nContribution("maintenance", "i18n.web.maintenance", 19),
                 // 错误状态页（/error/*.html）专属文案。
@@ -502,9 +512,6 @@ public class CorePlugin implements PixivFeaturePlugin {
         // 邀请管理属于核心安全能力；可选内容插件撤回后仍可管理和撤销已有邀请。
         // 仅贡献到 Web 侧栏与桌面安全入口，不占用顶部应用导航。
         return List.of(
-                new NavigationContribution(
-                        "program-keys", Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
-                        "security", "keys.title", "/program-keys.html", "key", AccessPolicy.ADMIN, 81, Set.of(), "nav.description"),
                 new NavigationContribution(
                         "invite-manage",
                         Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR_TOOLS,

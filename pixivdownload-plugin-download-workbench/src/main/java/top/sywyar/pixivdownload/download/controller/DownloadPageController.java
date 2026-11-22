@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.CacheControl;
@@ -13,10 +16,12 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.download.state.DownloadPagePreference;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 import java.io.IOException;
 import java.net.URI;
 
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 public final class DownloadPageController {
     private final DownloadPagePreference preference;
@@ -46,6 +51,8 @@ public final class DownloadPageController {
 
     public record Selection(String page) {}
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/api/batch/page", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> select(@RequestBody Selection selection) throws IOException {
         if (!DownloadPagePreference.supports(selection.page())) {

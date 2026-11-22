@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.db;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class TagDto {
     private Long tagId;
     private String name;
-    private String translatedName;
+    private @HttpApiNullable String translatedName;
 
     public TagDto(String name, String translatedName) {
         this(null, name, translatedName);

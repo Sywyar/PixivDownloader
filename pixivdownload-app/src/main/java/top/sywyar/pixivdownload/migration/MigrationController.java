@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.migration;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -13,6 +19,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 
+@HttpApiGroup("core-database")
+@HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
 @RestController
 @RequestMapping("/api/migration")
 @RequiredArgsConstructor
@@ -36,6 +44,10 @@ public class MigrationController {
      * 仅允许本地 IP 调用。
      * curl 用法：curl -N http://localhost:6999/api/migration/json-to-sqlite/stream
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,
+            schema = @Schema(type = "string"),
+            extensions = @io.swagger.v3.oas.annotations.extensions.Extension(properties = @io.swagger.v3.oas.annotations.extensions.ExtensionProperty(name = "x-sse-data-event", value = "message")),
+            examples = @io.swagger.v3.oas.annotations.media.ExampleObject(value = "data: Processing records\n\n")))
     @GetMapping(value = "/json-to-sqlite/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter migrateWithProgress(HttpServletRequest request) {
         ensureLocal(request);

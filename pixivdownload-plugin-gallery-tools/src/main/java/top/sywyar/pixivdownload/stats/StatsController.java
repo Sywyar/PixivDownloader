@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 /**
  * 统计仪表盘的只读聚合接口。路径 {@code /api/stats/**} 在 {@code AuthFilter} 中按 monitor
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
  * {@code @PluginManagedBean} 排除出根包扫描，由 {@link StatsPluginConfiguration} 提供。
  */
 @PluginManagedBean
+@HttpApiGroup("gallery-tools-duplicates")
 @RestController
 @RequestMapping("/api/stats")
 @RequiredArgsConstructor

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.download.lifecycle;
 
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+
 /** 宿主必需门面；插件实现由宿主管理，消费者不得缓存插件 Bean。 */
 public interface DownloadLifecycle {
     /**
@@ -23,6 +25,35 @@ public interface DownloadLifecycle {
     void track(DownloadAttempt attempt,
                top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker.Task task,
                String ownerUuid, String queueType, String title, boolean queued);
+
+    /**
+     * 登记队列句柄及本次执行在服务器上的最终输出目录。目录在排队前由提供方解析，
+     * 不表示文件已写入；该路径仅进入按身份查询的任务回执，不广播给事件观察者。
+     * @param attempt 执行身份
+     * @param task 真实队列包装器
+     * @param ownerUuid 用户作用域
+     * @param queueType 下载页类型键
+     * @param title 展示标题
+     * @param queued 是否正在排队
+     * @param outputDirectory 提供方实际使用的绝对目录
+     */
+    default void track(DownloadAttempt attempt,
+                       top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker.Task task,
+                       String ownerUuid, String queueType, String title, boolean queued, java.nio.file.Path outputDirectory) {
+        throw new UnsupportedOperationException("Task output directories are not supported");
+    }
+
+    /**
+     * 报送本次执行已绑定队列句柄的实际进度。
+     * 已终结执行的迟到更新会被丢弃。
+     * @param attempt 被跟踪的执行身份
+     * @param task 本次执行绑定的原始队列句柄
+     * @param progress 当前步骤的计数与单位
+     */
+    default void reportProgress(DownloadAttempt attempt, top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker.Task task,
+                                DownloadTaskProgress progress) {
+        throw new UnsupportedOperationException("Task progress reporting is not supported");
+    }
 
     /**
      * 同步调用可选的选项扩展；无扩展返回不可变原选项。

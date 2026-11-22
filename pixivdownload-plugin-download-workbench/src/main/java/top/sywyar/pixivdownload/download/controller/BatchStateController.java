@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -9,8 +12,9 @@ import top.sywyar.pixivdownload.download.request.BatchStateRequest;
 import top.sywyar.pixivdownload.download.response.status.BatchStateResponse;
 import top.sywyar.pixivdownload.download.state.BatchStateFiles;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 @RequestMapping("/api/batch")
 @Slf4j
@@ -45,6 +50,8 @@ public class BatchStateController {
         }
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = BatchStateResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping(value = "/state", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> getState() {
         if (!"solo".equals(applicationModeProvider.getMode())) {
@@ -54,6 +61,9 @@ public class BatchStateController {
         return ResponseEntity.ok(new BatchStateResponse(cachedState));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/state", consumes = MediaType.APPLICATION_JSON_VALUE)
     public synchronized ResponseEntity<?> saveState(@RequestBody BatchStateRequest request) throws IOException {
         if (!"solo".equals(applicationModeProvider.getMode())) {

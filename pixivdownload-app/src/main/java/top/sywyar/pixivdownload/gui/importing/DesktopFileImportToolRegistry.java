@@ -19,6 +19,8 @@ public final class DesktopFileImportToolRegistry {
         entries.put(identity, new Entry(new DesktopFileImportTool(identity, description), new FileImportExecution(source)));
     }
     public void unregister(ExternalCapabilityOwner owner) { entries.remove(identity(owner)); }
+    boolean isPublished(DesktopFileImportTool.Identity identity) { return entries.containsKey(identity); }
+
     public List<DesktopFileImportTool> tools() {
         return entries.values().stream().map(Entry::tool)
                 .sorted(Comparator.comparing(tool -> tool.identity().pluginId())).toList();

@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.web.page.HookPublications;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.concurrent.Semaphore;
@@ -11,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.web.*;
 import top.sywyar.pixivdownload.plugin.web.page.DeclaredHttpHookBindings;
 
 /** 管理界面只准备选中的声明，提交仍走原配置发布事务及权限确认。 */
+@HttpApiGroup("core-extensions")
 @RestController
 @RequestMapping("/api/web/operation-hooks/declarations")
 public final class DeclaredHttpHooksController {
@@ -21,10 +27,22 @@ public final class DeclaredHttpHooksController {
     public DeclaredHttpHooksController(DeclaredHttpHookBindings bindings, RequestOwnerIdentityResolver identities, AppMessages messages) {
         this.bindings = bindings; this.identities = identities; this.messages = messages;
     }
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = DeclaredHttpHookBindings.Listing.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<?> list(@RequestParam String provider, HttpServletRequest request, Locale locale) {
         return run(request, locale, () -> bindings.list(provider));
     }
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = HookPublications.ConfigurationPlan.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = DeclaredHttpHookBindings.Selection.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/prepare")
     public ResponseEntity<?> prepare(HttpServletRequest request, Locale locale) {
         return run(request, locale, () -> bindings.prepare(OperationHooksController.read(request, DeclaredHttpHookBindings.Selection.class)));

@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.db;
 
+import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import java.util.*;
@@ -46,6 +49,55 @@ public class PixivMapper {
     private static Boolean booleanValue(Object value) { return value == null ? null : (Long) value != 0; }
     private static Integer integer(Object value) { return value == null ? null : Math.toIntExact((Long) value); }
     private static int countValue(Object value) { return value == null ? 0 : Math.toIntExact((Long) value); }
+
+    private static final String PARTIAL = "artwork_partial_downloads";
+    private static final String PARTIAL_PAGES = "artwork_partial_pages";
+    public Map<String, Object> findPartialArtwork(long artworkId) {
+        return select(PARTIAL, fields(PARTIAL, "folder", "total_pages", "template", "max_length", "output_settings", "source_revision"),
+                eq(PARTIAL, "artwork_id", artworkId), List.of(), 1, 0).stream().findFirst().orElse(null);
+    }
+
+    public void insertPartialArtwork(top.sywyar.pixivdownload.core.artwork.download.PartialArtwork layout, String folder) {
+        database.transaction(s -> {
+            s.insert(PARTIAL, Map.of("artwork_id", layout.artworkId(), "folder", folder, "total_pages", layout.totalPages(),
+                    "template", layout.template(), "max_length", layout.maxLength(), "output_settings", layout.outputSettings(),
+                    "source_revision", layout.sourceRevision()),
+                    DatabaseSession.Conflict.error());
+            for (int page = 0; page < layout.totalPages(); page++) {
+                s.insert(PARTIAL_PAGES, Map.of("artwork_id", layout.artworkId(), "page", page,
+                        "base_name", layout.baseNames().get(page)), DatabaseSession.Conflict.error());
+            }
+            return null;
+        });
+    }
+
+    public List<Map<String, Object>> partialPages(long artworkId) {
+        return select(PARTIAL_PAGES, fields(PARTIAL_PAGES, "page", "base_name", "original_extension", "extensions", "original_retained", "output_fingerprints"),
+                eq(PARTIAL_PAGES, "artwork_id", artworkId), List.of(new Query.Order(column(PARTIAL_PAGES, "page"), false, true)),
+                Integer.MAX_VALUE, 0);
+    }
+
+    public void deletePartialArtwork(long artworkId) {
+        deleteRelated(PARTIAL_PAGES, artworkId);
+        deleteRelated(PARTIAL, artworkId);
+    }
+
+    public void promotePartialArtwork(long artworkId, int total) {
+        database.transaction(s -> {
+            var pages = partialPages(artworkId);
+            if (pages.size() != total) throw new IllegalStateException("Incomplete artwork layout");
+            s.delete("artwork_media", eq("artwork_media", "artwork_id", artworkId));
+            for (int page = 0; page < total; page++) {
+                var row = pages.get(page);
+                if (integer(row.get("page")) != page || row.get("extensions") == null)
+                    throw new IllegalStateException("Unfinished artwork page");
+                s.insert("artwork_media", Map.of("artwork_id", artworkId, "page", page,
+                        "original_extension", row.get("original_extension"), "extensions", row.get("extensions"),
+                        "original_retained", row.get("original_retained")), DatabaseSession.Conflict.error());
+            }
+            return null;
+        });
+    }
 
     public List<String> findArtworkFileNames(long artworkId) {
         return select("artwork_file_names", fields("artwork_file_names", "base_name"),
@@ -116,6 +168,7 @@ public class PixivMapper {
         var projection = fields(ARTWORKS, "artwork_id", "title", "folder", "count", "extensions", "time", "moved",
                 "move_folder", "move_time", "r18", "is_ai", "author_id", "description", "file_name", "file_author_name_id",
                 "series_id", "series_order", "deleted", "source_upload_time", "is_original", "create_time", "update_time", "reupload_time");
+        projection.put("external_file", ExternalWorkFiles.referenceMarker(WorkType.ARTWORK, column(ARTWORKS, "artwork_id"), column(ARTWORKS, "time")));
         return select(ARTWORKS, projection, where, List.of(), limit, 0).stream().map(row -> new ArtworkRecord(
                 (Long) row.get("artwork_id"), (String) row.get("title"), (String) row.get("folder"), countValue(row.get("count")),
                 (String) row.get("extensions"), (Long) row.get("time"), Boolean.TRUE.equals(booleanValue(row.get("moved"))),
@@ -123,7 +176,8 @@ public class PixivMapper {
                 (Long) row.get("author_id"), (String) row.get("description"), (Long) row.get("file_name"), (Long) row.get("file_author_name_id"),
                 (Long) row.get("series_id"), (Long) row.get("series_order"), Boolean.TRUE.equals(booleanValue(row.get("deleted"))),
                 (Long) row.get("source_upload_time"), booleanValue(row.get("is_original")), (Long) row.get("create_time"),
-                (Long) row.get("update_time"), (Long) row.get("reupload_time"))).toList();
+                (Long) row.get("update_time"), (Long) row.get("reupload_time"),
+                row.get("external_file") == null ? FileManagement.MANAGED : FileManagement.EXTERNAL_REFERENCE)).toList();
     }
     public ArtworkRecord findById(long artworkId) { return artworks(id(artworkId), 1).stream().findFirst().orElse(null); }
     public List<ArtworkRecord> findByIds(Collection<Long> ids) { return ids.isEmpty() ? List.of() : artworks(in(ARTWORKS, "artwork_id", ids), Integer.MAX_VALUE); }
@@ -151,11 +205,13 @@ public class PixivMapper {
     }
     /** 仅补齐缺失资料；标题和描述的空字符串也视为缺失。 */
     public void updateMetadataIfMissing(long artworkId, String title, Integer xRestrict, Boolean isAi, Long authorId, String description) {
-        update(ARTWORKS, Map.of("title", call(COALESCE, call(NULL_IF, column(ARTWORKS, "title"), value("")), value(title)),
-                "r18", call(COALESCE, column(ARTWORKS, "r18"), value(xRestrict)),
-                "is_ai", call(COALESCE, column(ARTWORKS, "is_ai"), value(bool(isAi))),
-                "author_id", call(COALESCE, column(ARTWORKS, "author_id"), value(authorId)),
-                "description", call(COALESCE, call(NULL_IF, column(ARTWORKS, "description"), value("")), value(description))), id(artworkId));
+        var changes = new LinkedHashMap<String, Expression>();
+        if (title != null) changes.put("title", call(COALESCE, call(NULL_IF, column(ARTWORKS, "title"), value("")), value(title)));
+        if (description != null) changes.put("description", call(COALESCE, call(NULL_IF, column(ARTWORKS, "description"), value("")), value(description)));
+        if (xRestrict != null) changes.put("r18", call(COALESCE, column(ARTWORKS, "r18"), value(xRestrict)));
+        if (isAi != null) changes.put("is_ai", call(COALESCE, column(ARTWORKS, "is_ai"), value(bool(isAi))));
+        if (authorId != null) changes.put("author_id", call(COALESCE, column(ARTWORKS, "author_id"), value(authorId)));
+        if (!changes.isEmpty()) update(ARTWORKS, changes, call(AND, id(artworkId), active()));
     }
     /** 成功重下后刷新有效元数据；null 表示保留已有字段。 */
     public void refreshMetadataAfterDownload(long artworkId, String title, Integer xRestrict, Boolean isAi, Long authorId,

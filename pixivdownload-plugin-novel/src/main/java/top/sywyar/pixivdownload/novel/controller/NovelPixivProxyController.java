@@ -1,7 +1,12 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.core.web.HttpIds;
+import top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,26 +17,33 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.novel.response.UserNovelsResponse;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -39,8 +51,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
+@ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+@ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+@ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelProxyRateLimitResponse.class)))
+@ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+@ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+@ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+@HttpApiGroup("novel-pixiv")
 @RestController
 @RequestMapping("/api/pixiv")
 @PluginManagedBean
@@ -48,10 +66,6 @@ import java.util.Set;
 public class NovelPixivProxyController {
 
     static final String PIXIV_API_LANGUAGE = "zh";
-    private static final Set<String> VALID_ORDERS = Set.of("date_d", "date", "popular_d");
-    private static final Set<String> VALID_MODES = Set.of("all", "safe", "r18");
-    private static final Set<String> VALID_S_MODES = Set.of("s_tag", "s_tc");
-    private static final Set<String> VALID_REST = Set.of("show", "hide");
 
     private final ObjectMapper objectMapper;
     private final PixivAjaxClient pixivAjaxClient;
@@ -70,6 +84,7 @@ public class NovelPixivProxyController {
             case OWNER_REQUIRED -> ResponseEntity.status(401)
                     .body(new NovelErrorResponse(decision.errorMessage()));
             case RATE_LIMITED -> ResponseEntity.status(429)
+                    .header("Retry-After", Long.toString(java.time.Duration.ofHours(decision.windowHours()).toSeconds()))
                     .body(new NovelProxyRateLimitResponse(
                             decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
         };
@@ -80,18 +95,10 @@ public class NovelPixivProxyController {
                 requestOwnerIdentityResolver.isAdminAuthenticated(request));
     }
 
-    /**
-     * 若请求来自访客邀请会话，校验小说是否在可见范围；越界 403。
-     */
-    private void guardNovelForGuest(WorkVisibilityScope visibilityScope, String novelId) {
-        if (novelId == null || novelId.isBlank()) return;
-        try {
-            long id = Long.parseLong(novelId.trim());
-            workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, id);
-        } catch (NumberFormatException ignored) {
-        }
-    }
-
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelMetaResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "WORK_NOT_FOUND"))))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @GetMapping("/novel/{novelId}/meta")
     public ResponseEntity<?> getNovelMeta(
             @PathVariable String novelId,
@@ -99,22 +106,23 @@ public class NovelPixivProxyController {
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
         cookie = AcquisitionCredentialResolver.resolve(cookie);
-        guardNovelForGuest(visibilityScope, novelId);
+        long parsedId = HttpIds.positive("path", "novelId", novelId);
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, parsedId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(novelId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
-        }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
                 .queryParam("lang", "zh")
                 .buildAndExpand(Map.of("id", parsedId))
                 .encode()
                 .toUri();
-        String body = pixivAjaxClient.get(uri, cookie);
+        String body;
+        try {
+            body = pixivAjaxClient.get(uri, cookie);
+        } catch (PixivAjaxException failure) {
+            if (failure.statusCode() != 404) throw failure;
+            return ResponseEntity.status(404).body(ApiErrorResponse.of("WORK_NOT_FOUND", messages.get("error.work.not-found")));
+        }
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asString()));
@@ -138,6 +146,8 @@ public class NovelPixivProxyController {
         return value.isString() && Long.toString(expected).equals(value.stringValue());
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelBookmarkCountResponse.class)))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @GetMapping("/novel/{novelId}/bookmark-count")
     public ResponseEntity<?> getNovelBookmarkCount(
             @PathVariable String novelId,
@@ -145,15 +155,10 @@ public class NovelPixivProxyController {
             HttpServletRequest request,
             WorkVisibilityScope visibilityScope) throws IOException {
         cookie = AcquisitionCredentialResolver.resolve(cookie);
-        guardNovelForGuest(visibilityScope, novelId);
+        long parsedId = HttpIds.positive("path", "novelId", novelId);
+        workVisibilityService.requireVisible(visibilityScope, WorkType.NOVEL, parsedId);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(novelId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
-        }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
                 .queryParam("lang", "zh")
@@ -169,21 +174,19 @@ public class NovelPixivProxyController {
         return ResponseEntity.ok(new NovelBookmarkCountResponse(bookmarkCount));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelSeriesResponse.class)))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @GetMapping("/novel/series/{seriesId}")
     public ResponseEntity<?> getNovelSeries(
             @PathVariable String seriesId,
+            @Parameter(example = "1", schema = @Schema(type = "integer", format = "int32", defaultValue = "1"))
             @RequestParam(defaultValue = "1") int page,
             @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
         cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        long parsedId;
-        try {
-            parsedId = Long.parseLong(seriesId);
-        } catch (NumberFormatException e) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.novel.series.id.invalid", seriesId)));
-        }
+        long parsedId = HttpIds.positive("path", "seriesId", seriesId);
         URI metaUri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/series/{id}")
                 .queryParam("lang", "zh")
@@ -223,21 +226,26 @@ public class NovelPixivProxyController {
         ));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelSearchResponse.class)))
     @GetMapping("/novel-search")
     public ResponseEntity<?> searchNovels(
             @RequestParam String word,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.Order.class))
             @RequestParam(defaultValue = "date_d") String order,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.Mode.class))
             @RequestParam(defaultValue = "all") String mode,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.SearchMode.class))
             @RequestParam(defaultValue = "s_tag") String sMode,
+            @Parameter(example = "1", schema = @Schema(type = "integer", format = "int32", defaultValue = "1"))
             @RequestParam(defaultValue = "1") int page,
             @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
         cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        String validationError = validateSearchParams(order, mode, sMode);
+        var validationError = PixivQueryParameters.search(messages, word, order, mode, sMode);
         if (validationError != null) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(validationError));
+            return ResponseEntity.badRequest().body(validationError);
         }
         try {
             return ResponseEntity.ok(fetchNovelSearchPage(word, order, mode, sMode, page, cookie));
@@ -246,27 +254,31 @@ public class NovelPixivProxyController {
         }
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = SearchRangeResponse.class)))
     @GetMapping("/novel-search/range")
     public ResponseEntity<?> rangeSearchNovels(
             @RequestParam String word,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.Order.class))
             @RequestParam(defaultValue = "date_d") String order,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.Mode.class))
             @RequestParam(defaultValue = "all") String mode,
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.SearchMode.class))
             @RequestParam(defaultValue = "s_tag") String sMode,
+            @Parameter(schema = @Schema(minimum = "1"))
             @RequestParam(defaultValue = "1") int startPage,
+            @Parameter(schema = @Schema(minimum = "1"))
             @RequestParam(defaultValue = "1") int endPage,
             @RequestHeader(value = AcquisitionCredentialResolver.HEADER_NAME, required = false) String cookie,
             HttpServletRequest request) throws IOException {
         String resolvedCredential = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        String validationError = validateSearchParams(order, mode, sMode);
+        var validationError = PixivQueryParameters.search(messages, word, order, mode, sMode);
         if (validationError != null) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(validationError));
+            return ResponseEntity.badRequest().body(validationError);
         }
-        if (startPage < 1 || endPage < 1) {
-            return ResponseEntity.badRequest()
-                    .body(new NovelErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
-        }
+        var rangeError = PixivQueryParameters.range(messages, startPage, endPage);
+        if (rangeError != null) return ResponseEntity.badRequest().body(rangeError);
         try {
             int limitPage = resolveSearchFillLimitPage(request);
             return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage,
@@ -276,6 +288,7 @@ public class NovelPixivProxyController {
         }
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = UserNovelsResponse.class)))
     @GetMapping("/user/{userId}/novels")
     public ResponseEntity<?> getUserNovels(
             @PathVariable String userId,
@@ -302,6 +315,7 @@ public class NovelPixivProxyController {
      * 经 {@code /ajax/user/{id}/novels?ids[]=...} 拉取，返回与小说搜索结果同形的 {@link NovelSearchResponse}，
      * 并按请求传入的 ids 顺序保序。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelSearchResponse.class)))
     @GetMapping("/user/{userId}/novel-cards")
     public ResponseEntity<?> getUserNovelCards(
             @PathVariable String userId,
@@ -334,8 +348,12 @@ public class NovelPixivProxyController {
         return ResponseEntity.ok(new NovelSearchResponse(items, items.size(), 1));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelSearchResponse.class)))
+    @KnownErrorCodes(status = "400", value = AcquisitionCredentialResolver.REQUIRED_CODE)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
     @GetMapping("/me/novel-bookmarks")
     public ResponseEntity<?> getMyNovelBookmarks(
+            @Parameter(schema = @Schema(implementation = PixivQueryParameters.Rest.class))
             @RequestParam(defaultValue = "show") String rest,
             @RequestParam(required = false) String tag,
             @RequestParam(defaultValue = "0") int offset,
@@ -345,14 +363,14 @@ public class NovelPixivProxyController {
         cookie = AcquisitionCredentialResolver.resolve(cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        if (!VALID_REST.contains(rest)) {
-            return ResponseEntity.badRequest().body(new NovelErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
-        }
+        var restError = PixivQueryParameters.rest(messages, rest);
+        if (restError != null) return ResponseEntity.badRequest().body(restError);
         int safeOffset = Math.max(0, offset);
         int safeLimit = Math.max(1, Math.min(100, limit));
         String uid = PixivCookieUserResolver.extractUidFromCookie(cookie);
         if (uid == null) {
-            return ResponseEntity.status(401).body(new NovelErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+            return ResponseEntity.badRequest().body(new NovelErrorResponse(AcquisitionCredentialResolver.REQUIRED_CODE,
+                    messages.get("pixiv.proxy.me.cookie.missing")));
         }
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/user/{uid}/novels/bookmarks")
@@ -408,7 +426,7 @@ public class NovelPixivProxyController {
         int acceptedPages = limitPage > 0 ? Math.min(requestedPages, limitPage) : requestedPages;
         int cappedEnd = startPage + acceptedPages - 1;
 
-        LinkedHashMap<String, Object> deduped = new LinkedHashMap<>();
+        LinkedHashMap<String, NovelSearchResponse.NovelSearchItem> deduped = new LinkedHashMap<>();
         int total = 0;
         int totalPages = Integer.MAX_VALUE;
         int fetchedPages = 0;
@@ -446,7 +464,7 @@ public class NovelPixivProxyController {
     }
 
     public record SearchRangeResponse(
-            List<Object> items,
+            List<NovelSearchResponse.NovelSearchItem> items,
             int total,
             int startPage,
             int endPage,
@@ -455,19 +473,6 @@ public class NovelPixivProxyController {
             int fetchedPages,
             int limitPage
     ) {
-    }
-
-    private String validateSearchParams(String order, String mode, String sMode) {
-        if (!VALID_ORDERS.contains(order)) {
-            return messages.get("pixiv.proxy.search.order.invalid", order);
-        }
-        if (!VALID_MODES.contains(mode)) {
-            return messages.get("pixiv.proxy.search.mode.invalid", mode);
-        }
-        if (!VALID_S_MODES.contains(sMode)) {
-            return messages.get("pixiv.proxy.search.s-mode.invalid", sMode);
-        }
-        return null;
     }
 
 }

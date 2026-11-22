@@ -7,14 +7,11 @@ import java.util.List;
 
 /**
  * 作品批量获取（按页码范围 startPage~endPage 抓取）的聚合响应。
- * items 的运行时元素类型为 {@link SearchResponse.SearchItem} 或
- * 小说搜索结果项，
- * 由调用的范围端点决定，Jackson 按运行时类型序列化。
  */
 @Getter
 @AllArgsConstructor
 public class SearchRangeResponse {
-    private final List<?> items;
+    private final List<SearchResponse.SearchItem> items;
     private final int total;
     private final int startPage;
     /** 实际抓取到的结束页（受 multi 限额与总页数约束后的真实值） */

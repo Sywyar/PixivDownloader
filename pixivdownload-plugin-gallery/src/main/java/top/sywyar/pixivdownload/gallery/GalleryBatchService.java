@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.gallery;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
@@ -27,11 +27,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 插画画廊批量操作：按显式 ID 或筛选快照解析作品集合，支持批量收藏与导出打包。
@@ -43,7 +40,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class GalleryBatchService {
 
-    private static final Set<String> ALLOWED_FORMATS = Set.of("jpg", "jpeg", "png", "gif", "webp");
 
     private final GalleryService galleryService;
     private final WorkMetadataRepository workMetadataRepository;
@@ -52,10 +48,16 @@ public class GalleryBatchService {
     private final ArchiveExportService archiveExportService;
     private final ObjectMapper objectMapper;
 
-    public List<Long> resolveArtworkIds(ArtworkBatchRequest request) {
+    public List<Long> resolveArtworkIds(ArtworkBatchRequest request, boolean deleting) {
         if (request != null && request.filterMode()) {
-            List<Long> ids = galleryService.findArtworkIds(toGalleryQuery(request.filter()));
-            return ArchiveExportRules.applyExclusions(ids, request.excludeIds());
+            try {
+                WorkQuery query = toGalleryQuery(request.filter());
+                if (deleting && !request.confirmsAll()) query.requireSelectionFilter();
+                List<Long> ids = galleryService.findArtworkIds(query);
+                return ArchiveExportRules.applyExclusions(ids, request.excludeIds());
+            } catch (WorkQuery.InvalidField failure) {
+                throw new HttpParameterException("body", "/filter/" + failure.field(), "invalid_value");
+            }
         }
         return ArchiveExportRules.applyExclusions(request == null ? null : request.ids(),
                 request == null ? null : request.excludeIds());
@@ -134,7 +136,7 @@ public class GalleryBatchService {
                 filter.searchType(),
                 filter.r18(),
                 filter.ai(),
-                normalizeFormats(filter.formats()),
+                filter.formats(),
                 filter.collectionIds(),
                 filter.tagIds(),
                 filter.notTagIds(),
@@ -146,22 +148,8 @@ public class GalleryBatchService {
                 filter.notSeriesIds(),
                 null).withUploadTimeRange(filter.uploadedFrom(), filter.uploadedBefore())
                 .withDownloadTimeRange(filter.downloadedFrom(), filter.downloadedBefore()).withSourceTimeField(filter.sourceTimeField())
-                .withSourceTimeRanges(filter.createdFrom(), filter.createdBefore(), filter.updatedFrom(), filter.updatedBefore(), filter.reuploadedFrom(), filter.reuploadedBefore());
-    }
-
-    private List<String> normalizeFormats(Collection<String> formats) {
-        if (formats == null || formats.isEmpty()) {
-            return null;
-        }
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        for (String format : formats) {
-            if (!StringUtils.hasText(format)) continue;
-            String normalized = format.trim().toLowerCase(Locale.ROOT);
-            if (ALLOWED_FORMATS.contains(normalized)) {
-                out.add(normalized);
-            }
-        }
-        return out.isEmpty() ? null : new ArrayList<>(out);
+                .withSourceTimeRanges(filter.createdFrom(), filter.createdBefore(), filter.updatedFrom(), filter.updatedBefore(), filter.reuploadedFrom(), filter.reuploadedBefore())
+                .withFileManagement(filter.fileManagement());
     }
 
     private Map<String, Object> artworkManifest(WorkMetadata meta, List<Map<String, Object>> files) {

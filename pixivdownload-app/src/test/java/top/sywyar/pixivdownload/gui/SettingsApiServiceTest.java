@@ -67,6 +67,23 @@ class SettingsApiServiceTest {
         return new SettingsApiService.Change(owner, owner, owner == null ? 0 : 4, key, action, value);
     }
 
+    @Test void reportsTheSettingAndOffendingMemberWithoutSavingTheDraft() throws Exception {
+        var keep = change("independent", "independent.token", SettingsApiService.Action.KEEP, null);
+        assertEquals(List.of(), service.save(List.of(keep), false));
+        var invalid = assertThrows(SettingsApiService.InvalidField.class, () -> service.save(List.of(keep,
+                change(null, "server.port", SettingsApiService.Action.KEEP, null)), false));
+        assertEquals("/changes/1/action", invalid.field);
+        assertEquals("INVALID_TOOL_REQUEST", invalid.getMessage());
+        var supplied = assertThrows(SettingsApiService.InvalidField.class, () -> service.save(List.of(
+                change("independent", "independent.token", SettingsApiService.Action.KEEP, "discard")), true));
+        assertEquals("/changes/0/value", supplied.field);
+        var stale = assertThrows(SettingsApiService.InvalidField.class, () -> service.save(List.of(
+                new SettingsApiService.Change("independent", null, 4, "independent.token", SettingsApiService.Action.KEEP, null)), false));
+        assertEquals("/changes/0/packageId", stale.field);
+        assertEquals("SETTINGS_OWNER_CHANGED", stale.getMessage());
+        assertEquals("old-secret", credentials.get("independent.token"));
+    }
+
     @Test void fieldsNeverReturnCoreOrPluginSecrets() throws Exception {
         var fields = service.fields();
         assertTrue(fields.stream().anyMatch(field -> field.key().equals("server.port")));
@@ -89,6 +106,7 @@ class SettingsApiServiceTest {
         var presets = service.presets();
         assertEquals(1, presets.size());
         assertNull(presets.getFirst().owner());
+        assertNull(presets.getFirst().namespace());
         assertEquals(Map.of("server.port", "9090"), presets.getFirst().values());
         assertEquals("8080", core.read("server.port"));
         service.save(List.of(change(null, "server.port", SettingsApiService.Action.SET, presets.getFirst().values().get("server.port"))), false);

@@ -80,18 +80,22 @@ class BusinessProgramAuthorizationTest {
                 for (var grant : registered.route().programPermissions().entrySet()) {
                     String permission = registered.pluginId() + ":" + grant.getValue().id();
                     String path = registered.route().pathPattern().replace("*", "123");
+                    boolean readsOwnKey = registered.pluginId().equals("core") && grant.getKey().name().equals("GET")
+                            && path.equals("/api/security/program-keys/self");
                     for (boolean authorized : List.of(false, true)) {
-                        when(keys.authenticate("fixture", "192.0.2.1")).thenReturn(new ProgramIdentity(UUID.randomUUID(),
+                        when(keys.authenticate("fixture", "192.0.2.1", true)).thenReturn(new ProgramIdentity(UUID.randomUUID(),
                                 authorized ? Set.of(permission) : Set.of()));
                         var request = new MockHttpServletRequest(grant.getKey().name(), path);
                         request.setRemoteAddr("192.0.2.1");
+                        request.setSecure(true);
                         request.addHeader("Authorization", "Bearer fixture");
                         var response = new MockHttpServletResponse();
                         var called = new AtomicBoolean();
                         filter.doFilter(request, response, (req, res) -> called.set(true));
+                        boolean expectedAccess = authorized || readsOwnKey;
                         assertThat(response.getStatus()).as("%s %s %s authorized=%s", permission, grant.getKey(), path, authorized)
-                                .isEqualTo(authorized ? 200 : 403);
-                        assertThat(called.get()).isEqualTo(authorized);
+                                .isEqualTo(expectedAccess ? 200 : 403);
+                        assertThat(called.get()).isEqualTo(expectedAccess);
                     }
                     checked.add(registered.pluginId());
                 }
@@ -135,7 +139,8 @@ class BusinessProgramAuthorizationTest {
     private static boolean browserOnly(String path) {
         // 身份建立、浏览器装配与兼容入口；业务能力经规范任务、库和页面编辑 API 提供。
         return path.startsWith("/api/auth/") || path.startsWith("/api/setup/")
-                || path.startsWith("/api/security/program-keys") || path.startsWith("/api/admin/invites")
+                || (path.startsWith("/api/security/program-keys") && !path.equals(ProgramAccess.SELF_PATH))
+                || path.startsWith("/api/admin/invites")
                 || path.startsWith("/api/sse/") || path.startsWith("/api/captcha/")
                 || path.startsWith("/api/layout-feedback/") || path.startsWith("/api/quota/")
                 || path.startsWith("/api/web/page-publications/") || path.startsWith("/api/web/page-slots/")

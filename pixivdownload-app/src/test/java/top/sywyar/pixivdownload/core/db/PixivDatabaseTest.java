@@ -11,7 +11,19 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion;
+import top.sywyar.pixivdownload.core.artwork.download.PartialArtwork;
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
+import top.sywyar.pixivdownload.core.asset.FileOperationTestSupport;
+import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl;
+import top.sywyar.pixivdownload.core.download.ArtworkDownloadHistoryAdapter;
 
 import static org.assertj.core.api.Assertions.*;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
@@ -60,6 +72,90 @@ class PixivDatabaseTest {
         pixivDatabase = (PixivDatabase) proxy.getProxy();
     }
 
+    @Test
+    void partialPagesKeepTheirLayoutOutsideCompletedHistoryUntilPromotion(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path folder) throws Exception {
+        long id = 9123L;
+        var layout = new top.sywyar.pixivdownload.core.artwork.download.PartialArtwork(id, folder.toString(), 3,
+                "{artwork_id}_p{page}", 180, "webp", "revision", List.of("first", "second", "third"), java.util.Map.of(), java.util.Map.of());
+        insertArtwork(id, "old title", folder.resolve("old").toString(), 1, "jpg", 100L, 0);
+        pixivDatabase.markArtworkDeleted(id);
+        pixivDatabase.replaceArtworkFileNames(id, List.of("old_name"));
+        var mediaStore = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl(
+                DatabaseProviderTestFixtures.main(dataSource), null);
+        var oldMedia = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("png", List.of("png"));
+        mediaStore.save(id, 0, oldMedia);
+        assertThat(pixivDatabase.startPartialArtwork(layout)).isTrue();
+        assertThat(pixivDatabase.getArtwork(id).deleted()).isTrue();
+        assertThat(pixivDatabase.getArtwork(id).title()).isEqualTo("old title");
+        assertThat(pixivDatabase.getArtworkFileNames(id)).containsExactly("old_name");
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        var selectedMedia = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", List.of("webp"), false);
+        java.nio.file.Files.write(folder.resolve("fixture.webp"), new byte[]{42});
+        String stamp = top.sywyar.pixivdownload.core.artwork.download.PartialArtwork.fingerprint(folder.resolve("fixture"), selectedMedia);
+        mediaStore.savePartial(id, 2, selectedMedia, stamp);
+        assertThat(mediaStore.find(id, 0)).contains(oldMedia);
+        assertThat(mediaStore.find(id, 2)).isEmpty();
+        var snapshot = pixivDatabase.partialArtwork(id);
+        assertThat(snapshot.totalPages()).isEqualTo(3);
+        assertThat(snapshot.sourceRevision()).isEqualTo(layout.sourceRevision());
+        assertThat(snapshot.availableFiles()).isEmpty();
+        java.nio.file.Files.write(folder.resolve("third.webp"), new byte[]{42});
+        assertThat(snapshot.availableFiles()).containsExactlyEntriesOf(java.util.Map.of(2, List.of("third.webp")));
+        assertThat(snapshot.verifiedFiles()).containsOnlyKeys(2);
+        java.nio.file.Files.write(folder.resolve("third.webp"), new byte[]{41});
+        assertThat(snapshot.verifiedFiles()).isEmpty();
+        java.nio.file.Files.write(folder.resolve("third.webp"), new byte[]{42});
+        assertThatThrownBy(() -> pixivDatabase.promotePartialArtwork(id, 3)).isInstanceOf(IllegalStateException.class);
+        assertThat(mediaStore.find(id, 0)).contains(oldMedia);
+        mediaStore.savePartial(id, 0, selectedMedia, stamp);
+        mediaStore.savePartial(id, 1, selectedMedia, stamp);
+        var completion = new top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion(id, "fixture", folder,
+                3, java.util.Set.of("webp"), 1234L, 0, false, null, null, layout.template(), null, null, null,
+                List.of(), 180, layout.baseNames());
+        new top.sywyar.pixivdownload.core.download.ArtworkDownloadHistoryAdapter(pixivDatabase).completePartial(completion);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM artwork_media WHERE artwork_id=?", Integer.class, id)).isEqualTo(3);
+        assertThat(pixivDatabase.partialArtwork(id)).isNull();
+        assertThat(pixivDatabase.startPartialArtwork(layout)).isFalse();
+        assertThat(pixivDatabase.getArtworkFileNames(id)).containsExactly("first", "second", "third");
+    }
+
+    @Test
+    void failedRebuildCommitRestoresPartialRecordAndOriginalBytes(
+            @org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
+        long id = 9134L;
+        Path old = Files.writeString(directory.resolve("first.jpg"), "old page");
+        Path staged = Files.writeString(directory.resolve("replacement"), "new page");
+        var layout = new PartialArtwork(id, directory.toString(), 2, "{artwork_id}_p{page}", 180, "original",
+                "old revision", List.of("first", "second"), Map.of(), Map.of());
+        var manifest = new ArtworkMediaManifest("jpg", List.of("jpg"));
+        var media = new ArtworkMediaStoreImpl(DatabaseProviderTestFixtures.main(dataSource), null);
+        assertThat(pixivDatabase.startPartialArtwork(layout)).isTrue();
+        media.savePartial(id, 0, manifest, PartialArtwork.fingerprint(directory.resolve("first"), manifest));
+        var completion = new ArtworkDownloadCompletion(id, "new title", directory, 1, Set.of("jpg"),
+                1234L, 0, false, null, null, layout.template(), null, null, null, List.of(), 180, List.of("first"));
+        var journal = FileOperationTestSupport.journal(dataSource);
+        var files = new StagedFileDeletion(TestI18nBeans.appMessages(), journal);
+        var history = new ArtworkDownloadHistoryAdapter(pixivDatabase);
+        String previous = System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, directory.resolve("runtime").toString());
+        try {
+            assertThatThrownBy(() -> files.changeFiles(Map.of(old, staged), List.of(), () -> {
+                history.record(completion);
+                throw new IllegalStateException("commit failed");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("commit failed");
+            assertThat(pixivDatabase.getArtwork(id)).isNull();
+            assertThat(Files.readString(old)).isEqualTo("old page");
+            assertThat(pixivDatabase.partialArtwork(id).verifiedFiles()).containsOnlyKeys(0);
+            files.changeFiles(Map.of(old, staged), List.of(), () -> history.record(completion));
+            assertThat(Files.readString(old)).isEqualTo("new page");
+            assertThat(pixivDatabase.getArtwork(id).count()).isEqualTo(1);
+            assertThat(pixivDatabase.partialArtwork(id)).isNull();
+        } finally {
+            if (previous == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, previous);
+        }
+    }
+
     @AfterEach
     void tearDown() {
         dataSource.destroy();
@@ -103,6 +199,23 @@ class PixivDatabaseTest {
         } finally {
             if (previous == null) System.clearProperty(property); else System.setProperty(property, previous);
         }
+    }
+
+    @Test
+    void recoveringOnlyAuthorKeepsUntitledImportedRecordAndPreservesLaterValues() {
+        pixivDatabase.insertArtwork(InsertArtworkArgument.builder().artworkId(42L).title("").folder("/import")
+                .count(1).extensions("jpg").time(1L).fileName(1L).build());
+        pixivDatabase.fillArtworkMetadataIfMissing(42L, null, null, null, 7L, null);
+        assertThat(pixivDatabase.getArtwork(42L).title()).isEmpty();
+        pixivDatabase.fillArtworkMetadataIfMissing(42L, "first", null, null, 8L, null);
+        pixivDatabase.fillArtworkMetadataIfMissing(42L, "second", null, null, null, "description");
+        var work = pixivDatabase.getArtwork(42L);
+        assertThat(work.title()).isEqualTo("first");
+        assertThat(work.authorId()).isEqualTo(7L);
+        assertThat(work.description()).isEqualTo("description");
+        pixivDatabase.markArtworkDeleted(42L);
+        pixivDatabase.fillArtworkMetadataIfMissing(42L, null, null, true, null, null);
+        assertThat(pixivDatabase.getArtwork(42L).isAi()).isNull();
     }
 
     // ========== insertArtwork & getArtwork ==========

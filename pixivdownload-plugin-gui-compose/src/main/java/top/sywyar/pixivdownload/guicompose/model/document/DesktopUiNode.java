@@ -895,7 +895,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             String successOperation,
             String runningAddress,
             boolean keyStoreConfigured,
-            List<Button> navigation
+            List<Button> navigation,
+            ProgramKeysView programKeys
     ) implements DesktopUiNode {
         public SecurityOverview {
             id = requireId(id, "id");
@@ -909,9 +910,26 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             children.add(https);
             children.addAll(actions);
             children.addAll(navigation);
+            if (programKeys != null) {
+                children.addAll(programKeys.inputs());
+                programKeys.groups().forEach(group -> children.addAll(group.permissions()));
+                children.add(programKeys.anySource());
+            }
             return List.copyOf(children);
         }
     }
+
+    /** 桌面密钥编辑器的临时投影，不进入设置或恢复记录。 */
+    record ProgramKeysView(String mode, List<ProgramKeyRow> keys, List<TextInput> inputs,
+                           List<ProgramPermissionGroup> groups, Toggle anySource, String secret, TextToken agentPrompt, TextToken notice,
+                           String targetName, String nextTransport, boolean uncertain, boolean creating, boolean ready) {
+        @Override public String toString() { return "ProgramKeysView[mode=" + mode + "]"; }
+    }
+
+    record ProgramPermissionGroup(String actionId, TextToken label, List<Toggle> permissions) {}
+
+    record ProgramKeyRow(String id, String name, int count, boolean any, List<String> networks, long createdAt, long lastUsedAt,
+                         String transport, String editAction, String revokeAction, String transportAction, TextToken transportLabel) {}
 
     /** 工具目录与可收起的执行面板，动作仍由工具控制器持有。 */
     record ToolsOverview(String id, Text backend, List<DesktopUiNode> tools, Group media, List<DesktopUiNode> mediaTools,

@@ -80,29 +80,92 @@ class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
                 .addFilters(new top.sywyar.pixivdownload.setup.CsrfProtectionFilter(locale, messages,
                         mock(top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry.class))).build();
         String base = "/api/download/batches";
-        byte[] body = JsonMapper.builder().build().writeValueAsBytes(request(fixture.token()));
+        var json = JsonMapper.builder().build();
+        var body = json.createObjectNode().put("name", "Fixture").put("sourceType", SOURCE).put("activationToken", fixture.token());
+        body.putObject("definition").putObject("source").put("userId", "42")
+                .put("weight", new java.math.BigDecimal("1.000000000000000001"));
+        byte[] bytes = json.writeValueAsBytes(body);
         try {
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json")
                     .cookie(new jakarta.servlet.http.Cookie("pixiv_session", "admin"))
-                    .header("Origin", "https://foreign.invalid").content(body))
+                    .header("Origin", "https://foreign.invalid").content(bytes))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json")
                     .content("{\"unknown\":true}"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+            for (var invalid : List.of(body.deepCopy().put("definition", "{}"), body.deepCopy().putNull("definition"),
+                    body.deepCopy().set("definition", json.createArrayNode()),
+                    body.deepCopy().set("definition", json.createObjectNode().put("oversized", "a".repeat(1_048_576))))) {
+                mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json")
+                        .content(json.writeValueAsBytes(invalid)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest());
+            }
             verify(source, never()).discover(any());
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json")
-                    .header("X-Acquisition-Credential", "fixture-secret").content(body))
-                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isAccepted());
+            var receipt = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json")
+                    .header("X-Acquisition-Credential", "fixture-secret").content(bytes))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isAccepted()).andReturn().getResponse();
+            String location = receipt.getHeader("Location");
+            assertThat(location).isEqualTo(base + "/" + json.readTree(receipt.getContentAsByteArray()).required("id").asString());
             var done = awaitIdle(fixture.service());
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(location))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.state").value("COMPLETED"));
             assertThat(done.state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            verify(source).prepare(argThat(draft -> draft.definitionJson().contains("1.000000000000000001")));
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(base + "/" + done.id() + "/items").param("limit", "1"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.items[0].key.id").value("http-work"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("fixture-secret"))));
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json").content(body))
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(base).contentType("application/json").content(bytes))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict());
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(base + "/" + done.id()))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
         } finally { fixture.service().stop(); }
+    }
+
+    @Test
+    void rejectedDefinitionLeavesNoBatchOrCredentialProbe() throws Exception {
+        var source = spy(sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()));
+        doThrow(new ScheduledExecutionException(ScheduledFailure.Category.INVALID_DEFINITION, "fixture.invalid"))
+                .doCallRealMethod().when(source).prepare(any());
+        var fixture = service(source, workExecutor(context -> ScheduledWorkResult.completed()));
+        try {
+            assertThatThrownBy(() -> fixture.service().create(request(fixture.token()), "fixture-secret"))
+                    .isInstanceOfSatisfying(top.sywyar.pixivdownload.plugin.api.contract.InputFieldException.class,
+                            invalid -> assertThat(invalid.field()).isEqualTo("/definition"));
+            assertThat(fixture.service().current()).isNull();
+            assertThat(fixture.probes()).hasValue(0);
+            verify(source, never()).discover(any());
+            fixture.service().create(request(fixture.token()), "fixture-secret");
+            assertThat(awaitIdle(fixture.service()).state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            assertThat(fixture.probes().get()).isPositive();
+        } finally { fixture.service().stop(); }
+    }
+
+    @Test
+    void concurrentCreateCannotPublishOverDefinitionBeingChecked() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var source = spy(sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()));
+        doAnswer(call -> {
+            entered.countDown();
+            if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("preparation timed out");
+            return call.callRealMethod();
+        }).when(source).prepare(any());
+        var fixture = service(source, workExecutor(context -> ScheduledWorkResult.completed()));
+        var service = fixture.service();
+        try {
+            var command = request(fixture.token());
+            var creating = CompletableFuture.supplyAsync(() -> service.create(command, null));
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(service.current()).isNull();
+            assertThatThrownBy(() -> service.create(command, null)).isInstanceOf(IllegalStateException.class)
+                    .hasMessage("batch.exists");
+            release.countDown();
+            assertThat(creating.get(10, TimeUnit.SECONDS).id()).isEqualTo(awaitIdle(service).id());
+        } finally {
+            release.countDown();
+            service.stop();
+        }
     }
 
     @Test
@@ -140,6 +203,37 @@ class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
             Thread.sleep(5);
         }
         throw new AssertionError("batch did not drain");
+    }
+
+    @Test
+    void providerShortcutPinsItsSourceAndRequiresTheSameCreateAndWorkGrants() throws Exception {
+        var source = spy(sourceExecutor(1, context -> {
+            context.workSink().submit(work("from-shortcut"));
+            return ScheduledDiscoveryResult.withoutCheckpoint();
+        }));
+        var fixture = service(source, workExecutor(context -> ScheduledWorkResult.completed()));
+        var batch = fixture.service();
+        var key = java.util.UUID.randomUUID();
+        var authorized = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(key,
+                java.util.Set.of("core:batches.create", "fixture:batches.execute"));
+        try {
+            for (String grant : authorized.permissions()) {
+                var incomplete = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(key, java.util.Set.of(grant));
+                assertThatThrownBy(() -> batch.submit("fixture", SOURCE, "test", "{}", null, incomplete))
+                        .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
+            }
+            for (String sourceType : List.of(SOURCE, "missing-source")) {
+                assertThatThrownBy(() -> batch.submit("retired-owner", sourceType, "test", "{}", null, authorized))
+                        .isInstanceOfSatisfying(top.sywyar.pixivdownload.i18n.LocalizedException.class, failure -> {
+                            assertThat(failure.getStatus().value()).isEqualTo(404);
+                            assertThat(failure.getMessageCode()).isEqualTo("batch.not-found");
+                        });
+            }
+            verify(source, never()).prepare(any());
+            var id = batch.submit("fixture", SOURCE, "test", "{}", "fixture-secret", authorized);
+            assertThat(awaitIdle(batch).state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            assertThat(batch.current(authorized).id()).isEqualTo(id);
+        } finally { batch.stop(); }
     }
 
     @Test
@@ -249,6 +343,7 @@ class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
             var accepted = fixture.service().create(request(fixture.token()), "fixture-secret", sourceOnly);
             var failed = awaitIdle(fixture.service());
             assertThat(failed.code()).isEqualTo("auth.program.forbidden");
+            assertThat(failed.programPermission()).isEqualTo("other-work:batches.execute");
             assertThat(fixture.probes()).hasValue(0);
             verify(source, never()).discover(any());
             verify(worker, never()).execute(any(), any());
@@ -258,7 +353,9 @@ class ManualBatchServiceTest extends ScheduleExecutionEngineTestSupport {
             var allowed = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id,
                     java.util.Set.of("fixture:batches.execute", "other-work:batches.execute"));
             fixture.service().resume(accepted.id(), false, allowed);
-            assertThat(awaitIdle(fixture.service()).state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            var completed = awaitIdle(fixture.service());
+            assertThat(completed.state()).isEqualTo(ManualBatchService.State.COMPLETED);
+            assertThat(completed.programPermission()).isNull();
             assertThat(fixture.probes().get()).isPositive();
             verify(worker).execute(any(), any());
         } finally { fixture.service().stop(); }

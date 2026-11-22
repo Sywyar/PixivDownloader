@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.web.page;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.io.IOException;
 import java.util.*;
 import org.springframework.stereotype.Component;
@@ -21,9 +24,9 @@ public final class DeclaredHttpHookBindings {
         this.declarations = declarations; this.endpoints = endpoints; this.registry = registry;
         this.store = store; this.publications = publications;
     }
-    public record View(String id, String provider, String hook, String callback, HttpHookDeclarations.Target target,
+    public record View(String id, String provider, String hook, String callback, @HttpApiNullable HttpHookDeclarations.Target target,
             OperationHook.Phase phase, List<OperationBinding.Field> fields, String endpoint,
-            String status, boolean approved, String fingerprint) { }
+            @Schema(allowableValues = {"UNDECLARED", "AMBIGUOUS", "UNAVAILABLE", "ACTIVE", "PENDING_APPROVAL", "CHANGED"}) String status, boolean approved, String fingerprint) { }
     public record Listing(long revision, List<View> declarations) { }
     public record Selection(long revision, String provider, String id, String fingerprint, boolean remove) { }
     private record Resolved(View view, OperationBinding binding) { }

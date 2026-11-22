@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.download.lifecycle;
 
+import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
+
 import java.util.Objects;
 import java.util.UUID;
 
@@ -18,10 +20,9 @@ public record DownloadAttempt(UUID attemptId, String workType, String workId) {
      */
     public DownloadAttempt {
         Objects.requireNonNull(attemptId, "attemptId");
-        if (workType == null || !workType.matches("[a-z][a-z0-9-]{0,63}")
-                || workId == null || workId.isBlank() || workId.length() > 512
-                || workId.chars().anyMatch(Character::isISOControl)) {
-            throw new IllegalArgumentException("invalid download identity");
-        }
+        if (workType == null || !workType.matches("[a-z][a-z0-9-]{0,63}"))
+            throw new InputFieldException("/workType", workType == null ? "required" : "invalid_format");
+        if (workId == null || workId.isBlank() || workId.length() > 512 || workId.chars().anyMatch(Character::isISOControl))
+            throw new InputFieldException("/workId", workId == null ? "required" : "invalid_format");
     }
 }

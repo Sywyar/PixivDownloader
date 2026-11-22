@@ -19,4 +19,24 @@ public interface ArtworkDownloadHistory {
      * @param completion 完成结果
      */
     void record(ArtworkDownloadCompletion completion);
+
+    /**
+     * 返回尚未完成的选页布局，没有待完成选页时返回 null。
+     * @param artworkId 作品 ID
+     * @return 已登记的选页布局，缺失时为 null
+     */
+    PartialArtwork partial(long artworkId);
+
+    /**
+     * 在作品文件锁内开启选页。作品库已有完整作品时返回 false。
+     * @param layout 本次选页的来源及输出布局
+     * @return 能否开启选页
+     */
+    boolean startPartial(PartialArtwork layout);
+
+    /**
+     * 在同一事务中写入已保存各页的信息和完整作品记录。
+     * @param completion 整部作品的完成结果
+     */
+    void completePartial(ArtworkDownloadCompletion completion);
 }

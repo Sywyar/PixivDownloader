@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.status;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 
 import java.util.List;
@@ -18,7 +20,7 @@ import java.util.Objects;
 public record RecoveryModeReason(
         String pluginId,
         PluginStatus status,
-        String messageKey,
+        @HttpApiNullable String messageKey,
         VersionRequirement requiredVersion,
         List<String> messages) {
 

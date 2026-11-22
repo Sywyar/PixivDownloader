@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.util.List;
@@ -19,15 +21,15 @@ import java.util.Map;
  * @param entries        可安装条目摘要（含市场元数据 + 版本列表 + 安装状态投影）
  */
 public record PluginMarketView(
-        String repositoryId,
+        @HttpApiNullable String repositoryId,
         boolean enabled,
         String sdkVersion,
         int installedCount,
         List<PluginMarketCategoryCount> categories,
         List<PluginMarketEntryView> entries,
-        String generation,
-        String nextCursor,
-        Long totalApproximate,
+        @HttpApiNullable String generation,
+        @HttpApiNullable String nextCursor,
+        @HttpApiNullable Long totalApproximate,
         Map<String, Long> facets,
         boolean stale) {
 

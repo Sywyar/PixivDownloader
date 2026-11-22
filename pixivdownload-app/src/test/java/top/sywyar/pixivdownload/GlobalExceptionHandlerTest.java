@@ -1,6 +1,21 @@
 package top.sywyar.pixivdownload;
 
 import org.junit.jupiter.api.DisplayName;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.mock.web.MockServletContext;
+import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.multipart.MultipartFile;
+import top.sywyar.pixivdownload.common.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.ResponseEntity;
@@ -19,10 +34,13 @@ import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @DisplayName("GlobalExceptionHandler 单元测试")
@@ -57,14 +75,118 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
-                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages()
-                        .get(Locale.US, "error.request.param.invalid")));
+                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages().get(Locale.US, "error.request.field.required", "ids")))
+                .andExpect(jsonPath("$.in").value("query"))
+                .andExpect(jsonPath("$.field").value("ids"))
+                .andExpect(jsonPath("$.reason").value("required"));
         mvc.perform(get("/api/parameter-fixture").param("ids", "42"))
                 .andExpect(status().isOk()).andExpect(content().string("42"));
     }
 
+    @Test
+    void distinguishesBindingFailuresAndPreservesBinaryNotFound() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new ParameterController()).setControllerAdvice(handler).build();
+        mvc.perform(get("/api/number/abc")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                .andExpect(jsonPath("$.in").value("path")).andExpect(jsonPath("$.field").value("id"))
+                .andExpect(jsonPath("$.reason").value("type"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/number/1"))
+                .andExpect(status().isMethodNotAllowed()).andExpect(header().string("Allow", org.hamcrest.Matchers.containsString("GET")))
+                .andExpect(jsonPath("$.code").value("http.status.405"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/number/1")
+                        .contentType("text/plain").content("abc"))
+                .andExpect(status().isUnsupportedMediaType()).andExpect(jsonPath("$.code").value("http.status.415"));
+        mvc.perform(get("/api/number/1")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("error.request.not-found"));
+        mvc.perform(get("/api/missing-empty")).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("error.request.not-found"));
+        mvc.perform(get("/api/missing-bytes")).andExpect(status().isNotFound()).andExpect(content().bytes(new byte[0]));
+    }
+
+    @Test
+    void locatesMissingUploadAndNestedBodyFields() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new ParameterController()).setControllerAdvice(handler).build();
+        mvc.perform(multipart("/api/parameter-upload")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                .andExpect(jsonPath("$.in").value("part")).andExpect(jsonPath("$.field").value("file"))
+                .andExpect(jsonPath("$.reason").value("required"));
+        mvc.perform(post("/api/parameter-body").contentType("application/json").content("{\"items\":[{}]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("error.request.validation"))
+                .andExpect(jsonPath("$.in").value("body")).andExpect(jsonPath("$.field").value("/items/0/name"))
+                .andExpect(jsonPath("$.reason").value("required"));
+        mvc.perform(post("/api/parameter-body").contentType("application/json").content("{\"items\":[{\"name\":{}}]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("error.request.body.invalid"))
+                .andExpect(jsonPath("$.in").value("body")).andExpect(jsonPath("$.field").value("/items/0/name"))
+                .andExpect(jsonPath("$.reason").value("type"));
+    }
+
+    @Test
+    void keepsDomainCodeAndAdditionalDetailsWhenLocalHandlerMatchesConversionCause() throws Exception {
+        try (var context = new AnnotationConfigWebApplicationContext()) {
+            context.setServletContext(new MockServletContext());
+            context.register(LocalBindingConfig.class);
+            context.refresh();
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            mvc.perform(get("/api/local-bind/invalid-id").locale(Locale.US)).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("DOMAIN_INVALID")).andExpect(jsonPath("$.context").value("lookup"))
+                    .andExpect(jsonPath("$.in").value("path")).andExpect(jsonPath("$.field").value("id"))
+                    .andExpect(jsonPath("$.reason").value("type"))
+                    .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages().get(Locale.US, "error.request.field.type", "id")));
+            for (var field : List.of("offset", "limit")) {
+                mvc.perform(get("/api/local-pagination").param(field, "-1")).andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.code").value("DOMAIN_INVALID")).andExpect(jsonPath("$.context").value("lookup"))
+                        .andExpect(jsonPath("$.in").value("query")).andExpect(jsonPath("$.field").value(field))
+                        .andExpect(jsonPath("$.reason").value("out_of_range"));
+            }
+        }
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    @EnableWebMvc
+    @Import({GlobalExceptionHandler.class, HttpParameterBinding.class, LocalBindingController.class})
+    static class LocalBindingConfig {
+        @Bean AppMessages messages() { return TestI18nBeans.appMessages(); }
+    }
+
+    @RestController
+    static class LocalBindingController {
+        record DomainError(String code, String error, String context) implements ApiErrorResponse {}
+
+        @GetMapping("/api/local-bind/{id}") long lookup(@PathVariable("id") long id) { return id; }
+
+        @GetMapping("/api/local-pagination")
+        void page(@RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "10") int limit) {
+            top.sywyar.pixivdownload.common.InvalidPage.check(offset, limit, 10, null);
+        }
+
+        @ExceptionHandler(IllegalArgumentException.class)
+        ResponseEntity<DomainError> invalid(IllegalArgumentException failure) {
+            return ResponseEntity.badRequest().body(new DomainError("DOMAIN_INVALID", failure.getMessage(), "lookup"));
+        }
+    }
+
     @RestController
     static class ParameterController {
+        record Item(@NotBlank String name) {}
+        record Payload(List<@Valid Item> items) {}
+
+        @PostMapping("/api/parameter-upload") void upload(@RequestParam("file") MultipartFile file) {}
+        @PostMapping("/api/parameter-body") void body(@Valid @RequestBody Payload payload) {}
+
+        @GetMapping("/api/number/{id}")
+        ResponseEntity<ApiErrorResponse.Basic> number(@org.springframework.web.bind.annotation.PathVariable("id") long id) {
+            return ResponseEntity.notFound().build();
+        }
+
+        @org.springframework.web.bind.annotation.PostMapping(value = "/api/number/{id}", consumes = "application/json")
+        void post() {}
+
+        @GetMapping("/api/missing-empty")
+        ResponseEntity<Void> missingEmpty() { return ResponseEntity.notFound().build(); }
+
+        @GetMapping("/api/missing-bytes")
+        ResponseEntity<byte[]> missingBytes() { return ResponseEntity.notFound().build(); }
+
         @GetMapping("/api/parameter-fixture")
         String read(@RequestParam("ids") String ids) {
             return ids;

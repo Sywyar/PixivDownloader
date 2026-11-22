@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download.controller;
 
+import top.sywyar.pixivdownload.series.MangaSeriesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -28,6 +29,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.LongStream;
 
 import static org.hamcrest.Matchers.*;
 import static org.mockito.Mockito.*;
@@ -54,6 +56,8 @@ class DownloadedWorkControllerTest {
     @Mock
     private AuthorService authorService;
     @Mock
+    private MangaSeriesService mangaSeriesService;
+    @Mock
     private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
     @Mock
     private top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository galleryRepository;
@@ -62,10 +66,35 @@ class DownloadedWorkControllerTest {
     void setUp() {
         DownloadedWorkController controller = new DownloadedWorkController(
                 downloadedArtworkService, artworkMetadataRecoveryService, downloadStatisticsService,
-                artworkMoveService, pixivDatabase, authorService, guestAccessGuard, galleryRepository, APP_MESSAGES);
+                artworkMoveService, pixivDatabase, authorService, mangaSeriesService, guestAccessGuard, galleryRepository, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
+    }
+
+    @Test
+    void invalidRecoveryBodiesReturn400BeforeAccessingTheLibrary() throws Exception {
+        for (String body : List.of("", "{", "null", "{}", "{\"title\":\"  \"}")) {
+            mockMvc.perform(post("/api/downloaded/42/recover-metadata")
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(body.startsWith("{") && body.endsWith("}")
+                            ? "error.request.validation" : "error.request.body.invalid"));
+        }
+        verifyNoInteractions(artworkMetadataRecoveryService);
+    }
+
+    @Test
+    void partialDownloadExposesOnlyWrittenOriginalPageIndices(@org.junit.jupiter.api.io.TempDir java.nio.file.Path folder) throws Exception {
+        java.nio.file.Files.write(folder.resolve("last.webp"), new byte[]{1});
+        var media = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", List.of("webp"), false);
+        when(pixivDatabase.partialArtwork(42L)).thenReturn(new top.sywyar.pixivdownload.core.artwork.download.PartialArtwork(
+                42, folder.toString(), 3, "{artwork_id}_p{page}", 180, "original", "revision", List.of("first", "middle", "last"),
+                java.util.Map.of(1, media, 2, media), java.util.Map.of()));
+        mockMvc.perform(get("/api/library/artworks/42/partial")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalPages").value(3)).andExpect(jsonPath("$.folder").value(folder.toString()))
+                .andExpect(jsonPath("$.files['1']").doesNotExist()).andExpect(jsonPath("$.files['2'][0]").value("last.webp"));
+        mockMvc.perform(get("/api/library/artworks/43/partial")).andExpect(status().isNotFound());
     }
 
     // ========== GET /api/downloaded/{artworkId} ==========
@@ -184,13 +213,15 @@ class DownloadedWorkControllerTest {
     @DisplayName("GET /api/downloaded/statistics 应返回统计数据")
     void shouldReturnStatistics() throws Exception {
         when(downloadStatisticsService.getStatistics())
-                .thenReturn(new StatisticsResponse(true, 100, 500, 30, "获取成功"));
+                .thenReturn(new StatisticsResponse(true, 100, 500, 30, 105, 509, "获取成功"));
 
         mockMvc.perform(get("/api/downloaded/statistics"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.totalArtworks").value(100))
                 .andExpect(jsonPath("$.totalImages").value(500))
+                .andExpect(jsonPath("$.libraryArtworks").value(105))
+                .andExpect(jsonPath("$.libraryImages").value(509))
                 .andExpect(jsonPath("$.totalMoved").value(30));
     }
 
@@ -282,6 +313,32 @@ class DownloadedWorkControllerTest {
                 .andExpect(jsonPath("$.content[0].isAi").value(true))
                 .andExpect(jsonPath("$.content[1].isAi").value(false))
                 .andExpect(jsonPath("$.totalPages").value(3));
+    }
+
+    @Test
+    void zeroHistorySizeUsesOneBeforeQueryingAndCountingPages() throws Exception {
+        when(downloadedArtworkService.getArtworkCount()).thenReturn(3L);
+        mockMvc.perform(get("/api/downloaded/history/paged").param("size", "0"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.totalPages").value(3));
+        verify(downloadedArtworkService).getSortTimeArtworkPaged(0, 1);
+    }
+
+    @Test
+    void largeHistoryPagesKeepTheirOrderAcrossMetadataQueries() throws Exception {
+        int size = 1200;
+        var ids = LongStream.iterate(size, id -> id - 1).limit(size).boxed().toList();
+        when(downloadedArtworkService.getArtworkCount()).thenReturn((long) size);
+        when(downloadedArtworkService.getSortTimeArtworkPaged(0, size)).thenReturn(ids);
+        when(downloadedArtworkService.getDownloadedRecord(anyLong())).thenAnswer(call -> {
+            long id = call.getArgument(0);
+            return new ArtworkRecord(id, "Title", "/work", 1, "png", id, false, null, null, null, false, null, null);
+        });
+
+        mockMvc.perform(get("/api/downloaded/history/paged").param("size", String.valueOf(size)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].artworkId", contains(ids.stream().map(Long::intValue).toArray(Integer[]::new))));
+        verify(pixivDatabase, atLeast(2)).getArtworkTags(anyCollection());
     }
 
     @Test

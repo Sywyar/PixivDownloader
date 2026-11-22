@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /** 仓库设置的显式保存；描述符导入继续使用市场预览与信任入口。 */
+@HttpApiGroup("core-market")
 @RestController
 @RequestMapping("/api/settings/repositories")
 public final class RepositorySettingsController {
@@ -49,6 +54,8 @@ public final class RepositorySettingsController {
         InvalidEntry(int index, String key) { super(key); this.index = index; }
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public Snapshot read() throws IOException {
         var result = new java.util.concurrent.atomic.AtomicReference<Snapshot>();
@@ -57,6 +64,14 @@ public final class RepositorySettingsController {
         return result.get();
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Save.class)))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, FieldError.class})))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PutMapping(consumes = "application/json")
     public Saved save(HttpServletRequest request) throws IOException {
         var body = ToolApiRequests.read(request, Save.class, BODY_LIMIT);

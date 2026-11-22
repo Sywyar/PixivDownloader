@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,6 +76,16 @@ class PixivProxyControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
                 .build();
+    }
+
+    @Test
+    void accountQueriesIdentifyMissingPixivCredentials() throws Exception {
+        for (String path : java.util.List.of("illust-bookmarks", "following", "follow-latest", "collections", "collection/42/works")) {
+            mockMvc.perform(get("/api/pixiv/me/" + path))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("ACQUISITION_CREDENTIAL_REQUIRED"));
+        }
+        verifyNoInteractions(pixivAjaxClient);
     }
 
     private static PixivProxyAccessDecision allowedDecision() {
@@ -167,12 +180,13 @@ class PixivProxyControllerTest {
 
         @Test
         @DisplayName("超长通用凭证在访问外部服务前拒绝")
-        void shouldRejectOversizedCredential() throws Exception {
-            mockMvc.perform(get("/api/pixiv/search")
+        void shouldRejectOversizedCredential() {
+            assertThatThrownBy(() -> mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "miku")
                             .header(AcquisitionCredentialResolver.HEADER_NAME,
-                                    "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1)))
-                    .andExpect(status().isBadRequest());
+                                    "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1))))
+                    .rootCause().isInstanceOfSatisfying(HttpParameterException.class, error ->
+                            assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME));
             verifyNoInteractions(pixivAjaxClient);
         }
 
@@ -183,7 +197,9 @@ class PixivProxyControllerTest {
                             .param("word", "src/main/test")
                             .param("order", "invalid_order"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("order")));
+                    .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                    .andExpect(jsonPath("$.in").value("query"))
+                    .andExpect(jsonPath("$.field").value("order"));
         }
 
         @Test
@@ -193,7 +209,9 @@ class PixivProxyControllerTest {
                             .param("word", "src/main/test")
                             .param("mode", "adult"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("mode")));
+                    .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                    .andExpect(jsonPath("$.in").value("query"))
+                    .andExpect(jsonPath("$.field").value("mode"));
         }
 
         @Test
@@ -203,7 +221,9 @@ class PixivProxyControllerTest {
                             .param("word", "src/main/test")
                             .param("sMode", "s_invalid"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("sMode")));
+                    .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                    .andExpect(jsonPath("$.in").value("query"))
+                    .andExpect(jsonPath("$.field").value("sMode"));
         }
 
         @Test
@@ -442,7 +462,8 @@ class PixivProxyControllerTest {
                             .param("startPage", "0")
                             .param("endPage", "0"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").isNotEmpty());
+                    .andExpect(jsonPath("$.field").value("startPage"))
+                    .andExpect(jsonPath("$.reason").value("out_of_range"));
 
             verifyNoInteractions(pixivAjaxClient);
         }

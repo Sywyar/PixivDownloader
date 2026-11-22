@@ -44,6 +44,14 @@ record IpNetwork(byte[] network, int prefixLength) {
             }
             return true;
         }
+    private static final java.util.List<IpNetwork> LOCAL_NETWORKS = java.util.List.of(
+            "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+            "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10").stream().map(IpNetwork::parse).toList();
+
+    static boolean isLocalOrLan(byte[] address) {
+        return address != null && LOCAL_NETWORKS.stream().anyMatch(network -> network.contains(address));
+    }
+
     static byte[] parseNumericAddress(String value) {
         if ((value == null || value.trim().isEmpty()) || value.indexOf('%') >= 0) {
             return null;

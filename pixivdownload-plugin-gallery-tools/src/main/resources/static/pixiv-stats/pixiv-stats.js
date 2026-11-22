@@ -79,6 +79,8 @@
     function renderOverview(o) {
         if (!o) return;
         var map = {
+            ovLibraryArtworks: o.libraryArtworks,
+            ovLibraryImages: o.libraryImages,
             ovArtworks: o.totalArtworks,
             ovImages: o.totalImages,
             ovNovels: o.totalNovels,
@@ -208,7 +210,7 @@
         var maxCount = monthly.reduce(function (m, x) { return Math.max(m, x.count); }, 0) || 1;
 
         var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: W, height: H,
-            role: 'img', 'aria-label': t('monthly.title', '现存作品按月分布') });
+            role: 'img', 'aria-label': t('monthly.title', '现存作品按登记月份分布') });
 
         svg.appendChild(svgEl('line', { class: 'chart-axis',
             x1: padL, y1: padT + innerH, x2: padL + innerW, y2: padT + innerH }));

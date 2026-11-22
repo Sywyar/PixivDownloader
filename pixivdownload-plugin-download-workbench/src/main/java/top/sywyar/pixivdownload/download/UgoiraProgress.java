@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
@@ -18,7 +19,9 @@ public class UgoiraProgress {
     public static final String PHASE_WAITING_FFMPEG = "ffmpeg-waiting";
     public static final String PHASE_FINALIZING = "finalizing";
 
+    @Schema(allowableValues = {PHASE_ZIP, PHASE_EXTRACT, PHASE_WAITING_FFMPEG, PHASE_FFMPEG, PHASE_FINALIZING})
     private final String phase;
+    @Schema(allowableValues = {STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED})
     private final String status;
     private final String message;
     private final Integer attempt;

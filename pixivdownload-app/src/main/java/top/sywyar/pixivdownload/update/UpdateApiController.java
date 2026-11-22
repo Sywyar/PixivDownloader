@@ -1,5 +1,15 @@
 package top.sywyar.pixivdownload.update;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.Parameter;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +21,7 @@ import java.io.IOException;
 import java.util.Locale;
 
 /** 管理员更新操作；安装确认绑定摘要，不接受调用方指定的可执行文件。 */
+@HttpApiGroup("core-updates")
 @RestController
 @RequestMapping("/api/admin/update")
 public final class UpdateApiController {
@@ -28,30 +39,39 @@ public final class UpdateApiController {
 
     public record Install(String sha256) {}
     public record Progress(long received, long total, boolean done, boolean failed,
-                           String code, String error, UpdateService.InstallerReceipt installer) {}
+                           @HttpApiNullable String code, @HttpApiNullable String error,
+                           @HttpApiNullable UpdateService.InstallerReceipt installer) {}
 
     @GetMapping("/check")
     public UpdateCheckResult check(@RequestParam(defaultValue = "false") boolean force) {
         return service.checkForUpdate(force);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "204", content = @Content)
     @GetMapping("/last")
     public ResponseEntity<UpdateCheckResult> last() {
         var result = service.lastResult();
         return result == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(result);
     }
 
+    @ApiResponse(responseCode = "202", description = "Accepted", content = @io.swagger.v3.oas.annotations.media.Content)
+    @Parameter(name = "channel", in = ParameterIn.QUERY, schema = @Schema(type = "string", defaultValue = "official", allowableValues = {"official", "nightly"}))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "UPDATE_DOWNLOAD_UNAVAILABLE"))))
     @PostMapping("/download")
     public ResponseEntity<?> download(@RequestParam(defaultValue = "official") String channel, Locale locale) {
-        if (!channel.equals("official") && !channel.equals("nightly")) throw new IllegalArgumentException();
+        boolean nightly = UpdateService.isNightlyDownload(channel);
         try {
-            service.startDownloadAsync(channel.equals("nightly"));
+            service.startDownloadAsync(nightly);
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException unavailable) {
             return failure(409, "UPDATE_DOWNLOAD_UNAVAILABLE", "update.download.start-failed", locale);
         }
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "204", content = @Content)
     @GetMapping("/download/progress")
     public ResponseEntity<Progress> progress(Locale locale) {
         var value = service.getDownloadProgress();
@@ -61,6 +81,14 @@ public final class UpdateApiController {
                 value.failed() ? messages.get(locale, "update.download.failed") : null, service.installerReceipt()));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Install.class)))
+    @ApiResponse(responseCode = "202", description = "Accepted", content = @io.swagger.v3.oas.annotations.media.Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.InvalidRequest.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"UPDATE_INSTALL_UNSUPPORTED", "UPDATE_INSTALLER_STALE"}))))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/install", consumes = "application/json")
     public ResponseEntity<?> install(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, Install.class, BODY_LIMIT);

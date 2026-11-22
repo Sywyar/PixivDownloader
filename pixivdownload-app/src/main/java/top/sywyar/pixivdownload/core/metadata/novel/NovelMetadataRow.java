@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
+
 /**
  * 宿主核心读取小说事实时使用的窄投影。
  *
@@ -27,7 +29,8 @@ public record NovelMetadataRow(
         Long uploadTime,
         Long createTime,
         Long updateTime,
-        Long reuploadTime
+        Long reuploadTime,
+        FileManagement fileManagement
 ) {
     public NovelMetadataRow(long novelId,
         String title,
@@ -47,7 +50,7 @@ public record NovelMetadataRow(
         String coverExt,
         boolean deleted,
         Long uploadTime) {
-        this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, isOriginal, coverExt, deleted, uploadTime, null, null, null);
+        this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, isOriginal, coverExt, deleted, uploadTime, null, null, null, FileManagement.MANAGED);
     }
 
     public NovelMetadataRow(long novelId,

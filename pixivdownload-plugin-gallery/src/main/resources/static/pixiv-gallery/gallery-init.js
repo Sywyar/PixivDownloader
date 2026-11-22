@@ -265,6 +265,7 @@
 
     bindTristate('r18', 'r18');
     bindTristate('ai', 'ai');
+    bindTristate('management', 'fileManagement');
 
 
     document.querySelectorAll('.chip[data-format]').forEach(chip => {

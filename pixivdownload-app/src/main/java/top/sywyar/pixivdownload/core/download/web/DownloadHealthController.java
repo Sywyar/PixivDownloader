@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.download.web;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -7,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 /** 保留既有本机连通性探针，不依赖任何下载实现。 */
+@HttpApiGroup("core-downloads")
 @RestController
 @RequiredArgsConstructor
 public final class DownloadHealthController {

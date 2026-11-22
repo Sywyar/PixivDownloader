@@ -23,6 +23,7 @@ public final class ExampleDownloadSubmission implements DownloadSubmissionHandle
 
     @Override
     public String workType() { return ExampleDownloadQueue.QUEUE_TYPE; }
+    @Override public String inputSchemaResource() { return "/META-INF/pixivdownload/submission/example.json"; }
 
     @Override
     public void submit(DownloadSubmission submission, DownloadAttempt attempt, String credential) {

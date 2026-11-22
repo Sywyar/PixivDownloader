@@ -52,8 +52,7 @@ public class ArtworkMetadataRecoveryService {
     /**
      * pixiv-batch 两阶段恢复入口：调用方已从 Pixiv 拉回元数据。
      * <ul>
-     *   <li>DB 已有记录且 title 非空 → 返回原记录（不覆盖任何字段）</li>
-     *   <li>DB 已有记录但 title 为空（说明先前是裸记录恢复出来的）→ 仅填补 NULL/空字段后返回最新记录</li>
+     *   <li>DB 已有记录 → 仅补齐缺失字段，保留软删除记录</li>
      *   <li>DB 无记录且已知总页数，各页均有匹配默认模板的非空图片 → 登记元数据和文件事实</li>
      *   <li>否则返回 null（调用方按未下载处理）</li>
      * </ul>
@@ -70,14 +69,13 @@ public class ArtworkMetadataRecoveryService {
                 if (existing.deleted()) {
                     return existing;
                 }
-                if (StringUtils.hasText(existing.title())) {
-                    return existing;
-                }
                 pixivDatabase.fillArtworkMetadataIfMissing(artworkId,
                         StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : null,
                         meta.getXRestrict(), meta.getIsAi(), meta.getAuthorId(),
                         StringUtils.hasText(normalizedDescription) ? normalizedDescription : null);
-                observeAuthorIfPresent(artworkId, meta);
+                if (existing.authorId() == null || existing.authorId().equals(meta.getAuthorId())) {
+                    observeAuthorIfPresent(artworkId, meta);
+                }
                 return pixivDatabase.getArtwork(artworkId);
             }
             // DB 无记录：扫描磁盘 → 用 meta 写完整记录
@@ -128,7 +126,7 @@ public class ArtworkMetadataRecoveryService {
     private void observeAuthorIfPresent(Long artworkId, RecoverMetadataRequest meta) {
         if (meta.getAuthorId() == null) return;
         try {
-            authorService.observe(meta.getAuthorId(), meta.getAuthorName());
+            authorService.fillMissing(meta.getAuthorId(), meta.getAuthorName());
         } catch (Exception e) {
             log.warn(logMessage("download.log.record-author.failed", id(artworkId)), e);
         }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novelgallery;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import tools.jackson.core.JacksonException;
@@ -76,10 +78,15 @@ public class NovelBatchService {
         return new ExportOptions(common == null ? List.of() : List.copyOf(common));
     }
 
-    public List<Long> resolveNovelIds(NovelBatchRequest request) {
+    public List<Long> resolveNovelIds(NovelBatchRequest request, boolean deleting) {
         if (request != null && request.filterMode()) {
-            List<Long> ids = novelGalleryService.findNovelIds(toNovelQuery(request.filter()));
-            return ArchiveExportRules.applyExclusions(ids, request.excludeIds());
+            try {
+                var query = toNovelQuery(request.filter());
+                List<Long> ids = novelGalleryService.findNovelIds(query, deleting && !request.confirmsAll());
+                return ArchiveExportRules.applyExclusions(ids, request.excludeIds());
+            } catch (WorkQuery.InvalidField failure) {
+                throw new HttpParameterException("body", "/filter/" + failure.field(), "invalid_value");
+            }
         }
         return ArchiveExportRules.applyExclusions(request == null ? null : request.ids(),
                 request == null ? null : request.excludeIds());

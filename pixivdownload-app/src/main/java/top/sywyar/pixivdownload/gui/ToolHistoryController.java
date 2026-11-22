@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.gui;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolHistoryEntry;
@@ -13,6 +17,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.web.bind.annotation.PathVariable;
 
 /** 与桌面共用有界执行历史，不启动工具或打开本机日志。 */
+@HttpApiGroup("core-tools")
 @RestController
 public final class ToolHistoryController {
     private final DesktopToolHistory history;
@@ -23,6 +28,8 @@ public final class ToolHistoryController {
     public List<ToolHistoryEntry> history() { return history.entries(); }
 
     /** 日志作为附件读取，禁止在应用同源上下文执行日志中的 HTML。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/octet-stream", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/api/tools/logs/{fileName}")
     public ResponseEntity<InputStreamResource> log(@PathVariable String fileName) throws IOException {
         if (!DesktopToolLogs.validFileName(fileName)) return ResponseEntity.notFound().build();

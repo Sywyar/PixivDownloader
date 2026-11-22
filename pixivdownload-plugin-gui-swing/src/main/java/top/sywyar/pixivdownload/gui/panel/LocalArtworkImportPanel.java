@@ -38,9 +38,12 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
         this.context = context;
         setOpaque(false); setLayout(new BorderLayout());
         setAlignmentX(Component.LEFT_ALIGNMENT);
-        entry = button("title"); scan = button("scan"); start = button("start"); cancel = button("cancel"); browse = button("browse");
+        entry = new JButton(context.host().message("desktop.ui.action.open"));
+        scan = button("scan"); start = button("start"); cancel = button("cancel"); browse = button("browse");
         refresh = new JCheckBox(message("refresh"));
-        entry.setName("tools.local-import"); add(entry, BorderLayout.WEST);
+        entry.setName("tools.local-import");
+        entry.getAccessibleContext().setAccessibleName(message("title"));
+        add(SwingPage.row(message("title"), message("help"), entry), BorderLayout.CENTER);
         entry.addActionListener(e -> open());
         scan.addActionListener(e -> scan());
         start.addActionListener(e -> { if (status != null) run(() -> source().start(status.id())); });
@@ -58,6 +61,7 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
         refresh.addActionListener(e -> invalidatePreview());
         update();
     }
+    @Override public Dimension getMaximumSize() { return new Dimension(SwingPage.PAGE_WIDTH, getPreferredSize().height); }
     private JButton button(String key) { return new JButton(message(key)); }
     private String message(String key, Object... args) { return context.host().message("local-import." + key, args); }
     private LocalArtworkImports source() { return context.host().localArtworkImports().orElseThrow(); }
@@ -189,6 +193,7 @@ final class LocalArtworkImportPanel extends JPanel implements AutoCloseable {
         if (status == null) { state.setText(""); details.setText(""); return; }
         state.setText(message("phase." + status.phase())); progress.setMaximum(Math.max(1, status.artworks())); progress.setValue(status.processed());
         StringBuilder text = new StringBuilder(message("summary", status.artworks(), status.files(), status.imported(), status.skipped(), status.failed())).append('\n');
+        if (!running() && status.imported() > 0) text.append(message("after-import")).append('\n');
         if (status.cachedIndex()) text.append(message("cached")).append('\n');
         for (Item item : samples) {
             text.append(message("item", item.artworkId(), item.files().size(), message("disposition." + item.disposition()))).append('\n');

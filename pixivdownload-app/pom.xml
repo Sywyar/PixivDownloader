@@ -23,6 +23,21 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>3.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.scalar.maven</groupId>
+            <artifactId>scalar-core</artifactId>
+            <version>0.8.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.therapi</groupId>
+            <artifactId>therapi-runtime-javadoc</artifactId>
+            <version>0.15.0</version>
+        </dependency>
+        <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-test-support</artifactId>
             <version>${project.version}</version>

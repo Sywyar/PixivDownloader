@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.schedule.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import top.sywyar.pixivdownload.setup.ProgramAccess;
@@ -44,9 +49,11 @@ import java.util.Locale;
  * <p>响应一律走 {@link ScheduleTaskView}。通用凭证绑定只接收中性取得凭证头与当前来源激活令牌；
  * 来源专属兼容路由由对应来源的适配器拥有。
  */
+@HttpApiGroup("core-schedule")
 @RestController
 @RequestMapping("/api/schedule")
 @RequiredArgsConstructor
+@KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
@@ -66,6 +73,10 @@ public class ScheduleController {
                 .toList();
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = "schedule.error.not-found")
     @GetMapping("/tasks/{id}")
     public ScheduleTaskView get(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -73,18 +84,43 @@ public class ScheduleController {
     }
 
     /** 最近一轮运行队列（本轮发现的每个作品及其处理结果），供前端卡片底部「本轮队列详情」展开展示。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = "schedule.error.not-found")
     @GetMapping("/tasks/{id}/queue")
     public ScheduleQueueView queue(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
         return scheduleService.queue(id);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.create-state-version", "schedule.error.max-tasks", "schedule.error.definition-invalid",
+            "schedule.error.source-unavailable", "schedule.error.source-write-unavailable",
+            "schedule.error.interval-invalid", "schedule.error.cron-invalid", "schedule.error.trigger-invalid"})
+    @KnownErrorCodes(status = "409", value = {
+            "schedule.error.concurrent-change", "schedule.error.source-publication-changed"})
     @PostMapping("/tasks")
     public ScheduleTaskView create(@Valid @RequestBody ScheduleTaskRequest req, HttpServletRequest httpRequest) {
         requireSource(httpRequest, req);
         return scheduleService.create(req);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.expected-state-version",
+            "schedule.error.source-owner-change-forbidden", "schedule.error.definition-invalid",
+            "schedule.error.source-unavailable", "schedule.error.source-write-unavailable",
+            "schedule.error.interval-invalid", "schedule.error.cron-invalid", "schedule.error.trigger-invalid"})
+    @KnownErrorCodes(status = "409", value = {
+            "schedule.error.concurrent-change", "schedule.error.source-publication-changed"})
     @PutMapping("/tasks/{id}")
     public ScheduleTaskView update(@PathVariable long id, @Valid @RequestBody ScheduleTaskRequest req, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -92,6 +128,11 @@ public class ScheduleController {
         return scheduleService.update(id, req);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change"})
     @DeleteMapping("/tasks/{id}")
     public SuccessResponse delete(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -99,6 +140,11 @@ public class ScheduleController {
         return new SuccessResponse(true);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change"})
     @PostMapping("/tasks/{id}/enabled")
     public ScheduleTaskView setEnabled(@PathVariable long id, @RequestParam boolean enabled, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -106,6 +152,18 @@ public class ScheduleController {
     }
 
     /** 经中性取得凭证头绑定任务当前执行计划声明的凭证策略。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.credential-empty",
+            "schedule.error.credential-invalid", "schedule.error.credential-fixed",
+            "schedule.error.credential-unchanged", "schedule.error.execution-capability-unavailable",
+            "schedule.error.credential-probe-failed", "schedule.error.credential-policy-unavailable"})
+    @KnownErrorCodes(status = "409", value = {
+            "schedule.error.concurrent-change", "schedule.error.credential-policy-publication-changed",
+            "schedule.error.source-publication-changed"})
     @PostMapping("/tasks/{id}/credential")
     public ScheduleTaskView bindCredential(
             @PathVariable long id,
@@ -119,6 +177,15 @@ public class ScheduleController {
     }
 
     /** 解除任务当前持久化的凭证策略绑定。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.credential-policy-unavailable",
+            "schedule.error.credential-fixed"})
+    @KnownErrorCodes(status = "409", value = {
+            "schedule.error.concurrent-change", "schedule.error.credential-policy-publication-changed"})
     @DeleteMapping("/tasks/{id}/credential")
     public ScheduleTaskView revokeCredential(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -126,15 +193,31 @@ public class ScheduleController {
     }
 
     /** 只接受精确 policy publication 身份；动作语义由当前凭证策略纯值规划。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.credential-account-not-found", "schedule.error.credential-account-action-unsupported",
+            "schedule.error.credential-account-action-invalid", "schedule.error.credential-account-action-failed"})
+    @KnownErrorCodes(status = "409", value = {
+            "schedule.error.concurrent-change", "schedule.error.credential-policy-publication-changed"})
     @PostMapping("/credential-policies/actions")
     public SuccessResponse applyCredentialPolicyAction(
             @Valid @RequestBody ScheduleCredentialPolicyActionRequest request, HttpServletRequest httpRequest) {
-        ProgramAccess.require(httpRequest, request.getOwnerPluginId(), "schedule.manage");
+        ProgramAccess.require(httpRequest, request.getOwnerPluginId(), "schedule.manage",
+                () -> scheduleService.hasCredentialPolicy(request.getOwnerPluginId(), request.getPolicyId()));
         scheduleService.applyCredentialPolicyAction(request);
         return new SuccessResponse(true);
     }
 
     /** 设置 / 清除任务级单独代理（host:port；body 的 proxy 为空 = 清除并回退全局代理设置）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.proxy-invalid",
+            "schedule.error.concurrent-change"})
     @PostMapping("/tasks/{id}/proxy")
     public ScheduleTaskView updateProxy(@PathVariable long id,
                                         @RequestBody ProxyOverrideRequest req, HttpServletRequest httpRequest) {
@@ -142,6 +225,14 @@ public class ScheduleController {
         return scheduleService.updateProxy(id, req.getProxy());
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.run-disabled",
+            "schedule.error.run-suspended"})
+    @KnownErrorCodes(status = "429", value = "task.queue.full")
     @PostMapping("/tasks/{id}/run")
     public SuccessResponse runOnce(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -152,6 +243,12 @@ public class ScheduleController {
     // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
 
     /** 手动挂起当前运行（MANUAL，不冻账号、不发邮件）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.already-suspended", "schedule.error.pause-idle",
+            "schedule.error.concurrent-change"})
     @PostMapping("/tasks/{id}/pause")
     public ScheduleTaskView pause(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -163,6 +260,11 @@ public class ScheduleController {
      * 再触发一次后台运行立刻跑起来。{@code runOnce} 在 resume 事务提交后调用，异步执行线程读到的是已清挂起的状态；
      * 即时触发若因竞态被跳过，调度 tick 也会兜底捡起。返回刷新后的视图以即时反映「排队中」运行态。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change"})
     @PostMapping("/tasks/{id}/pending/resolve")
     public ScheduleTaskView resolvePending(@PathVariable long id,
             @Valid @RequestBody SchedulePendingResolveRequest request, HttpServletRequest httpRequest) {
@@ -171,6 +273,14 @@ public class ScheduleController {
                 request.workId(), request.userAction(), request.rememberForRun());
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.resume-not-paused",
+            "schedule.error.concurrent-change"})
+    @KnownErrorCodes(status = "429", value = "task.queue.full")
     @PostMapping("/tasks/{id}/resume")
     public ScheduleTaskView resume(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -184,6 +294,10 @@ public class ScheduleController {
     }
 
     /** 隔离表（待重试）行列表。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = "schedule.error.not-found")
     @GetMapping("/tasks/{id}/pending")
     public List<SchedulePendingView> pending(@PathVariable long id, HttpServletRequest httpRequest) {
         requireTask(httpRequest, id);
@@ -191,6 +305,11 @@ public class ScheduleController {
     }
 
     /** 手动清除隔离表中某个「需人工」条目。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @KnownErrorCodes(status = "400", value = {
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change"})
     @DeleteMapping("/tasks/{id}/pending")
     public SuccessResponse clearPending(
             @PathVariable long id,
@@ -208,12 +327,11 @@ public class ScheduleController {
     private void requireSource(HttpServletRequest request, ScheduleTaskRequest body) {
         if (ProgramAccess.identity(request).isEmpty()) return;
         var source = scheduleService.sources().sources().stream()
-                .filter(value -> value.sourceType().equals(body.getSourceType().trim())
-                        && value.activationToken().equals(body.getActivationToken()))
-                .findFirst().orElseThrow(() -> new top.sywyar.pixivdownload.i18n.LocalizedException(
-                        org.springframework.http.HttpStatus.FORBIDDEN, "auth.program.forbidden",
-                        "The program key does not grant this operation"));
-        ProgramAccess.require(request, source.ownerPluginId(), "schedule.manage");
+                .filter(value -> value.sourceType().equals(body.getSourceType().trim()))
+                .findFirst().orElseThrow(ProgramAccess::forbidden);
+        ProgramAccess.require(request, source.ownerPluginId(), "schedule.manage",
+                () -> source.activationToken().equals(body.getActivationToken()));
+        ScheduleService.requireActivationToken(source.activationToken(), body.getActivationToken());
     }
 
     public record SuccessResponse(boolean success) {}

@@ -57,6 +57,7 @@
     "login",
     "maintenance",
     "monitor",
+    "openapi",
     "plugin-market",
     "plugins",
     "security",

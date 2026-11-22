@@ -57,6 +57,7 @@ const batch = {
     selected: new Set(),
     excluded: new Set(),
     mode: 'ids',
+    fullLibrary: false,
     filterSnapshot: null,
     filterKey: '',
     total: 0,

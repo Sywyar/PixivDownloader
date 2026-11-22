@@ -149,3 +149,11 @@ test('page exit aborts reads and ignores late responses; duplicate opens are coa
     assert.equal(h.tracked.length, 0);
     assert.equal(h.messages.length, 0);
 });
+
+test('full-library deletion is confirmed on the final archive request only', async () => {
+    const h = load({form: async () => ({groupBy: 'id', format: 'zip', variant: '', deleteAfter: true})});
+    await h.open({selection: {mode: 'filter', filter: {}, excludeIds: [42]}, fullLibrary: true});
+    assert.equal(h.calls[0].payload.confirmAll, undefined);
+    assert.equal(h.calls[1].payload.confirmAll, true);
+    assert.deepEqual(h.calls[1].payload.excludeIds, [42]);
+});

@@ -373,8 +373,49 @@ class PluginLifecycleDrainTest extends PluginLifecycleServiceTestSupport {
     }
 
     @Test
-    @DisplayName("stopAll 遇到普通清退失败会重试到可排空而不跳过 child 足迹")
-    void stopAllRetriesOrdinaryQuiesceFailureUntilSafe() {
+    void stopAllReportsLinkageErrorAndStillStopsHealthyPlugins() {
+        try (ContextHarness h = new ContextHarness()) {
+            var broken = new PluginRegistry.RegisteredPlugin(new RecordingPlugin("ext-broken"),
+                    PluginSource.EXTERNAL, getClass().getClassLoader());
+            var handle = mock(PluginWebContributionHandle.class);
+            when(h.registry.registeredPlugins()).thenReturn(List.of(h.registered, broken));
+            when(h.webRegistrar.currentHandle(same(broken))).thenReturn(Optional.of(handle));
+            var missing = new NoClassDefFoundError("MissingShutdownDependency");
+            when(h.webRegistrar.withdrawRequests(same(handle))).thenThrow(missing).thenReturn(Optional.empty());
+            h.service.startAll();
+
+            assertThatThrownBy(h.service::stopAll).isSameAs(missing);
+            verify(h.webRegistrar).withdrawRequests(same(handle));
+            verify(h.webRegistrar, never()).unregister(same(handle));
+            assertThat(h.service.phase("ext-broken")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+
+            h.service.stopAll();
+            assertThat(h.service.phase("ext-broken")).contains(PluginRuntimePhase.STOPPED);
+        }
+    }
+
+    @Test
+    void stopAllReportsRepeatedCleanupFailureWithoutClosingTheChild() {
+        try (ContextHarness h = new ContextHarness()) {
+            h.service.startAll();
+            var child = h.service.contextFor("ext-demo").orElseThrow();
+            when(h.webRegistrar.isCurrent(same(h.bootWebHandle))).thenReturn(true, true, false);
+
+            assertThatThrownBy(h.service::stopAll).isInstanceOf(PluginLifecycleException.class);
+            verify(h.webRegistrar, times(2)).unregister(same(h.bootWebHandle));
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(child.isActive()).isTrue();
+
+            h.service.stopAll();
+            assertThat(child.isActive()).isFalse();
+            assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+        }
+    }
+
+    @Test
+    @DisplayName("stopAll 遇到短暂清退失败会重试一次并安全关闭 child")
+    void stopAllRetriesTransientQuiesceFailureOnce() {
         RecordingPlugin plugin = new RecordingPlugin("ext-retry");
         PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, getClass().getClassLoader());

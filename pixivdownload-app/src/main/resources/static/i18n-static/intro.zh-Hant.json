@@ -69,7 +69,7 @@
     "batch.tip.action": "將所有選取的作品加入後端下載佇列，可在 Monitor 頁面即時查看進度",
     "batch.tip.batch": "目前頁面：四合一批次入口",
     "batch.tip.btn-add-all": "將目前頁面的全部結果一次加入下載佇列",
-    "batch.tip.btn-search": "呼叫後端 /api/pixiv/search 代理 Pixiv AJAX，每頁 60 筆",
+    "batch.tip.btn-search": "透過 /api/pixiv/search 搜尋插畫。每頁通常有 60 筆，實際筆數由 Pixiv 決定。",
     "batch.tip.chip.ai": "AI 作品篩選：可選全部／排除 AI／僅 AI",
     "batch.tip.chip.bookmarks": "收藏數篩選：僅保留收藏數 ≥ 500 的作品",
     "batch.tip.chip.content": "用戶端篩選：僅顯示全年齡結果",

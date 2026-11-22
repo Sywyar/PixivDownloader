@@ -284,6 +284,8 @@ class ArtworksBackFillDatabaseTest {
 
         try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(databasePath))) {
             ArtworksBackFillDatabase.FilteredCandidates filtered = database.findCandidates(1, unreachable);
+            var selected = database.findCandidates(1, unreachable, null, false, java.util.List.of(4L, 99L));
+            assertThat(selected.candidates()).extracting(ArtworksBackFillDatabase.Candidate::artworkId).containsExactly(4L);
             assertEquals(1, filtered.skippedUnreachable());
             assertEquals(1, filtered.candidates().size());
             ArtworksBackFillDatabase.Candidate candidate = filtered.candidates().get(0);

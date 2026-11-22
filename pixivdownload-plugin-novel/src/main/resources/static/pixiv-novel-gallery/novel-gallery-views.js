@@ -131,6 +131,7 @@ function hasActiveNovelFilters() {
     return !!(state.search
         || state.r18 !== 'any'
         || state.ai !== 'any'
+        || state.dateFilters.some(row => row.start || row.end)
         || state.selectedCollections.size
         || state.selectedTags.size
         || state.selectedSeries.size

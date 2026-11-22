@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui.importing;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import top.sywyar.pixivdownload.plugin.api.gui.importing.DesktopFileImportTool.*;
 
@@ -15,7 +17,7 @@ final class FileImportExecution implements Source {
     private boolean inspectInterrupted;
 
     FileImportExecution(Source delegate) { this.delegate = delegate; }
-    record Snapshot(UUID executionId, boolean inspecting, Status status, Completion completion) {}
+    record Snapshot(@HttpApiNullable UUID executionId, boolean inspecting, Status status, @HttpApiNullable Completion completion) {}
     synchronized Snapshot snapshot() { return new Snapshot(executionId, inspecting, delegate.status(), delegate.pendingCompletion().orElse(null)); }
     synchronized boolean cancel(UUID expected) {
         if (expected == null || !expected.equals(executionId)) return false;

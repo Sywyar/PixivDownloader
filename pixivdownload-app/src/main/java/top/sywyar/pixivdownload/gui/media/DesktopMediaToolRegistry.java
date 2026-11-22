@@ -22,6 +22,8 @@ public final class DesktopMediaToolRegistry {
 
     public void unregister(ExternalCapabilityOwner owner) { entries.remove(identity(owner)); }
 
+    boolean isPublished(DesktopMediaTool.Identity identity) { return entries.containsKey(identity); }
+
     public List<DesktopMediaTool> tools() {
         return entries.values().stream().map(Entry::tool)
                 .sorted(Comparator.comparing(tool -> tool.identity().pluginId())).toList();

@@ -67,9 +67,9 @@ class PixivProxyServletTest {
         var access = mock(PixivProxyAccessPolicy.class);
         when(access.evaluate(any(), anyBoolean())).thenReturn(
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
-        when(upstream.get(any(), nullable(String.class))).thenReturn("{\"error\":false,\"body\":{}}");
+        when(upstream.get(any(), nullable(String.class))).thenReturn("{\"error\":false,\"body\":{\"src\":\"https://example.org/animation.zip\",\"frames\":[]}}");
         doAnswer(call -> {
-            if (call.<Long>getArgument(2) != 12345L) {
+            if (call.<Long>getArgument(2) != 12345L && call.<Long>getArgument(2) != 12346L) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN);
             }
             return null;
@@ -130,6 +130,18 @@ class PixivProxyServletTest {
                 default -> "";
             };
             verify(upstream).get(URI.create("https://www.pixiv.net/ajax/illust/12345" + suffix), null);
+        }
+    }
+
+    @Test
+    void reportsMalformedAnimationMetadataFromPixiv() throws Exception {
+        when(upstream.get(URI.create("https://www.pixiv.net/ajax/illust/12346/ugoira_meta"), null))
+                .thenReturn("{\"error\":false,\"body\":{\"frames\":[]}}", "invalid JSON");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var response = request("12346", "ugoira");
+            assertThat(response.statusCode()).isEqualTo(502);
+            assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                    .isEqualTo("pixiv.proxy.invalid-response");
         }
     }
 

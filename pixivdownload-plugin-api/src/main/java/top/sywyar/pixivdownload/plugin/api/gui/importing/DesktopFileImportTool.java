@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui.importing;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 import java.util.List;
 import java.util.Objects;
@@ -34,7 +36,7 @@ public record DesktopFileImportTool(Identity identity, Description description) 
      * @param recommendation 可选的使用建议，与导入行为说明分别呈现
      */
     public record Description(DesktopUiText title, DesktopUiText help, boolean requiresCredential,
-                              DesktopUiText recommendation) {
+                              @HttpApiNullable DesktopUiText recommendation) {
         /** 未提供额外建议的工具描述。
          * @param title 工具名称
          * @param help 输入与行为说明

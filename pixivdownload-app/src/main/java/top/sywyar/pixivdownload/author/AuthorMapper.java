@@ -23,6 +23,13 @@ public class AuthorMapper {
         row.put("author_id", id); row.put("name", name); row.put("updated_time", updatedTime);
         return database.transaction(s -> s.insert(TABLE, row, DatabaseSession.Conflict.ignore()));
     }
+    public void fillMissingName(long id, String name, long updatedTime) {
+        var current = column(TABLE, "name");
+        database.transaction(s -> s.update(TABLE, Map.of("name", value(name), "updated_time", value(updatedTime)),
+                call(AND, call(EQUAL, column(TABLE, "author_id"), value(id)), call(OR, call(IS_NULL, current),
+                        call(EQUAL, current, value("")), call(EQUAL, current, value(String.valueOf(id)))))));
+    }
+
     public int updateName(long id, String name, long updatedTime) {
         return database.transaction(s -> s.update(TABLE, Map.of("name", value(name), "updated_time", value(updatedTime)),
                 call(EQUAL, column(TABLE, "author_id"), value(id))));

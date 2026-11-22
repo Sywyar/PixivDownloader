@@ -19,6 +19,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-test-support</artifactId>
             <version>${project.version}</version>

@@ -13,6 +13,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.download.ArtworkFileService;
+import top.sywyar.pixivdownload.core.download.LocalWorkAssetService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -59,16 +64,74 @@ class WorkAssetFileControllerTest {
     }
 
     @Test
+    void rawFileServesCompleteRangesAndAnEmptyUnsatisfiableResponse() throws Exception {
+        when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0))
+                .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
+        var path = "/api/downloaded/rawfile/12345/0";
+        byte[] bytes = Files.readAllBytes(pngFile);
+        mockMvc.perform(get(path).header("Range", "bytes=0-9"))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string("Content-Range", "bytes 0-9/" + bytes.length))
+                .andExpect(content().bytes(java.util.Arrays.copyOf(bytes, 10)));
+        var multipart = mockMvc.perform(get(path).header("Range", "bytes=0-1,4-6"))
+                .andExpect(status().isPartialContent()).andReturn().getResponse();
+        var boundary = MediaType.parseMediaType(multipart.getContentType()).getParameter("boundary");
+        var body = multipart.getContentAsString(java.nio.charset.StandardCharsets.ISO_8859_1);
+        org.assertj.core.api.Assertions.assertThat(body).contains("Content-Range: bytes 0-1/" + bytes.length,
+                "Content-Range: bytes 4-6/" + bytes.length, "--" + boundary + "--");
+        String length = multipart.getHeader("Content-Length");
+        if (length != null) org.assertj.core.api.Assertions.assertThat(Long.parseLong(length)).isEqualTo(multipart.getContentAsByteArray().length);
+        mockMvc.perform(get(path).header("Range", "bytes=" + bytes.length + "-"))
+                .andExpect(status().isRequestedRangeNotSatisfiable())
+                .andExpect(header().string("Content-Range", "bytes */" + bytes.length))
+                .andExpect(content().bytes(new byte[0]));
+    }
+
+    @Test
     @DisplayName("ZIP 画廊图片使用首帧，原文件端点仍返回归档字节")
     void previewsArchiveWithoutChangingOriginalDownload() throws Exception {
         Path zip = tempDir.resolve("animation.zip");
         Files.write(zip, new byte[]{80,75,3,4});
         when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0)).thenReturn(Optional.of(new WorkAssetFile(0, zip, "zip")));
+        when(workAssetService.previewFile(WorkType.ARTWORK, 12345L, 0)).thenReturn(Optional.of(new WorkAssetFile(0, zip, "zip")));
         when(workAssetService.thumbnail(WorkType.ARTWORK, 12345L, 0)).thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
         mockMvc.perform(get("/api/downloaded/image/12345/0")).andExpect(status().isOk())
                 .andExpect(content().contentType("image/png")).andExpect(content().bytes(Files.readAllBytes(pngFile)));
         mockMvc.perform(get("/api/downloaded/rawfile/12345/0")).andExpect(status().isOk())
                 .andExpect(content().contentType("application/zip")).andExpect(content().bytes(Files.readAllBytes(zip)));
+    }
+
+    @Test
+    @DisplayName("导出保留的 ZIP 或转换产物，预览优先动画且允许回退到缩略图")
+    void resolvesExportAndPreviewThroughTheAssetServices() throws Exception {
+        var database = mock(PixivDatabase.class);
+        var record = new ArtworkRecord(42L, "animation", tempDir.toString(), 1, "webp,zip",
+                1000L, false, null, null, 0, false, 1L, null);
+        when(database.getArtwork(42L)).thenReturn(record);
+        when(database.getArtworkFileNames(42L)).thenReturn(java.util.List.of("animation"));
+        var media = mock(ArtworkMediaStore.class);
+        when(media.find(42L, 0)).thenReturn(Optional.of(new ArtworkMediaManifest("zip", java.util.List.of("webp", "zip"))));
+        var external = mock(ExternalWorkFiles.class);
+        var locator = new ArtworkFileLocator(database, null, TestI18nBeans.appMessages(), null, media, external);
+        var assets = new LocalWorkAssetService(new ArtworkFileService(database, locator, null), locator,
+                database, null, null, TestI18nBeans.appMessages(), null, external, null);
+        var server = MockMvcBuilders.standaloneSetup(new WorkAssetFileController(assets, guestAccessGuard)).build();
+        Path archive = Files.write(tempDir.resolve("animation.zip"), new byte[]{80, 75, 3, 4});
+        Path animation = Files.copy(webpFile, tempDir.resolve("animation.webp"));
+        Path thumbnail = Files.write(tempDir.resolve("animation_thumb.jpg"), new byte[]{1, 2});
+
+        server.perform(get("/api/downloaded/rawfile/42/0")).andExpect(status().isOk())
+                .andExpect(content().contentType("application/zip")).andExpect(content().bytes(Files.readAllBytes(archive)));
+        server.perform(get("/api/downloaded/image/42/0")).andExpect(status().isOk())
+                .andExpect(content().contentType("image/webp")).andExpect(content().bytes(Files.readAllBytes(animation)));
+        Files.delete(archive);
+        server.perform(get("/api/downloaded/rawfile/42/0")).andExpect(status().isOk())
+                .andExpect(content().bytes(Files.readAllBytes(animation)));
+        Files.delete(animation);
+        server.perform(get("/api/downloaded/rawfile/42/0")).andExpect(status().isNotFound());
+        server.perform(get("/api/downloaded/image/42/0")).andExpect(status().isOk())
+                .andExpect(content().contentType("image/jpeg")).andExpect(content().bytes(Files.readAllBytes(thumbnail)));
+        server.perform(get("/api/downloaded/rawfile/42/1")).andExpect(status().isNotFound());
     }
 
     @ParameterizedTest
@@ -127,37 +190,25 @@ class WorkAssetFileControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"image", "rawfile"})
-    @DisplayName("获取原始图片成功：不重编码，直接返回 image/png 文件流")
-    void shouldReturnImage(String endpoint) throws Exception {
-        when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0))
-                .thenReturn(Optional.of(new WorkAssetFile(0, pngFile, "png")));
-
-        mockMvc.perform(get("/api/downloaded/{endpoint}/12345/0", endpoint))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.IMAGE_PNG))
-                .andExpect(content().bytes(Files.readAllBytes(pngFile)));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"image", "rawfile"})
-    @DisplayName("获取 webp 原始图片：返回 image/webp 文件流")
-    void shouldReturnWebpImageAsRawBytes(String endpoint) throws Exception {
-        when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0))
-                .thenReturn(Optional.of(new WorkAssetFile(0, webpFile, "webp")));
-
-        mockMvc.perform(get("/api/downloaded/{endpoint}/12345/0", endpoint))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType("image/webp"))
-                .andExpect(content().bytes(Files.readAllBytes(webpFile)));
+    @ValueSource(strings = {"png", "webp"})
+    @DisplayName("图片预览与导出保留静态图的字节与媒体类型")
+    void streamsStaticImageBytes(String extension) throws Exception {
+        Path path = extension.equals("png") ? pngFile : webpFile;
+        var file = Optional.of(new WorkAssetFile(0, path, extension));
+        when(workAssetService.rawFile(WorkType.ARTWORK, 12345L, 0)).thenReturn(file);
+        when(workAssetService.previewFile(WorkType.ARTWORK, 12345L, 0)).thenReturn(file);
+        for (String endpoint : java.util.List.of("image", "rawfile")) {
+            mockMvc.perform(get("/api/downloaded/{endpoint}/12345/0", endpoint))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentType("image/" + extension))
+                    .andExpect(content().bytes(Files.readAllBytes(path)));
+        }
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"image", "rawfile"})
     @DisplayName("获取原始图片不存在应返回 404")
     void shouldReturn404ForMissingImage(String endpoint) throws Exception {
-        when(workAssetService.rawFile(WorkType.ARTWORK, 99999L, 0)).thenReturn(Optional.empty());
-
         mockMvc.perform(get("/api/downloaded/{endpoint}/99999/0", endpoint))
                 .andExpect(status().isNotFound());
     }

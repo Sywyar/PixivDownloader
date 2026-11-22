@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui.importing;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,6 +45,11 @@ public interface LocalArtworkImports {
 
     /** 变量校验失败；异常消息只携带稳定错误码，变量名单独供界面和 API 展示。 */
     final class VariableException extends IllegalArgumentException {
+        /** 当前作品缺少变量所需的信息。 */
+        public static final String UNAVAILABLE = "IMPORT_VARIABLE_UNAVAILABLE";
+        /** 导入模板引用了未定义的变量。 */
+        public static final String UNKNOWN = "UNKNOWN_IMPORT_VARIABLE";
+
         /** 校验失败的原始变量名。 */
         private final String variable;
 
@@ -52,7 +59,7 @@ public interface LocalArtworkImports {
          * @param known 是否已定义但当前模式不可用
          */
         public VariableException(String variable, boolean known) {
-            super(known ? "IMPORT_VARIABLE_UNAVAILABLE" : "UNKNOWN_IMPORT_VARIABLE");
+            super(known ? UNAVAILABLE : UNKNOWN);
             this.variable = java.util.Objects.requireNonNull(variable);
         }
 
@@ -80,6 +87,8 @@ public interface LocalArtworkImports {
      */
     record Request(List<String> templates, List<Long> artworkIds,
                    boolean refreshIndex, String selectedFile) {
+        public static final String INVALID_IMPORT_REQUEST = "INVALID_IMPORT_REQUEST";
+
         /** 规范化空值并校验扫描参数。 */
         public Request {
             templates = templates == null ? List.of() : List.copyOf(templates);
@@ -88,7 +97,7 @@ public interface LocalArtworkImports {
             if (templates.size() > 32 || artworkIds.size() > 10000 || selectedFile.length() > 4096
                     || templates.stream().anyMatch(t -> t.isBlank() || t.length() > 4096)
                     || artworkIds.stream().anyMatch(id -> id <= 0))
-                throw new IllegalArgumentException("INVALID_IMPORT_REQUEST");
+                throw new IllegalArgumentException(INVALID_IMPORT_REQUEST);
         }
     }
     /** 扫描和导入任务的执行阶段。 */
@@ -127,7 +136,7 @@ public interface LocalArtworkImports {
      * @param sourcePage 路径中解析出的原始页码；缺失时为空
      * @param hints 从路径模板提取的元数据
      */
-    record File(String path, Integer sourcePage, Map<String, String> hints) {
+    record File(String path, @HttpApiNullable Integer sourcePage, Map<String, String> hints) {
         /** 固定元数据快照，避免调用方修改预览内容。 */
         public File { hints = Map.copyOf(hints); }
     }

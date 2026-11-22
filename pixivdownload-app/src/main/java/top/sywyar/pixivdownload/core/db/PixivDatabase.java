@@ -91,6 +91,7 @@ public class PixivDatabase {
     public void insertArtwork(InsertArtworkArgument argument) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         insertArtworkRow(argument);
+        pixivMapper.deletePartialArtwork(argument.artworkId());
         pixivMapper.deleteUnusedArtworkMedia(argument.artworkId());
     }
 
@@ -111,9 +112,45 @@ public class PixivDatabase {
     public void recordDownloadedArtwork(InsertArtworkArgument argument) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         insertArtworkRow(argument);
+        pixivMapper.deletePartialArtwork(argument.artworkId());
         pixivMapper.updateDownloadedFiles(argument.artworkId(), encodePath(argument.folder()),
                 argument.count(), argument.extensions(), argument.time());
         pixivMapper.deleteUnusedArtworkMedia(argument.artworkId());
+    }
+
+    @Transactional(readOnly = true)
+    public top.sywyar.pixivdownload.core.artwork.download.PartialArtwork partialArtwork(long artworkId) {
+        var layout = pixivMapper.findPartialArtwork(artworkId);
+        if (layout == null) return null;
+        var names = new java.util.ArrayList<String>();
+        var media = new java.util.HashMap<Integer, top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest>();
+        var fingerprints = new java.util.HashMap<Integer, String>();
+        for (var row : pixivMapper.partialPages(artworkId)) {
+            int page = Math.toIntExact((Long) row.get("page"));
+            if (page != names.size()) throw new IllegalStateException("Invalid partial artwork page index");
+            names.add((String) row.get("base_name"));
+            if (row.get("output_fingerprints") instanceof String stamp) fingerprints.put(page, stamp);
+            if (row.get("extensions") instanceof String formats) {
+                media.put(page, new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest(
+                        (String) row.get("original_extension"), List.of(formats.split(",")), (Long) row.get("original_retained") == 1L));
+            }
+        }
+        return new top.sywyar.pixivdownload.core.artwork.download.PartialArtwork(artworkId,
+                pathPrefixCodec.resolve((String) layout.get("folder")), Math.toIntExact((Long) layout.get("total_pages")),
+                (String) layout.get("template"), Math.toIntExact((Long) layout.get("max_length")),
+                (String) layout.get("output_settings"), (String) layout.get("source_revision"), names, media, fingerprints);
+    }
+
+    @Transactional
+    public boolean startPartialArtwork(top.sywyar.pixivdownload.core.artwork.download.PartialArtwork layout) {
+        var existing = pixivMapper.findById(layout.artworkId());
+        if (existing != null && !existing.deleted()) return false;
+        pixivMapper.insertPartialArtwork(layout, encodePath(layout.folder()));
+        return true;
+    }
+
+    public void promotePartialArtwork(long artworkId, int total) {
+        pixivMapper.promotePartialArtwork(artworkId, total);
     }
 
     /** 保存下载时实际采用的逐页基名，不随展示元数据变化。 */
@@ -232,7 +269,7 @@ public class PixivDatabase {
                 record.seriesOrder(),
                 record.deleted(),
                 record.uploadTime(),
-                record.isOriginal(), record.createTime(), record.updateTime(), record.reuploadTime()
+                record.isOriginal(), record.createTime(), record.updateTime(), record.reuploadTime(), record.fileManagement()
         );
     }
 
@@ -306,6 +343,7 @@ public class PixivDatabase {
     }
 
     private void deleteArtworkRelations(long artworkId) {
+        pixivMapper.deletePartialArtwork(artworkId);
         pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);

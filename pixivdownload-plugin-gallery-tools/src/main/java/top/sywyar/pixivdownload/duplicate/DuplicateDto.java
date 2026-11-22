@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.duplicate;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.List;
 
 public final class DuplicateDto {
@@ -35,10 +38,10 @@ public final class DuplicateDto {
         }
     }
 
-    public record ScanStatus(String state,
+    public record ScanStatus(@Schema(allowableValues = {"IDLE", "RUNNING", "DONE", "FAILED", "UNAVAILABLE"}) String state,
                              int processed,
                              int total,
-                             Long startedTime) {
+                             @HttpApiNullable Long startedTime) {
     }
 
     public static ScanStatus idleScanStatus() {

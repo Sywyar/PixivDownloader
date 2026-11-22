@@ -1,36 +1,48 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import io.swagger.v3.oas.annotations.links.Link;
+import io.swagger.v3.oas.annotations.links.LinkParameter;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
-import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
-import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
-import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
-import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.response.error.QuotaExceededResponse;
 import top.sywyar.pixivdownload.download.response.status.AlreadyDownloadedResponse;
+import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
 import java.util.Locale;
 
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -44,6 +56,19 @@ public class DownloadTaskController {
     private final WorkQueryService workQueryService;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {DownloadResponse.class, AlreadyDownloadedResponse.class})))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PathActionResponse.class, ErrorResponse.class})))
+    @KnownErrorCodes(status = "429", value = "task.queue.full")
+    @ApiResponse(responseCode = "429", links = {
+            @Link(name = "inspectArchive", operationRef = "#/paths/~1api~1archive~1status~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken")),
+            @Link(name = "downloadArchive", operationRef = "#/paths/~1api~1archive~1download~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken"))
+    }, content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {QuotaExceededResponse.class, ApiErrorResponse.Basic.class})))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(
+            name = "x-program-alternative", value = "POST /api/download/tasks")))
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
             @Valid @RequestBody DownloadRequest request,
@@ -160,6 +185,7 @@ public class DownloadTaskController {
                 messages.get("download.cancelled")));
     }
 
-    public record PathActionResponse(String code, String error, DownloadPathPlan.Problem pathProblem)
+    public record PathActionResponse(String code, String error,
+                                     @HttpApiNullable DownloadPathPlan.Problem pathProblem)
             implements ApiErrorResponse {}
 }

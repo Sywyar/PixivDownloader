@@ -206,7 +206,12 @@ public class MainFrame extends JFrame {
         tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
         tabs.addTab(GuiMessages.get("gui.tab.plugins"), pluginsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
-        tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
+        var security = new SecurityPanel(serverPort);
+        tabs.addTab(GuiMessages.get("gui.tab.security"), security);
+        configPanel.onOpenProgramKeys(() -> {
+            tabs.setSelectedComponent(security);
+            security.showProgramKeys();
+        });
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
         tabs.addChangeListener(event -> {
             if (tabs.getSelectedComponent() == configPanel) configPanel.reloadFromDisk();

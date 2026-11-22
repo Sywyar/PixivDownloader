@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,6 +32,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 本端点 {@code /api/page-sections} 由 {@code CorePlugin.routes()} 以 {@link AccessPolicy#VISITOR_AND_INVITED_GUEST}
  * 声明（同 {@code /api/navigation}）：multi 普通访客与受邀访客均可只读、solo 未登录 401、不入 monitor。
  */
+@HttpApiGroup("core-extensions")
 @RestController
 @RequestMapping("/api/page-sections")
 @RequiredArgsConstructor
@@ -69,8 +73,9 @@ public class PageSectionController {
      * 为 {@code null} 表示不提供对应能力。
      */
     public record PageSectionView(String id, String placement, String titleNamespace, String titleI18nKey,
-                                  String navPlacement, String actionHref, String actionIcon,
-                                  String actionTitleNamespace, String actionTitleI18nKey,
-                                  String moduleUrl, int priority) {
+                                  @HttpApiNullable String navPlacement, @HttpApiNullable String actionHref,
+                                  @HttpApiNullable String actionIcon,
+                                  @HttpApiNullable String actionTitleNamespace, @HttpApiNullable String actionTitleI18nKey,
+                                  @HttpApiNullable String moduleUrl, int priority) {
     }
 }

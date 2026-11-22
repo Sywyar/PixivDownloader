@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
@@ -15,11 +21,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
-import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.io.IOException;
@@ -30,6 +38,7 @@ import java.io.IOException;
  * 已登录管理员。参考音字节存盘于 {@code data/novel/narration-voice/}，元数据落库；任何变更都会推进花名册 {@code updated_time}
  * 使前端音频缓存失效、逐句音频自动按新音色重算。
  */
+@HttpApiGroup("novel-narration")
 @RestController
 @RequestMapping("/api/narration/cast/voice/reference")
 @Slf4j
@@ -50,6 +59,12 @@ public class NarrationReferenceVoiceController {
     public record ReferenceStatus(long castId, int characterId, String source, String ext, boolean hasText) {}
 
     /** 自动生成并采用某角色的标准音（用其当前音色画像走 Voice Design 渲用户决定的示例正文，留空回退 i18n 默认句）。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ReferenceStatus.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/generate")
     public ResponseEntity<?> generate(@RequestBody GenerateRequest request) {
         if (request == null || request.castId() == null || request.characterId() == null) {
@@ -78,7 +93,15 @@ public class NarrationReferenceVoiceController {
     }
 
     /** 上传真人参考音（wav/mp3）+ 可选转录。 */
-    @PostMapping
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ReferenceStatus.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true)
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-codeSamples", parseValue = true, value = """
+            [{"lang":"Shell","label":"cURL","source":"curl --header \\"Authorization: Bearer $PROGRAM_KEY\\" --header \\"Origin: $INSTANCE\\" --form \\"file=@reference.wav\\" \\"$INSTANCE/api/narration/cast/voice/reference?castId=$CAST_ID&characterId=$CHARACTER_ID\\""}]
+            """)))
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> upload(@RequestParam("castId") long castId,
                                     @RequestParam("characterId") int characterId,
                                     @RequestParam("file") MultipartFile file,
@@ -119,6 +142,9 @@ public class NarrationReferenceVoiceController {
     }
 
     /** 删除某角色的参考音。 */
+    @ApiResponse(responseCode = "200", content = @Content)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping
     public ResponseEntity<?> delete(@RequestParam long castId, @RequestParam int characterId) {
         if (!castService.exists(castId)) {
@@ -129,6 +155,9 @@ public class NarrationReferenceVoiceController {
     }
 
     /** 试听某角色已配的参考音（直接回放存盘文件，非合成）。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "audio/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<?> preview(@RequestParam long castId, @RequestParam int characterId) {
         var ref = referenceVoiceService.resolve(castId, characterId);

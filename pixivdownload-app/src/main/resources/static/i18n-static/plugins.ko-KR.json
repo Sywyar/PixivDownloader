@@ -111,6 +111,7 @@
     "page.heading": "플러그인 관리",
     "page.subtitle": "다운로드 도우미의 기능을 확장하세요 — 번역, 변환, 백업 및 알림을 필요에 따라 활성화하거나 비활성화할 수 있습니다.",
     "page.title": "플러그인 관리 · Pixiv 다운로드 도우미",
+    "permission.api-reference.read": "HTTP API 레퍼런스 읽기",
     "permission.application.read": "앱 정보 및 UI 언어 리소스 읽기",
     "permission.archives.create": "일러스트 내보내기 압축 파일 만들기",
     "permission.archives.download": "이 설치의 내보내기 압축 파일 다운로드",

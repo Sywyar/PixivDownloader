@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.download.web;
 
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @DisplayName("管理员公开下载任务 HTTP 契约")
 class DownloadTasksControllerTest {
+    private static final String OUTPUT = java.nio.file.Path.of("downloads", "作品").toAbsolutePath().toString();
+
     @Test void historyRequiresAdminAndPreservesCursorAndStructuredFailure() throws Exception {
         var tasks = mock(DownloadTasks.class);
         var identities = mock(RequestOwnerIdentityResolver.class);
@@ -34,19 +38,39 @@ class DownloadTasksControllerTest {
         var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "opaque-key");
         var time = Instant.parse("2026-01-01T00:00:00Z");
         var failed = new DownloadTaskSnapshot(attempt, "example", "fixture", DownloadEvent.Phase.FAILED,
-                time, 0, DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE);
+                time, 0, DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE, OUTPUT,
+                new DownloadTaskProgress(DownloadTaskProgress.Unit.PAGES, 2, 7));
         var cursor = new DownloadTasks.HistoryCursor(time, attempt.attemptId());
         when(tasks.history(null, 1, owner)).thenReturn(new DownloadTasks.HistoryPage(List.of(failed), cursor));
         when(tasks.history(cursor, 1, owner)).thenReturn(new DownloadTasks.HistoryPage(List.of(), null));
         var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
         mvc.perform(get("/api/download/tasks/history").param("limit", "1"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.tasks[0].failureReason").value("CREDENTIALS_UNAVAILABLE"))
+                .andExpect(jsonPath("$.tasks[0].outputPath").value(OUTPUT))
+                .andExpect(jsonPath("$.tasks[0].progress.completed").value(2))
+                .andExpect(jsonPath("$.tasks[0].progress.total").value(7))
+                .andExpect(jsonPath("$.tasks[0].progress.unit").value("PAGES"))
                 .andExpect(jsonPath("$.beforeTime").value(time.toString())).andExpect(header().string("Cache-Control", "no-store"));
         mvc.perform(get("/api/download/tasks/history").param("limit", "1")
                 .param("beforeTime", time.toString()).param("beforeId", attempt.attemptId().toString()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.tasks.length()").value(0));
         mvc.perform(get("/api/download/tasks/history").param("beforeTime", "bad").param("beforeId", attempt.attemptId().toString()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_INVALID"))
+                .andExpect(jsonPath("$.in").value("query")).andExpect(jsonPath("$.field").value("beforeTime"))
+                .andExpect(jsonPath("$.reason").value("invalid_format"));
+        mvc.perform(get("/api/download/tasks/history").param("beforeTime", time.toString()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.field").value("beforeId"))
+                .andExpect(jsonPath("$.reason").value("required"));
+        mvc.perform(get("/api/download/tasks/history").param("beforeId", attempt.attemptId().toString()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.field").value("beforeTime"))
+                .andExpect(jsonPath("$.reason").value("required"));
+        mvc.perform(get("/api/download/tasks/history").param("beforeId", "bad"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.in").value("query"))
+                .andExpect(jsonPath("$.field").value("beforeId")).andExpect(jsonPath("$.reason").value("type"));
+        mvc.perform(get("/api/download/tasks/history").param("limit", "201"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.field").value("limit"))
+                .andExpect(jsonPath("$.reason").value("out_of_range"))
+                .andExpect(header().string("Cache-Control", "no-store"));
         when(identities.resolve(any())).thenReturn(RequestOwnerIdentity.owner("other"));
         mvc.perform(get("/api/download/tasks/history")).andExpect(status().isForbidden());
         verify(tasks, times(2)).history(any(), anyInt(), any());
@@ -59,17 +83,22 @@ class DownloadTasksControllerTest {
         when(identities.resolve(any())).thenReturn(admin);
         var command = new DownloadSubmission(UUID.randomUUID(), "example", "opaque/id", Map.of());
         var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "opaque/id");
-        var task = new DownloadTaskSnapshot(attempt, "example", "Title", DownloadEvent.Phase.QUEUED, Instant.EPOCH, 1);
+        var task = new DownloadTaskSnapshot(attempt, "example", "Title", DownloadEvent.Phase.QUEUED, Instant.EPOCH, 1, null, OUTPUT);
         when(tasks.submit(command, "private-credential", admin)).thenReturn(new DownloadTasks.Receipt(task, false));
+        when(tasks.find(attempt.attemptId(), admin)).thenReturn(java.util.Optional.of(task));
         when(tasks.snapshot(admin)).thenReturn(new DownloadTasks.Snapshot(UUID.randomUUID(), 1, List.of(task)));
         when(tasks.cancel(attempt.attemptId(), admin)).thenReturn(DownloadTasks.CancelResult.REQUESTED);
         var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
         String json = JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(command);
         mvc.perform(post("/api/download/tasks").locale(Locale.US).contentType(MediaType.APPLICATION_JSON)
                 .header("X-Acquisition-Credential", "private-credential").content(json))
-                .andExpect(status().isAccepted()).andExpect(jsonPath("$.task.attempt.attemptId").value(attempt.attemptId().toString()))
+                .andExpect(status().isAccepted()).andExpect(header().string("Location", "/api/download/tasks/" + attempt.attemptId())).andExpect(jsonPath("$.task.attempt.attemptId").value(attempt.attemptId().toString()))
+                .andExpect(jsonPath("$.task.outputPath").value(OUTPUT))
                 .andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(get("/api/download/tasks/" + attempt.attemptId())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.outputPath").value(OUTPUT));
         mvc.perform(get("/api/download/tasks")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.tasks[0].outputPath").value(OUTPUT))
                 .andExpect(jsonPath("$.tasks[0].phase").value("QUEUED"));
         mvc.perform(post("/api/download/tasks/" + attempt.attemptId() + "/cancel"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result").value("REQUESTED"));
@@ -94,14 +123,26 @@ class DownloadTasksControllerTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_INVALID"));
         String command = "{\"requestId\":\"" + UUID.randomUUID()
                 + "\",\"workType\":\"example\",\"workId\":\"1\",\"options\":{}}";
+        mvc.perform(post("/api/download/tasks").contentType(MediaType.APPLICATION_JSON)
+                        .content(command.replace(",\"options\":{}", "")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.field").value("/options"))
+                .andExpect(jsonPath("$.reason").value("required"));
+        for (String literal : List.of("true", "80", "0.5", "[]", "{}")) {
+            mvc.perform(post("/api/download/tasks").contentType(MediaType.APPLICATION_JSON)
+                            .content(command.replace("\"options\":{}", "\"options\":{\"bookmark\":" + literal + "}")))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.field").value("/options/bookmark"));
+        }
         for (String body : List.of(command + "{}", command.replace("\"workId\":\"1\"", "\"workId\":\"1\",\"workId\":\"2\""))) {
             mvc.perform(post("/api/download/tasks").contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest());
         }
         mvc.perform(post("/api/download/tasks").contentType(MediaType.APPLICATION_JSON).content(" ".repeat(128 * 1024 + 1)))
                 .andExpect(status().isPayloadTooLarge());
-        mvc.perform(get("/api/download/tasks/not-a-uuid")).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_INVALID"));
+        for (var request : List.of(get("/api/download/tasks/not-a-uuid"), post("/api/download/tasks/not-a-uuid/cancel"))) {
+            mvc.perform(request).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_INVALID")).andExpect(jsonPath("$.in").value("path"))
+                    .andExpect(jsonPath("$.field").value("taskId")).andExpect(jsonPath("$.reason").value("type"));
+        }
         verifyNoInteractions(tasks);
     }
 
@@ -114,7 +155,7 @@ class DownloadTasksControllerTest {
         var owner = RequestOwnerIdentity.owner(program.id().toString());
         var command = new DownloadSubmission(UUID.randomUUID(), "example", "opaque/id", Map.of());
         var attempt = new DownloadAttempt(UUID.randomUUID(), "example", "opaque/id");
-        var task = new DownloadTaskSnapshot(attempt, "example", "Title", DownloadEvent.Phase.QUEUED, Instant.EPOCH, 1);
+        var task = new DownloadTaskSnapshot(attempt, "example", "Title", DownloadEvent.Phase.QUEUED, Instant.EPOCH, 1, null, OUTPUT);
         when(tasks.submitForProgram(command, null, program)).thenReturn(new DownloadTasks.Receipt(task, false));
         when(tasks.snapshot(owner)).thenReturn(new DownloadTasks.Snapshot(UUID.randomUUID(), 1, List.of(task)));
         when(tasks.cancel(attempt.attemptId(), owner)).thenReturn(DownloadTasks.CancelResult.REQUESTED);
@@ -122,7 +163,8 @@ class DownloadTasksControllerTest {
         String attribute = top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE;
         mvc.perform(post("/api/download/tasks").requestAttr(attribute, program).contentType(MediaType.APPLICATION_JSON)
                 .content(JsonMapper.builderWithJackson2Defaults().build().writeValueAsString(command)))
-                .andExpect(status().isAccepted());
+                .andExpect(status().isAccepted()).andExpect(header().string("Location", "/api/download/tasks/" + attempt.attemptId()))
+                .andExpect(jsonPath("$.task.outputPath").value(OUTPUT));
         mvc.perform(get("/api/download/tasks").requestAttr(attribute, program))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.tasks[0].attempt.attemptId").value(attempt.attemptId().toString()));
         mvc.perform(post("/api/download/tasks/" + attempt.attemptId() + "/cancel").requestAttr(attribute, program))

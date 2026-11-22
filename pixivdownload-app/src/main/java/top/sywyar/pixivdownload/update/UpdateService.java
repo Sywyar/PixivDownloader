@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.update;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -100,7 +102,8 @@ public class UpdateService {
      * 最近一次安装包下载的进度；null 表示尚未发起下载。
      * done=true 时 installerPath 仅用于状态展示；安装步骤只使用服务端保存的 VerifiedInstaller。
      */
-    public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
+    public record DownloadProgress(long received, long total, boolean done, boolean failed,
+            @HttpApiNullable String error, @HttpApiNullable String installerPath) {}
 
     private volatile UpdateCheckResult lastResult;
     private volatile Instant lastSuccessfulCheckAt;
@@ -368,6 +371,14 @@ public class UpdateService {
 
     public DownloadProgress getDownloadProgress() {
         return currentDownloadProgress;
+    }
+
+    public static boolean isNightlyDownload(String channel) {
+        return switch (channel) {
+            case "official" -> false;
+            case "nightly" -> true;
+            default -> throw new IllegalArgumentException("channel");
+        };
     }
 
     /**

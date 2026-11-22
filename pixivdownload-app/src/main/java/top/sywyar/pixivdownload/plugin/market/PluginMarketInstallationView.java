@@ -1,12 +1,16 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
 
 /** 本机磁盘包与运行实例分别投影；内容相同不代表来源、信任或激活状态相同。 */
 public record PluginMarketInstallationView(
-        String state, String version, String sha256, String source, String repositoryId,
-        String runtimeVersion, String runtimeStatus, boolean installedArtifactsEnabled) {
+        @Schema(allowableValues = {"UNKNOWN", "ABSENT", "PRESENT"}) String state, @HttpApiNullable String version, @HttpApiNullable String sha256, String source,
+        @HttpApiNullable String repositoryId,
+        @HttpApiNullable String runtimeVersion, @HttpApiNullable String runtimeStatus, boolean installedArtifactsEnabled) {
 
     static PluginMarketInstallationView unknown(String version) {
         return unknown(version, true);

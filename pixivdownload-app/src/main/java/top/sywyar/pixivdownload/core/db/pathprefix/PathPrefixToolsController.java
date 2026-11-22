@@ -1,5 +1,15 @@
 package top.sywyar.pixivdownload.core.db.pathprefix;
 
+import top.sywyar.pixivdownload.common.InvalidPage;
+import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 
 /** 管理员路径前缀修正，复用桌面的验证与事务；不移动磁盘文件。 */
+@HttpApiGroup("core-files")
 @RestController
 @RequestMapping("/api/tools/path-prefixes")
 public final class PathPrefixToolsController {
@@ -24,36 +35,59 @@ public final class PathPrefixToolsController {
     }
     public record Page(List<PathPrefixMigrationService.PathPrefixView> prefixes, int total,
                        PathPrefixMigrationService.SymbolicRootStatus symbolicRoot) {}
-    public record Changes(List<PathPrefixMigrationService.PathPrefixUpdate> updates, List<String> registerPaths) {}
+    public record Changes(@HttpApiNullable List<PathPrefixMigrationService.PathPrefixUpdate> updates,
+                          @HttpApiNullable List<String> registerPaths) {}
     public record Pin(String path) {}
 
+    @Parameter(name = "offset", in = ParameterIn.QUERY, schema = @Schema(type = "integer", format = "int32", defaultValue = "0", minimum = "0"))
+    @Parameter(name = "limit", in = ParameterIn.QUERY, schema = @Schema(type = "integer", format = "int32", defaultValue = "100", minimum = "1", maximum = "1000"))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping public Page list(@RequestParam(defaultValue = "0") int offset,
                                  @RequestParam(defaultValue = "100") int limit) {
-        if (offset < 0 || limit < 1 || limit > 1000) throw new IllegalArgumentException();
+        InvalidPage.check(offset, limit, 1000, null);
         var all = service.list();
         return new Page(all.stream().skip(offset).limit(limit).toList(), all.size(), service.symbolicRootStatus());
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Changes.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = PathPrefixMigrationService.PathPrefixMigrationResult.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, Rejected.class})))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
     @PostMapping(consumes = "application/json")
     public ResponseEntity<?> apply(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, Changes.class, BODY_LIMIT);
         var updates = body.updates() == null ? List.<PathPrefixMigrationService.PathPrefixUpdate>of() : body.updates();
         var paths = body.registerPaths() == null ? List.<String>of() : body.registerPaths();
-        if (updates.isEmpty() && paths.isEmpty() || updates.stream().anyMatch(value -> value == null || value.id() < 0))
-            throw new IllegalArgumentException();
-        updates.forEach(value -> validatePath(value.path()));
-        paths.forEach(PathPrefixToolsController::validatePath);
+        if (updates.isEmpty() && paths.isEmpty()) throw new InputFieldException("", "invalid_value");
+        for (int i = 0; i < updates.size(); i++) {
+            var update = updates.get(i);
+            String field = "/updates/" + i;
+            if (update == null) throw new InputFieldException(field, "required");
+            if (update.id() < 0) throw new InputFieldException(field + "/id", "out_of_range");
+            validatePath(update.path(), field + "/path");
+        }
+        for (int i = 0; i < paths.size(); i++) validatePath(paths.get(i), "/registerPaths/" + i);
         return result(service.apply(updates, paths), locale);
     }
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Pin.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = PathPrefixMigrationService.PathPrefixMigrationResult.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, Rejected.class})))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
     @PostMapping(value = "/pin", consumes = "application/json")
     public ResponseEntity<?> pin(HttpServletRequest request, Locale locale) throws IOException {
         var body = ToolApiRequests.read(request, Pin.class, BODY_LIMIT);
-        validatePath(body.path());
+        validatePath(body.path(), "/path");
         return result(service.pinSymbolicRoot(body.path()), locale);
     }
-    private static void validatePath(String path) {
-        if (path == null || path.isBlank() || path.length() > 4096 || path.chars().anyMatch(Character::isISOControl))
-            throw new IllegalArgumentException();
+    private static void validatePath(String path, String field) {
+        if (path == null || path.isBlank()) throw new InputFieldException(field, "required");
+        if (path.length() > 4096) throw new InputFieldException(field, "too_large");
+        if (path.chars().anyMatch(Character::isISOControl)) throw new InputFieldException(field, "invalid_format");
     }
     public record Rejected(String code, String error, boolean success, int applied,
                            List<PathPrefixMigrationService.PrefixError> errors) implements ApiErrorResponse {}

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
@@ -197,9 +199,9 @@ public class ScheduleRunQueue {
             ScheduledWorkPresentation presentation,
             ScheduleCapabilityOwner workExecutorOwner,
             long workExecutorPublicationId,
-            ScheduledWorkResult result,
+            @HttpApiNullable ScheduledWorkResult result,
             String status,
-            String message) {
+            @HttpApiNullable String message) {
 
         public Item {
             key = Objects.requireNonNull(key, "key");

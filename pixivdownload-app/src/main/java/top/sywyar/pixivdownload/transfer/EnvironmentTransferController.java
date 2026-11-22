@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.transfer;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +18,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 /** 管理员归档预览、选择确认与实际恢复结果；确认复用下一进程的离线事务。 */
+@HttpApiGroup("core-environment")
 @RestController
 @RequestMapping("/api/settings/environment")
 public final class EnvironmentTransferController {
@@ -32,6 +37,7 @@ public final class EnvironmentTransferController {
         @Override public String toString() { return "Inspect[redacted]"; }
     }
     public record PathMapping(FieldKey field, String path) {}
+    @Schema(requiredProperties = {"token", "selected", "mappedPaths", "fileGroups", "databasePaths"})
     public record Restore(String token, Set<FieldKey> selected, List<PathMapping> mappedPaths, char[] password,
                           boolean includeDatabases, Set<FieldKey> fileGroups, Map<Long, String> databasePaths) {
         @Override public String toString() { return "Restore[redacted]"; }
@@ -41,17 +47,29 @@ public final class EnvironmentTransferController {
     @GetMapping("/installation") public Installation installation() { return transfer.installation(); }
     @GetMapping("/restore") public RestoreState state() throws IOException { return transfer.restoreState(); }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = EnvironmentExportService.Request.class)))
+    @ApiResponse(responseCode = "202", description = "Accepted", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/exports", consumes = "application/json")
     public ResponseEntity<EnvironmentExportService.View> export(HttpServletRequest request) throws IOException {
         return ResponseEntity.accepted().body(exports.start(ToolApiRequests.read(request, EnvironmentExportService.Request.class, BODY_LIMIT)));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "204", content = @Content)
     @GetMapping("/exports")
     public ResponseEntity<EnvironmentExportService.View> exportState() throws IOException {
         var state = exports.current();
         return state == null ? ResponseEntity.noContent().build() : ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(state);
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/octet-stream", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/exports/{id}/archive")
     public ResponseEntity<org.springframework.core.io.InputStreamResource> archive(@PathVariable UUID id) throws IOException {
         Path archive = exports.archive(id);
@@ -62,6 +80,12 @@ public final class EnvironmentTransferController {
                 .body(new org.springframework.core.io.InputStreamResource(java.nio.file.Files.newInputStream(archive, java.nio.file.LinkOption.NOFOLLOW_LINKS)));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Inspect.class)))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/preview", consumes = "application/json")
     public Preview preview(HttpServletRequest request) throws IOException {
         var body = ToolApiRequests.read(request, Inspect.class, BODY_LIMIT);
@@ -71,6 +95,13 @@ public final class EnvironmentTransferController {
         } finally { clear(body.password()); }
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Restore.class)))
+    @ApiResponse(responseCode = "202", description = "Accepted", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(value = "/restore", consumes = "application/json")
     public ResponseEntity<Accepted> restore(HttpServletRequest request) throws IOException {
         var body = ToolApiRequests.read(request, Restore.class, BODY_LIMIT);

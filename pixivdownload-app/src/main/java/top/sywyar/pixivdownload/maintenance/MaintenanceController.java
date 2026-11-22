@@ -1,5 +1,14 @@
 package top.sywyar.pixivdownload.maintenance;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,6 +26,8 @@ import top.sywyar.pixivdownload.i18n.LocalizedException;
  * 当配置为 {@code false} 时，{@link #status} 仍返回开关状态以便 GUI 展示，
  * {@link #run} 直接拒绝请求。
  */
+@HttpApiGroup("core-maintenance")
+@HttpApiAccess(HttpApiAccess.Condition.LOCAL_ONLY)
 @RestController
 @RequestMapping("/api/admin/maintenance")
 @RequiredArgsConstructor
@@ -24,6 +35,8 @@ public class MaintenanceController {
 
     private final MaintenanceCoordinator coordinator;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/status")
     public StatusResponse status(HttpServletRequest request) {
         requireLocal(request);
@@ -35,6 +48,9 @@ public class MaintenanceController {
                 coordinator.getLastTriggeredBy());
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/run")
     public RunResponse run(HttpServletRequest request) {
         requireLocal(request);
@@ -49,9 +65,9 @@ public class MaintenanceController {
     public record StatusResponse(
             boolean enabled,
             boolean paused,
-            Long lastStartedAt,
-            Long lastFinishedAt,
-            String lastTriggeredBy
+            @HttpApiNullable Long lastStartedAt,
+            @HttpApiNullable Long lastFinishedAt,
+            @HttpApiNullable String lastTriggeredBy
     ) {}
 
     public record RunResponse(boolean started) {}

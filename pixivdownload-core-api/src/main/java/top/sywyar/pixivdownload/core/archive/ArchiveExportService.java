@@ -6,8 +6,9 @@ package top.sywyar.pixivdownload.core.archive;
 public interface ArchiveExportService {
 
     /**
-     * 校验并返回规范化的归档格式 token；不支持时沿用宿主的本地化校验异常。
+     * 校验并返回规范化的归档格式 token。
      *
+     * @throws UnsupportedArchiveFormatException 格式不受支持时抛出，由宿主本地化错误信息
      * @param format 格式
      * @return 方法返回的字符串
      */

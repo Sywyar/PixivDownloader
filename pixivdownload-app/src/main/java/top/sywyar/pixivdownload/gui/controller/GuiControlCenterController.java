@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.gui.controller;
 
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +18,7 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.gui.controlcenter.DesktopControlCenterRegistry;
 
 /** 本机 GUI 受保护端点，读取控制中心快照并处理目录确认。 */
+@HttpApiGroup("core-system")
 @RestController
 public final class GuiControlCenterController {
 
@@ -22,6 +28,8 @@ public final class GuiControlCenterController {
         this.registry = registry;
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/api/gui/control-center")
     public ResponseEntity<DesktopControlCenterRegistry.Snapshot> snapshot(HttpServletRequest request) {
         if (!NetworkUtils.isTrustedLocalRequest(request)) {
@@ -39,12 +47,28 @@ public final class GuiControlCenterController {
     public record DirectoryDecision(DesktopControlCenterRegistry.Owner owner, String suggestionId,
                                     String directory, boolean dismiss) {}
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(type = "object"),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"SAVED", "DISMISSED"}))))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/gui/control-center/directory")
     public ResponseEntity<?> directory(HttpServletRequest request, @RequestBody DirectoryDecision decision) {
         if (!NetworkUtils.isTrustedLocalRequest(request)) return failure(403, "DIRECTORY_LOCAL_ONLY");
         return decideDirectory(decision);
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = DirectoryDecision.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(type = "object"),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"SAVED", "DISMISSED"}))))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/admin/control-center/directory")
     public ResponseEntity<?> directoryAdmin(HttpServletRequest request) throws java.io.IOException {
         return decideDirectory(top.sywyar.pixivdownload.gui.ToolApiRequests.read(request, DirectoryDecision.class, 32 * 1024));

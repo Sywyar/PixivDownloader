@@ -70,7 +70,7 @@ class ScheduleControllerTest {
         when(source.sourceType()).thenReturn("example");
         when(source.activationToken()).thenReturn("active");
         when(source.ownerPluginId()).thenReturn("source-b");
-        when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView("epoch", 1, List.of(source)));
+        when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView("epoch", 1, "UTC", List.of(source)));
         var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
                 java.util.Set.of("core:schedule.create", "source-a:schedule.manage"));
         mockMvc.perform(post("/api/schedule/tasks").requestAttr(
@@ -78,7 +78,7 @@ class ScheduleControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"worker\",\"sourceType\":\"example\",\"activationToken\":\"active\","
                                 + "\"definitionJson\":\"{}\",\"triggerKind\":\"interval\",\"intervalMinutes\":30}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.programPermission").value("source-b:schedule.manage"));
         org.mockito.Mockito.verify(scheduleService, org.mockito.Mockito.never()).create(org.mockito.ArgumentMatchers.any());
     }
 
@@ -141,8 +141,9 @@ class ScheduleControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE))
                 .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
-                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages()
-                        .get(Locale.US, "error.request.param.invalid")));
+                .andExpect(jsonPath("$.field").value("X-Acquisition-Credential"))
+                .andExpect(jsonPath("$.in").value("header"))
+                .andExpect(jsonPath("$.reason").value("required"));
         verifyNoInteractions(scheduleService);
     }
 
@@ -165,6 +166,7 @@ class ScheduleControllerTest {
         when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView(
                 "epoch-1",
                 7L,
+                "Asia/Tokyo",
                 List.of(new ScheduleSourceManifestView.Source(
                         "fixture:source",
                         List.of("FIXTURE_SOURCE"),
@@ -181,16 +183,19 @@ class ScheduleControllerTest {
                         List.of("fixture"),
                         List.of("fixture:work"),
                         new ScheduleSourceManifestView.Frontend(
-                                1, "/fixture/schedule-source.js")))));
+                                1, "/fixture/schedule-source.js"),
+                        "{\"type\":\"object\",\"examples\":[{}]}"))));
 
         mockMvc.perform(get("/api/schedule/sources"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.epoch").value("epoch-1"))
+                .andExpect(jsonPath("$.timeZone").value("Asia/Tokyo"))
                 .andExpect(jsonPath("$.revision").value(7))
                 .andExpect(jsonPath("$.sources[0].legacyAliases[0]").value("FIXTURE_SOURCE"))
                 .andExpect(jsonPath("$.sources[0].ownerPluginId").value("fixture-owner"))
                 .andExpect(jsonPath("$.sources[0].activationToken").value("activation-1"))
+                .andExpect(jsonPath("$.sources[0].inputSchemaJson").value("{\"type\":\"object\",\"examples\":[{}]}"))
                 .andExpect(jsonPath("$.sources[0].frontend.moduleUrl")
                         .value("/fixture/schedule-source.js"));
     }

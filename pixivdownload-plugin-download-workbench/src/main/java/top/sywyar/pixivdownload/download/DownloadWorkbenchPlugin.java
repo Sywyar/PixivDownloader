@@ -167,6 +167,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.invitedGuest("/api/download/status/active"),
         WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
         WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
+        new WebRouteContribution("/api/pixiv/user/*/downloads", AccessPolicy.ADMIN, Set.of(HttpMethod.POST), false)
+                .withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("batches.execute", "permission.batches.execute"))),
         WebRouteContribution.visitor("/api/pixiv/user/*/artworks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
         WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
         WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),

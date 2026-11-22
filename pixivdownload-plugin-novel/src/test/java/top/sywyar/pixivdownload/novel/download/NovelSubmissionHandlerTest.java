@@ -4,6 +4,9 @@ import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
@@ -19,6 +22,21 @@ import static org.mockito.Mockito.*;
 class NovelSubmissionHandlerTest {
     private final jakarta.validation.ValidatorFactory validation = jakarta.validation.Validation.buildDefaultValidatorFactory();
     @org.junit.jupiter.api.AfterEach void closeValidation() { validation.close(); }
+    @Test void onlyNotFoundIsTranslatedDuringNovelLookup() {
+        var client = mock(PixivAjaxClient.class);
+        var downloads = mock(NovelDownloadService.class);
+        var handler = new NovelSubmissionHandler(client, JsonMapper.shared(), downloads, validation.getValidator());
+        var submission = new DownloadSubmission(UUID.randomUUID(), "novel", "42", Map.of());
+        var attempt = new DownloadAttempt(UUID.randomUUID(), "novel", "42");
+        var forbidden = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 403);
+        when(client.get(URI.create("https://www.pixiv.net/ajax/novel/42?lang=zh"), null))
+                .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404)).thenThrow(forbidden);
+        assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> handler.submit(submission, attempt, null))
+                .extracting(DownloadTaskException::code).isEqualTo(DownloadTaskException.Code.WORK_NOT_FOUND);
+        assertThatThrownBy(() -> handler.submit(submission, attempt, null)).isSameAs(forbidden);
+        verifyNoInteractions(downloads);
+    }
+
     @Test @DisplayName("服务端取得正文后按同一任务身份入队，拒绝正文注入和非法格式")
     void fetchesContentAndRejectsInjectedOptions() {
         var client = mock(PixivAjaxClient.class);
@@ -54,5 +72,36 @@ class NovelSubmissionHandlerTest {
                     .isInstanceOf(IllegalArgumentException.class);
         }
         verifyNoMoreInteractions(client, downloads);
+    }
+
+    @Test @DisplayName("提供方发布的表单列全选项，文档示例可实际入队")
+    void publishedSubmissionExamplesReachDownloadQueue() throws Exception {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        var client = mock(PixivAjaxClient.class);
+        var downloads = mock(NovelDownloadService.class);
+        var handler = new NovelSubmissionHandler(client, mapper, downloads, validation.getValidator());
+        try (var stream = handler.getClass().getResourceAsStream(handler.inputSchemaResource())) {
+            assertThat(stream).isNotNull();
+            var schema = mapper.readTree(stream);
+            var choices = schema.at("/properties/options/properties");
+            assertThat(choices.propertyNames()).containsExactlyInAnyOrder(
+                    "fileNameTemplate", "pathOverflowAction", "bookmark", "collectionId", "acquisitionMode", "username",
+                    "format", "autoTranslate", "autoTranslateLanguage", "autoTranslateSegmentSize",
+                    "autoTranslateMerge", "autoTranslateMergeFormat");
+            assertThat(schema.path("examples").size()).isPositive();
+            for (var example : schema.path("examples")) {
+                var submission = mapper.treeToValue(example, DownloadSubmission.class);
+                assertThat(submission.workType()).isEqualTo(handler.workType());
+                assertThat(choices.propertyNames()).containsAll(submission.options().keySet());
+                var attempt = new DownloadAttempt(submission.requestId(), submission.workType(), submission.workId());
+                var uri = URI.create("https://www.pixiv.net/ajax/novel/" + submission.workId() + "?lang=zh");
+                var response = mapper.createObjectNode().put("error", false);
+                response.putObject("body").put("id", submission.workId()).put("userId", "7")
+                        .put("userName", "Author").put("title", "Example").put("content", "Text");
+                when(client.get(uri, null)).thenReturn(response.toString());
+                handler.submit(submission, attempt, null);
+                verify(downloads).submit(eq(attempt), any(NovelDownloadRequest.class), isNull());
+            }
+        }
     }
 }

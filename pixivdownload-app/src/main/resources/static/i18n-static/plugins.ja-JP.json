@@ -111,6 +111,7 @@
     "page.heading": "プラグイン管理",
     "page.subtitle": "翻訳、変換、バックアップ、通知など、ダウンロードアシスタントの機能を必要に応じて有効化 / 無効化できます。",
     "page.title": "プラグイン管理 · Pixiv ダウンロードアシスタント",
+    "permission.api-reference.read": "HTTP API リファレンスを読む",
     "permission.application.read": "アプリ情報と UI 言語リソースを読む",
     "permission.archives.create": "イラストのエクスポート用アーカイブを作成",
     "permission.archives.download": "このインストールのエクスポート用アーカイブをダウンロード",

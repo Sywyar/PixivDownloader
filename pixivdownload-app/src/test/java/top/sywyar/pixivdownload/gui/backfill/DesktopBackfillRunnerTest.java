@@ -19,6 +19,37 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("后台回填任务状态与生命周期")
 class DesktopBackfillRunnerTest {
     @Test
+    void terminalResultsExpireByAgeAndCountWithoutExpiringCurrent() throws Exception {
+        var clock = org.mockito.Mockito.mock(java.time.Clock.class);
+        var now = new java.util.concurrent.atomic.AtomicLong(1_000);
+        org.mockito.Mockito.when(clock.millis()).thenAnswer(ignored -> now.get());
+        var runner = new DesktopBackfillRunner((options, progress) ->
+                new ArtworksBackFill.Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 0, 0),
+                () -> log(new AtomicBoolean()), clock);
+        var ids = new java.util.ArrayList<UUID>();
+        try {
+            for (int i = 0; i <= DesktopBackfillRunner.MAX_TERMINAL_TASKS; i++) {
+                runner.start();
+                var done = new CountDownLatch(1);
+                ids.add(runner.start(options(), task -> {
+                    if (!task.active()) done.countDown();
+                }).executionId());
+                assertTrue(done.await(5, TimeUnit.SECONDS));
+                runner.stop();
+            }
+            assertTrue(runner.snapshot(ids.getFirst()).isEmpty());
+            var retained = runner.snapshot(ids.get(1)).orElseThrow();
+            now.addAndGet(DesktopBackfillRunner.TERMINAL_RETENTION.toMillis() - 1);
+            assertEquals(retained, runner.snapshot(ids.get(1)).orElseThrow());
+            now.incrementAndGet();
+            assertTrue(runner.snapshot(ids.getLast()).isEmpty());
+            assertEquals(ids.getLast(), runner.snapshot().orElseThrow().executionId());
+        } finally {
+            runner.stop();
+        }
+    }
+
+    @Test
     @DisplayName("在线迁移占用共享准入，异常退出后允许再次回填")
     void migrationExcludesBackfillAndReleasesAdmission() throws Exception {
         var runner = new DesktopBackfillRunner((options, progress) ->

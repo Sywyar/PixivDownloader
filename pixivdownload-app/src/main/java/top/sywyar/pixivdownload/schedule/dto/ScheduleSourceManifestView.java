@@ -1,11 +1,13 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import java.util.List;
 
 /** 当前进程已激活计划来源的纯数据清单。 */
 public record ScheduleSourceManifestView(
         String epoch,
         long revision,
+        String timeZone,
         List<Source> sources
 ) {
     public ScheduleSourceManifestView {
@@ -25,7 +27,8 @@ public record ScheduleSourceManifestView(
             Presentation presentation,
             List<String> acquisitionModes,
             List<String> possibleWorkTypes,
-            Frontend frontend
+            @HttpApiNullable Frontend frontend,
+            @HttpApiNullable String inputSchemaJson
     ) {
         public Source {
             legacyAliases = List.copyOf(legacyAliases);

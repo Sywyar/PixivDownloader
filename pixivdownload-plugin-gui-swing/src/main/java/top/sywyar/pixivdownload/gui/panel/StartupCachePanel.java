@@ -10,42 +10,38 @@ import java.util.Locale;
 /** 训练由宿主持有，面板移除只停止观察。 */
 final class StartupCachePanel extends JPanel implements AutoCloseable {
     private final DesktopUiHost host;
-    private final JTextArea status = text();
+    private final JLabel status = SwingPage.text(SwingPage.Style.BODY, "");
     private final JProgressBar progress = new JProgressBar();
     private final JButton start = new JButton(), cancel = new JButton();
     private final Timer timer = new Timer(500, event -> refresh());
     private DesktopStartupCache.Snapshot observed;
+    private String shown;
 
     StartupCachePanel(DesktopUiHost host) {
         this.host = host;
-        setLayout(new BorderLayout(0, 10));
+        setLayout(new BorderLayout());
+        setOpaque(false);
         setAlignmentX(Component.LEFT_ALIGNMENT);
-        setBorder(BorderFactory.createTitledBorder(host.message("gui.tools.startup-cache.title")));
-        JTextArea description = text();
-        description.setText(host.message("gui.tools.startup-cache.description") + "\n"
-                + host.message("gui.tools.startup-cache.impact"));
-        add(description, BorderLayout.NORTH);
-        JPanel state = new JPanel(new BorderLayout(0, 6));
-        state.setOpaque(false);
         status.setName("startup-cache.status");
-        state.add(status, BorderLayout.CENTER);
-        progress.setIndeterminate(true);
-        state.add(progress, BorderLayout.SOUTH);
-        add(state, BorderLayout.CENTER);
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        actions.setOpaque(false);
         start.setName("startup-cache.start");
         cancel.setName("startup-cache.cancel");
         start.setText(host.message("gui.tools.startup-cache.start"));
         cancel.setText(host.message("gui.tools.startup-cache.cancel"));
+        SwingPage.Row row = SwingPage.row(host.message("gui.tools.startup-cache.title"),
+                host.message("gui.tools.startup-cache.description") + "\n" + host.message("gui.tools.startup-cache.impact"),
+                SwingPage.primary(start), cancel);
+        row.texts.add(Box.createVerticalStrut(8));
+        row.texts.add(status);
+        row.texts.add(Box.createVerticalStrut(6));
+        progress.setIndeterminate(true);
+        row.texts.add(SwingPage.capped(progress, SwingPage.FORM_WIDTH));
+        add(row, BorderLayout.CENTER);
         start.addActionListener(event -> { host.startupCache().ifPresent(DesktopStartupCache::start); refresh(); });
         cancel.addActionListener(event -> {
             var current = observed;
             if (current != null) host.startupCache().ifPresent(service -> service.cancel(current.executionId()));
             refresh();
         });
-        actions.add(start); actions.add(cancel);
-        add(actions, BorderLayout.SOUTH);
         refresh();
     }
 
@@ -58,7 +54,10 @@ final class StartupCachePanel extends JPanel implements AutoCloseable {
                 : observed.state() == DesktopStartupCache.State.RUNNING ? "phase." + lower(observed.phase())
                 : "state." + lower(observed.state());
         String message = host.message("gui.tools.startup-cache." + key);
-        if (!status.getText().equals(message)) status.setText(message);
+        if (!message.equals(shown)) {
+            shown = message;
+            status.setText(message);
+        }
         progress.setVisible(active);
         progress.getAccessibleContext().setAccessibleName(message);
         start.setEnabled(service.isPresent() && !active);
@@ -66,14 +65,11 @@ final class StartupCachePanel extends JPanel implements AutoCloseable {
         cancel.setEnabled(active && observed.state() != DesktopStartupCache.State.STOPPING);
     }
 
-    private static String lower(Enum<?> value) { return value.name().toLowerCase(Locale.ROOT); }
-    private static JTextArea text() {
-        JTextArea value = new JTextArea();
-        value.setEditable(false); value.setOpaque(false);
-        value.setLineWrap(true); value.setWrapStyleWord(true);
-        value.setFont(UIManager.getFont("Label.font"));
-        return value;
+    @Override public Dimension getMaximumSize() {
+        return new Dimension(SwingPage.PAGE_WIDTH, getPreferredSize().height);
     }
+
+    private static String lower(Enum<?> value) { return value.name().toLowerCase(Locale.ROOT); }
     @Override public void addNotify() { super.addNotify(); refresh(); timer.start(); }
     @Override public void removeNotify() { timer.stop(); super.removeNotify(); }
     @Override public void close() { timer.stop(); }

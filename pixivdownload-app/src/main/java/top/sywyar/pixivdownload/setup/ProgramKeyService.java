@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -77,7 +79,8 @@ public final class ProgramKeyService {
         this.scheduleOwners = scheduleOwners;
         this.managementTargets = managementTargets;
     }
-    public record Permission(String id, String owner, String namespace, String ownerNamespace, String ownerLabelKey, String labelKey,
+    public record Permission(String id, String owner, String namespace, @HttpApiNullable String ownerNamespace,
+            String ownerLabelKey, String labelKey,
                              List<Endpoint> endpoints) {}
     public record Endpoint(String method, String path) {}
 
@@ -87,6 +90,7 @@ public final class ProgramKeyService {
             var plugin = plugins.find(registered.pluginId());
             if (plugin.isEmpty()) continue;
             for (var grant : registered.route().programPermissions().entrySet()) {
+                if (ProgramAccess.isSelf(registered, grant.getKey())) continue;
                 String id = registered.pluginId() + ":" + grant.getValue().id();
                 var endpoint = new Endpoint(grant.getKey().name(), registered.route().pathPattern());
                 var previous = declarations.get(id);
@@ -132,8 +136,15 @@ public final class ProgramKeyService {
                 }
                 if (permission.equals("batches.execute") && declarations.containsKey("core:batches.resume"))
                     endpoints.addAll(declarations.get("core:batches.resume").endpoints());
-                declarations.putIfAbsent(id, new Permission(id, registered.id(), "plugins", registered.plugin().displayNamespace(),
-                        registered.plugin().displayName(), "program.permission." + permission, List.copyOf(endpoints)));
+                var direct = declarations.get(id);
+                if (direct == null) {
+                    declarations.put(id, new Permission(id, registered.id(), "plugins", registered.plugin().displayNamespace(),
+                            registered.plugin().displayName(), "program.permission." + permission, List.copyOf(endpoints)));
+                } else {
+                    endpoints.addAll(direct.endpoints());
+                    declarations.put(id, new Permission(id, direct.owner(), direct.namespace(), direct.ownerNamespace(),
+                            direct.ownerLabelKey(), direct.labelKey(), endpoints.stream().distinct().toList()));
+                }
             }
         }
         var managementEndpoints = declarations.values().stream()
@@ -142,7 +153,7 @@ public final class ProgramKeyService {
                 .flatMap(value -> value.endpoints().stream()).toList();
         if (!managementEndpoints.isEmpty()) {
             for (var target : managementTargets.get()) {
-                if (!target.managed() && !target.toggleable()) continue;
+                if (!top.sywyar.pixivdownload.plugin.management.PluginManagementService.allowsManagementGrant(target)) continue;
                 String id = target.id() + ":plugins.manage";
                 declarations.put(id, new Permission(id, target.id(), "plugins", target.displayNamespace(),
                         target.displayNameKey(), "program.permission.plugins.manage", managementEndpoints));
@@ -152,6 +163,7 @@ public final class ProgramKeyService {
     }
 
     List<ProgramKeyStore.View> list() throws IOException { return store.list(); }
+    ProgramKeyStore.View get(UUID id) throws IOException { return store.get(id); }
     ProgramKeyStore.Created create(ProgramKeyStore.Policy policy) throws IOException {
         validate(policy);
         var created = store.create(policy);
@@ -165,11 +177,16 @@ public final class ProgramKeyService {
         LOG.info("Program key updated: id={}, revision={}, permissions={}", id, changed.revision(), policy.permissions().size());
         return changed;
     }
+    ProgramKeyStore.View transport(UUID id, long revision, ProgramKeyStore.Transport transport) throws IOException {
+        var result = store.transport(id, revision, transport);
+        LOG.info("Program key transport policy updated: id={}, revision={}, transport={}", id, result.revision(), transport);
+        return result;
+    }
     void revoke(UUID id, long revision) throws IOException {
         store.revoke(id, revision); LOG.info("Program key revoked: id={}", id);
     }
-    ProgramIdentity authenticate(String secret, String address) throws IOException {
-        var key = store.authenticate(secret, address);
+    ProgramIdentity authenticate(String secret, String address, boolean secure) throws IOException {
+        var key = store.authenticate(secret, address, secure);
         return key == null ? null : new ProgramIdentity(key.id(), key.policy().permissions());
     }
     private void validate(ProgramKeyStore.Policy policy) {

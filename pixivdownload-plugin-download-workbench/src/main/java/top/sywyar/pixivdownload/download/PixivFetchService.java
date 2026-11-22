@@ -188,12 +188,19 @@ public class PixivFetchService {
     public ArtworkPages resolveArtworkPages(String artworkId, String cookie) throws IOException {
         JsonNode body = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/illust/" + artworkId + "/pages", cookie));
+        return new ArtworkPages(originalPageUrls(body), body);
+    }
+
+    /** An index always identifies the same Pixiv page, including in the /pages response. */
+    public static List<String> originalPageUrls(JsonNode body) throws IOException {
+        if (!body.isArray()) throw new IOException("Missing artwork page list");
         List<String> urls = new ArrayList<>();
         for (JsonNode page : body) {
             String orig = page.path("urls").path("original").asString("");
-            if (!orig.isEmpty()) urls.add(orig);
+            if (orig.isBlank()) throw new IOException("Missing original URL for artwork page " + urls.size());
+            urls.add(orig);
         }
-        return new ArtworkPages(urls, body);
+        return urls;
     }
 
     /** 解析动图（ugoira）的帧 ZIP URL 与每帧延迟。 */
@@ -681,6 +688,9 @@ public class PixivFetchService {
      * {@code body} 是 {@code /ajax/illust/{id}} 的 body 节点。
      */
     public record ArtworkMetaCapture(ArtworkMeta meta, JsonNode body) {
+        public String uploadDate() {
+            return body == null ? null : body.path("uploadDate").asString(null);
+        }
     }
 
     /** 单作品逐页原图 URL + 原始 {@code /pages} body（逐页尺寸），供 meta 数据库快照 记录逐页信息。 */

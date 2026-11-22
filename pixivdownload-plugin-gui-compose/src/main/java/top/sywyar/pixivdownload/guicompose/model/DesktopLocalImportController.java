@@ -57,6 +57,9 @@ final class DesktopLocalImportController implements AutoCloseable {
             nodes.add(new Text(ID + ".phase", key("local-import.phase." + current.phase()), TextStyle.BODY, true, false));
             nodes.add(new Text(ID + ".summary", key("local-import.summary", current.artworks(), current.files(), current.imported(), current.skipped(), current.failed()), TextStyle.SECONDARY, true, false));
             if (current.cachedIndex()) nodes.add(new Text(ID + ".cached", key("local-import.cached"), TextStyle.CAPTION, true, false));
+            if (!running() && current.imported() > 0) {
+                nodes.add(new Text(ID + ".backfill", key("local-import.after-import"), TextStyle.BODY, true, false));
+            }
             if (running()) nodes.add(new Progress(ID + ".progress", current.artworks() == 0 ? 0 : (double) current.processed() / current.artworks(), current.phase() == Phase.SCANNING, key("local-import.phase." + current.phase())));
             for (int i = 0; i < samples.size(); i++) {
                 Item item = samples.get(i);

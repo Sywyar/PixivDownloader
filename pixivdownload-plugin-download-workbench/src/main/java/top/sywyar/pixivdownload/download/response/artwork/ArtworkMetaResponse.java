@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.download.response.artwork;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
@@ -15,8 +17,8 @@ public record ArtworkMetaResponse(
         String authorName,
         String description,
         List<WorkTag> tags,
-        Long seriesId,
-        Long seriesOrder,
-        String seriesTitle,
+        @HttpApiNullable Long seriesId,
+        @HttpApiNullable Long seriesOrder,
+        @HttpApiNullable String seriesTitle,
         String rawMetaJson
 ) {}

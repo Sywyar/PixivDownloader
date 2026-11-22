@@ -80,9 +80,9 @@ class ArtworkMetadataRecoveryServiceTest {
             ArtworkRecord result = recoveryService.recoverMetadata(11111L, req);
 
             assertThat(result).isSameAs(existing);
-            verify(pixivDatabase, never()).fillArtworkMetadataIfMissing(anyLong(), any(), any(), any(), any(), any());
+            verify(pixivDatabase).fillArtworkMetadataIfMissing(11111L, "新标题", 1, true, 1234L, "新简介");
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-            verify(authorService, never()).observe(anyLong(), any());
+            verify(authorService, never()).fillMissing(anyLong(), any());
         }
 
         @Test
@@ -102,7 +102,7 @@ class ArtworkMetadataRecoveryServiceTest {
             verify(pixivDatabase).fillArtworkMetadataIfMissing(eq(22222L), eq("新标题"),
                     eq(1), eq(true), eq(1234L), eq("新简介"));
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-            verify(authorService).observe(1234L, "newauthor");
+            verify(authorService).fillMissing(1234L, "newauthor");
         }
 
         @Test
@@ -134,7 +134,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     .authorId(5678L)
                     .description("简介")
                     .build());
-            verify(authorService).observe(5678L, "auth");
+            verify(authorService).fillMissing(5678L, "auth");
         }
 
         @Test
@@ -149,7 +149,7 @@ class ArtworkMetadataRecoveryServiceTest {
 
             assertThat(recoveryService.recoverMetadata(artworkId, req)).isNull();
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-            verify(authorService, never()).observe(anyLong(), any());
+            verify(authorService, never()).fillMissing(anyLong(), any());
         }
 
         @Test
@@ -161,7 +161,7 @@ class ArtworkMetadataRecoveryServiceTest {
 
             assertThat(recoveryService.recoverMetadata(44444L, req)).isNull();
             verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
-            verify(authorService, never()).observe(anyLong(), any());
+            verify(authorService, never()).fillMissing(anyLong(), any());
         }
 
         @Test

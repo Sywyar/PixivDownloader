@@ -1,5 +1,16 @@
 package top.sywyar.pixivdownload.plugin.management;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +60,7 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
  * </ul>
  * 本控制器是核心基础设施 Bean（根包扫描装配、非 {@code @PluginManagedBean}），不持有任何 PF4J 类型。
  */
+@HttpApiGroup("core-plugins")
 @RestController
 @RequestMapping("/api/plugins")
 public class PluginManagementController {
@@ -82,6 +94,13 @@ public class PluginManagementController {
         return pluginManagementService.list();
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = PluginCatalogRevocationService.RefreshResult.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/revocations/{repositoryId}/refresh")
     public ResponseEntity<?> refreshRevocations(@PathVariable String repositoryId, HttpServletRequest request) {
         var result = pluginManagementService.refreshRevocations(repositoryId);
@@ -92,11 +111,18 @@ public class PluginManagementController {
                 top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse.of(code.name(), error));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @GetMapping("/{id}/impact")
     public PluginManagementService.PluginImpactPreview impact(@PathVariable String id) {
         return pluginManagementService.previewImpact(id);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/actions/{verb}")
     public PluginActionResult performPreviewed(@PathVariable String id, @PathVariable String verb,
                                                @RequestBody PluginImpactRequest request, HttpServletRequest httpRequest) {
@@ -107,6 +133,11 @@ public class PluginManagementController {
         return withTarget(httpRequest, id, () -> pluginManagementService.performPreviewed(id, action, request.fingerprint()));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PutMapping("/{id}/enabled-preview")
     public PluginEnabledConfigurationService.PluginEnabledState enabledPreviewed(
             @PathVariable String id, @RequestBody PluginImpactRequest request, HttpServletRequest httpRequest) {
@@ -121,57 +152,92 @@ public class PluginManagementController {
     public record PluginImpactRequest(String fingerprint, Boolean enabled) { }
 
     /** 把一个已卸下的外置插件重新接入核心注册中心。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/load")
     public PluginActionResult load(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.LOAD));
     }
 
     /** 启动（重建服务足迹）一个当前已停止 / 已加载的外置插件。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/start")
     public PluginActionResult start(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.START));
     }
 
     /** 静默一个正在服务的外置插件（停止接收新请求 / 新计划任务派发、清退在途任务）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/quiesce")
     public PluginActionResult quiesce(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.QUIESCE));
     }
 
     /** 停止一个外置插件（拆除服务足迹）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/stop")
     public PluginActionResult stop(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.STOP));
     }
 
     /** 卸下一个外置插件（先确保停止，再从核心注册中心移除）。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/unload")
     public PluginActionResult unload(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.UNLOAD));
     }
 
     /** 卸下并删除磁盘插件包。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/remove")
     public PluginActionResult remove(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.REMOVE));
     }
 
     /** 重启服务足迹，保留原 generation 与 classloader。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/restart")
     public PluginActionResult restart(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.RESTART));
     }
 
     /** 物理重载一个外置插件，创建新的 generation 与 classloader。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/reload")
     public PluginActionResult reload(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.RELOAD));
     }
 
     /** 持久化一个外置可选插件的期望启用态；实际生效方式由描述符生命周期策略决定。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = PluginEnabledConfigurationService.PluginEnabledState.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PutMapping("/{id}/enabled")
     public PluginEnabledConfigurationService.PluginEnabledState updateEnabled(
-            @PathVariable String id, @RequestBody PluginEnabledRequest request, HttpServletRequest httpRequest) {
+            @Parameter(example = "example-plugin") @PathVariable String id,
+            @RequestBody PluginEnabledRequest request, HttpServletRequest httpRequest) {
         if (request == null || request.enabled() == null) {
             throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
                     id, "update-enabled", null, "Plugin enabled request must include enabled");
@@ -180,22 +246,30 @@ public class PluginManagementController {
     }
 
     /** 以当前已安装 artifact 的精确 SHA-256 批准下一次执行。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PutMapping("/{id}/trust")
     public PluginManagementService.PluginTrustView approveTrust(
             @PathVariable String id,
             @RequestParam("confirmArtifactSha256") String confirmArtifactSha256, HttpServletRequest httpRequest) {
-        top.sywyar.pixivdownload.setup.ProgramAccess.require(httpRequest, id, "plugins.manage");
+        requireTarget(httpRequest, id);
         return pluginManagementService.approveTrust(id, confirmArtifactSha256);
     }
 
     /** 撤销持久化执行信任；当前 generation 不被强停，下一次加载前生效。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @DeleteMapping("/{id}/trust")
     public PluginManagementService.PluginTrustView revokeTrust(@PathVariable String id, HttpServletRequest httpRequest) {
-        top.sywyar.pixivdownload.setup.ProgramAccess.require(httpRequest, id, "plugins.manage");
+        requireTarget(httpRequest, id);
         return pluginManagementService.revokeTrust(id);
     }
 
     /** 仅在桌面生命周期管理器持有 RUNNING 后端上下文时接受延迟重启请求。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/backend-restart")
     public BackendContextRestartService.BackendRestartResult restartBackend() {
         return backendRestartService.requestRestart();
@@ -211,6 +285,22 @@ public class PluginManagementController {
      * @param signature      可选 detached 签名 JSON（存在时用于发布者身份连续性）
      * @param allowDowngrade 是否允许覆盖更高版本（force；默认 false）
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = MediaType.MULTIPART_FORM_DATA_VALUE, schema = @Schema(type = "object", requiredProperties = "file"),
+            schemaProperties = {
+                    @SchemaProperty(name = "file", schema = @Schema(type = "string", format = "binary")),
+                    @SchemaProperty(name = "signature", schema = @Schema(type = "string", format = "binary"))
+            }))
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-codeSamples", parseValue = true, value = """
+            [{"lang":"Shell","label":"cURL","source":"curl --header \\"Authorization: Bearer $PROGRAM_KEY\\" --header \\"Origin: $INSTANCE\\" --form \\"file=@plugin.jar\\" \\"$INSTANCE/api/plugins/install\\""}]
+            """)))
     @PostMapping(value = "/install", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PluginInstallResponse> install(
             @RequestParam(value = "file", required = false) MultipartFile file,
@@ -243,17 +333,26 @@ public class PluginManagementController {
         return ResponseEntity.status(ex.status()).body(body);
     }
 
+    private void requireTarget(HttpServletRequest request, String id) {
+        top.sywyar.pixivdownload.setup.ProgramAccess.require(request, id, "plugins.manage",
+                () -> pluginManagementService.list().plugins().stream().anyMatch(target ->
+                        target.id().equals(id) && PluginManagementService.allowsManagementGrant(target)));
+    }
+
     private <T> T withTarget(HttpServletRequest request, String id, java.util.function.Supplier<T> action) {
         if (top.sywyar.pixivdownload.setup.ProgramAccess.identity(request).isEmpty()) return action.get();
-        top.sywyar.pixivdownload.setup.ProgramAccess.require(request, id, "plugins.manage");
+        requireTarget(request, id);
         var impact = pluginManagementService.previewImpact(id);
         for (var consumer : impact.consumers()) {
-            top.sywyar.pixivdownload.setup.ProgramAccess.require(request, consumer.id(), "plugins.manage");
+            top.sywyar.pixivdownload.setup.ProgramAccess.require(request, consumer.id(), "plugins.manage",
+                    () -> PluginManagementService.allowsManagementGrant(consumer));
         }
         return pluginManagementService.confirmImpact(id, impact.fingerprint(), action);
     }
 
     /** 插件期望启用态写请求。 */
-    public record PluginEnabledRequest(Boolean enabled) {
+    @Schema(name = "PluginEnabledRequest")
+    public record PluginEnabledRequest(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "true") Boolean enabled) {
     }
 }
