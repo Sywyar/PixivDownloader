@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.schedule.source.definition;
 
 import tools.jackson.databind.JsonNode;
+import top.sywyar.pixivdownload.download.SearchPageInterval;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 
@@ -119,7 +120,7 @@ public final class PixivScheduledDefinitionValidator {
                 throw invalidDefinition();
             }
             JsonNode interval = download.get("pageDelayMs");
-            if (interval != null && (!interval.isIntegralNumber() || !interval.canConvertToInt() || interval.intValue() < 0)) {
+            if (interval != null && !SearchPageInterval.isValid(interval)) {
                 throw new ScheduledExecutionException(ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.pixiv.page-delay-invalid");
             }

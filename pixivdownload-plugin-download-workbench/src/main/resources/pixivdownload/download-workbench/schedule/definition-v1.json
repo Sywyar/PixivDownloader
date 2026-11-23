@@ -45,6 +45,7 @@
           "concurrent": {"default": 1, "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "Maximum number of works to process concurrently."},
           "intervalMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "description": "Delay between works in milliseconds."},
           "imageDelayMs": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Delay between illustration images in milliseconds."},
+          "pageDelayMs": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "Minimum milliseconds between the starts of successive Pixiv search page requests. When omitted, the interval is 0 for a fixed page count and 10000 for maxPages=-1. Set 0 to skip the extra wait. Other sources ignore this setting."},
           "verifyFiles": {"default": false, "type": "boolean", "description": "Check for local files when deciding whether an illustration has already been downloaded."},
           "redownloadDeleted": {"default": false, "type": "boolean", "description": "Allow a previously recorded work whose local files have been deleted to be downloaded again."},
           "novelFormat": {"default": "txt", "enum": ["txt", "html", "epub"], "description": "File format for individual novels."},
@@ -92,10 +93,10 @@
           "order": {"default": "date_d", "enum": ["date_d", "date", "popular_d", null], "description": "Pixiv result order: newest first (date_d), oldest first (date), or popularity (popular_d)."},
           "mode": {"default": "all", "enum": ["all", "safe", "r18", null], "description": "Search all ratings (all), unrestricted works (safe), or adult works (r18). Pixiv may return unrestricted works or no results when searching anonymously or when the account hides age-restricted works. To download only R-18 or R-18G works, set filters.content to r18plus."},
           "sMode": {"default": "s_tag", "enum": ["s_tag", "s_tc", null], "description": "Search Pixiv tags with s_tag, or titles and descriptions with s_tc."},
-          "maxPages": {"default": 3, "oneOf": [{"const": -1}, {"type": "integer", "minimum": 1, "maximum": 2147483647}], "description": "At -1, date_d uses the saved watermark; other orders stop at previously downloaded work."}
+          "maxPages": {"default": 3, "oneOf": [{"const": -1}, {"type": "integer", "minimum": 1, "maximum": 2147483647}], "description": "A positive value caps the number of pages. Each page's work finishes before the next page is requested. Reaching fetchLimit or leaving work pending for retry stops paging. At -1, date_d uses the saved watermark and other orders stop at previously downloaded work."}
         }
       },
-      "examples": [{"source": {"word": "landscape"}}]
+      "examples": [{"source": {"word": "landscape", "maxPages": 3}, "download": {"pageDelayMs": 5000}}]
     },
     "series": {
       "required": ["source"],

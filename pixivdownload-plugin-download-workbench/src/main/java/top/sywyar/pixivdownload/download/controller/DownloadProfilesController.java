@@ -26,10 +26,14 @@ import java.util.Map;
 @Slf4j
 public final class DownloadProfilesController {
     // The store validates JSON trees before persistence. Expose their wire shape without Jackson tree internals.
+    @Schema(additionalProperties = Schema.AdditionalPropertiesValue.TRUE)
+    public record ProfileSettings(@Schema(types = {"integer", "null"}, format = "int32", minimum = "0", maximum = "2147483647")
+                                  Integer pageDelayMs) { }
+
     @Schema(requiredProperties = {"id", "name", "settings", "filters"})
     public record ProfilePayload(@Schema(pattern = "[a-zA-Z0-9-]{1,64}") String id,
                                  @Schema(maxLength = 80) String name,
-                                 Map<String, Object> settings, Map<String, Object> filters) { }
+                                 ProfileSettings settings, Map<String, Object> filters) { }
     @Schema(requiredProperties = {"revision", "profiles"})
     public record ProfilesPayload(String revision, List<ProfilePayload> profiles) { }
 
@@ -50,7 +54,7 @@ public final class DownloadProfilesController {
 
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
             mediaType = "application/json", schema = @Schema(implementation = ProfilesPayload.class),
-            examples = @ExampleObject(value = "{\"revision\":\"0\",\"profiles\":[{\"id\":\"example\",\"name\":\"Example\",\"settings\":{},\"filters\":{}}]}")))
+            examples = @ExampleObject(value = "{\"revision\":\"0\",\"profiles\":[{\"id\":\"example\",\"name\":\"Example\",\"settings\":{\"pageDelayMs\":5000},\"filters\":{}}]}")))
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProfilesPayload.class)))
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))

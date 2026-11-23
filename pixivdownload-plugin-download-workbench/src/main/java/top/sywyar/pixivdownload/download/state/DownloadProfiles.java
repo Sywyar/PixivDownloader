@@ -6,6 +6,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
+import top.sywyar.pixivdownload.download.SearchPageInterval;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 
 import java.io.IOException;
@@ -65,6 +66,11 @@ public final class DownloadProfiles {
     public synchronized Snapshot save(Snapshot expected) throws IOException {
         if (expected == null || expected.revision() == null) throw new IllegalArgumentException("profiles.invalid");
         validate(expected.profiles());
+        for (Profile profile : expected.profiles()) {
+            JsonNode delay = profile.settings().get("pageDelayMs");
+            if (delay != null && !delay.isNull() && !SearchPageInterval.isValid(delay))
+                throw new IllegalArgumentException("profiles.invalid");
+        }
         byte[] bytes = JSON.writerWithDefaultPrettyPrinter().writeValueAsBytes(new Document(1, expected.profiles()));
         if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("profiles.too-large");
         validate(JSON.readValue(bytes, Document.class).profiles());
