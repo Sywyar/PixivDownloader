@@ -83,6 +83,12 @@ POST `/api/settings/validate` 또는 `/api/settings`의 본문 예시:
 
 제출 시 403 응답을 받으면 `programPermission`에서 확인된 누락 권한을 읽을 수 있습니다. `auth.program.unsupported`이면 작업의 `x-program-alternative`를 확인하세요. 202 응답을 받으면 `core:batches.read` 권한으로 `Location`을 조회하세요. 백그라운드 실행에 권한이 부족하면 배치 결과의 `programPermission`에 권한 ID가 표시됩니다.
 
+`search` 소스의 `download.pageDelayMs`는 연속된 두 페이지의 요청 시작 시각 사이에 둘 최소 간격(밀리초)입니다. 생략하면 고정 페이지 수에는 0, `maxPages=-1`에는 10000이 적용됩니다. 0을 지정하면 추가로 기다리지 않습니다. 수동 배치에서는 아래 객체를 `definition`에 넣고, 예약 작업에서는 JSON 문자열로 변환해 `definitionJson`에 넣으세요. 공유 다운로드 프로필의 `settings.pageDelayMs`에는 기본값을 쓰려면 `null`을 지정할 수 있습니다.
+
+```json
+{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+```
+
 `explicit-list`는 일러스트와 소설을 함께 받습니다. 다음 객체를 `definition`에 넣으세요. 작품 ID는 양의 정수 십진 문자열이며 같은 유형 안에서 중복될 수 없습니다:
 
 ```json

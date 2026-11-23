@@ -83,6 +83,12 @@
 
 提交时收到 403，可从 `programPermission` 读取已知的缺失权限。收到 `auth.program.unsupported` 时，查看操作的 `x-program-alternative`。收到 202 后，持 `core:batches.read` 访问 `Location`。若后台执行缺权，批次结果会在 `programPermission` 中给出权限 ID。
 
+搜索来源可在 `download.pageDelayMs` 中指定相邻两次请求开始时间的最短间隔，单位为毫秒。省略时，固定页数默认 0，`maxPages=-1` 默认 10000。显式填 0 可取消额外等待。手动批次把下面的对象放入 `definition`，计划任务则将它序列化为 `definitionJson` 字符串。共享下载方案使用 `settings.pageDelayMs`，可填 `null` 表示采用默认值。
+
+```json
+{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+```
+
 `explicit-list` 支持混合插画和小说。将下列对象放入 `definition`。作品 ID 必须为正整数的十进制字符串，同类型不接受重复 ID：
 
 ```json

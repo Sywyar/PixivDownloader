@@ -83,6 +83,12 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 
 提交時收到 403，可從 `programPermission` 讀取已知的缺少權限。收到 `auth.program.unsupported` 時，查看操作的 `x-program-alternative`。收到 202 後，以 `core:batches.read` 存取 `Location`。若背景執行缺少權限，批次結果會在 `programPermission` 中給出權限 ID。
 
+搜尋來源可在 `download.pageDelayMs` 指定兩次分頁請求開始時間的最短間隔，單位為毫秒。省略時，固定頁數預設為 0，`maxPages=-1` 預設為 10000。填 0 可取消額外等待。手動批次將下列物件放入 `definition`，排程任務則將它序列化為 `definitionJson` 字串。共用下載設定檔使用 `settings.pageDelayMs`，可填 `null` 表示採用預設值。
+
+```json
+{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+```
+
 `explicit-list` 支援混合插畫與小說。將下列物件放入 `definition`。作品 ID 須為正整數十進位字串，同類型不得重複：
 
 ```json

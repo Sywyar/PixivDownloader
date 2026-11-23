@@ -83,6 +83,12 @@ POST `/api/settings/validate` または `/api/settings` の本文例：
 
 送信時の 403 応答では、特定できた不足権限を `programPermission` で確認できます。`auth.program.unsupported` の場合は操作の `x-program-alternative` を確認してください。202 応答を受け取ったら `core:batches.read` で `Location` を取得します。実行時に権限が不足した場合はバッチ結果の `programPermission` に権限 ID が入ります。
 
+`search` ソースでは、`download.pageDelayMs` で各ページの取得開始時刻の最短間隔をミリ秒単位で指定します。省略時はページ数が固定なら 0、`maxPages=-1` なら 10000 です。0 を指定すると追加の待機時間はありません。手動バッチでは次のオブジェクトを `definition` に渡し、スケジュールタスクでは JSON 文字列に変換して `definitionJson` に渡します。共有ダウンロードプロファイルの `settings.pageDelayMs` には、既定値を使う場合に `null` を指定できます。
+
+```json
+{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+```
+
 `explicit-list` はイラストと小説の混在を受け付けます。次のオブジェクトを `definition` に指定します。作品 ID は正の整数の十進文字列で、同じ種類内で重複できません：
 
 ```json

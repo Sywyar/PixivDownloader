@@ -83,6 +83,12 @@ Repository edits must carry the `revision` returned by GET. Adding a repository 
 
 On submission, a 403 response includes `programPermission` when the required grant is known. For `auth.program.unsupported`, consult the operation’s `x-program-alternative`. After a 202, follow `Location` with `core:batches.read`. A failed batch can report the missing executor grant in `programPermission`.
 
+For the `search` source, `download.pageDelayMs` sets the minimum time in milliseconds between the starts of successive page requests. The default is 0 for a fixed page count and 10000 for `maxPages=-1`. Set 0 to skip the extra wait. Send the object below as `definition` in a manual batch, or serialize it as the `definitionJson` string in a scheduled task. Shared download profiles use `settings.pageDelayMs` and accept `null` for the default.
+
+```json
+{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+```
+
 `explicit-list` accepts mixed artwork and novel entries. Put this object in `definition`. Work IDs must be positive decimal integer strings, with no duplicate ID within a type:
 
 ```json
