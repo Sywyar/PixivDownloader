@@ -1,8 +1,5 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.assertThat;
-import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -180,13 +177,16 @@ class PixivProxyControllerTest {
 
         @Test
         @DisplayName("超长通用凭证在访问外部服务前拒绝")
-        void shouldRejectOversizedCredential() {
-            assertThatThrownBy(() -> mockMvc.perform(get("/api/pixiv/search")
+        void shouldRejectOversizedCredential() throws Exception {
+            mockMvc.perform(get("/api/pixiv/search")
                             .param("word", "miku")
                             .header(AcquisitionCredentialResolver.HEADER_NAME,
-                                    "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1))))
-                    .rootCause().isInstanceOfSatisfying(HttpParameterException.class, error ->
-                            assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME));
+                                    "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                    .andExpect(jsonPath("$.in").value("header"))
+                    .andExpect(jsonPath("$.field").value(AcquisitionCredentialResolver.HEADER_NAME))
+                    .andExpect(jsonPath("$.reason").value("out_of_range"));
             verifyNoInteractions(pixivAjaxClient);
         }
 

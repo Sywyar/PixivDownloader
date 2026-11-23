@@ -84,7 +84,7 @@ public class PixivProxyController {
     }
 
     @ExceptionHandler(HttpParameterException.class)
-    public ResponseEntity<HttpParameterError> invalidId(HttpParameterException failure) {
+    public ResponseEntity<HttpParameterError> invalidInput(HttpParameterException failure) {
         var error = new HttpParameterError("error.request.param.invalid", messages.get("error.request.field.invalid", failure.field()),
                 failure.in(), failure.field(), failure.reason());
         log.warn("HTTP input rejected: code={} in={} reason={}", error.code(), error.in(), error.reason());
