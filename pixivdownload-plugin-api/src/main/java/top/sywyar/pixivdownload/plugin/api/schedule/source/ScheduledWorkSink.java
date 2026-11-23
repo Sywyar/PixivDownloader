@@ -32,8 +32,8 @@ public interface ScheduledWorkSink {
             throws ScheduledExecutionException;
 
     /**
-     * 等待此前接受的作品全部到达耐久终态。来源只在不同作品类别必须保持严格先后顺序时调用；宿主仍拥有
-     * 实际排空、失败传播、取消与背压。
+     * 等待此前接受的作品全部到达耐久终态。来源只在后续发现必须等待此前作品处理结束时调用（例如翻页或切换作品类别）；宿主仍拥有
+     * 实际排空、失败传播、取消与背压。可重试失败可能已记入 pending，来源可通过上下文核对。
      *
      * @throws top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException 执行失败时抛出
      */

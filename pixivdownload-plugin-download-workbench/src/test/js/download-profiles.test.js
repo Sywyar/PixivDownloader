@@ -101,3 +101,14 @@ test('增强设置随精确插件生命周期撤回，不将未加载插件的�
     cleanup();
     assert.throws(() => api.prepare(profile, {}, []), /profiles.unavailable/);
 });
+
+test('下载方案可以在默认翻页间隔和显式间隔之间切换', () => {
+    const api = setup();
+    for (const [current, next] of [[null, 0], [8000, null], [0, 1200]]) {
+        const profile = api.capture({pageDelayMs: next}, {}, []);
+        assert.equal(api.prepare(profile, {pageDelayMs: current}, []).settings.pageDelayMs, next);
+    }
+    for (const value of [-1, 1.5, '500', 2147483648]) {
+        assert.throws(() => api.prepare({settings: {pageDelayMs: value}, filters: {}}, {pageDelayMs: null}, []));
+    }
+});

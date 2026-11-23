@@ -43,6 +43,25 @@ class DownloadProfilesTest {
                 .contains("schemaVersion").doesNotContain("\"queue\"", "\"cookie\"", "\"revision\"");
     }
 
+    @Test
+    void savesOptionalPageDelayAndRejectsInvalidReplacements() throws Exception {
+        var store = store();
+        var json = new JsonMapper();
+        var profile = profile("A");
+        var saved = store.read();
+        for (String value : List.of("null", "0", "5000.0", "2147483647")) {
+            profile.settings().set("pageDelayMs", json.readTree(value));
+            saved = store.save(new DownloadProfiles.Snapshot(saved.revision(), List.of(profile)));
+            assertThat(store.read()).isEqualTo(saved);
+        }
+        for (String value : List.of("-1", "0.5", "2147483648", "\"5\"", "false", "[1]")) {
+            profile.settings().set("pageDelayMs", json.readTree(value));
+            var request = new DownloadProfiles.Snapshot(saved.revision(), List.of(profile));
+            assertThatThrownBy(() -> store.save(request)).isInstanceOf(IllegalArgumentException.class);
+            assertThat(store.read()).isEqualTo(saved);
+        }
+    }
+
     @Test @DisplayName("旧标签页覆盖和重复名称被拒绝并保留现存方案")
     void rejectsStaleRevision() throws Exception {
         var store = store();

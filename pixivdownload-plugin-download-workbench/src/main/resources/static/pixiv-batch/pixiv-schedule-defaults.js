@@ -11,6 +11,10 @@ window.PixivBatch.pixivScheduleDefaults = Object.freeze({
         "maxPages": 3,
         "rest": "show"
     },
+    "search": {
+        "fixedPageDelayMs": 0,
+        "incrementalPageDelayMs": 10000
+    },
     "filters": {
         "content": "all",
         "aiFilter": "all",

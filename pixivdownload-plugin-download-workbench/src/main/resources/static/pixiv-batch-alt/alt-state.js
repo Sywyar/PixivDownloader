@@ -35,6 +35,7 @@ let state = {
         ...window.PixivBatch.downloadDefaults,
         imageDelay: 0,
         imageDelayUnit: 'ms',
+        pageDelayMs: null,
         autoStartOnEnqueue: false,
         verifyHistoryFiles: false,
         redownloadDeleted: false,

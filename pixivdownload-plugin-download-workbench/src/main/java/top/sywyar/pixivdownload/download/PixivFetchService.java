@@ -216,74 +216,34 @@ public class PixivFetchService {
         return new UgoiraInfo(zipUrl, delays);
     }
 
-    /**
-     * 按关键词搜索发现作品 ID（插画 + 漫画 + 动图），翻 {@code maxPages} 页去重后返回（按出现顺序）。
-     *
-     * <p>遵循「URL 编码只能做一次」约束：{@code word} 以未编码原始形态交给
-     * {@link UriComponentsBuilder} 统一编码。
-     *
-     * @param order Pixiv 排序（如 {@code date_d}）；{@code mode} 分级（如 {@code all}）；{@code sMode} 标签匹配（如 {@code s_tag}）
-     */
-    public List<String> discoverSearchArtworkIds(String word, String order, String mode,
-                                                 String sMode, int maxPages, String cookie) throws IOException {
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        int pages = Math.max(1, maxPages);
-        for (int p = 1; p <= pages; p++) {
-            URI uri = UriComponentsBuilder
-                    .fromUriString("https://www.pixiv.net/ajax/search/artworks/{word}")
-                    .queryParam("word", "{word}")
-                    .queryParam("order", order)
-                    .queryParam("mode", mode)
-                    .queryParam("type", "illust_and_ugoira")
-                    .queryParam("s_mode", sMode)
-                    .queryParam("p", p)
-                    .queryParam("lang", "zh")
-                    .buildAndExpand(Map.of("word", word))
-                    .encode()
-                    .toUri();
-            JsonNode body = requireBody(proxyGetUri(uri, cookie));
-            JsonNode data = body.path("illustManga").path("data");
-            if (!data.isArray() || data.isEmpty()) break;
-            int before = ids.size();
-            for (JsonNode item : data) {
-                String id = item.path("id").asString("");
-                if (!id.isEmpty()) ids.add(id);
-            }
-            int total = body.path("illustManga").path("total").asInt(0);
-            if (total > 0 && ids.size() >= total) break;
-            if (ids.size() == before) break;
-        }
-        return new ArrayList<>(ids);
-    }
+    /** 保留上游总数供固定页扫描提前结束，缺失时继续按实际页内容判断。 */
+    public record SearchPage(List<String> ids, int total) {}
 
-    /**
-     * 发现搜索结果<b>单页</b>的作品 ID（插画 + 漫画 + 动图），按页内顺序返回（不跨页去重）。
-     * 空列表表示该页无结果或越界。供计划任务「结束页 = -1（一直翻页直到命中已下载作品为止）」的
-     * 增量逐页发现复用；遵循「URL 编码只能做一次」约束，{@code word} 以原始未编码形态交给 builder。
-     */
-    public List<String> discoverSearchArtworkIdsPage(String word, String order, String mode,
-                                                     String sMode, int page, String cookie) throws IOException {
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/search/artworks/{word}")
+    public SearchPage fetchSearchPage(boolean novel, String word, String order, String mode,
+                                      String sMode, int page, String cookie) throws IOException {
+        var builder = UriComponentsBuilder.fromUriString(novel
+                        ? "https://www.pixiv.net/ajax/search/novels/{word}"
+                        : "https://www.pixiv.net/ajax/search/artworks/{word}")
                 .queryParam("word", "{word}")
                 .queryParam("order", order)
-                .queryParam("mode", mode)
-                .queryParam("type", "illust_and_ugoira")
-                .queryParam("s_mode", sMode)
+                .queryParam("mode", mode);
+        if (!novel) builder.queryParam("type", "illust_and_ugoira");
+        URI uri = builder.queryParam("s_mode", sMode)
                 .queryParam("p", page)
                 .queryParam("lang", "zh")
                 .buildAndExpand(Map.of("word", word))
                 .encode()
                 .toUri();
-        JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("illustManga").path("data");
-        List<String> out = new ArrayList<>();
+        JsonNode result = requireBody(proxyGetUri(uri, cookie)).path(novel ? "novel" : "illustManga");
+        List<String> ids = new ArrayList<>();
+        JsonNode data = result.path("data");
         if (data.isArray()) {
             for (JsonNode item : data) {
                 String id = item.path("id").asString("");
-                if (!id.isEmpty()) out.add(id);
+                if (!id.isEmpty()) ids.add(id);
             }
         }
-        return out;
+        return new SearchPage(ids, result.path("total").asInt(0));
     }
 
     /**
@@ -488,45 +448,6 @@ public class PixivFetchService {
         body.path("novels").propertyNames().iterator().forEachRemaining(ids::add);
         ids.sort((a, b) -> Long.compare(Long.parseLong(b), Long.parseLong(a)));
         return ids;
-    }
-
-    /** 按关键词搜索发现小说 ID，翻 {@code maxPages} 页去重后返回（按出现顺序）。 */
-    public List<String> discoverSearchNovelIds(String word, String order, String mode,
-                                               String sMode, int maxPages, String cookie) throws IOException {
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        int pages = Math.max(1, maxPages);
-        for (int p = 1; p <= pages; p++) {
-            if (!ids.addAll(discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie))) break;
-        }
-        return new ArrayList<>(ids);
-    }
-
-    /**
-     * 发现搜索结果<b>单页</b>的小说 ID，按页内顺序返回（不跨页去重）。空列表表示该页无结果或越界。
-     * 供计划任务「结束页 = -1（一直翻页直到命中已下载作品为止）」的增量逐页发现复用。
-     */
-    public List<String> discoverSearchNovelIdsPage(String word, String order, String mode,
-                                                   String sMode, int page, String cookie) throws IOException {
-        URI uri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
-                .queryParam("word", "{word}")
-                .queryParam("order", order)
-                .queryParam("mode", mode)
-                .queryParam("s_mode", sMode)
-                .queryParam("p", page)
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("word", word))
-                .encode()
-                .toUri();
-        JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("novel").path("data");
-        List<String> out = new ArrayList<>();
-        if (data.isArray()) {
-            for (JsonNode item : data) {
-                String id = item.path("id").asString("");
-                if (!id.isEmpty()) out.add(id);
-            }
-        }
-        return out;
     }
 
     /**

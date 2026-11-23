@@ -5,6 +5,8 @@ import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
@@ -37,11 +39,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -146,7 +153,7 @@ class PixivScheduledSourceExecutorTest {
                 try (var input = process.getOutputStream()) {
                     input.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
-                assertThat(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
                 assertThat(process.exitValue()).isZero();
                 String saved = new String(process.getInputStream().readAllBytes(),
                         java.nio.charset.StandardCharsets.UTF_8);
@@ -166,6 +173,8 @@ class PixivScheduledSourceExecutorTest {
                 assertThat(edited.download().novelTranslateSegmentSize()).isEqualTo(
                         java.util.Objects.requireNonNullElse(original.download().novelTranslateSegmentSize(),
                                 top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.DOWNLOAD_NOVEL_TRANSLATE_SEGMENT_SIZE));
+                when(fetchService.fetchSearchPage(eq(false), any(), any(), any(), any(),
+                        eq(1), any())).thenReturn(new PixivFetchService.SearchPage(List.of(), 0));
                 org.mockito.Mockito.clearInvocations(fetchService);
                 support.discoverSearch(context(before, null));
                 support.discoverSearch(context(after, null));
@@ -517,8 +526,8 @@ class PixivScheduledSourceExecutorTest {
                 {"kind":"illust","source":{"word":"猫","order":"date_d","mode":"all",
                  "sMode":"s_tag","maxPages":-1},"fetchLimit":1}
                 """);
-        when(fetchService.discoverSearchArtworkIdsPage("猫", "date_d", "all", "s_tag", 1,
-                "PHPSESSID=8_secret")).thenReturn(List.of("120", "110", "100", "90"));
+        when(fetchService.fetchSearchPage(false, "猫", "date_d", "all", "s_tag", 1,
+                "PHPSESSID=8_secret")).thenReturn(new PixivFetchService.SearchPage(List.of("120", "110", "100", "90"), 0));
         TestContext watermarkContext = context(
                 watermarkTask, persistenceCodec.encodeCheckpoint(100L));
         ScheduledDiscoveryResult watermarkResult = executor.discover(watermarkContext);
@@ -529,8 +538,8 @@ class PixivScheduledSourceExecutorTest {
                 {"kind":"illust","source":{"word":"猫","order":"popular_d","mode":"all",
                  "sMode":"s_tag","maxPages":-1},"fetchLimit":9}
                 """);
-        when(fetchService.discoverSearchArtworkIdsPage("猫", "popular_d", "all", "s_tag", 1,
-                "PHPSESSID=8_secret")).thenReturn(List.of("9", "8", "7"));
+        when(fetchService.fetchSearchPage(false, "猫", "popular_d", "all", "s_tag", 1,
+                "PHPSESSID=8_secret")).thenReturn(new PixivFetchService.SearchPage(List.of("9", "8", "7"), 0));
         completeLocally("illust:8");
         TestContext boundaryContext = context(boundaryTask, null);
         ScheduledDiscoveryResult boundaryResult = executor.discover(boundaryContext);
@@ -542,9 +551,9 @@ class PixivScheduledSourceExecutorTest {
                 {"kind":"novel","source":{"word":"猫","order":"date_d","mode":"all",
                  "sMode":"s_tag","maxPages":2},"fetchLimit":1}
                 """);
-        when(fetchService.discoverSearchNovelIds(
-                "猫", "date_d", "all", "s_tag", 2, "PHPSESSID=8_secret"))
-                .thenReturn(List.of("5", "4"));
+        when(fetchService.fetchSearchPage(true,
+                "猫", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.SearchPage(List.of("5", "4"), 0));
         completeLocally("novel:5");
         TestContext fullContext = context(fullTask, null);
         executor.discover(fullContext);
@@ -565,13 +574,13 @@ class PixivScheduledSourceExecutorTest {
                          "mode":"all","sMode":"s_tag","maxPages":1},"fetchLimit":%d}
                         """.formatted(kind, limit);
                 if ("illust".equals(kind)) {
-                    when(fetchService.discoverSearchArtworkIds(
+                    when(fetchService.fetchSearchPage(false,
                             "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
-                            .thenReturn(ids);
+                            .thenReturn(new PixivFetchService.SearchPage(ids, 0));
                 } else {
-                    when(fetchService.discoverSearchNovelIds(
+                    when(fetchService.fetchSearchPage(true,
                             "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
-                            .thenReturn(ids);
+                            .thenReturn(new PixivFetchService.SearchPage(ids, 0));
                 }
                 TestContext context = context(definition("search", json), null);
                 ScheduledDiscoveryResult result = support.discoverSearch(context);
@@ -582,6 +591,133 @@ class PixivScheduledSourceExecutorTest {
                 assertThat(result.candidateCheckpoint()).isNull();
             }
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void waitsForOutstandingWorkBeforeLoadingNextPage(boolean novel) throws Exception {
+        String kind = novel ? "novel" : "illust";
+        var context = searchContext(kind, 0);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        context.sink.onDrain = () -> {
+            entered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("drain timeout");
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
+        };
+        var requested = new AtomicInteger();
+        when(fetchService.fetchSearchPage(eq(novel), any(), any(), any(), any(),
+                anyInt(), any())).thenAnswer(call -> {
+            int page = call.getArgument(5);
+            requested.incrementAndGet();
+            return page == 1 ? new PixivFetchService.SearchPage(List.of("3", "2", "3"), 3)
+                    : new PixivFetchService.SearchPage(List.of("2", "1"), 3);
+        });
+        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            var run = pool.submit(() -> support.discoverSearch(context));
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(requested.get()).isOne();
+            } finally {
+                release.countDown();
+            }
+            run.get(5, TimeUnit.SECONDS);
+        }
+        assertThat(requested.get()).isEqualTo(2);
+        assertThat(context.sink.submittedKeys()).containsExactly(kind + ":3", kind + ":2", kind + ":1");
+    }
+
+    @Test
+    void stopsAtPendingWorkOrQueueLimitWithoutFetchingAnotherPage() throws Exception {
+        for (int limit : List.of(0, 1)) {
+            var ctx = searchContext("illust", limit);
+            ctx.sink.onDrain = () -> ctx.pending.add(ctx.sink.submitted.getFirst().key());
+            when(fetchService.fetchSearchPage(false, "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                    .thenReturn(new PixivFetchService.SearchPage(List.of("1", "2"), 0));
+            support.discoverSearch(ctx);
+            assertThat(ctx.sink.submittedKeys()).hasSize(limit == 0 ? 2 : 1);
+        }
+        verify(fetchService, never()).fetchSearchPage(eq(false), any(), any(), any(), any(), eq(2), any());
+    }
+
+    @Test
+    void repeatedPageEndsDiscoveryAndALaterFetchFailureIsReported() throws Exception {
+        var first = new PixivFetchService.SearchPage(List.of("3", "2"), 0);
+        when(fetchService.fetchSearchPage(false, "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                .thenReturn(first);
+        when(fetchService.fetchSearchPage(false, "fixture", "date_d", "all", "s_tag", 2, "PHPSESSID=8_secret"))
+                .thenReturn(first).thenThrow(new IOException("page unavailable"));
+        var ctx = searchContext("illust", 0);
+        support.discoverSearch(ctx);
+        assertThat(ctx.sink.submittedKeys()).containsExactly("illust:3", "illust:2");
+        assertThatThrownBy(() -> support.discoverSearch(searchContext("illust", 0)))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK));
+        verify(fetchService, never()).fetchSearchPage(eq(false), any(), any(), any(), any(), eq(3), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "0.5", "2147483648", "null", "\"5\""})
+    void rejectsInvalidPageIntervals(String raw) {
+        var task = definition("search", "{\"source\":{\"word\":\"fixture\"},\"download\":{\"pageDelayMs\":" + raw + "}}");
+        assertThatThrownBy(() -> support.planSearch(task)).isInstanceOfSatisfying(ScheduledExecutionException.class,
+                failure -> assertThat(failure.code()).isEqualTo("schedule.pixiv.page-delay-invalid"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"3,date_d", "-1,date_d", "-1,popular_d"})
+    void spacesSearchRequestsAcrossModes(String mode) throws Exception {
+        var parts = mode.split(",");
+        var task = definition("search", """
+                {"source":{"word":"fixture","maxPages":%s,"order":"%s"},"download":{"pageDelayMs":80}}
+                """.formatted(parts[0], parts[1]));
+        var starts = new ArrayList<Long>();
+        when(fetchService.fetchSearchPage(eq(false), any(), any(), any(), any(),
+                anyInt(), any())).thenAnswer(call -> {
+            starts.add(System.nanoTime());
+            return new PixivFetchService.SearchPage(starts.size() == 1 ? List.of("7") : List.of(), 0);
+        });
+        // The fixed search must also pace pages when every result can be completed locally.
+        if ("3".equals(parts[0])) completeLocally("illust:7");
+        long beforeSearch = System.nanoTime();
+        support.discoverSearch(context(task, null));
+        assertThat(starts).hasSize(2);
+        assertThat(starts.get(1) - beforeSearch).isGreaterThanOrEqualTo(
+                TimeUnit.MILLISECONDS.toNanos(80));
+    }
+
+    @Test
+    void cancellationDuringPageWaitPreventsFurtherRequests() throws Exception {
+        var cancelled = new AtomicBoolean();
+        var waiting = new CountDownLatch(1);
+        var ctx = new TestContext(definition("search", """
+                {"source":{"word":"fixture","maxPages":20},"download":{"pageDelayMs":60000}}
+                """), null, cancelled::get);
+        ctx.sink.onDrain = waiting::countDown;
+        when(fetchService.fetchSearchPage(false, "fixture", "date_d", "all", "s_tag", 1, "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.SearchPage(List.of("1"), 0));
+        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            var run = pool.submit(() -> support.discoverSearch(ctx));
+            try {
+                assertThat(waiting.await(5, TimeUnit.SECONDS)).isTrue();
+            } finally {
+                cancelled.set(true);
+            }
+            assertThatThrownBy(() -> run.get(2, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(ScheduledExecutionException.class)
+                    .satisfies(error -> assertThat(((ScheduledExecutionException) error.getCause()).category())
+                            .isEqualTo(ScheduledFailure.Category.CANCELLED));
+        }
+        verify(fetchService, never()).fetchSearchPage(eq(false), any(), any(), any(), any(), eq(2), any());
+    }
+
+    private TestContext searchContext(String kind, int limit) {
+        return context(definition("search", """
+                {"kind":"%s","source":{"word":"fixture","maxPages":100},"download":{"pageDelayMs":0},"fetchLimit":%d}
+                """.formatted(kind, limit)), null);
     }
 
     @Test
@@ -953,6 +1089,7 @@ class PixivScheduledSourceExecutorTest {
         private final List<ScheduledWork> local = new ArrayList<>();
         private final List<String> submitSequence = new ArrayList<>();
         private RuntimeException submitFailure;
+        private Runnable onDrain = () -> {};
 
         @Override
         public void submit(ScheduledWork work) {
@@ -966,6 +1103,7 @@ class PixivScheduledSourceExecutorTest {
         @Override
         public void drain() {
             submitSequence.add("drain");
+            onDrain.run();
         }
 
         void failSubmissionsWith(RuntimeException failure) {

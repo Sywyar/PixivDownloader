@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -26,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,65 +59,37 @@ class PixivFetchServiceDiscoveryTest {
     @DisplayName("小说搜索分页")
     class NovelSearch {
 
-        @Test
-        @DisplayName("按发现顺序去重并在整页没有新作品时停止，关键词只编码一次")
-        void preservesOrderAndStopsAtRepeatedPage() throws Exception {
-            when(pixivAjaxClient.get(any(URI.class), eq(COOKIE))).thenReturn(
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"20\"},{\"id\":\"10\"},{\"id\":\"20\"}]}}}",
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"10\"},{\"id\":\"30\"}]}}}",
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"30\"}]}}}");
-
-            assertThat(service().discoverSearchNovelIds("猫 空", "date_d", "all", "s_tag", 10, COOKIE))
-                    .containsExactly("20", "10", "30");
-
-            ArgumentCaptor<URI> requests = ArgumentCaptor.forClass(URI.class);
-            verify(pixivAjaxClient, times(3)).get(requests.capture(), eq(COOKIE));
-            for (int index = 0; index < 3; index++) {
-                URI request = requests.getAllValues().get(index);
-                assertThat(request.getHost()).isEqualTo("www.pixiv.net");
-                assertThat(request.getRawPath()).isEqualTo("/ajax/search/novels/%E7%8C%AB%20%E7%A9%BA");
-                assertThat(request.getRawQuery()).contains("word=%E7%8C%AB%20%E7%A9%BA", "order=date_d",
-                        "mode=all", "s_mode=s_tag", "p=" + (index + 1), "lang=zh");
-            }
-        }
-
         @ParameterizedTest
-        @CsvSource({"-5,1", "0,1", "2,2"})
-        @DisplayName("至少读取一页且不越过指定页数")
-        void honorsPageLimit(int maxPages, int expectedRequests) throws Exception {
-            when(pixivAjaxClient.get(any(URI.class), any())).thenReturn(
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"1\"}]}}}",
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"2\"}]}}}",
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"3\"}]}}}");
-
-            assertThat(service().discoverSearchNovelIds("word", "date_d", "all", "s_tag", maxPages, COOKIE))
-                    .hasSize(expectedRequests).startsWith("1");
-            verify(pixivAjaxClient, times(expectedRequests)).get(any(URI.class), eq(COOKIE));
+        @ValueSource(booleans = {false, true})
+        @DisplayName("按单页请求保留作品顺序与总数，关键词只编码一次")
+        void readsOneSearchPage(boolean novel) throws Exception {
+            String key = novel ? "novel" : "illustManga";
+            mockResponse("{\"body\":{\"" + key + "\":{\"total\":5,\"data\":[{\"id\":\"20\"},{\"id\":\"10\"}]}}}");
+            var page = service().fetchSearchPage(novel, "猫 空", "date_d", "all", "s_tag", 2, COOKIE);
+            assertThat(page.ids()).containsExactly("20", "10");
+            assertThat(page.total()).isEqualTo(5);
+            ArgumentCaptor<URI> request = ArgumentCaptor.forClass(URI.class);
+            verify(pixivAjaxClient).get(request.capture(), eq(COOKIE));
+            assertThat(request.getValue().getRawPath()).isEqualTo("/ajax/search/"
+                    + (novel ? "novels" : "artworks") + "/%E7%8C%AB%20%E7%A9%BA");
+            assertThat(request.getValue().getRawQuery()).contains("word=%E7%8C%AB%20%E7%A9%BA", "p=2",
+                    "order=date_d", "mode=all", "s_mode=s_tag", "lang=zh");
+            assertThat(request.getValue().getRawQuery().contains("type=illust_and_ugoira")).isEqualTo(!novel);
         }
 
         @ParameterizedTest
         @ValueSource(strings = {"[]", "{}", "null", "[{\"id\":\"\"},{}]"})
-        @DisplayName("空页、非数组或没有有效标识的页面终止搜索")
-        void stopsWithoutUsableIds(String data) throws Exception {
+        void ignoresUnusableIds(String data) throws Exception {
             mockResponse("{\"body\":{\"novel\":{\"data\":" + data + "}}}");
-
-            assertThat(service().discoverSearchNovelIds("word", "date_d", "all", "s_tag", 5, COOKIE))
-                    .isEmpty();
-            verify(pixivAjaxClient).get(any(URI.class), eq(COOKIE));
+            assertThat(service().fetchSearchPage(true, "word", "date_d", "all", "s_tag", 1, COOKIE).ids()).isEmpty();
         }
 
         @ParameterizedTest
         @ValueSource(booleans = {false, true})
-        @DisplayName("后续页面解析或上游业务失败时保留错误，不返回部分成功")
-        void propagatesLaterPageFailure(boolean malformedJson) {
-            String response = malformedJson ? "broken-json" : "{\"error\":true,\"message\":\"blocked\"}";
-            when(pixivAjaxClient.get(any(URI.class), any())).thenReturn(
-                    "{\"body\":{\"novel\":{\"data\":[{\"id\":\"1\"}]}}}", response);
-
-            assertThatThrownBy(() -> service().discoverSearchNovelIds(
-                    "word", "date_d", "all", "s_tag", 5, COOKIE))
+        void propagatesPageFailure(boolean malformedJson) {
+            mockResponse(malformedJson ? "broken-json" : "{\"error\":true,\"message\":\"blocked\"}");
+            assertThatThrownBy(() -> service().fetchSearchPage(true, "word", "date_d", "all", "s_tag", 2, COOKIE))
                     .isInstanceOf(malformedJson ? IOException.class : PixivFetchService.PixivFetchException.class);
-            verify(pixivAjaxClient, times(2)).get(any(URI.class), eq(COOKIE));
         }
     }
 

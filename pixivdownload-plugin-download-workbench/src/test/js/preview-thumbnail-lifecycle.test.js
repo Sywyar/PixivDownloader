@@ -33,7 +33,7 @@ function page() {
             revokeObjectURL(url) { revoked.push(url); }},
         fetch: async () => ({ok: true, blob: () => new Promise(resolve => { finish = resolve; })})
     });
-    for (const file of ['search.js', 'user-data.js', 'user-view.js', 'series-data.js',
+    for (const file of ['../batch-pagination.js', 'search.js', 'user-data.js', 'user-view.js', 'series-data.js',
         'series-view.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js']) {
         vm.runInContext(readFileSync(resolve(root, file), 'utf8'), context, {filename: file});
     }
@@ -112,6 +112,56 @@ for (const action of ['performSearch', 'runBatchFetch']) {
         assert.equal(p.context.document.getElementById('btn-batch-fetch').disabled, false);
     });
 }
+
+test('批量预览按请求开始计时，保留首次出现的作品，服务端限页后结束', async () => {
+    const {context: c, statuses} = await searchPage();
+    let now = 0;
+    const calls = [], waits = [];
+    c.state.settings.pageDelayMs = 50;
+    c.document.getElementById('batch-end-page').value = '9';
+    c.performance = {now: () => now};
+    c.setTimeout = (resolve, ms) => { waits.push(ms); now += ms; resolve(); };
+    c.window.PixivBatch.queueTypes.acquisition = () => ({
+        pageSize: 2, queueId: it => it.id,
+        buildRangeRequest: ({startPage, endPage}) => ({endpoint: '/range', params: {startPage, endPage}})
+    });
+    c.fetch = async url => {
+        const params = new URL(url, 'http://localhost').searchParams;
+        const page = Number(params.get('startPage'));
+        calls.push([page, Number(params.get('endPage')), now]);
+        now += page === 2 ? 70 : 20;
+        return {ok: true, json: async () => ({items: [{id: 'same', page}, {id: String(page)}],
+            total: 100, startPage: page, endPage: page, fetchedPages: 1, limitPage: 3})};
+    };
+    await c.runBatchFetch();
+    assert.equal(statuses.at(-1).tone, 'success');
+    assert.deepEqual(calls, [[1, 1, 0], [2, 2, 50], [3, 3, 120]]);
+    assert.deepEqual(waits, [30]);
+    assert.equal(vm.runInContext('searchState.rawResults[0].page', c), 1);
+    assert.equal(vm.runInContext('searchState.rawResults.length', c), 4);
+    assert.equal(vm.runInContext('searchState.batchInfo.requestedPages', c), 9);
+    assert.equal(vm.runInContext('searchState.batchInfo.acceptedPages', c), 3);
+});
+
+test('等待翻页时更换来源会释放本次预览，不再请求下一页', async () => {
+    const p = await searchPage(), c = p.context;
+    const calls = [];
+    c.state.settings.pageDelayMs = 90000;
+    c.performance = {now: () => 0};
+    c.setTimeout = resolve => { p.clear.source(); resolve(); };
+    c.window.PixivBatch.queueTypes.acquisition = () => ({
+        pageSize: 2, queueId: it => it.id, buildRangeRequest: () => ({endpoint: '/range'})
+    });
+    c.fetch = async url => {
+        calls.push(url);
+        return {ok: true, json: async () => ({items: [{id: 'a'}], total: 3, startPage: 1,
+            endPage: 1, fetchedPages: 1, limitPage: 0})};
+    };
+    await c.runBatchFetch();
+    assert.equal(calls.length, 1);
+    assert.equal(vm.runInContext('searchState.rawResults.length', c), 0);
+    assert.deepEqual(p.statuses, []);
+});
 
 test('关注列表重新筛选后，旧头像不得写到相同下标的新用户', async () => {
     const p = page();

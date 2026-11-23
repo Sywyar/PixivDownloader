@@ -68,6 +68,7 @@ public record ScheduleTaskSnapshot(
                 Math.max(1, download.path("concurrent").asInt(DOWNLOAD_CONCURRENT)),
                 longOrNull(download.path("intervalMs")),
                 intOrNull(download.path("imageDelayMs")),
+                intOrNull(download.path("pageDelayMs")),
                 download.path("verifyFiles").asBoolean(DOWNLOAD_VERIFY_FILES),
                 download.path("redownloadDeleted").asBoolean(DOWNLOAD_REDOWNLOAD_DELETED),
                 download.path("novelFormat").asString(DOWNLOAD_NOVEL_FORMAT),
@@ -149,11 +150,12 @@ public record ScheduleTaskSnapshot(
      * @param concurrent         最大并发数（作品级），实际值还会按下载池大小收窄
      * @param intervalMs         作品间隔（毫秒），{@code null} / 0 不延迟
      * @param imageDelayMs       图片间隔（毫秒，仅插画），{@code null} / 0 不延迟
+     * @param pageDelayMs       相邻搜索页请求的最短间隔（毫秒），缺省时采用搜索模式默认值
      * @param verifyFiles        插画去重时是否校验实际文件
      * @param redownloadDeleted 是否把软删除记录视为可重新下载
      */
     public record Download(String fileNameTemplate, boolean bookmark, Long collectionId,
-                           int concurrent, Long intervalMs, Integer imageDelayMs, boolean verifyFiles,
+                           int concurrent, Long intervalMs, Integer imageDelayMs, Integer pageDelayMs, boolean verifyFiles,
                            boolean redownloadDeleted,
                            String novelFormat, boolean novelMerge, String novelMergeFormat,
                            boolean novelAutoTranslate, String novelTranslateLanguage,

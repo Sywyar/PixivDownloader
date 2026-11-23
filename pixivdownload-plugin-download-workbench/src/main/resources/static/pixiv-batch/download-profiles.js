@@ -9,7 +9,7 @@ window.PixivDownloadProfiles = (() => {
         extensions.set(key, {context, defaults: {...defaults}, validate});
         context.onCleanup(() => extensions.delete(key));
     }
-    const commonKeys = ['interval', 'intervalUnit', 'imageDelay', 'imageDelayUnit', 'concurrent',
+    const commonKeys = ['interval', 'intervalUnit', 'imageDelay', 'imageDelayUnit', 'pageDelayMs', 'concurrent',
         'autoStartOnEnqueue', 'skipHistory', 'verifyHistoryFiles', 'redownloadDeleted', 'bookmark',
         'fileNameTemplate', 'pathOverflowAction'];
     const clone = value => JSON.parse(JSON.stringify(value));
@@ -46,6 +46,12 @@ window.PixivDownloadProfiles = (() => {
         const values = profile.settings;
         if (Object.keys(values).some(key => !Object.hasOwn(known, key))) throw new Error('profiles.unavailable');
         for (const key of Object.keys(values)) {
+            if (key === 'pageDelayMs') {
+                const delay = values[key];
+                if (delay !== null && !(Number.isInteger(delay) && delay >= 0 && delay <= 2147483647))
+                    throw new Error('profiles.invalid');
+                continue;
+            }
             if (typeof values[key] !== typeof known[key] || typeof values[key] === 'object')
                 throw new Error('profiles.invalid');
         }

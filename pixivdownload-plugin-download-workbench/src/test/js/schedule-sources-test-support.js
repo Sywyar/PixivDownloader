@@ -12,7 +12,7 @@ const runtimeSource = [
     'batch-schedule-sources-runtime.js',
     'batch-schedule-sources.js'
 ].map(file => fs.readFileSync(path.join(scheduleRuntimeRoot, file), 'utf8')).join('\n');
-const pixivModuleSource = ['pixiv-schedule-defaults.js', 'pixiv-schedule-sources.js']
+const pixivModuleSource = ['batch-download-defaults.js', 'pixiv-schedule-defaults.js', 'pixiv-schedule-sources.js']
     .map(file => fs.readFileSync(path.join(scheduleRuntimeRoot, file), 'utf8')).join('\n');
 
 function source(overrides) {

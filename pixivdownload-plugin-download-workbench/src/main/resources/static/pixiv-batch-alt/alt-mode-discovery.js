@@ -600,9 +600,21 @@ async function runSearch(page) {
         if (typeof builder !== 'function') {
             throw new Error(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用）'));
         }
-        const spec = builder(context);
-        const data = await altAcquisitionJson(acquisition.type, 'search', spec,
-            range ? 'range' : 'search', context);
+        let data;
+        if (range) {
+            const lease = altQueueTypes().acquisitionLease(acquisition.type, 'search');
+            const fetchRange = (startPage, endPage) => {
+                const ctx = {...context, startPage, endPage};
+                return altAcquisitionJson(acquisition.type, 'search', builder(ctx), 'range', ctx);
+            };
+            data = await window.PixivBatch.pagination.fetchSearchRange(acquisition,
+                context.startPage, context.endPage, state.settings.pageDelayMs, fetchRange, () => {
+                    lease.assertCurrent();
+                    return isCurrent();
+                });
+        } else {
+            data = await altAcquisitionJson(acquisition.type, 'search', builder(context), 'search', context);
+        }
         if (!isCurrent()) return;
         searchState.rawResults = normalizeAcquisitionItems(data.items || [], acquisition, context, 'search');
         searchState.total = Number(data.total || searchState.rawResults.length);

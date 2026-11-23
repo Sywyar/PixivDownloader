@@ -31,6 +31,7 @@
             ...window.PixivBatch.downloadDefaults,
             imageDelay: 0,
             imageDelayUnit: 'ms',
+            pageDelayMs: null,
             autoStartOnEnqueue: false,
             verifyHistoryFiles: false,
             redownloadDeleted: false,   // 允许已删除（软删除标记）的作品被重新下载；默认不勾选 = 跳过
