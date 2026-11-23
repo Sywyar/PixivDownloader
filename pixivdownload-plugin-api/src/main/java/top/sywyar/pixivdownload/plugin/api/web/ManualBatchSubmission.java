@@ -1,6 +1,4 @@
-package top.sywyar.pixivdownload.plugin.api.schedule.management;
-
-import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
+package top.sywyar.pixivdownload.plugin.api.web;
 
 import java.util.UUID;
 

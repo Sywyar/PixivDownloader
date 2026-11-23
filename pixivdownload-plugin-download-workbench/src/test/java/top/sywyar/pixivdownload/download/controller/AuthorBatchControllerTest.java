@@ -5,7 +5,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
-import top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission;
+import top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission;
 import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
 
 import java.util.Set;

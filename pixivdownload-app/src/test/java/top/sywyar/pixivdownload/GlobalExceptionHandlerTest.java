@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.multipart.MultipartFile;
-import top.sywyar.pixivdownload.common.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskRejectedException;

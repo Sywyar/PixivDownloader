@@ -1,4 +1,7 @@
-package top.sywyar.pixivdownload.common;
+package top.sywyar.pixivdownload.web;
+
+import top.sywyar.pixivdownload.common.AppInfo;
+import top.sywyar.pixivdownload.common.AppVersion;
 
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import org.springframework.web.bind.annotation.GetMapping;

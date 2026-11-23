@@ -1,4 +1,7 @@
-package top.sywyar.pixivdownload.common;
+package top.sywyar.pixivdownload.web;
+
+import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
+import top.sywyar.pixivdownload.common.ServerStateProvider;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationContext;

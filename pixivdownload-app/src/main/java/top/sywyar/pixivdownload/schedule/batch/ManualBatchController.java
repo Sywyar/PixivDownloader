@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import java.io.IOException;
 import java.net.URI;
 import top.sywyar.pixivdownload.setup.ProgramAccess;
-import top.sywyar.pixivdownload.common.web.RequestFieldError;
+import top.sywyar.pixivdownload.web.RequestFieldError;
 import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
 import java.util.Locale;
 import java.util.NoSuchElementException;

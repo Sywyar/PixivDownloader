@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentia
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.*;
-import top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission;
+import top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.*;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;

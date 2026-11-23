@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common.web;
+package top.sywyar.pixivdownload.web;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;

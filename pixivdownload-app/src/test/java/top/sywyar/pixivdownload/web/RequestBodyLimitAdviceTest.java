@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common.web;
+package top.sywyar.pixivdownload.web;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

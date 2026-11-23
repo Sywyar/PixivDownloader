@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common.web;
+package top.sywyar.pixivdownload.web;
 
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.Order;

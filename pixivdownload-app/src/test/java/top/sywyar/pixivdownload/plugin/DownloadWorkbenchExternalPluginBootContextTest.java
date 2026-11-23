@@ -491,7 +491,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     }
 
     private void assertServiceFootprintPresent(ClassLoader expectedClassLoader) {
-        var port = top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission.class;
+        var port = top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission.class;
         var child = externalPluginContextManager.contextFor(PLUGIN_ID).orElseThrow();
         assertThat(child.getBean(port)).isSameAs(applicationContext.getBean(port));
         assertThat(handlerBean("/api/pixiv/user/{userId}/downloads").getClass().getClassLoader()).isSameAs(expectedClassLoader);

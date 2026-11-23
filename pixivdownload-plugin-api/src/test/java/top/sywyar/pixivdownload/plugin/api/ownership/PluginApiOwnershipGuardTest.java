@@ -193,7 +193,7 @@ class PluginApiOwnershipGuardTest {
                     "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
                     "HttpApiAccess", "HttpApiGroup", "HttpApiNullable", "HttpMethod", "I18nContribution",
                     "LandingContribution", "NavigationContribution", "NavigationMarkers", "NavigationPlacements",
-                    "PageSectionContribution", "ProgramIdentity", "ProgramPermission", "RemoteOperations",
+                    "ManualBatchSubmission", "PageSectionContribution", "ProgramIdentity", "ProgramPermission", "RemoteOperations",
                     "RequestBodyLimit", "RequestOwnerIdentity",
                     "RequestOwnerIdentityResolver", "StartupRouteContext", "StartupRouteContribution",
                     "StaticResourceContribution", "UserscriptContribution",
@@ -264,7 +264,7 @@ class PluginApiOwnershipGuardTest {
                             "ScheduledGuardDecision", "ScheduledGuardEvidence", "ScheduledGuardPoint",
                             "ScheduledGuardResult"),
                     types(API_PREFIX + "schedule.management",
-                            "ManualBatchSubmission", "ScheduleCredentialPolicyView", "ScheduleManagementException",
+                            "ScheduleCredentialPolicyView", "ScheduleManagementException",
                             "ScheduleTaskView", "ScheduledTaskCredentials"),
                     types(API_PREFIX + "schedule.network", "ScheduledNetworkRoute"),
                     types(API_PREFIX + "schedule.security",
@@ -302,7 +302,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("数据库迁移 JDBC 支持", 4),
             Map.entry("插件入口与生命周期", 4),
             Map.entry("GUI contribution 与桌面宿主契约", 63),
-            Map.entry("Web 与请求身份协议", 28),
+            Map.entry("Web 与请求身份协议", 29),
             Map.entry("采集调用上下文", 2),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -318,7 +318,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件 owner-scoped 存储协议", 5),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
-            Map.entry("计划任务协议", 64),
+            Map.entry("计划任务协议", 63),
             Map.entry("队列生命周期协议", 5)
     );
 

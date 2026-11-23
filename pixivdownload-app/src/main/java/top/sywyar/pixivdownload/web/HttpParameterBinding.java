@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.common.web;
+package top.sywyar.pixivdownload.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.web;
 
-import top.sywyar.pixivdownload.common.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
 import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.setup.ProgramAccess;
 import top.sywyar.pixivdownload.setup.AuthFilter.ProgramCredentialError;

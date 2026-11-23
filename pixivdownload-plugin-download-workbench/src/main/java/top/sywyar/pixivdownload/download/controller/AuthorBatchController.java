@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission;
+import top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.common.web.HttpJsonInput;
-import top.sywyar.pixivdownload.common.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
 import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import io.swagger.v3.oas.annotations.media.Schema;
 

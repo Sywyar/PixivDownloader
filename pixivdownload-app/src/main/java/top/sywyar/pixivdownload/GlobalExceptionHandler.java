@@ -4,7 +4,7 @@ import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import top.sywyar.pixivdownload.common.web.HttpJsonInput;
-import top.sywyar.pixivdownload.common.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
 import top.sywyar.pixivdownload.core.web.HttpParameterError;
 import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;

@@ -265,7 +265,7 @@ class PluginTemplateRuntimeRegistrationTest {
                         UUID.randomUUID(), "example-download", "102", Map.of()),
                         null, RequestOwnerIdentity.adminScope()))
                         .isInstanceOfSatisfying(DownloadTaskException.class,
-                                failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+                                failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
             }
             assertThat(capabilityRegistrar.releaseRetirementProof(retiredDrain)).isTrue();
         }

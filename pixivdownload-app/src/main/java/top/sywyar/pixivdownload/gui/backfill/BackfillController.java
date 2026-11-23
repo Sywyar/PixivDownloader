@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.gui.backfill;
 
 import top.sywyar.pixivdownload.common.web.HttpJsonInput;
-import top.sywyar.pixivdownload.common.web.RequestFieldError;
+import top.sywyar.pixivdownload.web.RequestFieldError;
 import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
 
 import io.swagger.v3.oas.annotations.media.ArraySchema;

@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.management;
 
-import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialTaskPresentation;
 
 /**
@@ -17,15 +16,15 @@ import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredenti
  * @param accountActionsSchemaJson 当前策略对 actionId 与 parameters 的公开 JSON Schema；未声明或策略不可用时为空
  */
 public record ScheduleCredentialPolicyView(
-        @HttpApiNullable String ownerPluginId,
-        @HttpApiNullable String policyId,
-        @HttpApiNullable String accountKey,
+        String ownerPluginId,
+        String policyId,
+        String accountKey,
         boolean bound,
         boolean available,
-        @HttpApiNullable Long publicationId,
-        @HttpApiNullable String statusCode,
-        @HttpApiNullable Long acknowledgedEventTime,
-        @HttpApiNullable String accountActionsSchemaJson
+        Long publicationId,
+        String statusCode,
+        Long acknowledgedEventTime,
+        String accountActionsSchemaJson
 ) {
 
     /**

@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.source;
 
-import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
-
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
 
@@ -18,8 +16,8 @@ import java.util.regex.Pattern;
  * @param attributes 属性
  */
 public record ScheduledTaskPresentation(
-        @HttpApiNullable String title,
-        @HttpApiNullable String summary,
+        String title,
+        String summary,
         Map<String, String> attributes
 ) {
 

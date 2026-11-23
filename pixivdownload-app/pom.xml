@@ -27,6 +27,12 @@
             <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
             <version>3.2.0</version>
         </dependency>
+        <!-- Spring 测试工具可使用 JAXB 附件类型，运行时由邮件插件私有加载。 -->
+        <dependency>
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>com.scalar.maven</groupId>
             <artifactId>scalar-core</artifactId>

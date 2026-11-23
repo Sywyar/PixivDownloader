@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.openapi;
 
+import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleCredentialPolicyView;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView;
+import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
+import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.setup.ProgramKeysController;
 import top.sywyar.pixivdownload.transfer.EnvironmentTransferController;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryKeyPreview;
@@ -90,6 +95,14 @@ class ApiReferenceConfiguration {
     }
 
     private static void describeClientModels(Components components) {
+        nullableProperties(components, PixivConnectivityProbe.Result.class, "errorType");
+        nullableProperties(components, ScheduleCredentialPolicyView.class, "ownerPluginId", "policyId",
+                "accountKey", "publicationId", "statusCode", "acknowledgedEventTime", "accountActionsSchemaJson");
+        nullableProperties(components, ScheduleTaskView.class, "sourceActivationToken", "intervalMinutes",
+                "cronExpr", "proxy", "nextRunTime", "lastRunTime", "outcomeCode", "outcomeMessage",
+                "suspendReason", "suspendCode", "suspendDetailJson", "runState");
+        nullableProperties(components, ScheduledTaskPresentation.class, "title", "summary");
+        nullableProperties(components, ScheduledWorkPresentation.class, "title", "author", "thumbnailReference");
         var schemas = components.getSchemas();
         var states = List.of(ScheduleRunQueue.STATUS_PENDING, ScheduleRunQueue.STATUS_PAUSED, ScheduleRunQueue.STATUS_DOWNLOADED,
                 ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, ScheduleRunQueue.STATUS_SKIPPED_FILTER, ScheduleRunQueue.STATUS_FAILED);

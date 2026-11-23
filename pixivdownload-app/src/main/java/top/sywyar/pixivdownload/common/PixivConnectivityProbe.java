@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.config.ProxyConfig;
-import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -42,7 +41,7 @@ public class PixivConnectivityProbe {
      * @param latencyMs  往返耗时（毫秒）
      * @param errorType  失败类型：{@code timeout} / {@code interrupted} / {@code network} / {@code unknown}；收到 HTTP 响应时为 null
      */
-    public record Result(boolean reachable, int statusCode, long latencyMs, @HttpApiNullable String errorType) {
+    public record Result(boolean reachable, int statusCode, long latencyMs, String errorType) {
     }
 
     public Result probe() {

@@ -38,7 +38,7 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.AuthorBatchController;
-import top.sywyar.pixivdownload.plugin.api.schedule.management.ManualBatchSubmission;
+import top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission;
 import top.sywyar.pixivdownload.download.controller.DownloadPageController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;

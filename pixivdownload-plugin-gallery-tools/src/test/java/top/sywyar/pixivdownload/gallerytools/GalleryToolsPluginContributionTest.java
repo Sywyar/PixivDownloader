@@ -3,7 +3,9 @@ package top.sywyar.pixivdownload.gallerytools;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -12,6 +14,7 @@ import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 @DisplayName("gallery-tools 合并贡献")
 class GalleryToolsPluginContributionTest {
@@ -30,15 +33,21 @@ class GalleryToolsPluginContributionTest {
     void declaresBothFeatureSurfaces() {
         GalleryToolsPlugin plugin = new GalleryToolsPlugin();
 
-        assertThat(plugin.routes())
-                .extracting(route -> route.pathPattern() + "|" + route.accessPolicy())
+        var routes = plugin.routes();
+        assertThat(routes).extracting(WebRouteContribution::accessPolicy).containsOnly(AccessPolicy.ADMIN);
+        assertThat(routes).filteredOn(route -> route.programPermissions().isEmpty())
+                .extracting(WebRouteContribution::pathPattern)
                 .containsExactlyInAnyOrder(
-                        "/pixiv-stats.html|" + AccessPolicy.ADMIN,
-                        "/pixiv-stats/**|" + AccessPolicy.ADMIN,
-                        "/api/stats/**|" + AccessPolicy.ADMIN,
-                        "/pixiv-duplicates.html|" + AccessPolicy.ADMIN,
-                        "/pixiv-duplicates/**|" + AccessPolicy.ADMIN,
-                        "/api/duplicates/**|" + AccessPolicy.ADMIN);
+                        "/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**",
+                        "/pixiv-duplicates.html", "/pixiv-duplicates/**", "/api/duplicates/**");
+        assertThat(routes).flatExtracting(route -> route.programPermissions().entrySet().stream()
+                        .map(grant -> tuple(route.pathPattern(), grant.getKey(), grant.getValue().id())).toList())
+                .containsExactlyInAnyOrder(
+                        tuple("/api/stats/dashboard", HttpMethod.GET, "statistics.read"),
+                        tuple("/api/duplicates/groups", HttpMethod.GET, "duplicates.read"),
+                        tuple("/api/duplicates/scan/status", HttpMethod.GET, "duplicates.read"),
+                        tuple("/api/duplicates/scan", HttpMethod.POST, "duplicates.scan"),
+                        tuple("/api/duplicates/rescan", HttpMethod.POST, "duplicates.scan"));
         assertThat(plugin.staticResources())
                 .extracting(resource -> resource.publicPathPrefix() + "|" + resource.exactFile())
                 .containsExactlyInAnyOrder(
