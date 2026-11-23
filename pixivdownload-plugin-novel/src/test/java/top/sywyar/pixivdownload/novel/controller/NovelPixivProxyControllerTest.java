@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novel.controller;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +38,8 @@ import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import java.net.URI;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -86,6 +88,27 @@ class NovelPixivProxyControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
                 .build();
+    }
+
+    @Test
+    void bookmarksIdentifyInvalidPixivCredentials() throws Exception {
+        mockMvc.perform(get("/api/pixiv/me/novel-bookmarks")
+                        .header("X-Acquisition-Credential", "PHPSESSID=broken"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("ACQUISITION_CREDENTIAL_REQUIRED"));
+        verifyNoInteractions(pixivAjaxClient);
+    }
+
+    @Test
+    void rejectsLocalFiltersBeforeContactingPixiv() throws Exception {
+        mockMvc.perform(get("/api/pixiv/novel-search/range").param("word", "sea").param("sMode", "wrong"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                .andExpect(jsonPath("$.field").value("sMode"));
+        mockMvc.perform(get("/api/pixiv/me/novel-bookmarks").param("rest", "wrong"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("rest"));
+        verifyNoInteractions(pixivAjaxClient);
     }
 
     @Nested
@@ -172,11 +195,12 @@ class NovelPixivProxyControllerTest {
         @Test
         @DisplayName("超长通用凭证在访问外部服务前拒绝")
         void shouldRejectOversizedCredential() {
-            assertThatIllegalArgumentException()
-                    .isThrownBy(() -> controller.searchNovels(
+            assertThatThrownBy(() -> controller.searchNovels(
                             "miku", "date_d", "all", "s_tag", 1,
                             "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH + 1),
-                            new MockHttpServletRequest()));
+                            new MockHttpServletRequest()))
+                    .isInstanceOfSatisfying(HttpParameterException.class, error ->
+                            assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME));
             verifyNoInteractions(pixivAjaxClient);
         }
     }

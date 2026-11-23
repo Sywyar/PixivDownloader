@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.scripts;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +23,7 @@ import java.util.regex.Matcher;
  * 宿主的油猴脚本分发接口；仅分发活动插件目录中的不可变脚本快照。
  * 游客限流由宿主鉴权过滤器统一执行。
  */
+@HttpApiGroup("core-scripts")
 @RestController
 @RequestMapping("/api/scripts")
 @RequiredArgsConstructor
@@ -58,6 +63,10 @@ public class ScriptController {
      * 供 Tampermonkey 拦截安装：URL 以 .user.js 结尾是触发安装弹窗的必要条件。
      * /{id}/install 保留作向后兼容，但前端应优先使用 /{id}.user.js。
      */
+    @ApiResponse(responseCode = "200", content = {
+            @Content(mediaType = "application/javascript", schema = @Schema(type = "string")),
+            @Content(mediaType = "text/plain", schema = @Schema(type = "string"))})
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping({"/{id}.user.js", "/{id}/install"})
     public ResponseEntity<byte[]> installScript(
             @PathVariable String id,
@@ -66,6 +75,8 @@ public class ScriptController {
         return serveScript(id, raw, request);
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "text/plain", schema = @Schema(type = "string")))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/{id}")
     public ResponseEntity<byte[]> viewScriptSource(
             @PathVariable String id,

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
+import top.sywyar.pixivdownload.download.media.ImageOutputService.MediaSink;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
@@ -106,7 +107,13 @@ public class UgoiraService {
                              Path downloadPath, String referer, String cookie,
                              Consumer<UgoiraProgress> progressListener,
                              BooleanSupplier cancellationRequested) {
-        return processArchive(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested, null, null);
+        return processUgoira(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested,
+                (page, stem, media) -> mediaStore.save(artworkId, page, media));
+    }
+
+    int processUgoira(Long artworkId, DownloadRequest.Other other, Path downloadPath, String referer, String cookie,
+                      Consumer<UgoiraProgress> progressListener, BooleanSupplier cancellationRequested, MediaSink sink) {
+        return processArchive(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested, null, null, sink);
     }
 
     public boolean addMissingFormats(long artworkId, Path displayedFile, String selectedFormats,
@@ -145,7 +152,8 @@ public class UgoiraService {
         request.setFileNames(List.of(base));
         request.setUgoiraDelays(delays);
         request.setUgoiraFormats(String.join(",", missing));
-        if (processArchive(artworkId, request, displayedFile.getParent(), null, null, null, cancellationRequested, zip, timing.stringPropertyNames()) != 1) {
+        if (processArchive(artworkId, request, displayedFile.getParent(), null, null, null, cancellationRequested, zip, timing.stringPropertyNames(),
+                (page, file, media) -> mediaStore.save(artworkId, page, media)) != 1) {
             throw new IOException("Animation conversion failed");
         }
         return true;
@@ -154,7 +162,7 @@ public class UgoiraService {
     private int processArchive(Long artworkId, DownloadRequest.Other other,
                                Path downloadPath, String referer, String cookie,
                                Consumer<UgoiraProgress> progressListener,
-                               BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames) {
+                               BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames, MediaSink sink) {
         Path directory = downloadPath.toAbsolutePath().normalize();
         ProcessingLock lock;
         synchronized (processingLocks) {
@@ -168,7 +176,7 @@ public class UgoiraService {
                 acquired = lock.gate.tryLock(200, TimeUnit.MILLISECONDS);
             } while (!acquired);
             return processArchiveLocked(artworkId, other, downloadPath, referer, cookie,
-                    progressListener, cancellationRequested, sourceArchive, frameNames);
+                    progressListener, cancellationRequested, sourceArchive, frameNames, sink);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new CancellationException("download cancelled");
@@ -183,7 +191,7 @@ public class UgoiraService {
     private int processArchiveLocked(Long artworkId, DownloadRequest.Other other,
                                      Path downloadPath, String referer, String cookie,
                                      Consumer<UgoiraProgress> progressListener,
-                                     BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames) {
+                                     BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames, MediaSink sink) {
         if (sourceArchive == null) ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
         String outputBaseName = resolveOutputBaseName(artworkId, other);
         List<String> formats = outputFormats(other);
@@ -290,7 +298,7 @@ public class UgoiraService {
                                 .ifPresent(existing -> savedFormats.addAll(existing.extensions()));
                     }
                     savedFormats.addAll(formats);
-                    mediaStore.save(artworkId, 0,
+                    sink.save(0, downloadPath.resolve(outputBaseName),
                             new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("zip", List.copyOf(savedFormats)));
                     return 1;
                 }

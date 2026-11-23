@@ -1,33 +1,58 @@
 package top.sywyar.pixivdownload.novelgallery.controller;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
+import jakarta.validation.Valid;
+import top.sywyar.pixivdownload.core.web.HttpIds;
+import top.sywyar.pixivdownload.core.web.CsvIds;
+import io.swagger.v3.oas.annotations.links.Link;
+import io.swagger.v3.oas.annotations.links.LinkParameter;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import jakarta.servlet.http.HttpServletRequest;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.core.web.MissingProgramPermissionException;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
+import top.sywyar.pixivdownload.core.work.query.WorkSelectionException;
+import top.sywyar.pixivdownload.novel.NovelPlugin;
+import io.swagger.v3.oas.annotations.Parameter;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
-import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
-import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.novelgallery.NovelTagOption;
+import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkTag;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
+import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelDownloadedStatusRow;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novelgallery.NovelBatchRequest;
+import top.sywyar.pixivdownload.novelgallery.NovelBatchService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.novelgallery.NovelTagOption;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.core.work.query.SeriesNeighbors;
-import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
-import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.core.work.model.WorkTag;
-import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
-import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,6 +70,7 @@ import java.util.concurrent.TimeUnit;
  * {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelPluginConfiguration} 提供。
  */
 @PluginManagedBean
+@HttpApiGroup("novel-library")
 @RestController
 @RequestMapping("/api/gallery")
 @RequiredArgsConstructor
@@ -59,31 +85,48 @@ public class NovelGalleryController {
     private final WorkVisibilityService workVisibilityService;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = NovelGalleryService.PagedNovels.class), examples = @ExampleObject(value = """
+                    {"content":[{"novelId":42,"title":"Sea light","folder":"/srv/novels/42","extensions":"txt","time":1735689600000,
+                       "xRestrict":0,"isAi":false,"authorId":7,"authorName":"Aoi","description":"A short story.",
+                       "seriesId":null,"seriesOrder":null,"wordCount":860,"textLength":4300,"readingTimeSeconds":180,
+                       "pageCount":1,"isOriginal":true,"xLanguage":"en","tags":[{"tagId":8,"name":"海","translatedName":"sea"}],
+                       "coverExt":null,"embeddedImageIds":[],"translatedLanguages":[],"uploadTime":1735603200000,
+                       "createTime":null,"updateTime":null,"reuploadTime":null}],
+                     "totalElements":1,"page":0,"size":24,"totalPages":1}
+                    """)))
     @GetMapping("/novels")
     public NovelGalleryService.PagedNovels listNovels(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(required = false, defaultValue = "0") Integer page,
             @RequestParam(required = false, defaultValue = "24") Integer size,
+            @Parameter(schema = @Schema(defaultValue = "date", examples = {"date", "uploadTime", "createTime", "updateTime", "reuploadTime", "novelId", "series", "wordCount"}))
             @RequestParam(required = false, defaultValue = "date") String sort,
+            @Parameter(schema = @Schema(defaultValue = "desc", examples = {"asc", "desc"}))
             @RequestParam(required = false, defaultValue = "desc") String order,
             @RequestParam(required = false) String search,
+            @Parameter(schema = @Schema(defaultValue = "all", examples = {"all", "title", "author", "id", "authorId", "desc", "tag", "tagExact", "content"}))
             @RequestParam(required = false, defaultValue = "all") String searchType,
+            @Parameter(schema = @Schema(defaultValue = "any", examples = {"any", "yes", "no", "r18", "r18g", "r18plus"}))
             @RequestParam(required = false, defaultValue = "any") String r18,
+            @Parameter(schema = @Schema(defaultValue = "any", examples = {"any", "yes", "no"}))
             @RequestParam(required = false, defaultValue = "any") String ai,
-            @RequestParam(required = false) String collectionIds,
-            @RequestParam(required = false) String tagIds,
-            @RequestParam(required = false) String notTagIds,
-            @RequestParam(required = false) String orTagIds,
-            @RequestParam(required = false) String authorIds,
-            @RequestParam(required = false) String notAuthorIds,
-            @RequestParam(required = false) String orAuthorIds,
+            @CsvIds @RequestParam(required = false) String collectionIds,
+            @CsvIds @RequestParam(required = false) String tagIds,
+            @CsvIds @RequestParam(required = false) String notTagIds,
+            @CsvIds @RequestParam(required = false) String orTagIds,
+            @CsvIds @RequestParam(required = false) String authorIds,
+            @CsvIds @RequestParam(required = false) String notAuthorIds,
+            @CsvIds @RequestParam(required = false) String orAuthorIds,
             @RequestParam(required = false) Long authorId,
-            @RequestParam(required = false) String seriesIds,
-            @RequestParam(required = false) String notSeriesIds,
+            @CsvIds @RequestParam(required = false) String seriesIds,
+            @CsvIds @RequestParam(required = false) String notSeriesIds,
             @RequestParam(required = false) Long seriesId,
             @RequestParam(required = false) Long uploadedFrom,
             @RequestParam(required = false) Long uploadedBefore,
             @RequestParam(required = false) Long downloadedFrom,
             @RequestParam(required = false) Long downloadedBefore,
+            @Parameter(schema = @Schema(allowableValues = {"uploadTime", "createTime", "updateTime", "reuploadTime"}))
             @RequestParam(required = false) String sourceTimeField,
             @RequestParam(required = false) Long createdFrom,
             @RequestParam(required = false) Long createdBefore,
@@ -92,37 +135,23 @@ public class NovelGalleryController {
             @RequestParam(required = false) Long reuploadedFrom,
             @RequestParam(required = false) Long reuploadedBefore,
             WorkVisibilityScope visibilityScope) {
-        java.util.Set<Long> mustAuthors = parseLongCsv(authorIds);
-        if (authorId != null && authorId > 0) {
-            if (mustAuthors == null) mustAuthors = new java.util.LinkedHashSet<>();
-            mustAuthors.add(authorId);
+        try {
+            return novelGalleryService.query(new NovelGalleryService.NovelGalleryQuery(
+                    Math.max(0, page), Math.max(1, Math.min(size, 200)),
+                    sort, order, search, NovelGalleryService.normalizeSearchType(searchType), r18, ai,
+                    HttpIds.queryIds("collectionIds", collectionIds),
+                    HttpIds.queryIds("tagIds", tagIds), HttpIds.queryIds("notTagIds", notTagIds), HttpIds.queryIds("orTagIds", orTagIds),
+                    HttpIds.queryIds("authorIds", authorIds, "authorId", authorId), HttpIds.queryIds("notAuthorIds", notAuthorIds), HttpIds.queryIds("orAuthorIds", orAuthorIds),
+                    HttpIds.queryIds("seriesIds", seriesIds, "seriesId", seriesId), HttpIds.queryIds("notSeriesIds", notSeriesIds),
+                    visibilityScope.restrictionFor(WorkType.NOVEL), uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore));
+        } catch (WorkQuery.InvalidField failure) {
+            throw new HttpParameterException("query", failure.field(), "invalid_value");
         }
-        java.util.Set<Long> mustSeries = parseLongCsv(seriesIds);
-        if (seriesId != null && seriesId > 0) {
-            if (mustSeries == null) mustSeries = new java.util.LinkedHashSet<>();
-            mustSeries.add(seriesId);
-        }
-        return novelGalleryService.query(new NovelGalleryService.NovelGalleryQuery(
-                Math.max(0, page), Math.max(1, Math.min(size, 200)),
-                sort, order, search, NovelGalleryService.normalizeSearchType(searchType), r18, ai,
-                parseLongCsv(collectionIds),
-                parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
-                mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
-                mustSeries, parseLongCsv(notSeriesIds),
-                visibilityScope.restrictionFor(WorkType.NOVEL), uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore));
-    }
-
-    private static java.util.Set<Long> parseLongCsv(String csv) {
-        if (csv == null || csv.isBlank()) return null;
-        java.util.LinkedHashSet<Long> out = new java.util.LinkedHashSet<>();
-        for (String s : csv.split(",")) {
-            try { out.add(Long.parseLong(s.trim())); } catch (NumberFormatException ignored) {}
-        }
-        return out.isEmpty() ? null : out;
     }
 
     @GetMapping("/novels/authors")
     public NovelGalleryService.PagedAuthors listAuthors(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
@@ -134,6 +163,7 @@ public class NovelGalleryController {
 
     @GetMapping("/novels/series")
     public NovelGalleryService.PagedSeries listNovelSeries(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
@@ -154,6 +184,8 @@ public class NovelGalleryController {
                 visibilityScope.restrictionFor(WorkType.NOVEL)));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/{novelId}")
     public ResponseEntity<NovelGalleryService.NovelView> findNovel(@PathVariable long novelId,
                                                                     WorkVisibilityScope visibilityScope) {
@@ -166,6 +198,12 @@ public class NovelGalleryController {
      * 删除单本小说（含磁盘文件与全部 DB 留存数据）。仅管理员可用：{@code /api/gallery/} 由
      * {@code AuthFilter} 按 monitor 语义保护，访客邀请白名单只放行 GET，DELETE 永远命中管理员校验。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.delete.file-failed", "work.delete.path-unsafe"}))))
+    @KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/novel/{novelId}")
     public ResponseEntity<DeleteResponse> deleteNovel(@PathVariable long novelId) {
         boolean deleted = novelGalleryService.deleteNovel(novelId);
@@ -176,40 +214,95 @@ public class NovelGalleryController {
     }
 
     /** 批量删除小说。POST 不在访客白名单内，仅管理员可用。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "work.delete.path-unsafe"))))
+    @KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.selection.confirm-all", "error.request.param.invalid"}))))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = NovelBatchRequest.class), examples = {
+            @ExampleObject(name = "selectedNovels", value = "{\"ids\":[42,51]}")
+    }))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @PostMapping("/novels/delete")
-    public ResponseEntity<DeleteResponse> deleteNovels(@RequestBody NovelBatchRequest request) {
-        int deleted = novelGalleryService.deleteNovels(novelBatchService.resolveNovelIds(request));
+    public ResponseEntity<DeleteResponse> deleteNovels(@Valid @RequestBody NovelBatchRequest request) {
+        int deleted = novelGalleryService.deleteNovels(novelBatchService.resolveNovelIds(request, true));
         return ResponseEntity.ok(new DeleteResponse(deleted));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(allOf = NovelBatchRequest.class, requiredProperties = "collectionId"), examples = {
+            @ExampleObject(name = "selectedNovels", value = "{\"ids\":[42,51],\"collectionId\":3}"),
+            @ExampleObject(name = "seriesExceptOneNovel", value = "{\"mode\":\"filter\",\"filter\":{\"seriesIds\":[12]},\"excludeIds\":[51],\"collectionId\":3}")
+    }))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @PostMapping("/novels/collect")
     public ResponseEntity<BatchCollectResponse> collectNovels(
-            @RequestBody NovelBatchRequest request) {
-        List<Long> ids = novelBatchService.resolveNovelIds(request);
-        long collectionId = request == null || request.collectionId() == null ? 0L : request.collectionId();
-        int changed = novelBatchService.collectNovels(ids, collectionId);
+            @Valid @RequestBody NovelBatchRequest request) {
+        if (request.collectionId() == null) throw new HttpParameterException("body", "/collectionId", "required");
+        List<Long> ids = novelBatchService.resolveNovelIds(request, false);
+        int changed = novelBatchService.collectNovels(ids, request.collectionId());
         return ResponseEntity.ok(new BatchCollectResponse(ids.size(), changed));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = NovelBatchRequest.class), examples = {
+            @ExampleObject(name = "selectedNovels", value = "{\"ids\":[42,51]}"),
+            @ExampleObject(name = "seriesExceptOneNovel", value = "{\"mode\":\"filter\",\"filter\":{\"seriesIds\":[12]},\"excludeIds\":[51]}")
+    }))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @PostMapping("/novels/export/options")
-    public NovelBatchService.ExportOptions exportOptions(@RequestBody NovelBatchRequest request) {
-        return novelBatchService.exportOptions(novelBatchService.resolveNovelIds(request));
+    public NovelBatchService.ExportOptions exportOptions(@Valid @RequestBody NovelBatchRequest request) {
+        return novelBatchService.exportOptions(novelBatchService.resolveNovelIds(request, false));
     }
 
     /** 按选定版本批量导出小说归档。 */
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "200", links = {
+            @Link(name = "inspectArchive", operationRef = "#/paths/~1api~1archive~1status~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken")),
+            @Link(name = "downloadArchive", operationRef = "#/paths/~1api~1archive~1download~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken"))
+    }, content = @Content(mediaType = "application/json", schema = @Schema(implementation = BatchExportResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.selection.confirm-all", "NOVEL_EXPORT_REJECTED", "NOVEL_EXPORT_INVALID_REQUEST", UnsupportedArchiveFormatException.CODE}))))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "NOVEL_EXPORT_REJECTED"))))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "NOVEL_EXPORT_REJECTED"))))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "NOVEL_EXPORT_FAILED"))))
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-program-permissions", parseValue = true, value = """
+            {"route":"novel:library.export","submit":[{"permission":"novel:library.delete","when":{"keyFrom":"request#/deleteAfter","value":true},
+            "reportedIn":{"status":403,"pointer":"/programPermission"}}]}
+            """)))
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = NovelBatchRequest.class), examples = {
+            @ExampleObject(name = "originalsBySeries", value = "{\"mode\":\"filter\",\"filter\":{\"seriesIds\":[12]},\"excludeIds\":[51],\"format\":\"zip\",\"deleteAfter\":false}"),
+            @ExampleObject(name = "selectedNovelsById", value = "{\"ids\":[42,51],\"groupBy\":\"id\",\"format\":\"zip\"}"),
+            @ExampleObject(name = "translatedSelection", value = "{\"ids\":[42,51],\"variant\":\"en@ai\",\"format\":\"zip\",\"deleteAfter\":false}")
+    }))
+    @KnownErrorCodes(status = "400", value = "error.request.param.invalid")
     @PostMapping("/novels/export")
     public ResponseEntity<?> exportNovels(
-            @RequestBody NovelBatchRequest request) {
+            @Valid @RequestBody NovelBatchRequest request, HttpServletRequest httpRequest) {
+        boolean deleteAfter = request != null && request.deletesAfterExport();
+        if (deleteAfter && ProgramIdentity.from(httpRequest.getAttribute(ProgramIdentity.REQUEST_ATTRIBUTE))
+                .filter(program -> !program.permits(NovelPlugin.ID, "library.delete")).isPresent()) {
+            throw new MissingProgramPermissionException(NovelPlugin.ID + ":library.delete");
+        }
         String runId = java.util.UUID.randomUUID().toString();
         long started = System.nanoTime();
         log.info("Novel archive requested: runId={}, translated={}", runId,
                 request != null && request.variant() != null && !request.variant().isBlank());
         try {
             ArchiveExportResult result = novelBatchService.exportNovels(
-                    novelBatchService.resolveNovelIds(request),
+                    novelBatchService.resolveNovelIds(request, deleteAfter),
                     request == null ? null : request.groupBy(),
                     request == null ? null : request.format(),
-                    request != null && Boolean.TRUE.equals(request.deleteAfter()),
+                    deleteAfter,
                     request == null ? null : request.variant());
             log.info("Novel archive submitted: runId={}, works={}, files={}, outcome={}, durationMs={}",
                     runId, result.workCount(), result.fileCount(), result.emptyArchive() ? "empty" : "accepted",
@@ -219,6 +312,8 @@ public class NovelGalleryController {
             }
             return ResponseEntity.ok(new BatchExportResponse(
                     result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
+        } catch (HttpParameterException | WorkSelectionException | UnsupportedArchiveFormatException validation) {
+            throw validation;
         } catch (NovelBatchService.ExportRejected rejected) {
             log.info("Novel archive rejected: runId={}, reason={}", runId, rejected.reason());
             int status = switch (rejected.reason()) {
@@ -263,6 +358,8 @@ public class NovelGalleryController {
                 visibilityScope));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = NovelSeriesNavResponse.class), examples = @ExampleObject(value = "{\"seriesId\":null,\"seriesTitle\":null,\"currentOrder\":null,\"prev\":null,\"next\":null}")))
     @GetMapping("/novel/{novelId}/series")
     public ResponseEntity<NovelSeriesNavResponse> seriesNav(
             @PathVariable long novelId,
@@ -321,6 +418,8 @@ public class NovelGalleryController {
                 .toList();
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/{novelId}/cover")
     public ResponseEntity<byte[]> getNovelCover(@PathVariable long novelId,
                                                 WorkVisibilityScope visibilityScope) throws IOException {
@@ -340,6 +439,8 @@ public class NovelGalleryController {
      * 详情页据此在不访问 Pixiv 的前提下渲染正文；本地不存在该小说时 404。
      * 传入 {@code variant} 时返回该语言与引擎的译文（缺失则回退原文）；{@code lang} 兼容旧译文链接。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/{novelId}/content")
     public ResponseEntity<NovelContentResponse> getNovelContent(
             @PathVariable long novelId,
@@ -379,7 +480,7 @@ public class NovelGalleryController {
     public ResponseEntity<TranslatedTitlesResponse> translatedTitles(
             @RequestParam(required = false) String lang,
             @RequestParam(required = false) String variant,
-            @RequestParam(required = false) String ids,
+            @CsvIds @RequestParam(required = false) String ids,
             WorkVisibilityScope visibilityScope) {
         lang = variant == null ? lang : variant;
         if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
@@ -387,11 +488,7 @@ public class NovelGalleryController {
         }
         Map<Long, String> out = new java.util.LinkedHashMap<>();
         String langCode = lang.trim();
-        for (String token : ids.split(",")) {
-            String t = token.trim();
-            if (t.isEmpty()) continue;
-            long novelId;
-            try { novelId = Long.parseLong(t); } catch (NumberFormatException ignored) { continue; }
+        for (long novelId : HttpIds.queryIds("ids", ids)) {
             if (!workVisibilityService.isVisible(visibilityScope, WorkType.NOVEL, novelId)) continue;
             String translated = novelDatabase.getTranslationTitle(novelId, langCode);
             if (translated != null && !translated.isBlank()) {
@@ -405,6 +502,8 @@ public class NovelGalleryController {
      * 内嵌图片字节流，路径: {novelFolder}/embed_{imageId}.{ext}。
      * imageId 来自 [uploadedimage:id] 占位符；不存在时 404。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/{novelId}/embed/{imageId}")
     public ResponseEntity<byte[]> getNovelEmbeddedImage(@PathVariable long novelId,
                                                         @PathVariable String imageId,
@@ -437,6 +536,8 @@ public class NovelGalleryController {
         };
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/series/{seriesId}")
     public ResponseEntity<NovelSeriesDetailResponse> getSeries(@PathVariable long seriesId,
                                                                @RequestParam(required = false) String lang,
@@ -461,6 +562,8 @@ public class NovelGalleryController {
         return ResponseEntity.ok(toDetailResponse(series, translatedTitle, translatedDescription));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "404", content = @Content)
     @GetMapping("/novel/series/{seriesId}/cover")
     public ResponseEntity<byte[]> getSeriesCover(@PathVariable long seriesId,
                                                  WorkVisibilityScope visibilityScope) throws IOException {
@@ -524,20 +627,22 @@ public class NovelGalleryController {
         }
     }
 
-    public record NovelContentResponse(String content, String lang, boolean translated,
-                                       String translatedTitle, String translatedDescription) {}
+    public record NovelContentResponse(String content, @HttpApiNullable String lang, boolean translated,
+                                       @HttpApiNullable String translatedTitle, @HttpApiNullable String translatedDescription) {}
 
     public record TranslatedTitlesResponse(Map<Long, String> titles) {}
 
-    public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
-                                         NeighborView prev, NeighborView next) {}
+    public record NovelSeriesNavResponse(@HttpApiNullable Long seriesId, @HttpApiNullable String seriesTitle,
+            @HttpApiNullable Long currentOrder,
+                                         @HttpApiNullable NeighborView prev, @HttpApiNullable NeighborView next) {}
 
     public record NeighborView(long novelId, String title, long seriesOrder) {}
 
-    public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
-                                            String description, String coverExt, String coverFolder,
+    public record NovelSeriesDetailResponse(long seriesId, String title, @HttpApiNullable Long authorId, long updatedTime,
+                                            @HttpApiNullable String description, @HttpApiNullable String coverExt,
+                                            @HttpApiNullable String coverFolder,
                                             List<WorkTag> tags, List<String> translatedLanguages,
-                                            String translatedTitle, String translatedDescription) {}
+                                            @HttpApiNullable String translatedTitle, @HttpApiNullable String translatedDescription) {}
 
     private NovelSeriesDetailResponse toDetailResponse(NovelSeries series, String translatedTitle,
                                                        String translatedDescription) {

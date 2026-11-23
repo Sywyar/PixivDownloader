@@ -15,7 +15,13 @@ public record DownloadEvent(DownloadAttempt attempt, Phase phase, FailureReason 
     /** 不携带凭据或底层异常的失败原因。 */
     public enum FailureReason {
         /** 当前选择的凭据均不可用，保留队列等待恢复。 */
-        CREDENTIALS_UNAVAILABLE
+        CREDENTIALS_UNAVAILABLE,
+        /** 已有部分输出，须沿用原选页设置或显式要求整作替换。 */
+        OUTPUT_LAYOUT_CONFLICT,
+        /** 部分覆盖会与已登记的完整作品冲突。 */
+        OUTPUT_ALREADY_REGISTERED,
+        /** 提交期间，提供方未找到请求的作品。 */
+        WORK_NOT_FOUND
     }
     /**
      * 构造没有附加失败原因的事件。

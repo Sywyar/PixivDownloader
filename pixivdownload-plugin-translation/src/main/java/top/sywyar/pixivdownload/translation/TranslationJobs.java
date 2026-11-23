@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.translation;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -20,9 +23,16 @@ public final class TranslationJobs {
             this(requestId, request, seriesId, allChapters, mergeAfter, mergeFormat, false);
         }
     }
-    public record View(UUID id, String state, String reason, String engine, String language, String variantKey,
-                       int completed, int total, int savedSteps, int ok, int skipped, String outcome,
-                       String runId, long elapsedSeconds, boolean allChapters) {}
+    enum CompletedOutcome { OK, SKIPPED, SAME_LANGUAGE, EMPTY }
+    private static final Set<String> COMPLETED_OUTCOMES = Arrays.stream(CompletedOutcome.values())
+            .map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet());
+
+    public record View(UUID id, @Schema(allowableValues = {"QUEUED", "RUNNING", "PAUSING", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED"}) String state,
+                       @HttpApiNullable @Schema(examples = {"translation.interrupted", "translation.paused", "translation.configuration-changed"}) String reason,
+                       String engine, @HttpApiNullable String language,
+            @HttpApiNullable String variantKey,
+                       int completed, int total, int savedSteps, int ok, int skipped, @HttpApiNullable @Schema(implementation = CompletedOutcome.class) String outcome,
+                       @HttpApiNullable String runId, long elapsedSeconds, boolean allChapters) {}
     public static final class Job {
         public UUID id;
         public Submission submission;
@@ -199,7 +209,7 @@ public final class TranslationJobs {
                             request.targetLanguage(), request.segmentSize(), request.overwrite(), job.language,
                             request.glossaryId(), request.translateBody(), request.translateTitle(), request.translateDescription(), job.engine);
                     outcome = translated.status().name();
-                    if (!List.of("OK", "SKIPPED", "SAME_LANGUAGE", "EMPTY").contains(outcome))
+                    if (!COMPLETED_OUTCOMES.contains(outcome))
                         throw new IllegalStateException("translation.remote-error");
                 }
                 synchronized (job) {

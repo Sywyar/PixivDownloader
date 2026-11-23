@@ -14,6 +14,9 @@ public final class AcquisitionCredentialResolver {
      */
     public static final int MAX_LENGTH = 16_384;
 
+    /** 操作需要可识别的采集账户时使用的机器码。 */
+    public static final String REQUIRED_CODE = "ACQUISITION_CREDENTIAL_REQUIRED";
+
     private AcquisitionCredentialResolver() {
     }
 
@@ -29,7 +32,7 @@ public final class AcquisitionCredentialResolver {
         }
         String normalized = acquisitionCredential.trim();
         if (normalized.length() > MAX_LENGTH) {
-            throw new IllegalArgumentException("Acquisition credential is too long");
+            throw new HttpParameterException("header", HEADER_NAME, "out_of_range");
         }
         return normalized.isEmpty() ? null : normalized;
     }

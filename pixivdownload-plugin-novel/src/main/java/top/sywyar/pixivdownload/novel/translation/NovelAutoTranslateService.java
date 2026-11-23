@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.translation;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
 import top.sywyar.pixivdownload.translation.api.NovelTranslationOperations;
 
@@ -7,8 +9,9 @@ import top.sywyar.pixivdownload.translation.api.NovelTranslationOperations;
 public class NovelAutoTranslateService {
     private final PluginServices services;
     public NovelAutoTranslateService(PluginServices services) { this.services = services; }
-    public record StatusView(String phase, long elapsedSeconds, int seriesPending, String langCode,
-                             boolean done, boolean failed, String failureReason) {}
+    public record StatusView(@Schema(examples = {"QUEUED", "TRANSLATING", "SAME_LANGUAGE", "DONE", "FAILED"}) String phase,
+                             long elapsedSeconds, int seriesPending, @HttpApiNullable String langCode,
+                             boolean done, boolean failed, @HttpApiNullable @Schema(examples = {"translation.paused", "translation.cancelled", "translation.interrupted"}) String failureReason) {}
     public void submit(long id, Long series, String target, int size, boolean merge, String format) {
         services.require(NovelTranslationService.KEY).submit(new NovelTranslationOperations.AutoRequest(id, series, target, size, merge, format));
     }

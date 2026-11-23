@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @RequiredArgsConstructor
 public class CsrfProtectionFilter extends OncePerRequestFilter {
+    public static final String ERROR_CODE = "auth.csrf.invalid";
 
     private static final Pattern COLLECTION_ICON_PATH = Pattern.compile("^/api/collections/\\d+/icon$");
     private static final Pattern PLUGIN_MARKET_INSTALL_PATH =
@@ -78,10 +79,11 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
 
     /** 生成操作入口复用过滤链的同源判定，不另建来源白名单。 */
     public boolean allowsWrite(HttpServletRequest request) {
-        return !requiresSameOriginCheck(request) || hasSameOriginSignal(request)
+        return !requiresSameOriginCheck(request.getMethod()) || hasSameOriginSignal(request)
                 || ((isTrustedUserscriptSource(request) && isUserscriptWriteEndpoint(request)
                     || isDeclaredScriptWrite(request)) && !hasAmbientCredential(request))
-                || (!requiresExplicitOriginSignal(request) && !hasBrowserOriginSignal(request) && !hasAmbientCredential(request));
+                || (!requiresExplicitOriginSignal(request.getMethod(), SafeRequestPath.resolve(request).orElse(null))
+                    && !hasBrowserOriginSignal(request) && !hasAmbientCredential(request));
     }
 
     private boolean isDeclaredScriptWrite(HttpServletRequest request) {
@@ -98,8 +100,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
         } catch (IllegalArgumentException invalid) { return false; }
     }
 
-    static boolean requiresSameOriginCheck(HttpServletRequest request) {
-        String method = request.getMethod();
+    public static boolean requiresSameOriginCheck(String method) {
         if (method == null) {
             return false;
         }
@@ -107,9 +108,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
         return !Set.of("GET", "HEAD", "OPTIONS").contains(normalizedMethod);
     }
 
-    private static boolean requiresExplicitOriginSignal(HttpServletRequest request) {
-        String method = request.getMethod();
-        String path = SafeRequestPath.resolve(request).orElse(null);
+    /** Whether this method and normalized path require an origin signal even from a native client. */
+    public static boolean requiresExplicitOriginSignal(String method, String path) {
         if (method == null || path == null) {
             return false;
         }
@@ -246,8 +246,8 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             return;
         }
         String message = messages.getOrDefault(localeResolver.resolveLocale(request),
-                "auth.csrf.invalid", "Request origin verification failed");
-        ApiErrorWriter.write(response, HttpServletResponse.SC_FORBIDDEN, "auth.csrf.invalid", message);
+                ERROR_CODE, "Request origin verification failed");
+        ApiErrorWriter.write(response, HttpServletResponse.SC_FORBIDDEN, ERROR_CODE, message);
     }
 
     /** 非 API 请求明确接受 HTML 时交给容器错误页；来源校验本身不因此放宽。 */

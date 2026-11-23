@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.download;
 
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
@@ -24,8 +26,19 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 @Component
 public final class DownloadLifecycleRegistry implements DownloadLifecycle, DownloadTasks {
     public record Hook(int order, String name, DownloadOptionsHook callback) {}
+    public record SubmissionType(String pluginId, String schemaJson) {}
     public record Contribution(List<DownloadObserver> observers, List<DownloadAdmissionPolicy> policies,
-                               List<Hook> hooks, Map<String, DownloadSubmissionHandler> handlers) {
+                               List<Hook> hooks, Map<String, DownloadSubmissionHandler> handlers,
+                               Map<String, String> inputSchemas, java.util.function.BooleanSupplier accepting) {
+        public Contribution(List<DownloadObserver> observers, List<DownloadAdmissionPolicy> policies,
+                            List<Hook> hooks, Map<String, DownloadSubmissionHandler> handlers,
+                            Map<String, String> inputSchemas) {
+            this(observers, policies, hooks, handlers, inputSchemas, () -> true);
+        }
+        public Contribution(List<DownloadObserver> observers, List<DownloadAdmissionPolicy> policies,
+                            List<Hook> hooks, Map<String, DownloadSubmissionHandler> handlers) {
+            this(observers, policies, hooks, handlers, Map.of());
+        }
         public Contribution(List<DownloadObserver> observers, List<DownloadAdmissionPolicy> policies) {
             this(observers, policies, List.of(), Map.of());
         }
@@ -34,6 +47,10 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
             policies = List.copyOf(policies);
             hooks = List.copyOf(hooks);
             handlers = Map.copyOf(handlers);
+            inputSchemas = Map.copyOf(inputSchemas);
+            Objects.requireNonNull(accepting);
+            if (!handlers.keySet().containsAll(inputSchemas.keySet()))
+                throw new IllegalArgumentException("download schema without submission handler");
         }
     }
 
@@ -69,6 +86,18 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
         snapshot = Collections.unmodifiableMap(next);
     }
 
+    /** API reference readers see only owners still accepting new calls, including during drain. */
+    public Map<String, SubmissionType> submissionTypes() {
+        var types = new java.util.TreeMap<String, SubmissionType>();
+        snapshot.forEach((owner, contribution) -> {
+            if (!contribution.handlers().isEmpty() && contribution.accepting().getAsBoolean()) {
+                contribution.handlers().keySet().forEach(type ->
+                        types.put(type, new SubmissionType(owner.pluginId(), contribution.inputSchemas().get(type))));
+            }
+        });
+        return Collections.unmodifiableMap(types);
+    }
+
     /** 累计失败诊断不保存异常或插件引用。 */
     public long observerFailureCount() {
         return observerFailures.get();
@@ -85,10 +114,24 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     }
 
     @Override
+    public void reportProgress(DownloadAttempt attempt, QueueTaskTracker.Task task, DownloadTaskProgress progress) {
+        tasks.reportProgress(attempt, task, progress);
+    }
+
+    @Override
     public void track(DownloadAttempt attempt, QueueTaskTracker.Task task, String ownerUuid,
                       String queueType, String title, boolean queued) {
+        track(attempt, task, ownerUuid, queueType, title, queued, null);
+    }
+
+    @Override
+    public void track(DownloadAttempt attempt, QueueTaskTracker.Task task, String ownerUuid,
+                      String queueType, String title, boolean queued, java.nio.file.Path outputDirectory) {
         database.requireAvailable();
-        tasks.register(attempt, ownerUuid, queueType, title);
+        if (outputDirectory != null && !outputDirectory.isAbsolute())
+            throw new IllegalArgumentException("Task output directory must be absolute");
+        tasks.register(attempt, ownerUuid, queueType, title,
+                outputDirectory == null ? null : outputDirectory.normalize().toString());
         tasks.attach(attempt, task);
         task.onTermination(() -> publish(new DownloadEvent(attempt, task.isCancellationRequested()
                 ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED)));
@@ -124,17 +167,45 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     @Override
     public Receipt submit(DownloadSubmission submission, String credential, RequestOwnerIdentity owner) {
         if (!database.available()) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
-        var reservation = tasks.reserve(submission, credential, owner);
-        if (reservation.duplicate()) return new Receipt(reservation.task(), true);
-        DownloadAttempt attempt = reservation.task().attempt();
         DownloadSubmissionHandler handler = snapshot.values().stream()
                 .map(c -> c.handlers().get(submission.workType())).filter(Objects::nonNull).findFirst().orElse(null);
+        var reservation = tasks.reserve(submission, credential, owner, handler != null);
+        return executeSubmission(submission, credential, owner, reservation, handler);
+    }
+
+    /** 当前具有提交能力的 owner，不保留插件对象。 */
+    public java.util.Set<String> submissionOwners() {
+        return snapshot.entrySet().stream().filter(entry -> !entry.getValue().handlers().isEmpty())
+                .map(entry -> entry.getKey().pluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    @Override
+    public Receipt submitForProgram(DownloadSubmission submission, String credential,
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity program) {
+        Objects.requireNonNull(program, "program");
+        if (!program.permits("core", "downloads.create"))
+            throw DownloadTaskException.missingCreatePermission("core");
+        var publication = snapshot.entrySet().stream()
+                .filter(entry -> entry.getValue().handlers().containsKey(submission.workType()))
+                .findFirst().orElseThrow(() -> new DownloadTaskException(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        if (!program.permits(publication.getKey().pluginId(), "downloads.create"))
+            throw DownloadTaskException.missingCreatePermission(publication.getKey().pluginId());
+        if (!database.available()) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
+        var reservation = tasks.reserveForProgram(submission, credential, program);
+        return executeSubmission(submission, credential, RequestOwnerIdentity.owner(program.id().toString()),
+                reservation, publication.getValue().handlers().get(submission.workType()));
+    }
+
+    private Receipt executeSubmission(DownloadSubmission submission, String credential, RequestOwnerIdentity owner,
+                                      DownloadTaskRegistry.Reservation reservation, DownloadSubmissionHandler handler) {
+        if (reservation.duplicate()) return new Receipt(reservation.task(), true);
+        DownloadAttempt attempt = reservation.task().attempt();
         try {
-            if (handler == null) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
             publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
             checkAdmission(attempt);
             database.requireAvailable();
-            handler.submit(submission, attempt, credential);
+            var failure = handler.submitAndReportFailure(submission, attempt, credential);
+            if (failure != null) throw new DownloadTaskException(failure);
             database.requireAvailable();
             var result = tasks.find(attempt.attemptId(), owner).orElseThrow();
             if (result.phase() == DownloadEvent.Phase.ACCEPTED)
@@ -143,7 +214,9 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
         } catch (VirtualMachineError | ThreadDeath fatal) {
             throw fatal;
         } catch (Throwable failure) {
-            publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
+            var reason = failure instanceof DownloadTaskException known && known.code() == DownloadTaskException.Code.WORK_NOT_FOUND
+                    ? DownloadEvent.FailureReason.WORK_NOT_FOUND : null;
+            publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED, reason));
             if (failure instanceof DownloadTaskException known) throw known;
             if (failure instanceof ExternalCapabilityUnavailableException
                     || failure instanceof top.sywyar.pixivdownload.core.database.DatabaseUnavailableException)
@@ -159,6 +232,10 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public Snapshot snapshot(RequestOwnerIdentity owner) { return tasks.snapshot(owner); }
+
+    @Override public HistoryPage history(HistoryCursor before, int limit, RequestOwnerIdentity owner) {
+        return tasks.history(before, limit, owner);
+    }
 
     @Override
     public CancelResult cancel(UUID taskId, RequestOwnerIdentity owner) { return tasks.cancel(taskId, owner); }

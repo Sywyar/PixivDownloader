@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
 import top.sywyar.pixivdownload.plugin.api.service.ServiceAccessException;
 import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
@@ -794,7 +795,9 @@ public final class ExternalCapabilityInvocationRegistry {
 
     public void serviceBindingsChanged() { bindings.changed(); }
 
-    public boolean serviceBindingsPending(String pluginId) { return bindings.pending(pluginId); }
+    public boolean serviceBindingsPending(String pluginId) { return bindings.pending(pluginId, false); }
+
+    public boolean serviceBindingsDraining(String pluginId) { return bindings.pending(pluginId, true); }
 
     /** 只从同一注册中心读取当前关系，不向普通插件开放全局扫描。 */
     public ServiceRelationsSnapshot serviceRelations() {
@@ -838,7 +841,7 @@ public final class ExternalCapabilityInvocationRegistry {
     }
 
     public record ServiceRelationsSnapshot(List<ServiceRelations> relations, boolean truncated) {}
-    public record ServiceRelations(ServicePublication owner, String phase,
+    public record ServiceRelations(ServicePublication owner, @Schema(implementation = Phase.class) String phase,
             List<ServiceBindingDiagnostic.Dependency> imports, List<ServiceBindingDiagnostic.Dependency> exports,
             List<ServiceBindingDiagnostic> bindings, boolean truncated) {}
 

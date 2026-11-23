@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.web;
 
 import java.util.Set;
+import java.util.Map;
 
 /**
  * 插件声明的路由与访问策略。
@@ -9,6 +10,7 @@ import java.util.Set;
  * @param accessPolicy             访问策略（允许的身份组合，见 {@link AccessPolicy}）
  * @param methods                  允许的 HTTP 方法；空集合表示全部方法
  * @param visibleDuringMaintenance 维护窗口（503）期间是否仍可访问
+ * @param programPermissions 程序身份按方法显式授予的权限，空映射表示不开放
  * @param trustedWriteOrigins 允许无环境 cookie 的扩展脚本写入来源；不改变路由鉴权
  */
 public record WebRouteContribution(
@@ -16,7 +18,8 @@ public record WebRouteContribution(
         AccessPolicy accessPolicy,
         Set<HttpMethod> methods,
         boolean visibleDuringMaintenance,
-        Set<String> trustedWriteOrigins
+        Set<String> trustedWriteOrigins,
+        Map<HttpMethod, ProgramPermission> programPermissions
 ) {
     /**
      * 创建 {@code WebRouteContribution} 实例。
@@ -26,10 +29,22 @@ public record WebRouteContribution(
      * @param methods 方法集合
      * @param visibleDuringMaintenance 维护窗口期间是否可见
      * @param trustedWriteOrigins 最多四个精确 HTTPS origin，仅适用于无 cookie 的 ADMIN/LOCAL POST
+     * @param programPermissions 程序可调用的方法与权限
      */
     public WebRouteContribution {
         methods = Set.copyOf(methods);
         trustedWriteOrigins = Set.copyOf(trustedWriteOrigins);
+        programPermissions = Map.copyOf(programPermissions);
+        if (!programPermissions.isEmpty()) {
+            if (!pathPattern.startsWith("/api/") || pathPattern.contains("**")
+                    || pathPattern.startsWith("/api/gui/") || !accessPolicy.supportsUiVisibility())
+                throw new IllegalArgumentException("Program permissions require explicit business API routes");
+            for (HttpMethod method : programPermissions.keySet()) {
+                if ((!methods.isEmpty() && !methods.contains(method))
+                        || method == HttpMethod.OPTIONS)
+                    throw new IllegalArgumentException("Invalid program permission method");
+            }
+        }
         if (!trustedWriteOrigins.isEmpty()) {
             if ((accessPolicy != AccessPolicy.ADMIN && accessPolicy != AccessPolicy.LOCAL)
                     || pathPattern.contains("*") || !methods.equals(Set.of(HttpMethod.POST)) || trustedWriteOrigins.size() > 4)
@@ -42,6 +57,29 @@ public record WebRouteContribution(
                     throw new IllegalArgumentException("Invalid script origin");
             }
         }
+    }
+
+    /**
+     * 创建未授权程序访问的路由，保留原有浏览器与脚本策略。
+     * @param pathPattern 路径模式
+     * @param accessPolicy 访问策略
+     * @param methods 方法集合
+     * @param visibleDuringMaintenance 维护期间是否可见
+     * @param trustedWriteOrigins 可信脚本来源
+     */
+    public WebRouteContribution(String pathPattern, AccessPolicy accessPolicy, Set<HttpMethod> methods,
+                                boolean visibleDuringMaintenance, Set<String> trustedWriteOrigins) {
+        this(pathPattern, accessPolicy, methods, visibleDuringMaintenance, trustedWriteOrigins, Map.of());
+    }
+
+    /**
+     * 显式声明程序可调用的方法及权限；未声明的方法继续拒绝程序身份。
+     * @param permissions 方法与局部权限映射
+     * @return 带程序权限的新路由
+     */
+    public WebRouteContribution withProgramPermissions(Map<HttpMethod, ProgramPermission> permissions) {
+        return new WebRouteContribution(pathPattern, accessPolicy, methods, visibleDuringMaintenance,
+                trustedWriteOrigins, permissions);
     }
 
     /**

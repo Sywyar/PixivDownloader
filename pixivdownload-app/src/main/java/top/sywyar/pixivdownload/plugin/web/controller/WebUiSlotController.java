@@ -1,5 +1,13 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -17,6 +25,7 @@ import java.util.Map;
  * Host pages declare stable {@code data-qt-slot} anchors and load only active
  * plugin modules reported here, so disabled plugins leave no UI entry behind.
  */
+@HttpApiGroup("core-extensions")
 @RestController
 @RequiredArgsConstructor
 public class WebUiSlotController {
@@ -26,6 +35,11 @@ public class WebUiSlotController {
     private final top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications;
 
     /** 只有 owner 显式公开的页面目标可以匿名取得固定呈现，普通业务槽位仍走原鉴权。 */
+    @Parameter(name = "revision", in = ParameterIn.QUERY, required = true, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content)
     @GetMapping("/api/web/page-slots/{page}/{target}")
     public org.springframework.http.ResponseEntity<List<UiSlotView>> pageSlots(@PathVariable String page,
             @PathVariable String target, jakarta.servlet.http.HttpServletRequest request) {
@@ -61,6 +75,6 @@ public class WebUiSlotController {
 
     public record UiSlotView(String slotId, String target, String moduleUrl, int order,
                              Map<String, String> metadata, String i18nNamespace, String publication,
-                             top.sywyar.pixivdownload.plugin.api.web.page.PageInteraction.Participant participation) {
+                             @HttpApiNullable top.sywyar.pixivdownload.plugin.api.web.page.PageInteraction.Participant participation) {
     }
 }

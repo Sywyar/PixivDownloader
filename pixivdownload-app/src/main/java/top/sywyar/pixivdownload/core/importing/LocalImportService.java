@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.importing;
 
+import top.sywyar.pixivdownload.common.InvalidPage;
+
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,12 @@ import java.util.concurrent.*;
 @Slf4j
 @Service
 public final class LocalImportService implements LocalArtworkImports, AutoCloseable {
+    static final String INVALID_IMPORT_PAGE = "INVALID_IMPORT_PAGE";
+    static final String IMPORT_BUSY = "IMPORT_BUSY";
+    static final String IMPORT_PREVIEW_NOT_READY = "IMPORT_PREVIEW_NOT_READY";
+    static final String IMPORT_TASK_EXPIRED = "IMPORT_TASK_EXPIRED";
+    static final String IMPORT_UNAVAILABLE = "IMPORT_UNAVAILABLE";
+
     private static final Set<String> EXTENSIONS = Set.of("jpg", "jpeg", "png", "apng", "gif", "webp", "webm", "mp4", "zip");
     private final LocalImportConfig config;
     private final WorkFileImporter importer;
@@ -40,7 +48,7 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
 
     @Override public synchronized Snapshot scan(Request request) {
         requireOpen();
-        if (task != null && busy(task.phase)) throw new IllegalStateException("IMPORT_BUSY");
+        if (task != null && busy(task.phase)) throw new IllegalStateException(IMPORT_BUSY);
         List<String> templates = new ArrayList<>(request.templates());
         if (templates.isEmpty()) presets().stream().map(Preset::template).forEach(templates::add);
         if (templates.isEmpty()) throw new IllegalArgumentException("IMPORT_NO_TEMPLATES");
@@ -56,7 +64,7 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
 
     @Override public synchronized List<Item> items(UUID id, int offset, int limit) {
         Task current = requireTask(id);
-        if (offset < 0 || limit < 1 || limit > 100) throw new IllegalArgumentException("INVALID_IMPORT_PAGE");
+        InvalidPage.check(offset, limit, 100, INVALID_IMPORT_PAGE);
         int start = Math.min(offset, current.items.size());
         return List.copyOf(current.items.subList(start, (int) Math.min((long) start + limit, current.items.size())));
     }
@@ -66,7 +74,7 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
         Task current = requireTask(id);
         if (current.phase == Phase.IMPORTING || current.phase == Phase.CANCELLING || current.phase == Phase.COMPLETED)
             return snapshot(current);
-        if (current.phase != Phase.READY) throw new IllegalStateException("IMPORT_PREVIEW_NOT_READY");
+        if (current.phase != Phase.READY) throw new IllegalStateException(IMPORT_PREVIEW_NOT_READY);
         current.phase = Phase.IMPORTING;
         worker.execute(() -> importFiles(current));
         return snapshot(current);
@@ -252,9 +260,9 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
         if (current.cancelled || Thread.currentThread().isInterrupted()) throw new CancellationException();
     }
     private static boolean busy(Phase phase) { return phase == Phase.SCANNING || phase == Phase.IMPORTING || phase == Phase.CANCELLING; }
-    private void requireOpen() { if (closed) throw new IllegalStateException("IMPORT_UNAVAILABLE"); }
+    private void requireOpen() { if (closed) throw new IllegalStateException(IMPORT_UNAVAILABLE); }
     private Task requireTask(UUID id) {
-        if (task == null || !task.id.equals(id)) throw new IllegalArgumentException("IMPORT_TASK_EXPIRED");
+        if (task == null || !task.id.equals(id)) throw new IllegalArgumentException(IMPORT_TASK_EXPIRED);
         return task;
     }
     private static Snapshot snapshot(Task t) {

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRepository;
 import top.sywyar.pixivdownload.novel.db.series.NovelSeriesCatalogRow;
@@ -60,8 +61,11 @@ public class NovelGalleryService {
                 result.page(), result.size(), result.totalPages());
     }
 
-    public List<Long> findNovelIds(NovelGalleryQuery q) {
-        return toIds(novelOwnedWorkSearch.searchAll(toWorkQuery(q), privateContentQuery(q)));
+    public List<Long> findNovelIds(NovelGalleryQuery q, boolean requireFilter) {
+        WorkQuery query = toWorkQuery(q);
+        String content = privateContentQuery(q);
+        if (requireFilter && content == null) query.requireSelectionFilter();
+        return toIds(novelOwnedWorkSearch.searchAll(query, content));
     }
 
     public NovelView find(long novelId) {
@@ -255,8 +259,8 @@ public class NovelGalleryService {
                 .order(q.order())
                 .search(privateContentSearch ? null : q.search())
                 .searchType(privateContentSearch ? "all" : q.searchType())
-                .r18(q.r18())
-                .ai(q.ai())
+                .r18(normalizeAge(q.r18()))
+                .ai(normalizeAi(q.ai()))
                 .collectionIds(toList(q.collectionIds()))
                 .tagIds(toList(q.tagIds()))
                 .excludedTagIds(toList(q.notTagIds()))
@@ -272,6 +276,21 @@ public class NovelGalleryService {
                 .sourceTimeField(q.sourceTimeField())
                 .sourceTimeRanges(q.createdFrom(), q.createdBefore(), q.updatedFrom(), q.updatedBefore(), q.reuploadedFrom(), q.reuploadedBefore())
                 .build();
+    }
+
+    private static String normalizeAge(String value) {
+        if (value == null) return null;
+        String token = value.toLowerCase(Locale.ROOT);
+        return token.equals("sfw") ? "no" : token;
+    }
+
+    private static String normalizeAi(String value) {
+        if (value == null) return null;
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "only", "yes" -> "yes";
+            case "exclude", "no" -> "no";
+            default -> "any";
+        };
     }
 
     private static String privateContentQuery(NovelGalleryQuery query) {
@@ -408,24 +427,24 @@ public class NovelGalleryService {
             String folder,
             String extensions,
             long time,
-            Integer xRestrict,
-            Boolean isAi,
-            Long authorId,
-            String authorName,
-            String description,
-            Long seriesId,
-            Long seriesOrder,
-            Integer wordCount,
-            Integer textLength,
-            Integer readingTimeSeconds,
-            Integer pageCount,
-            Boolean isOriginal,
-            String xLanguage,
+            @HttpApiNullable Integer xRestrict,
+            @HttpApiNullable Boolean isAi,
+            @HttpApiNullable Long authorId,
+            @HttpApiNullable String authorName,
+            @HttpApiNullable String description,
+            @HttpApiNullable Long seriesId,
+            @HttpApiNullable Long seriesOrder,
+            @HttpApiNullable Integer wordCount,
+            @HttpApiNullable Integer textLength,
+            @HttpApiNullable Integer readingTimeSeconds,
+            @HttpApiNullable Integer pageCount,
+            @HttpApiNullable Boolean isOriginal,
+            @HttpApiNullable String xLanguage,
             List<WorkTag> tags,
-            String coverExt,
+            @HttpApiNullable String coverExt,
             List<String> embeddedImageIds,
             List<String> translatedLanguages,
-            Long uploadTime, Long createTime, Long updateTime, Long reuploadTime) {
+            @HttpApiNullable Long uploadTime, @HttpApiNullable Long createTime, @HttpApiNullable Long updateTime, @HttpApiNullable Long reuploadTime) {
         public NovelView(long novelId,
             String title,
             String folder,

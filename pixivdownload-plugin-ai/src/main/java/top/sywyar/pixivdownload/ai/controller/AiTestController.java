@@ -1,12 +1,14 @@
 package top.sywyar.pixivdownload.ai.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
@@ -14,8 +16,9 @@ import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.ai.probe.ConnectivityProbeRequest;
-import top.sywyar.pixivdownload.web.LocalRequestTrust;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 /**
  * GUI 配置页"测试 AI 连接"按钮对应的 REST 端点。
@@ -26,8 +29,8 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
  * 接收 GUI 当前表单的 AI 设置 DTO（含 API Key，仅在 localhost 同进程内传递），用一条极短的探测 prompt 调用
  * {@link AiChatClient#chatTest}，把模型回复摘录 / 失败摘要原样回给 GUI；失败摘要绝不含 API Key。
  */
+@HttpApiGroup("ai-ai")
 @RestController
-@RequestMapping("/api/gui")
 @RequiredArgsConstructor
 public class AiTestController {
 
@@ -39,13 +42,28 @@ public class AiTestController {
 
     private final AiChatClient aiService;
 
-    @PostMapping("/ai-test")
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = AiTestResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/gui/ai-test")
     public ResponseEntity<?> test(@RequestBody AiTestRequest body,
                                   HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
+        return testSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = AiTestResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/admin/ai/test")
+    public ResponseEntity<?> testAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody AiTestRequest body) {
+        return testSettings(body);
+    }
+
+    private ResponseEntity<?> testSettings(AiTestRequest body) {
         if (body == null) {
             return ResponseEntity.badRequest()
                     .body(ApiErrorResponse.of("ai.settings.missing", "missing settings"));
@@ -55,10 +73,14 @@ public class AiTestController {
         try {
             AiChatResult result = aiService.chatTest(ConnectivityProbeRequest.CALL_TYPE,
                     settings, PROBE.toMessages(), AiChatOptions.defaults());
-            return ResponseEntity.ok(AiTestResponse.ok(truncate(result.content())));
+            return ResponseEntity.ok(AiTestResponse.ok(truncate(redact(result.content(), settings.apiKey()))));
         } catch (AiClientException e) {
             return ResponseEntity.ok(AiTestResponse.fail(e.getMessage()));
         }
+    }
+
+    private static String redact(String reply, String secret) {
+        return reply == null || secret == null || secret.isBlank() ? reply : reply.replace(secret, "[redacted]");
     }
 
     private static String truncate(String reply) {

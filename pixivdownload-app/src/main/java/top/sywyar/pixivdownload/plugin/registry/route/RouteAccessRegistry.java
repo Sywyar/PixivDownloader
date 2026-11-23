@@ -241,7 +241,10 @@ public class RouteAccessRegistry {
         AccessPolicy first = candidates.get(0).route().accessPolicy();
         for (RegisteredRoute registered : candidates) {
             if (registered.route().accessPolicy() != first
-                    || !registered.route().trustedWriteOrigins().equals(candidates.get(0).route().trustedWriteOrigins())) {
+                    || !registered.route().trustedWriteOrigins().equals(candidates.get(0).route().trustedWriteOrigins())
+                    || !registered.route().programPermissions().equals(candidates.get(0).route().programPermissions())
+                    || (!registered.route().programPermissions().isEmpty()
+                        && !registered.pluginId().equals(candidates.get(0).pluginId()))) {
                 throw new IllegalStateException("ambiguous route resolution for " + method + " " + path + ": "
                         + candidates.stream()
                                 .map(candidate -> candidate.route().pathPattern() + "="
@@ -291,10 +294,19 @@ public class RouteAccessRegistry {
         for (RegisteredRoute registered : registeredRoutes) {
             WebRouteContribution existing = registered.route();
             if (!methodsOverlap(existing, proposed) || (existing.accessPolicy() == proposed.accessPolicy()
-                    && existing.trustedWriteOrigins().equals(proposed.trustedWriteOrigins()))) {
+                    && existing.trustedWriteOrigins().equals(proposed.trustedWriteOrigins())
+                    && existing.programPermissions().equals(proposed.programPermissions())
+                    && (existing.programPermissions().isEmpty() || registered.pluginId().equals(pluginId)))) {
                 continue;
             }
             boolean samePattern = existing.pathPattern().equals(proposed.pathPattern());
+            // 宽浏览器策略不声明程序权限时，允许同策略的具体业务 owner 声明自己的权限。
+            boolean browserFallback = existing.pathPattern().endsWith("**") && existing.programPermissions().isEmpty()
+                    || proposed.pathPattern().endsWith("**") && proposed.programPermissions().isEmpty();
+            if (!samePattern && browserFallback && existing.accessPolicy() == proposed.accessPolicy()
+                    && existing.trustedWriteOrigins().equals(proposed.trustedWriteOrigins())) {
+                continue;
+            }
             boolean crossPluginOverlap = !registered.pluginId().equals(pluginId)
                     && pathPatternsOverlap(existing.pathPattern(), proposed.pathPattern());
             if (samePattern || crossPluginOverlap) {

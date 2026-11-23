@@ -30,8 +30,10 @@ class GeneratedRemoteOperationsTest {
     public record Value(String text) { }
     private static final ServiceKey<Api> KEY = new ServiceKey<>("remote-test-contract", Api.class);
 
-    @Test @DisplayName("读取请求体时 provider 被替换，旧请求不能触达新 Bean")
-    void replacementWhileReadingBody() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("会话与程序调用均保留权限、CSRF 和精确服务租约")
+    void replacementWhileReadingBody(boolean programRequest) throws Exception {
         var admission = new PluginLifecycleState();
         var registry = new ExternalCapabilityInvocationRegistry(admission);
         var consumer = registry.allocatePreparation("consumer", "consumer", 1); registry.installPreparation(consumer);
@@ -42,11 +44,12 @@ class GeneratedRemoteOperationsTest {
         registry.prepareService(provider, KEY, input -> { oldCalls.incrementAndGet(); return input; });
         var publication = registry.publish(provider); admission.set("provider", PluginRuntimePhase.STARTED);
         var identities = mock(RequestOwnerIdentityResolver.class);
-        when(identities.isAdminAuthenticated(any())).thenReturn(true);
+        when(identities.isAdminAuthenticated(any())).thenReturn(!programRequest);
         var csrf = mock(CsrfProtectionFilter.class); when(csrf.allowsWrite(any())).thenReturn(true);
         var routes = mock(RouteAccessRegistry.class);
         when(routes.resolve("/api/remote-test", HttpMethod.POST)).thenReturn(Optional.of(new RouteAccessRegistry.RegisteredRoute(
-                "consumer", new WebRouteContribution("/api/remote-test", AccessPolicy.ADMIN, Set.of(HttpMethod.POST), false))));
+                "consumer", new WebRouteContribution("/api/remote-test", AccessPolicy.ADMIN, Set.of(HttpMethod.POST), false)
+                        .withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("execute", "permission.execute"))))));
         var messages = mock(AppMessages.class); var locales = mock(AppLocaleResolver.class);
         var remote = new GeneratedRemoteOperations(identities, routes, csrf, messages, locales).create("consumer", services);
 
@@ -81,12 +84,26 @@ class GeneratedRemoteOperationsTest {
             var valid = new MockHttpServletRequest("POST", "/api/remote-test");
             valid.setContentType("application/json"); valid.addHeader("X-Pixiv-Contract", identity);
             valid.setContent("{\"text\":\"safe\"}".getBytes(StandardCharsets.UTF_8));
+            var program = new ProgramIdentity(UUID.randomUUID(), Set.of("consumer:execute"));
+            if (programRequest) {
+                valid.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, program);
+                request.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, program);
+            }
             org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
                     new org.springframework.web.context.request.ServletRequestAttributes(valid));
             var result = remote.invoke(KEY, "execute", identity);
             assertThat(result.status()).isEqualTo(200);
             assertThat(result.json()).isEqualTo("{\"text\":\"safe\"}");
             assertThat(oldCalls).hasValue(1);
+            if (programRequest) {
+                valid.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, new ProgramIdentity(program.id(), Set.of()));
+                assertThat(remote.invoke(KEY, "execute", identity).status()).isEqualTo(403);
+                valid.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, program);
+                when(csrf.allowsWrite(any())).thenReturn(false);
+                assertThat(remote.invoke(KEY, "execute", identity).status()).isEqualTo(403);
+                assertThat(oldCalls).hasValue(1);
+                when(csrf.allowsWrite(any())).thenReturn(true);
+            }
             valid.setContent("\"localOnly\"".getBytes(StandardCharsets.UTF_8));
             assertThat(remote.invoke(KEY, "execute", identity).status()).isEqualTo(400);
             assertThat(remote.invoke(KEY, "localOnly", identity).status()).isEqualTo(404);

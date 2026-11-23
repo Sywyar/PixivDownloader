@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -219,8 +220,9 @@ public interface DesktopUiToolHost {
      */
     record BackfillTask(java.util.UUID executionId, long revision, BackfillState state, BackfillPhase phase,
                         boolean automatic, boolean dryRun, long startedAtEpochMs, long finishedAtEpochMs,
-                        int processed, Integer total, int changed, int remaining, int unavailable,
-                        String workType, Long workId, BackfillSummary summary, String logFileName) {
+                        int processed, @HttpApiNullable Integer total, int changed, int remaining, int unavailable,
+                        @HttpApiNullable String workType, @HttpApiNullable Long workId,
+                        @HttpApiNullable BackfillSummary summary, @HttpApiNullable String logFileName) {
         /** {@return 是否仍在执行或停止清理中} */
         public boolean active() { return state == BackfillState.RUNNING || state == BackfillState.STOPPING; }
     }
@@ -663,12 +665,12 @@ public interface DesktopUiToolHost {
             long startedAtEpochMs,
             long finishedAtEpochMs,
             ToolOutcome outcome,
-            Integer processedCount,
-            Integer changedCount,
-            Integer failedCount,
-            String logFileName,
-            java.util.UUID executionId,
-            top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity sourceIdentity
+            @HttpApiNullable Integer processedCount,
+            @HttpApiNullable Integer changedCount,
+            @HttpApiNullable Integer failedCount,
+            @HttpApiNullable String logFileName,
+            @HttpApiNullable java.util.UUID executionId,
+            @HttpApiNullable top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity sourceIdentity
     ) {
         /**
          * 创建不含执行身份的历史投影，供已有调用方使用。
@@ -858,7 +860,7 @@ public interface DesktopUiToolHost {
     record FolderArtwork(
             long artworkId,
             String title,
-            String path,
+            @HttpApiNullable String path,
             boolean moved
     ) {
     }

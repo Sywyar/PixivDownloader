@@ -81,6 +81,8 @@ public class RecoveryModeGate extends OncePerRequestFilter {
                 || isPluginMarketEntry(path)
                 || isPluginManagementEntry(path, method)
                 || isGuiRecoveryEntry(path, method)
+                || isDatabaseRecoveryEntry(path, method)
+                || isEnvironmentRecoveryEntry(path, method)
                 || path.startsWith("/api/i18n/")
                 || path.equals("/api/navigation")
                 || isCoreAuthOrSetupApi(path)
@@ -89,10 +91,30 @@ public class RecoveryModeGate extends OncePerRequestFilter {
 
     private static boolean isGuiRecoveryEntry(String path, String method) {
         if ("GET".equals(method) || "HEAD".equals(method)) {
-            return path.equals("/api/gui/status") || path.equals("/api/gui/plugins/status")
+            return path.equals("/api/admin/system") || path.equals("/api/gui/status") || path.equals("/api/gui/plugins/status")
                     || path.equals("/api/gui/onboarding");
         }
-        return "POST".equals(method) && (path.equals("/api/gui/restart") || path.equals("/api/gui/setup/init"));
+        return "POST".equals(method) && (path.equals("/api/admin/system/restart") || path.equals("/api/gui/restart") || path.equals("/api/gui/setup/init"));
+    }
+
+    private static boolean isDatabaseRecoveryEntry(String path, String method) {
+        if ("GET".equals(method) || "HEAD".equals(method)) {
+            return java.util.Set.of("/api/settings/database", "/api/settings/database/providers",
+                    "/api/settings/database/status", "/api/settings/database/migration").contains(path);
+        }
+        return "POST".equals(method) && java.util.Set.of("/api/settings/database/check",
+                "/api/settings/database/migration-previews", "/api/settings/database/migrations").contains(path);
+    }
+
+    private static boolean isEnvironmentRecoveryEntry(String path, String method) {
+        if ("GET".equals(method) || "HEAD".equals(method)) {
+            return java.util.Set.of("/api/settings/environment/installation", "/api/settings/environment/restore",
+                    "/api/settings/environment/exports", "/api/settings/repositories").contains(path)
+                    || path.matches("/api/settings/environment/exports/[0-9a-fA-F-]{36}/archive");
+        }
+        return "POST".equals(method) && java.util.Set.of("/api/settings/environment/preview", "/api/settings/environment/restore",
+                "/api/settings/environment/exports").contains(path)
+                || "PUT".equals(method) && path.equals("/api/settings/repositories");
     }
 
     private static boolean isPluginManagementEntry(String path, String method) {

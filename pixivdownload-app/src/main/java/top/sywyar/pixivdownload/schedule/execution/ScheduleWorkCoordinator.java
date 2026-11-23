@@ -4,7 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
 import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledWorkStore;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
@@ -59,7 +59,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private final ScheduledNetworkRoute route;
     private final ScheduledCancellation cancellation;
     private final ScheduleCredentialMaterial credential;
-    private final ScheduledTaskStore store;
+    private final ScheduledWorkStore store;
     private final ScheduleWorkPersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
     private final Map<String, ScheduledWorkExecutor> executors;
@@ -98,7 +98,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             ScheduledNetworkRoute route,
             ScheduledCancellation cancellation,
             ScheduleCredentialMaterial credential,
-            ScheduledTaskStore store,
+            ScheduledWorkStore store,
             ScheduleWorkPersistenceCodec persistenceCodec,
             ObjectMapper objectMapper,
             Map<String, ScheduledWorkExecutor> executors,
@@ -240,6 +240,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     public void submit(ScheduledWork submitted) throws ScheduledExecutionException {
         ensureAcceptingAndNotCancelled();
         validateSubmittedWork(submitted);
+        if (runQueue.alreadyResolved(submitted.key())) return;
         ScheduledPendingWork pendingRow = pending.get(submitted.key());
         ScheduledWork work = pendingRow == null
                 ? submitted
@@ -261,6 +262,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             throws ScheduledExecutionException {
         ensureAcceptingAndNotCancelled();
         validateSubmittedWork(work);
+        if (runQueue.alreadyResolved(work.key())) return;
         result = validateResult(result);
         if (!executors.containsKey(work.key().workType())) {
             throw new ScheduledExecutionException(

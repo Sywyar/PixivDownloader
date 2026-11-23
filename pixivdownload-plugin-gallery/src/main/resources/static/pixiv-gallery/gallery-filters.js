@@ -136,6 +136,7 @@
     function resetGalleryFilters(collectionIds) {
         state.r18 = 'any';
         state.ai = 'any';
+        state.fileManagement = 'any';
         state.dateFilters = [{field: 'date', start: '', end: ''}];
         renderDateFilters();
         state.formats.clear();
@@ -152,6 +153,7 @@
         state.authorNames.clear();
         document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
         document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
+        document.querySelectorAll('.chip[data-management]').forEach(c => c.classList.toggle('active', c.dataset.management === 'any'));
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
         state.page = 0;
         renderFilterModeButtons('tag');
@@ -434,6 +436,7 @@
         let n = 0;
         if (state.r18 !== 'any') n++;
         if (state.ai !== 'any') n++;
+        if (state.fileManagement !== 'any') n++;
         n += state.dateFilters.filter(row => row.start || row.end).length;
         n += state.formats.size;
         n += state.collectionIds.size;

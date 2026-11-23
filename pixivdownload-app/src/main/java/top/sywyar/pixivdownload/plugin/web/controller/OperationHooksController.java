@@ -1,5 +1,12 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.web.page.HookPublications;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.IOException;
 import java.util.List;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +19,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 import top.sywyar.pixivdownload.plugin.security.*;
 
 /** 管理员可发现跨 owner 目标；发现不授予发布权限，正式绑定仍经页面发布事务批准。 */
+@HttpApiGroup("core-extensions")
+@HttpApiAccess(HttpApiAccess.Condition.ADMIN_SESSION)
 @RestController
 @RequestMapping("/api/web/operation-hooks")
 public final class OperationHooksController {
@@ -32,7 +41,7 @@ public final class OperationHooksController {
     }
     @GetMapping("/catalog")
     public ResponseEntity<List<OperationTargets.Endpoint>> catalog(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(endpoints.catalog(null));
     }
     public record BindingConfiguration(long revision, top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookSettings settings) { }
@@ -41,13 +50,21 @@ public final class OperationHooksController {
     public record Failure(String code) { }
     @GetMapping("/configuration")
     public ResponseEntity<BindingConfiguration> configuration(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         var snapshot = store.snapshot();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new BindingConfiguration(snapshot.revision(), snapshot.configuration().settings()));
     }
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = BindingConfiguration.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = HookPublications.ConfigurationPlan.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
     @PostMapping("/prepare")
     public ResponseEntity<?> prepare(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.prepare")) return ResponseEntity.status(403).build();
         if (!configurations.tryAcquire()) return ResponseEntity.status(429).body(new Failure("HOOK_CONFIGURATION_CAPACITY"));
         try {
             var value = read(request, BindingConfiguration.class);
@@ -55,9 +72,17 @@ public final class OperationHooksController {
         } catch (IOException | RuntimeException failure) { return failure(failure); }
         finally { configurations.release(); }
     }
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = Publication.class)))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = Long.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Failure.class)))
     @PostMapping("/publish")
     public ResponseEntity<?> publish(HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.publish")) return ResponseEntity.status(403).build();
         if (!configurations.tryAcquire()) return ResponseEntity.status(429).body(new Failure("HOOK_CONFIGURATION_CAPACITY"));
         try {
             var value = read(request, Publication.class);
@@ -79,18 +104,24 @@ public final class OperationHooksController {
     @GetMapping("/targets")
     public ResponseEntity<OperationTargets.Resolution> resolve(@RequestParam OperationTargets.Kind kind,
             @RequestParam String id, @RequestParam(defaultValue = "") String targetId, @RequestParam(required = false) String actionId, HttpServletRequest request) {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(endpoints.resolve(null, new OperationTargets.Reference(kind, id, targetId, actionId)));
     }
     @GetMapping("/definitions")
     public ResponseEntity<List<AvailableHook>> definitions(HttpServletRequest request) throws IOException {
-        if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(403).build();
+        if (!allowed(request, "hooks.read")) return ResponseEntity.status(403).build();
         var keys = registry.serviceKeys(OperationHook.class);
         var hooks = registry.withServices(null, OperationHook.IMPORT, keys, List.of(), providers -> providers.stream()
                 .map(provider -> new AvailableHook(provider.service().id(), provider.publication().pluginId(), provider.publication().toString(),
                         HookContracts.definition(provider.service().definition()))).toList());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(hooks);
     }
+    private boolean allowed(HttpServletRequest request, String permission) {
+        return top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", permission))
+                .orElseGet(() -> identities.isAdminAuthenticated(request));
+    }
+
     public record AvailableHook(String id, String owner, String publication, OperationHook.Definition definition) { }
 }

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.quota;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
@@ -739,5 +740,5 @@ public class UserQuotaService {
     }
 
     public record QuotaStatusResult(int artworksUsed, int maxArtworks, long resetSeconds, ArchiveInfo archive) {}
-    public record ArchiveInfo(String token, String status, long expireSeconds) {}
+    public record ArchiveInfo(String token, @Schema(allowableValues = {"pending", "creating", "ready", "empty", "error", "cancelled"}) String status, long expireSeconds) {}
 }

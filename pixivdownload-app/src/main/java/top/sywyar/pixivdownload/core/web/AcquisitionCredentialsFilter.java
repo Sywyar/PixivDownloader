@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.core.web;
 
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.web.ApiErrorWriter;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
+import top.sywyar.pixivdownload.setup.AuthFilter.ProgramCredentialError;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,7 +29,11 @@ import java.util.*;
 @Component
 @Order(4)
 public final class AcquisitionCredentialsFilter extends OncePerRequestFilter {
+    public static final String CREDENTIAL_FORBIDDEN = "CREDENTIAL_FORBIDDEN";
+    public static final String CREDENTIAL_SELECTION_REJECTED = "CREDENTIAL_SELECTION_REJECTED";
+    public static final String ACQUISITION_CREDENTIALS_UNAVAILABLE = "ACQUISITION_CREDENTIALS_UNAVAILABLE";
     public static final String HEADER = "X-Acquisition-Credentials";
+    public static final int MAX_SELECTION_LENGTH = 520;
     private final AcquisitionCredentialLibrary library;
     private final RequestOwnerIdentityResolver identities;
     private final AppMessages messages;
@@ -43,17 +51,32 @@ public final class AcquisitionCredentialsFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String selection = request.getHeader(HEADER);
         if (selection == null) { chain.doFilter(request, response); return; }
-        if (!identities.isAdminAuthenticated(request)) { reject(request, response, 403, "CREDENTIAL_FORBIDDEN", "auth.unauthorized"); return; }
+        var program = ProgramAccess.identity(request);
+        boolean allowed = program
+                .map(identity -> identity.permits("core", "credentials.use"))
+                .orElseGet(() -> identities.isAdminAuthenticated(request));
+        if (!allowed) {
+            if (program.isPresent()) {
+                String permission = "core:credentials.use";
+                String message = messages.get(locales.resolveLocale(request), "auth.program.forbidden.permission", permission);
+                response.setHeader("Cache-Control", "no-store");
+                ApiErrorWriter.write(response, 403, new ProgramCredentialError(CREDENTIAL_FORBIDDEN, message, permission));
+            } else reject(request, response, 403, CREDENTIAL_FORBIDDEN, "auth.unauthorized");
+            return;
+        }
         AcquisitionCredentials credentials;
         try {
-            if (selection.length() > 520 || request.getHeader(AcquisitionCredentialResolver.HEADER_NAME) != null
+            if (selection.length() > MAX_SELECTION_LENGTH || request.getHeader(AcquisitionCredentialResolver.HEADER_NAME) != null
                     || Collections.list(request.getHeaders(HEADER)).size() != 1)
                 throw new IllegalArgumentException();
             credentials = library.resolve(List.of(selection.split(",", -1)));
         } catch (IllegalArgumentException invalid) {
-            reject(request, response, 400, "CREDENTIAL_SELECTION_REJECTED", "error.request.param.invalid"); return;
+            String reason = selection.length() > MAX_SELECTION_LENGTH ? "out_of_range" : "invalid_value";
+            writeError(response, 400, HttpParameterBinding.error(CREDENTIAL_SELECTION_REJECTED,
+                    "header", HEADER, reason, messages, locales.resolveLocale(request)));
+            return;
         } catch (IOException | AcquisitionCredentialsUnavailableException unavailable) {
-            reject(request, response, 503, "ACQUISITION_CREDENTIALS_UNAVAILABLE", "error.acquisition.credentials-unavailable"); return;
+            reject(request, response, 503, ACQUISITION_CREDENTIALS_UNAVAILABLE, "error.acquisition.credentials-unavailable"); return;
         }
         HttpServletRequest wrapped = new HttpServletRequestWrapper(request) {
             @Override public String getHeader(String name) {
@@ -74,9 +97,13 @@ public final class AcquisitionCredentialsFilter extends OncePerRequestFilter {
         catch (Exception failure) { throw new ServletException("Acquisition request failed"); }
     }
     private void reject(HttpServletRequest request, HttpServletResponse response, int status, String code, String key) throws IOException {
+        writeError(response, status, ApiErrorResponse.of(code, messages.get(locales.resolveLocale(request), key)));
+    }
+
+    private void writeError(HttpServletResponse response, int status, Object body) throws IOException {
         response.setStatus(status);
         response.setHeader("Cache-Control", "no-store");
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write(json.writeValueAsString(ApiErrorResponse.of(code, messages.get(locales.resolveLocale(request), key))));
+        response.getWriter().write(json.writeValueAsString(body));
     }
 }

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.quota.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -9,6 +10,6 @@ import lombok.Getter;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ArchiveStatusResponse {
     private final String token;
-    private final String status;
+    private final @Schema(allowableValues = {"pending", "creating", "ready", "empty", "error", "cancelled", "expired"}) String status;
     private final Long expireSeconds;
 }

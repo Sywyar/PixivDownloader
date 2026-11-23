@@ -36,7 +36,7 @@ import java.util.Set;
 import java.util.function.IntSupplier;
 import static top.sywyar.pixivdownload.download.schedule.snapshot.PixivScheduleDefaults.*;
 
-/** 七类 Pixiv 来源适配器共享的纯计划解析与有背压发现驱动。 */
+/** Pixiv 来源适配器共享的纯计划解析与有背压发现驱动。 */
 @PluginManagedBean
 public final class PixivScheduledSourceSupport {
 
@@ -149,6 +149,24 @@ public final class PixivScheduledSourceSupport {
         return plan(definition, true, false, Set.of(
                 PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST,
                 PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL));
+    }
+
+    public ScheduledExecutionPlan planExplicitList(ScheduledTaskDefinition task) throws ScheduledExecutionException {
+        ParsedDefinition definition = parseDefinition(task, "explicit-list");
+        Set<String> types = new java.util.LinkedHashSet<>();
+        for (JsonNode work : definition.source().path("works")) types.add(work.path("kind").stringValue());
+        return plan(definition, false, false, types);
+    }
+
+    public ScheduledDiscoveryResult discoverExplicitList(ScheduledSourceContext context) throws ScheduledExecutionException {
+        ParsedDefinition definition = parseDefinition(task(context), "explicit-list");
+        for (JsonNode item : definition.source().path("works")) {
+            context.cancellation().throwIfCancellationRequested();
+            ScheduledWork work = persistenceCodec.createWorkEnvelope(item.path("kind").stringValue(), item.path("id").stringValue());
+            if (alreadyCompleted(definition, work)) context.workSink().completeLocally(work, ScheduledWorkResult.alreadyCompleted());
+            else context.workSink().submit(work);
+        }
+        return ScheduledDiscoveryResult.withoutCheckpoint();
     }
 
     public ScheduledDiscoveryResult discoverUserNew(ScheduledSourceContext context)
@@ -541,8 +559,11 @@ public final class PixivScheduledSourceSupport {
                     "schedule.pixiv.discovery-credential-invalid");
         } catch (top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException unavailable) {
             throw ScheduledExecutionException.credentialsUnavailable(unavailable.retryAfterMillis());
-        } catch (PixivAjaxException ignored) {
-            if (ignored.failure() == PixivAjaxFailure.INVALID_TARGET) {
+        } catch (PixivAjaxException upstream) {
+            if (upstream.failure() == PixivAjaxFailure.HTTP_STATUS && upstream.statusCode() == 404) {
+                throw failure(ScheduledFailure.Category.NOT_FOUND, "schedule.pixiv.discovery-not-found");
+            }
+            if (upstream.failure() == PixivAjaxFailure.INVALID_TARGET) {
                 throw failure(ScheduledFailure.Category.INVALID_DEFINITION,
                         "schedule.pixiv.discovery-definition-invalid");
             }

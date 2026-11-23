@@ -239,6 +239,11 @@ class PluginTemplateRuntimeRegistrationTest {
                         "example-download", resolved.commands(), "100", "owner-a", false);
                 assertThat(find(raw, "100", RequestOwnerIdentity.owner("owner-a"))).isEmpty();
 
+                var submissionType = lifecycle.submissionTypes().get("example-download");
+                assertThat(submissionType.pluginId()).isEqualTo("example-download");
+                var inputSchema = tools.jackson.databind.json.JsonMapper.builder().build()
+                        .readTree(submissionType.schemaJson());
+                assertThat(inputSchema.at("/examples/0/workType").asText()).isEqualTo("example-download");
                 var receipt = lifecycle.submit(new DownloadSubmission(
                         UUID.randomUUID(), "example-download", "101", Map.of("title", "SDK import")),
                         null, RequestOwnerIdentity.adminScope());
@@ -249,6 +254,7 @@ class PluginTemplateRuntimeRegistrationTest {
                         .containsEntry("title", "Example 101");
 
                 retiredDrain = capabilityRegistrar.withdraw(capabilityPublication).orElseThrow();
+                assertThat(lifecycle.submissionTypes()).doesNotContainKey("example-download");
                 assertThat(retiredDrain.isDrained()).isTrue();
                 capabilityRegistrar.retireDrained(retiredDrain);
                 capabilityRegistrar.acknowledgeRetired(retiredDrain);
@@ -259,7 +265,7 @@ class PluginTemplateRuntimeRegistrationTest {
                         UUID.randomUUID(), "example-download", "102", Map.of()),
                         null, RequestOwnerIdentity.adminScope()))
                         .isInstanceOfSatisfying(DownloadTaskException.class,
-                                failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+                                failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
             }
             assertThat(capabilityRegistrar.releaseRetirementProof(retiredDrain)).isTrue();
         }

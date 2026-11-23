@@ -23,6 +23,27 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
+            <version>3.2.0</version>
+        </dependency>
+        <!-- Spring 测试工具可使用 JAXB 附件类型，运行时由邮件插件私有加载。 -->
+        <dependency>
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.scalar.maven</groupId>
+            <artifactId>scalar-core</artifactId>
+            <version>0.8.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.therapi</groupId>
+            <artifactId>therapi-runtime-javadoc</artifactId>
+            <version>0.15.0</version>
+        </dependency>
+        <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-test-support</artifactId>
             <version>${project.version}</version>
@@ -484,6 +505,8 @@
                         <novel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel/target/classes</novel.plugin.classes>
                         <novel-translation-contract.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-novel-translation-contract/target/classes</novel-translation-contract.plugin.classes>
                         <translation.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-translation/target/classes</translation.plugin.classes>
+                        <page-editor.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-page-editor/target/classes</page-editor.plugin.classes>
+                        <novel-translation-api.classes>${maven.multiModuleProjectDirectory}/pixivdownload-novel-translation-api/target/classes</novel-translation-api.classes>
                         <gui-swing.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/classes</gui-swing.plugin.classes>
                         <gui-swing.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-swing/target/pixivdownload-plugin-gui-swing-${project.version}.jar</gui-swing.plugin.jar>
                         <gui-compose.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-compose/target/classes</gui-compose.plugin.classes>

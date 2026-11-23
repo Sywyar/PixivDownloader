@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.novel.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
@@ -15,12 +19,14 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat;
 import top.sywyar.pixivdownload.novel.export.NovelExportService;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.translation.api.TranslationVariant;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /** 从已保存的小说生成 EPUB 附件，不创建归档任务或临时文件。 */
+@HttpApiGroup("novel-library")
 @RestController
 @RequiredArgsConstructor
 @Slf4j
@@ -29,6 +35,15 @@ public class NovelExportController {
     private final NovelExportService exports;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/epub+zip", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "novel.export.invalid-request"))))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "novel.export.unavailable"))))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "novel.export.single-too-large"))))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "novel.export.failed"))))
     @GetMapping("/api/novel/{novelId}/export")
     public ResponseEntity<?> download(@PathVariable long novelId, @RequestParam(required = false) String variant) {
         try {

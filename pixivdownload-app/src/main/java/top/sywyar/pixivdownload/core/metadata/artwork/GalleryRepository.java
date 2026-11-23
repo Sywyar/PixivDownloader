@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata.artwork;
 
+import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
@@ -55,6 +58,10 @@ public class GalleryRepository {
         var conditions = new ArrayList<Expression>();
         conditions.add(active());
         conditions.add(additionalTimeRanges("a", q));
+        if (q.fileManagement() != null) {
+            var managed = nil(ExternalWorkFiles.referenceMarker(WorkType.ARTWORK, a("artwork_id"), a("time")));
+            conditions.add(q.fileManagement() == FileManagement.MANAGED ? managed : call(NOT, managed));
+        }
         if (q.downloadedFrom() != null) conditions.add(call(GREATER_EQUAL, a("time"), value(q.downloadedFrom())));
         if (q.downloadedBefore() != null) conditions.add(call(LESS, a("time"), value(q.downloadedBefore())));
         if (q.uploadedFrom() != null) conditions.add(call(GREATER_EQUAL, a(sourceTimeColumn(q.sourceTimeField())), value(q.uploadedFrom())));

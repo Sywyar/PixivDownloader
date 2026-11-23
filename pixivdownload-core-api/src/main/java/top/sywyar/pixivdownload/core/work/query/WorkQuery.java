@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.core.work.query;
 
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-
 import java.util.List;
 
 /**
@@ -56,6 +56,7 @@ import java.util.List;
  * @param reuploadedFrom 重新上传时间下界（epoch 毫秒，含边界）；null 表示不限
  * @param reuploadedBefore 重新上传时间上界（epoch 毫秒，不含边界）；null 表示不限
  * @param restriction 访客可见性限制；null 表示无限制
+ * @param fileManagement 当前文件管理方式，null 表示不限
  */
 public record WorkQuery(
         WorkType workType,
@@ -88,7 +89,82 @@ public record WorkQuery(
         Long updatedFrom,
         Long updatedBefore,
         Long reuploadedFrom,
+        Long reuploadedBefore,
+        FileManagement fileManagement) {
+    /**
+     * 使用原有字段创建作品查询。
+     * @param workType 作品所属媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量，至少为一
+     * @param sort 排序字段
+     * @param order 排序方向，取 {@code asc} 或 {@code desc}
+     * @param search 搜索文本
+     * @param searchType 搜索匹配的字段范围
+     * @param r18 年龄分级筛选条件
+     * @param ai AI 生成标记的筛选条件
+     * @param formats 插画文件扩展名筛选列表
+     * @param collectionIds 收藏夹筛选标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 必须排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 必须排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 必须排除的系列标识
+     * @param uploadedFrom 所选来源时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param uploadedBefore 所选来源时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param sourceTimeField 来源时间字段，uploadTime / createTime / updateTime / reuploadTime，默认 uploadTime
+     * @param downloadedFrom 下载时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param downloadedBefore 下载时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param createdFrom 创建时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param createdBefore 创建时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param updatedFrom 更新时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param updatedBefore 更新时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param reuploadedFrom 重新上传时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param reuploadedBefore 重新上传时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @param restriction 访客可见性限制；null 表示无限制
+     */
+    public WorkQuery(
+        WorkType workType,
+        int page,
+        int size,
+        String sort,
+        String order,
+        String search,
+        String searchType,
+        String r18,
+        String ai,
+        List<String> formats,
+        List<Long> collectionIds,
+        List<Long> tagIds,
+        List<Long> excludedTagIds,
+        List<Long> optionalTagIds,
+        List<Long> authorIds,
+        List<Long> excludedAuthorIds,
+        List<Long> optionalAuthorIds,
+        List<Long> seriesIds,
+        List<Long> excludedSeriesIds,
+        WorkRestriction restriction,
+        Long uploadedFrom,
+        Long uploadedBefore,
+        Long downloadedFrom,
+        Long downloadedBefore,
+        String sourceTimeField,
+        Long createdFrom,
+        Long createdBefore,
+        Long updatedFrom,
+        Long updatedBefore,
+        Long reuploadedFrom,
         Long reuploadedBefore) {
+        this(
+                workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom,
+                downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore,
+                reuploadedFrom, reuploadedBefore, null);
+    }
+
     /**
      * 创建使用指定来源时间字段且未设置额外日期范围的查询。
      * @param workType 作品媒体类型
@@ -282,7 +358,7 @@ public record WorkQuery(
     public WorkQuery withUploadTimeRange(Long from, Long before) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
-                seriesIds, excludedSeriesIds, restriction, from, before, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+                seriesIds, excludedSeriesIds, restriction, from, before, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
     }
 
     /**
@@ -294,7 +370,7 @@ public record WorkQuery(
     public WorkQuery withDownloadTimeRange(Long from, Long before) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
-                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, from, before, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, from, before, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
     }
 
     /**
@@ -328,18 +404,12 @@ public record WorkQuery(
     public WorkQuery {
         sourceTimeField = sourceTimeField == null || sourceTimeField.isBlank() ? "uploadTime" : sourceTimeField;
         if (!java.util.Set.of("uploadTime", "createTime", "updateTime", "reuploadTime").contains(sourceTimeField))
-            throw new IllegalArgumentException("INVALID_SOURCE_TIME_FIELD");
-        if ((downloadedFrom != null && downloadedFrom <= 0) || (downloadedBefore != null && downloadedBefore <= 0)
-                || (downloadedFrom != null && downloadedBefore != null && downloadedFrom >= downloadedBefore)) {
-            throw new IllegalArgumentException("INVALID_DOWNLOAD_TIME_RANGE");
-        }
-        if ((uploadedFrom != null && uploadedFrom <= 0) || (uploadedBefore != null && uploadedBefore <= 0)
-                || (uploadedFrom != null && uploadedBefore != null && uploadedFrom >= uploadedBefore)) {
-            throw new IllegalArgumentException("INVALID_UPLOAD_TIME_RANGE");
-        }
-        validateTimeRange(createdFrom, createdBefore);
-        validateTimeRange(updatedFrom, updatedBefore);
-        validateTimeRange(reuploadedFrom, reuploadedBefore);
+            throw new InvalidField("sourceTimeField", "INVALID_SOURCE_TIME_FIELD");
+        validateTimeRange("downloaded", downloadedFrom, downloadedBefore);
+        validateTimeRange("uploaded", uploadedFrom, uploadedBefore);
+        validateTimeRange("created", createdFrom, createdBefore);
+        validateTimeRange("updated", updatedFrom, updatedBefore);
+        validateTimeRange("reuploaded", reuploadedFrom, reuploadedBefore);
         formats = copyOrNull(formats);
         collectionIds = copyOrNull(collectionIds);
         tagIds = copyOrNull(tagIds);
@@ -360,7 +430,7 @@ public record WorkQuery(
     public WorkQuery withSourceTimeField(String field) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
-                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, field, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, field, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
     }
 
     /**
@@ -377,13 +447,78 @@ public record WorkQuery(
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
                 seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore,
-                sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+                sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
     }
 
-    private static void validateTimeRange(Long from, Long before) {
-        if ((from != null && from <= 0) || (before != null && before <= 0)
-                || (from != null && before != null && from >= before))
-            throw new IllegalArgumentException("INVALID_UPLOAD_TIME_RANGE");
+    /**
+     * 设置文件管理方式并保留其它筛选条件。
+     * @param fileManagement 文件管理方式，null 表示不限
+     * @return 应用筛选后的查询
+     */
+    public WorkQuery withFileManagement(FileManagement fileManagement) {
+        return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore,
+                sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
+    }
+
+    private static void validateTimeRange(String name, Long from, Long before) {
+        String code = "downloaded".equals(name) ? "INVALID_DOWNLOAD_TIME_RANGE" : "INVALID_UPLOAD_TIME_RANGE";
+        if (from != null && from <= 0) throw new InvalidField(name + "From", code);
+        if (before != null && (before <= 0 || from != null && from >= before))
+            throw new InvalidField(name + "Before", code);
+    }
+
+    /** 查询筛选项未通过校验，供适配器定位调用方输入。 */
+    public static final class InvalidField extends IllegalArgumentException {
+        /** 未通过校验的筛选字段名。 */
+        private final String field;
+
+        /**
+         * 记录无效筛选字段及其错误信息。
+         *
+         * @param field 筛选字段名
+         * @param message 错误信息
+         */
+        public InvalidField(String field, String message) {
+            super(message);
+            this.field = field;
+        }
+
+        /** {@return 未通过校验的筛选字段名} */
+        public String field() {
+            return field;
+        }
+    }
+
+    /**
+     * 校验破坏性批量操作有实际的用户筛选条件。调用方需先按作品类型归一化筛选值。
+     * 分页、排序、访问权限和插画模糊搜索中的纯通配符均不能代替全库操作确认。
+     *
+     * @throws WorkSelectionException 用户未限定作品范围
+     */
+    public void requireSelectionFilter() {
+        if (hasSelectionSearch() || fileManagement != null
+                || uploadedFrom != null || uploadedBefore != null || downloadedFrom != null || downloadedBefore != null
+                || createdFrom != null || createdBefore != null || updatedFrom != null || updatedBefore != null
+                || reuploadedFrom != null || reuploadedBefore != null
+                || (workType == WorkType.ARTWORK && hasItems(formats)) || hasItems(collectionIds) || hasItems(tagIds) || hasItems(excludedTagIds)
+                || hasItems(optionalTagIds) || hasItems(authorIds) || hasItems(excludedAuthorIds) || hasItems(optionalAuthorIds)
+                || hasItems(seriesIds) || hasItems(excludedSeriesIds)) return;
+        if (r18 != null && java.util.Set.of("yes", "no", "r18", "r18g", "r18plus").contains(r18)
+                || "yes".equals(ai) || "no".equals(ai)) return;
+        throw new WorkSelectionException();
+    }
+
+    private boolean hasSelectionSearch() {
+        if (search == null || search.trim().isBlank()) return false;
+        if (workType != WorkType.ARTWORK || "id".equals(searchType) || "authorId".equals(searchType)
+                || "tagExact".equals(searchType)) return true;
+        return search.chars().anyMatch(ch -> ch != '%' && ch != '_');
+    }
+
+    private static boolean hasItems(List<?> values) {
+        return values != null && !values.isEmpty();
     }
 
     private static <T> List<T> copyOrNull(List<T> list) {
@@ -403,6 +538,8 @@ public record WorkQuery(
     /** 构造助手：默认值与画廊查询归一化结果一致（首页 24 条、time 倒序、不限分级 / AI）。 */
     public static final class Builder {
         private final WorkType workType;
+        private FileManagement fileManagement;
+
         private Long createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore;
         private int page = 0;
         private int size = 24;
@@ -428,6 +565,13 @@ public record WorkQuery(
         private Long downloadedFrom;
         private Long downloadedBefore;
         private String sourceTimeField = "uploadTime";
+
+        /**
+         * 按登记的文件管理方式筛选作品。
+         * @param mode 文件管理方式，null 表示不限
+         * @return 当前构建器
+         */
+        public Builder fileManagement(FileManagement mode) { this.fileManagement = mode; return this; }
 
         /**
          * 设置来源日期筛选的语义，默认使用上传时间。
@@ -623,7 +767,7 @@ public record WorkQuery(
             return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai,
                     formats, collectionIds, tagIds, excludedTagIds, optionalTagIds,
                     authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds,
-                    restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore);
+                    restriction, uploadedFrom, uploadedBefore, downloadedFrom, downloadedBefore, sourceTimeField, createdFrom, createdBefore, updatedFrom, updatedBefore, reuploadedFrom, reuploadedBefore, fileManagement);
         }
     }
 }

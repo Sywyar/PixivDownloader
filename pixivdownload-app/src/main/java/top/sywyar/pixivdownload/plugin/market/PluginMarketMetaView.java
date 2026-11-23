@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.market.presentation.CatalogLink;
 import top.sywyar.pixivdownload.plugin.market.presentation.CatalogPresentationToken;
@@ -43,28 +45,28 @@ public record PluginMarketMetaView(
         Map<String, String> displayName,
         Map<String, String> summary,
         Map<String, String> description,
-        String author,
-        String sourceType,
+        @HttpApiNullable String author,
+        @HttpApiNullable String sourceType,
         String category,
         List<String> tags,
-        String homepageUrl,
-        String license,
-        Double rating,
-        Integer ratingCount,
-        Long downloadCount,
-        Long previousDownloadCount,
-        Long totalDownloadCount,
-        String latestVersion,
-        String updatedTime,
+        @HttpApiNullable String homepageUrl,
+        @HttpApiNullable String license,
+        @HttpApiNullable Double rating,
+        @HttpApiNullable Integer ratingCount,
+        @HttpApiNullable Long downloadCount,
+        @HttpApiNullable Long previousDownloadCount,
+        @HttpApiNullable Long totalDownloadCount,
+        @HttpApiNullable String latestVersion,
+        @HttpApiNullable String updatedTime,
         String iconToken,
         String colorToken,
         boolean recommended,
         boolean officialRequired,
         boolean defaultInstalled,
-        String defaultLocale,
-        MarketImage icon,
+        @HttpApiNullable String defaultLocale,
+        @HttpApiNullable MarketImage icon,
         List<MarketImage> screenshots,
-        List<MarketLink> links) {
+        @HttpApiNullable List<MarketLink> links) {
 
     public PluginMarketMetaView {
         displayName = displayName != null ? Map.copyOf(displayName) : Map.of();

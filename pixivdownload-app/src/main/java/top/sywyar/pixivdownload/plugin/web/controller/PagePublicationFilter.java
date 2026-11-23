@@ -17,6 +17,10 @@ import java.io.IOException;
 @Order(3)
 public final class PagePublicationFilter extends OncePerRequestFilter {
     private final RouteAccessRegistry routes;
+    public static final String PAGE_HEADER = "X-Pixiv-Page-Publication";
+    public static final String SLOT_HEADER = "X-Pixiv-Ui-Publication";
+    public static final String PAGE_QUERY = "pagePublication";
+    public static final String SLOT_QUERY = "uiPublication";
     private final PageContributionRegistry pages;
     private final top.sywyar.pixivdownload.plugin.registry.web.WebUiSlotRegistry slots;
     private final top.sywyar.pixivdownload.i18n.MessageResolver messages;
@@ -31,17 +35,17 @@ public final class PagePublicationFilter extends OncePerRequestFilter {
     }
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        String token = request.getHeader("X-Pixiv-Page-Publication");
-        if (token == null) token = request.getParameter("pagePublication");
-        String slotToken = request.getHeader("X-Pixiv-Ui-Publication");
-        if (slotToken == null) slotToken = request.getParameter("uiPublication");
+        String token = request.getHeader(PAGE_HEADER);
+        if (token == null) token = request.getParameter(PAGE_QUERY);
+        String slotToken = request.getHeader(SLOT_HEADER);
+        if (slotToken == null) slotToken = request.getParameter(SLOT_QUERY);
         if (token != null || slotToken != null) {
             HttpMethod method;
             try { method = HttpMethod.valueOf(request.getMethod()); }
             catch (IllegalArgumentException invalid) { response.sendError(400); return; }
             var route = routes.resolve(SafeRequestPath.resolve(request).orElse(""), method).orElse(null);
             if (route == null || token != null && !pages.permits(token, route.pluginId(), route.requestOwner())
-                    || slotToken != null && (slots == null || (request.getHeader("X-Pixiv-Ui-Publication") != null
+                    || slotToken != null && (slots == null || (request.getHeader(SLOT_HEADER) != null
                         ? !slots.permits(slotToken) : !slots.permits(slotToken, route.pluginId(), route.requestOwner())))) {
                 response.setStatus(409); response.setContentType("application/json");
                 response.setCharacterEncoding("UTF-8");

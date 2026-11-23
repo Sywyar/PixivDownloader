@@ -9,6 +9,11 @@
         <pixivdownload.jar.classesDirectory>${pixivdownload.proguard.outputDirectory}</pixivdownload.jar.classesDirectory>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency><groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk</artifactId><version>${pixivdownload.sdk.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>org.altcha</groupId><artifactId>altcha</artifactId><version>2.1.1</version></dependency>
         <dependency><groupId>cn.hutool</groupId><artifactId>hutool-captcha</artifactId><version>5.8.48</version></dependency>

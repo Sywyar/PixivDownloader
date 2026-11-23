@@ -8,7 +8,10 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionReg
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.DownloadLifecycleCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmission;
 import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmissionHandler;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskException;
+import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +22,44 @@ import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("下载事件和前置规则生命周期")
 class DownloadLifecycleRegistryTest {
+    @Test void missingWorkSurvivesPluginProxyAndIdempotentRetry() {
+        var registry = new DownloadLifecycleRegistry();
+        var invocations = new ExternalCapabilityInvocationRegistry();
+        var adapter = new DownloadLifecycleCapabilityAdapter(registry, invocations);
+        var registrar = new PluginCapabilityContributionRegistrar(List.of(), List.of(), List.of(adapter), invocations);
+        var calls = new AtomicInteger();
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(DownloadSubmissionHandler.class, () -> new DownloadSubmissionHandler() {
+                public String workType() { return "example"; }
+                public void submit(DownloadSubmission command, DownloadAttempt attempt, String credential) {
+                    calls.incrementAndGet();
+                    if (command.options().containsKey("variant"))
+                        throw new top.sywyar.pixivdownload.plugin.api.contract.InputFieldException("/options/variant", "unsupported");
+                    throw new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND);
+                }
+            });
+            context.refresh();
+            var prepared = registrar.allocateOwner("example", "example", 1L);
+            registrar.prepareInto(prepared, context);
+            var publication = registrar.publish(prepared);
+            var command = new DownloadSubmission(UUID.randomUUID(), "example", "42", Map.of());
+            var owner = RequestOwnerIdentity.adminScope();
+            assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> registry.submit(command, null, owner))
+                    .extracting(DownloadTaskException::code).isEqualTo(DownloadTaskException.Code.WORK_NOT_FOUND);
+            var retry = registry.submit(command, null, owner);
+            assertThat(retry.duplicate()).isTrue();
+            assertThat(retry.task().phase()).isEqualTo(DownloadEvent.Phase.FAILED);
+            assertThat(retry.task().failureReason()).isEqualTo(DownloadEvent.FailureReason.WORK_NOT_FOUND);
+            assertThat(calls.get()).isOne();
+            var badOption = new DownloadSubmission(UUID.randomUUID(), "example", "42", Map.of("variant", "x"));
+            assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> registry.submit(badOption, null, owner))
+                    .extracting(DownloadTaskException::failure)
+                    .isEqualTo(new DownloadTaskException.Failure(DownloadTaskException.Code.REJECTED, "/options/variant", "unsupported"));
+            registrar.retireDrained(registrar.withdraw(publication).orElseThrow());
+            assertThat(registry.submit(command, null, owner).task()).isEqualTo(retry.task());
+        }
+    }
+
     @Test @DisplayName("冲突替换保留原贡献，成功替换保持观察顺序")
     void replacementPreservesContributionOrder() {
         var registry = new DownloadLifecycleRegistry();

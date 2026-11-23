@@ -36,6 +36,52 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("计划任务管理接口")
 class ScheduleControllerTest {
 
+    @Test
+    @DisplayName("程序不能修改其它来源的任务，列表只返回授权来源")
+    void isolatesProgramSourceTargets() throws Exception {
+        var allowed = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView.class);
+        var denied = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView.class);
+        when(allowed.sourceOwnerPluginId()).thenReturn("source-a");
+        when(denied.sourceOwnerPluginId()).thenReturn("source-b");
+        when(scheduleService.list()).thenReturn(List.of(allowed, denied));
+        when(scheduleService.get(42L)).thenReturn(denied);
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:schedule.read", "core:schedule.pause", "source-a:schedule.manage"));
+        mockMvc.perform(get("/api/schedule/tasks").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].sourceOwnerPluginId").value("source-a"));
+        mockMvc.perform(post("/api/schedule/tasks/42/pause").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity))
+                .andExpect(status().isForbidden());
+        org.mockito.Mockito.verify(scheduleService, org.mockito.Mockito.never()).pause(42L);
+        var permitted = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(identity.id(),
+                java.util.Set.of("core:schedule.pause", "source-b:schedule.manage"));
+        mockMvc.perform(post("/api/schedule/tasks/42/pause").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, permitted))
+                .andExpect(status().isOk());
+        verify(scheduleService).pause(42L);
+    }
+
+    @Test
+    @DisplayName("程序创建计划前核对当前来源和激活身份，拒绝时不调用保存")
+    void rejectsUnapprovedSourceBeforeCreate() throws Exception {
+        var source = org.mockito.Mockito.mock(ScheduleSourceManifestView.Source.class);
+        when(source.sourceType()).thenReturn("example");
+        when(source.activationToken()).thenReturn("active");
+        when(source.ownerPluginId()).thenReturn("source-b");
+        when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView("epoch", 1, "UTC", List.of(source)));
+        var identity = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("core:schedule.create", "source-a:schedule.manage"));
+        mockMvc.perform(post("/api/schedule/tasks").requestAttr(
+                        top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"worker\",\"sourceType\":\"example\",\"activationToken\":\"active\","
+                                + "\"definitionJson\":\"{}\",\"triggerKind\":\"interval\",\"intervalMinutes\":30}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.programPermission").value("source-b:schedule.manage"));
+        org.mockito.Mockito.verify(scheduleService, org.mockito.Mockito.never()).create(org.mockito.ArgumentMatchers.any());
+    }
+
     private static final String WORK_TYPE = "novel/自定义?'\"#_%";
     private static final String WORK_ID = "001/路径?mode=\"人工\"&x='y'#_%";
 
@@ -95,8 +141,9 @@ class ScheduleControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE))
                 .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
-                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages()
-                        .get(Locale.US, "error.request.param.invalid")));
+                .andExpect(jsonPath("$.field").value("X-Acquisition-Credential"))
+                .andExpect(jsonPath("$.in").value("header"))
+                .andExpect(jsonPath("$.reason").value("required"));
         verifyNoInteractions(scheduleService);
     }
 
@@ -119,6 +166,7 @@ class ScheduleControllerTest {
         when(scheduleService.sources()).thenReturn(new ScheduleSourceManifestView(
                 "epoch-1",
                 7L,
+                "Asia/Tokyo",
                 List.of(new ScheduleSourceManifestView.Source(
                         "fixture:source",
                         List.of("FIXTURE_SOURCE"),
@@ -135,16 +183,19 @@ class ScheduleControllerTest {
                         List.of("fixture"),
                         List.of("fixture:work"),
                         new ScheduleSourceManifestView.Frontend(
-                                1, "/fixture/schedule-source.js")))));
+                                1, "/fixture/schedule-source.js"),
+                        "{\"type\":\"object\",\"examples\":[{}]}"))));
 
         mockMvc.perform(get("/api/schedule/sources"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(jsonPath("$.epoch").value("epoch-1"))
+                .andExpect(jsonPath("$.timeZone").value("Asia/Tokyo"))
                 .andExpect(jsonPath("$.revision").value(7))
                 .andExpect(jsonPath("$.sources[0].legacyAliases[0]").value("FIXTURE_SOURCE"))
                 .andExpect(jsonPath("$.sources[0].ownerPluginId").value("fixture-owner"))
                 .andExpect(jsonPath("$.sources[0].activationToken").value("activation-1"))
+                .andExpect(jsonPath("$.sources[0].inputSchemaJson").value("{\"type\":\"object\",\"examples\":[{}]}"))
                 .andExpect(jsonPath("$.sources[0].frontend.moduleUrl")
                         .value("/fixture/schedule-source.js"));
     }

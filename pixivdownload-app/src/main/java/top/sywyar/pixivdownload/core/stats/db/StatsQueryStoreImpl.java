@@ -38,6 +38,18 @@ public class StatsQueryStoreImpl implements StatsQueryStore {
     }
     private static long number(Map<String, Object> row, String field) { return row.get(field) == null ? 0L : (Long) row.get(field); }
 
+    public record Inventory(long artworks, long images) {}
+
+    public Inventory inventory() {
+        return database.available() ? database.read(StatsQueryStoreImpl::inventory) : new Inventory(0, 0);
+    }
+
+    private static Inventory inventory(DatabaseSession s) throws java.sql.SQLException {
+        var counts = s.query(new Query("artworks", Map.of("works", call(COUNT), "pages", call(SUM, column("artworks", "count"))),
+                    call(EQUAL, column("artworks", "deleted"), value(0)), List.of(), List.of(), 1, 0)).getFirst();
+        return new Inventory(number(counts, "works"), number(counts, "pages"));
+    }
+
     @Override public StatsAggregates.Overview overview() {
         if (!database.available()) return new StatsAggregates.Overview(0, 0, 0, 0, 0, 0, 0);
         return database.read(s -> {
@@ -45,11 +57,12 @@ public class StatsQueryStoreImpl implements StatsQueryStore {
                     "total_images", column("statistics", "total_images"), "total_moved", column("statistics", "total_moved")),
                     call(EQUAL, column("statistics", "id"), value(1)), List.of(), List.of(), 1, 0));
             var counts = rows.isEmpty() ? Map.<String, Object>of() : rows.get(0);
+            var library = inventory(s);
             return new StatsAggregates.Overview(number(counts, "total_artworks"), number(counts, "total_images"),
                     number(counts, "total_moved"), total(s, Query.count("novels", call(EQUAL, column("novels", "deleted"), value(0)))),
                     total(s, aggregate(works("author_id", false, false), call(COUNT_DISTINCT, column("works", "author_id")))),
                     total(s, aggregate(tags(), call(COUNT_DISTINCT, column("work_tags", "tag_id")))),
-                    total(s, aggregate(works("series_id", true, true), call(COUNT))));
+                    total(s, aggregate(works("series_id", true, true), call(COUNT))), library.artworks(), library.images());
         });
     }
 

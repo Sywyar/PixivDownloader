@@ -41,6 +41,16 @@ class NotificationInboxTestControllerTest {
     }
 
     @Test
+    @DisplayName("管理员 HTTP 入口复用实际站内信写入，GUI 入口仍拒绝远端")
+    void adminEndpointsUseExistingSink() {
+        assertThat(controller.testAdmin().getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(mapper.findLatest(null, false, 100)).hasSize(1);
+        assertThat(controller.testAllAdmin().getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(mapper.findLatest(null, false, 100).size()).isGreaterThan(1);
+        assertThat(controller.test(request("192.0.2.1")).getStatusCode().value()).isEqualTo(403);
+    }
+
+    @Test
     @DisplayName("两个测试动作可在关闭站内信时分别写入单条和全部模板")
     void writesSingleAndAllTemplatesRegardlessOfEnabledSwitch() {
         var single = controller.test(request("127.0.0.1"));

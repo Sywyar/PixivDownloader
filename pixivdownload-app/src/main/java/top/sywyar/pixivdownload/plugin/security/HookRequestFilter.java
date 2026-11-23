@@ -27,12 +27,14 @@ import top.sywyar.pixivdownload.setup.CsrfProtectionFilter;
 @Order(-1)
 public final class HookRequestFilter extends OncePerRequestFilter {
     public static final String PREPARE_PATH = "/api/operation-hooks/prepare";
+    public static final Set<String> TARGET_METHODS = Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
+    public static final int MAX_TARGET_URL_LENGTH = 8192, MAX_TOKEN_LENGTH = 128;
     static final String PREPARATION = HookRequestFilter.class.getName();
     public static boolean isPreparation(HttpServletRequest request) { return request.getAttribute(PREPARATION) instanceof Preparation; }
     static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(12).maxStringLength(65536).build()).build()).configureForJackson2()
             .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
-    record Preparation(String method, String url, Map<String, String> headers, String token, Map<String, String> proofs,
+    public record Preparation(String method, String url, Map<String, String> headers, String token, Map<String, String> proofs,
             boolean nativeSubmit, Map<String, JsonNode> json, Map<String, List<String>> parameters, boolean resolveOnly) {
         Preparation(String method, String url, Map<String, String> headers, String token, Map<String, String> proofs,
                 boolean nativeSubmit, Map<String, JsonNode> json) { this(method, url, headers, token, proofs, nativeSubmit, json, Map.of(), false); }
@@ -81,9 +83,9 @@ public final class HookRequestFilter extends OncePerRequestFilter {
     }
 
     private static HttpServletRequest target(HttpServletRequest original, Preparation preparation) {
-        if (preparation.method() == null || !Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS").contains(preparation.method())
-                || preparation.url() == null || preparation.url().length() > 8192 || !preparation.url().startsWith("/")
-                || preparation.url().startsWith("//") || preparation.token() != null && preparation.token().length() > 128
+        if (preparation.method() == null || !TARGET_METHODS.contains(preparation.method())
+                || preparation.url() == null || preparation.url().length() > MAX_TARGET_URL_LENGTH || !preparation.url().startsWith("/")
+                || preparation.url().startsWith("//") || preparation.token() != null && preparation.token().length() > MAX_TOKEN_LENGTH
                 || preparation.json() != null && (preparation.json().size() > 256 || preparation.json().keySet().stream().anyMatch(key -> key.length() > 256)))
             throw new IllegalArgumentException();
         if ((preparation.token() == null || preparation.token().isEmpty()) && preparation.proofs() != null && !preparation.proofs().isEmpty())

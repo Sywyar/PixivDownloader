@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
+import top.sywyar.pixivdownload.core.stats.db.StatsQueryStoreImpl;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -29,12 +31,15 @@ class DownloadStatisticsServiceTest {
     @Mock
     private PixivDatabase pixivDatabase;
 
+    @Mock
+    private StatsQueryStoreImpl statsQueryStore;
+
     private DownloadStatisticsService downloadStatisticsService;
 
     @BeforeEach
     void setUp() {
         downloadStatisticsService = new DownloadStatisticsService(
-                pixivDatabase,
+                pixivDatabase, statsQueryStore,
                 APP_MESSAGES,
                 Clock.fixed(Instant.parse("2026-08-24T12:00:00Z"), ZoneOffset.UTC));
     }
@@ -48,8 +53,11 @@ class DownloadStatisticsServiceTest {
         void shouldReturnStatistics() {
             when(pixivDatabase.getStats()).thenReturn(new int[]{100, 500, 30});
 
+            when(statsQueryStore.inventory()).thenReturn(new StatsQueryStoreImpl.Inventory(105, 509));
             StatisticsResponse response = downloadStatisticsService.getStatistics();
 
+            assertThat(response.getLibraryArtworks()).isEqualTo(105);
+            assertThat(response.getLibraryImages()).isEqualTo(509);
             assertThat(response.isSuccess()).isTrue();
             assertThat(response.getTotalArtworks()).isEqualTo(100);
             assertThat(response.getTotalImages()).isEqualTo(500);

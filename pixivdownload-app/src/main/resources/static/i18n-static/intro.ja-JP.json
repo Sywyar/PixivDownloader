@@ -69,7 +69,7 @@
     "batch.tip.action": "選択した作品をすべてバックエンドのダウンロードキューに追加。モニターページで進捗をリアルタイムに確認可能",
     "batch.tip.batch": "現在のページ：4 種類の一括ダウンロード入口",
     "batch.tip.btn-add-all": "現在のページの検索結果をすべてダウンロードキューに追加",
-    "batch.tip.btn-search": "バックエンドの /api/pixiv/search プロキシ経由で Pixiv AJAX を呼び出し、1 ページ 60 件取得",
+    "batch.tip.btn-search": "/api/pixiv/search でイラストを検索します。Pixiv が返す件数は通常 1 ページ 60 件です。",
     "batch.tip.chip.ai": "AI 作品フィルター：すべて / AI を除外 / AI のみ",
     "batch.tip.chip.bookmarks": "ブックマーク数フィルター：500 件以上の作品だけを残す",
     "batch.tip.chip.content": "クライアント側のフィルター：全年齢の結果だけを表示",

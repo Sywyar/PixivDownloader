@@ -105,7 +105,7 @@ public class ArtworksBackFill {
                 JsonMapper.builderWithJackson2Defaults().build()
         );
         return database.findCandidates(options.limit(), store, options.alwaysNetwork() ? null : options.rootFolder(),
-                options.automatic()).candidates().size();
+                options.automatic(), options.artworkIds()).candidates().size();
     }
 
     public static Summary run(Options options) throws Exception {
@@ -172,15 +172,20 @@ public class ArtworksBackFill {
         log.info(logMessage("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
 
         Counts counts = new Counts();
-        reportProgress(progress, Phase.IMPORTING, counts, null, options.dryRun());
-        database.importMetadata(options.rootFolder(), options.dryRun(), text -> {
-            if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
-            log.info(text);
-        });
+        // Scoped runs read registered snapshots per candidate. The legacy import scans both work tables.
+        if (options.artworkIds().isEmpty()) {
+            reportProgress(progress, Phase.IMPORTING, counts, null, options.dryRun());
+            database.importMetadata(options.rootFolder(), options.dryRun(), text -> {
+                if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
+                log.info(text);
+            });
+        } else {
+            log.info("Backfill restricted to {} artwork IDs", options.artworkIds().size());
+        }
         try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
             reportProgress(progress, Phase.SCANNING, counts, null, options.dryRun());
             var filtered = database.findCandidates(options.limit(), unreachable, options.alwaysNetwork() ? null : options.rootFolder(),
-                    options.automatic());
+                    options.automatic(), options.artworkIds());
             var candidates = filtered.candidates();
             counts.previouslyUnreachable = filtered.skippedUnreachable();
             reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
@@ -412,15 +417,17 @@ public class ArtworksBackFill {
                           DatabaseTarget target,
                           String rootFolder,
                           boolean alwaysNetwork,
-                          boolean automatic) {
+                          boolean automatic,
+                          List<Long> artworkIds) {
 
         public Options {
+            artworkIds = List.copyOf(artworkIds);
             rootFolder = top.sywyar.pixivdownload.config.RuntimeFiles.normalizeRootFolder(rootFolder);
         }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                        long delayMs, int limit, boolean dryRun, DatabaseTarget target, String rootFolder, boolean alwaysNetwork) {
-            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, false);
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, false, List.of());
         }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
@@ -430,12 +437,17 @@ public class ArtworksBackFill {
         }
 
         public Options withSources(String folder, boolean network) {
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, folder, network, automatic);
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, folder, network, automatic, artworkIds);
+        }
+
+        public Options withArtworkIds(List<Long> ids) {
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target,
+                    rootFolder, alwaysNetwork, automatic, ids);
         }
 
         /** 启动自动恢复暂缓已知受限作品的联网请求，仍允许本地补缺。 */
         public Options forStartup() {
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, true);
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, true, artworkIds);
         }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
@@ -446,7 +458,7 @@ public class ArtworksBackFill {
 
         public Options withTarget(DatabaseTarget databaseTarget) {
             return new Options(databaseTarget.displayName(), proxyHost, proxyPort, useProxy,
-                    delayMs, limit, dryRun, databaseTarget, rootFolder, alwaysNetwork, automatic);
+                    delayMs, limit, dryRun, databaseTarget, rootFolder, alwaysNetwork, automatic, artworkIds);
         }
 
         public static Options defaults() {

@@ -7,6 +7,7 @@ import java.nio.charset.*;
 
 /** 宿主在控制器之前检查正文预算时保留原字节，DTO 仍由 MVC 原解析器处理。 */
 public final class BoundedBodyRequest extends HttpServletRequestWrapper {
+    public static final String HTTP_BODY_LIMIT = "HTTP_BODY_LIMIT";
     private byte[] body;
     private ServletInputStream replay;
     private boolean exceeded;
@@ -32,7 +33,7 @@ public final class BoundedBodyRequest extends HttpServletRequestWrapper {
                 @Override public void setReadListener(ReadListener listener) { throw new IllegalStateException("HTTP_NONBLOCKING_INPUT_UNSUPPORTED"); }
             };
         }
-        if (exceeded || body.length > limit) throw new IllegalArgumentException("HTTP_BODY_LIMIT");
+        if (exceeded || body.length > limit) throw new IllegalArgumentException(HTTP_BODY_LIMIT);
         return body;
     }
     @Override public ServletInputStream getInputStream() throws IOException {

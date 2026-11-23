@@ -58,10 +58,11 @@ class DesktopPageLayoutTest {
                         Container content = (Container) scroll.getViewport().getView();
                         assertEquals(scroll.getViewport().getExtentSize().width, content.getWidth());
                         assertFalse(scroll.getHorizontalScrollBar().isVisible());
+                        Insets insets = content.getInsets();
                         for (Component card : content.getComponents()) {
                             if (card instanceof Box.Filler) continue;
-                            assertEquals(0, card.getX(), card.getClass().getSimpleName());
-                            assertTrue(card.getWidth() <= content.getWidth());
+                            assertEquals(insets.left, card.getX(), card.getClass().getSimpleName());
+                            assertTrue(card.getX() + card.getWidth() <= content.getWidth() - insets.right);
                         }
                         assertControlsWithinPage(content, content);
                     }

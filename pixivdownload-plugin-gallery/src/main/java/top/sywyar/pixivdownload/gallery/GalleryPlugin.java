@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.gallery;
 
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
@@ -32,7 +35,7 @@ import java.util.Set;
  */
 public class GalleryPlugin implements PixivFeaturePlugin {
 
-    private static final String ID = "gallery";
+    static final String ID = "gallery";
 
     @Override
     public String id() {
@@ -73,6 +76,17 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     // 无尾斜杠前缀同 /api/authors** 写法：/api/gallery/artwork** 既命中 /api/gallery/artworks
     // 也命中 /api/gallery/artwork/{id}；/api/gallery/tags** 既命中 /api/gallery/tags 也命中 /tags/lookup。
     private static final List<WebRouteContribution> ROUTES = List.of(
+                WebRouteContribution.invitedGuest("/api/gallery/artworks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/tags").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/tags/lookup").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"), HttpMethod.DELETE, new ProgramPermission("delete", "permission.delete"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork/*/related").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork/*/by-author").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork/*/by-series").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork/*/series").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artworks/delete").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("delete", "permission.delete"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artworks/collect").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("collections.write", "permission.collections.write"))),
+                WebRouteContribution.invitedGuest("/api/gallery/artworks/export").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("export", "permission.export"))),
         WebRouteContribution.invitedGuest("/pixiv-gallery.html"),
         WebRouteContribution.invitedGuest("/pixiv-artwork.html"),
         WebRouteContribution.invitedGuest("/pixiv-showcase.html"),

@@ -48,7 +48,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
 import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
@@ -332,72 +331,66 @@ public class PluginLifecycleService {
                 return;
             }
             shuttingDown = true;
-            pluginRuntimeManager.removeWorkerListener(workerEventListener);
-            List<String> ids = new ArrayList<>(managed.keySet());
-            Collections.reverse(ids);
-            Throwable fatal = null;
-            // 先对全部插件撤回 publication 并发出取消，避免逐插件等待时其它 owner 仍继续接收新执行。
-            List<String> pendingQuiesce = new ArrayList<>();
-            for (String id : ids) {
-                PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
-                if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
-                    pendingQuiesce.add(id);
-                }
-            }
-            while (!pendingQuiesce.isEmpty()) {
-                for (int index = 0; index < pendingQuiesce.size();) {
-                    String id = pendingQuiesce.get(index);
-                    ManagedPlugin record = managed.get(id);
-                    try {
-                        ensureQuiesced(record);
-                        if (record.drains.quiesceComplete()) {
-                            pendingQuiesce.remove(index);
-                        } else {
-                            index++;
-                        }
-                    } catch (Throwable failure) {
-                        fatal = mergeFatal(fatal, failure);
-                        log.warn("Core shutdown quiesce remains incomplete for plugin '{}' (failureType={}).",
-                                id, failure.getClass().getName());
-                        index++;
+            try {
+                pluginRuntimeManager.removeWorkerListener(workerEventListener);
+                List<ManagedPlugin> plugins = new ArrayList<>(managed.values());
+                Collections.reverse(plugins);
+                Throwable failure = null;
+                // 先撤回所有插件的新工作并发出取消，再等待已接收的工作退出。
+                for (ManagedPlugin record : plugins) {
+                    PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
+                    if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
+                        failure = runShutdownStep(record, "quiesce", this::ensureQuiesced, failure);
                     }
                 }
-                if (!pendingQuiesce.isEmpty()) {
-                    interrupted |= parkShutdownRetry();
+                for (ManagedPlugin record : plugins) {
+                    if (lifecycleState.phase(record.pluginId).orElse(null) == PluginRuntimePhase.QUIESCED
+                            && record.drains.quiesceComplete()) {
+                        failure = runShutdownStep(record, "cleanup", this::drainAndStop, failure);
+                    }
                 }
+                if (failure instanceof Error error) throw error;
+                if (failure != null) throw new PluginLifecycleException("External plugin shutdown failed", failure);
+                started = false;
+            } finally {
+                shuttingDown = false;
+                lock.notifyAll();
+                if (interrupted) Thread.currentThread().interrupt();
             }
+        }
+    }
 
-            // 核心 context 关闭不能在 lease 仍活动时继续销毁父服务；忽略中断直到所有旧代执行真实归零。
-            for (String id : ids) {
-                ManagedPlugin record = managed.get(id);
-                PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
-                if (phase == PluginRuntimePhase.QUIESCED && record.drains.quiesceComplete()) {
-                    while (capabilityContributionRegistrar.serviceBindingsPending(id)) {
-                        capabilityContributionRegistrar.serviceBindingsChanged();
-                        interrupted |= awaitBindingProgress();
-                    }
-                    interrupted |= record.drains.awaitDrainedUninterruptibly();
-                    while (lifecycleState.phase(id).orElse(null) == PluginRuntimePhase.QUIESCED) {
-                        try {
-                            finishStop(record, false);
-                        } catch (Throwable failure) {
-                            fatal = mergeFatal(fatal, failure);
-                            log.warn("Core shutdown service cleanup remains incomplete for plugin '{}' (failureType={}).",
-                                    id, failure.getClass().getName());
-                            interrupted |= parkShutdownRetry();
-                        }
-                    }
+    private Throwable runShutdownStep(ManagedPlugin record, String step,
+                                      Consumer<ManagedPlugin> action, Throwable previousFailure) {
+        try {
+            try {
+                action.accept(record);
+            } catch (RuntimeException firstFailure) {
+                log.warn("Retrying core shutdown {} for plugin '{}' (failureType={}).",
+                        step, record.pluginId, firstFailure.getClass().getName());
+                action.accept(record);
+            }
+            return previousFailure;
+        } catch (Throwable failure) {
+            log.error("Core shutdown {} failed for plugin '{}' (failureType={}).",
+                    step, record.pluginId, failure.getClass().getName());
+            return mergeFailure(previousFailure, failure);
+        }
+    }
+
+    private void drainAndStop(ManagedPlugin record) {
+        boolean interrupted = false;
+        try {
+            if (capabilityContributionRegistrar.serviceBindingsPending(record.pluginId)) {
+                capabilityContributionRegistrar.serviceBindingsChanged();
+                while (capabilityContributionRegistrar.serviceBindingsDraining(record.pluginId)) {
+                    interrupted |= awaitBindingProgress();
                 }
             }
-            started = false;
-            shuttingDown = false;
-            lock.notifyAll();
-            if (interrupted) {
-                Thread.currentThread().interrupt();
-            }
-            if (fatal != null) {
-                rethrowFatal(fatal);
-            }
+            interrupted |= record.drains.awaitDrainedUninterruptibly();
+            finishStop(record, false);
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 
@@ -405,12 +398,6 @@ public class PluginLifecycleService {
     private boolean awaitBindingProgress() {
         try { lock.wait(50L); return false; }
         catch (InterruptedException ignored) { return true; }
-    }
-
-    private static boolean parkShutdownRetry() {
-        boolean interrupted = Thread.interrupted();
-        LockSupport.parkNanos(1_000_000L);
-        return interrupted | Thread.interrupted();
     }
 
     /** 隔离 worker 退出时立即撤回同 generation 服务足迹；worker 恢复后再走既有启动通路重建。 */

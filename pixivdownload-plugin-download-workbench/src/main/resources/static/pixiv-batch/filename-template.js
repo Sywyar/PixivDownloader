@@ -63,7 +63,8 @@ const WORK_FILE_VARIABLES = Object.freeze([
         "download": true,
         "importing": false,
         "directory": true,
-        "directoryOptional": true
+        "directoryOptional": true,
+        "collectionRoot": true
     },
     {
         "id": "collectionId",

@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.core.download;
 
+import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
+
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,10 +53,64 @@ class DownloadTaskResultStoreTest {
     }
 
     private DownloadAttempt attempt() { return new DownloadAttempt(UUID.randomUUID(), "example", "opaque/作品"); }
+
+    @Test void pagesPersistedResultsAcrossRestartWithStableTiesAndOwnerIsolation() throws Exception {
+        var store = new DownloadTaskResultStore(directory);
+        var timestamp = Instant.parse("2026-01-01T00:00:00Z");
+        for (int value = 1; value <= 5; value++) {
+            var id = new UUID(0, value);
+            var task = new top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot(
+                    new DownloadAttempt(id, "example", Integer.toString(value)), "example", "fixture",
+                    DownloadEvent.Phase.COMPLETED, timestamp, value);
+            store.save(task, value == 4 ? "other" : "mine");
+        }
+        var restarted = new DownloadTaskResultStore(directory);
+        var owner = RequestOwnerIdentity.owner("mine");
+        var first = restarted.history(null, 2, owner);
+        assertThat(first.tasks()).extracting(task -> task.attempt().workId()).containsExactly("5", "3");
+        var second = restarted.history(first.next(), 2, owner);
+        assertThat(second.tasks()).extracting(task -> task.attempt().workId()).containsExactly("2", "1");
+        assertThat(second.next()).isNull();
+        assertThat(restarted.history(null, 200, admin).tasks()).hasSize(5);
+        assertThatThrownBy(() -> restarted.history(null, 201, admin)).isInstanceOf(IllegalArgumentException.class);
+        Files.writeString(resultPath(new DownloadAttempt(new UUID(0, 1), "example", "1")), "invalid");
+        assertThatThrownBy(() -> restarted.history(null, 2, owner)).isInstanceOf(java.io.UncheckedIOException.class);
+    }
     private DownloadTaskRegistry registry() { return new DownloadTaskRegistry(clock, new DownloadTaskResultStore(directory)); }
     private Path resultPath(DownloadAttempt attempt) {
         String id = attempt.attemptId().toString();
         return directory.resolve(id.substring(0, 2)).resolve(id + ".json");
+    }
+
+    @Test void measuredProgressIsBoundToTheExactHandleAndSurvivesArchival() {
+        var registry = registry();
+        var attempt = attempt();
+        var queue = new QueueTaskTracker("example");
+        var task = queue.beginRunning("first");
+        var otherTask = queue.beginRunning("other");
+        var measurement = new DownloadTaskProgress(DownloadTaskProgress.Unit.PAGES, 2, 7);
+        var owner = RequestOwnerIdentity.owner("first");
+        try {
+            registry.register(attempt, "first", "example", "work");
+            registry.attach(attempt, task);
+            registry.update(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
+            registry.reportProgress(attempt, otherTask, measurement);
+            assertThat(registry.find(attempt.attemptId(), owner).orElseThrow().progress()).isNull();
+            registry.reportProgress(attempt, task, measurement);
+            var live = registry.find(attempt.attemptId(), owner).orElseThrow();
+            assertThat(live.progress()).isEqualTo(measurement);
+            assertThat(registry.snapshot(owner).tasks()).containsExactly(live);
+            assertThat(registry.snapshot(RequestOwnerIdentity.owner("other")).tasks()).isEmpty();
+            registry.reportProgress(attempt, task, measurement);
+            assertThat(registry.find(attempt.attemptId(), owner).orElseThrow().revision()).isEqualTo(live.revision());
+            registry.update(new DownloadEvent(attempt, DownloadEvent.Phase.CANCELLED));
+            registry.reportProgress(attempt, task, new DownloadTaskProgress(DownloadTaskProgress.Unit.PAGES, 7, 7));
+            assertThat(registry.find(attempt.attemptId(), owner).orElseThrow().progress()).isEqualTo(measurement);
+            assertThat(registry().history(null, 1, owner).tasks()).extracting(t -> t.progress()).containsExactly(measurement);
+        } finally {
+            task.completeRunning();
+            otherTask.completeRunning();
+        }
     }
 
     @Test @DisplayName("Spring 实际装配启用终态存储")
@@ -74,13 +132,16 @@ class DownloadTaskResultStoreTest {
     void terminalSurvivesSnapshotExpiryAndRestart(DownloadEvent.Phase phase) {
         var registry = registry();
         var attempt = attempt();
-        registry.register(attempt, "owner", "example", "标题");
+        String output = directory.resolve("作品").toString();
+        registry.register(attempt, "owner", "example", "标题", output);
         registry.update(new DownloadEvent(attempt, phase));
         var expected = registry.find(attempt.attemptId(), admin).orElseThrow();
         clock.expire();
         assertThat(registry.snapshot(admin).tasks()).isEmpty();
         for (var current : new DownloadTaskRegistry[]{registry, registry()}) {
             var result = current.find(attempt.attemptId(), admin).orElseThrow();
+            assertThat(result.outputPath()).isEqualTo(output);
+            assertThat(current.history(null, 1, admin).tasks()).extracting(task -> task.outputPath()).containsExactly(output);
             assertThat(result).usingRecursiveComparison().ignoringFields("revision").isEqualTo(expected);
             assertThat(current.find(attempt.attemptId(), RequestOwnerIdentity.owner("owner"))).isPresent();
             assertThat(current.find(attempt.attemptId(), RequestOwnerIdentity.owner("other"))).isEmpty();
@@ -321,6 +382,27 @@ class DownloadTaskResultStoreTest {
             workers.shutdown();
             assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test void readsLongUnicodeOutputAndOlderRecordsWithoutAnOutputPath() throws IOException {
+        var registry = registry();
+        var attempt = attempt();
+        String prefix = directory.toString() + "/";
+        String output = prefix + "页".repeat(32_767 - prefix.length());
+        assertThatThrownBy(() -> registry.register(attempt, "owner", "example", "title", output + "页"))
+                .isInstanceOf(IllegalArgumentException.class);
+        registry.register(attempt, "owner", "example", "title", output);
+        registry.update(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
+        var owner = RequestOwnerIdentity.owner("owner");
+        assertThat(registry().find(attempt.attemptId(), owner).orElseThrow().outputPath()).isEqualTo(output);
+
+        var mapper = tools.jackson.databind.json.JsonMapper.shared();
+        var record = (tools.jackson.databind.node.ObjectNode) mapper.readTree(Files.readAllBytes(resultPath(attempt)));
+        record.remove("outputPath");
+        Files.write(resultPath(attempt), mapper.writeValueAsBytes(record));
+        var restored = registry().find(attempt.attemptId(), owner).orElseThrow();
+        assertThat(restored.phase()).isEqualTo(DownloadEvent.Phase.COMPLETED);
+        assertThat(restored.outputPath()).isNull();
     }
 
     @Test @DisplayName("损坏、超限、身份不符与非终态回执均不能作为成功证据")

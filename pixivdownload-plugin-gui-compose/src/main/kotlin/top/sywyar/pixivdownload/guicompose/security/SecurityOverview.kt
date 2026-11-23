@@ -66,8 +66,20 @@ internal fun SecurityOverview(
     }
     val latestClose by rememberUpdatedState({ activate("close") })
     DisposableEffect(Unit) { onDispose { latestClose() } }
+    val scroll = rememberScrollState()
+    var restoreKeysFocus by remember { mutableStateOf(false) }
+    if (node.panel() == "program-keys" && node.programKeys() != null) {
+        SideEffect { restoreKeysFocus = true }
+        SecurityProgramKeysPage(node, text, emit, modifier)
+        return
+    }
+    LaunchedEffect(Unit) {
+        if (restoreKeysFocus) {
+            restoreKeysFocus = false
+            anchors["program-keys"]?.requestFocus()
+        }
+    }
     Box(modifier.fillMaxSize().testTag(node.id())) {
-        val scroll = rememberScrollState()
         BoxWithConstraints(Modifier.fillMaxSize().verticalScroll(scroll)) {
             val inset = if (maxWidth < 600.dp) 20.dp else 48.dp
             Column(
@@ -103,6 +115,14 @@ internal fun SecurityOverview(
                         fontSize = 11.sp, color = palette.secondaryText)
                 }
                 group("access-group") {
+                    SecurityRow(text(TextToken("security", "keys.title", "", emptyList())),
+                        text(TextToken("security", "keys.description", "", emptyList())),
+                        text(TextToken("security", "keys.manage", "", emptyList())),
+                        Icons.Default.Key, false, !node.busy(), anchors.getOrPut("program-keys") { FocusRequester() },
+                        "security.program-keys") {
+                        previousPanel = "program-keys"
+                        activate("program-keys")
+                    }
                     node.navigation().forEach { entry ->
                         key(entry.id()) {
                             val focus = remember { FocusRequester() }
@@ -234,7 +254,7 @@ internal fun SecurityError(message: String?) {
 }
 
 @Composable
-private fun SecuritySheet(
+internal fun SecuritySheet(
     panel: String,
     dismissible: Boolean,
     close: () -> Unit,

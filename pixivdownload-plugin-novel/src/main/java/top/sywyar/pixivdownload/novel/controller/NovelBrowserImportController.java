@@ -1,9 +1,13 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import tools.jackson.core.JsonParser;
-import tools.jackson.core.StreamReadFeature;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -13,6 +17,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
@@ -22,6 +30,7 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
@@ -35,6 +44,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /** 接收本机油猴脚本已通过浏览器登录态取得的 Pixiv 小说响应。 */
+@HttpApiGroup("novel-downloads")
+@HttpApiAccess(HttpApiAccess.Condition.SOLO_LOCAL_ONLY)
 @RestController
 @RequestMapping("/api/novel/browser-import")
 @PluginManagedBean
@@ -57,6 +68,8 @@ public class NovelBrowserImportController {
     private final ApplicationModeProvider applicationModeProvider;
     private final MessageResolver messages;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ImportTokenResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
     @GetMapping("/token")
     public ResponseEntity<?> issueImportToken(HttpServletRequest request) {
         if (!availableTo(request)) {
@@ -68,6 +81,15 @@ public class NovelBrowserImportController {
                         ticketStore.issueImportToken(), NovelBrowserFetchTicketStore.TICKET_TTL_SECONDS));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, description = "Send the complete Pixiv novel response and its single-use X-Novel-Import-Token. The body ID must match the path.",
+            content = @Content(
+            mediaType = "application/json", schema = @Schema(type = "object"),
+                    examples = @ExampleObject(value = "{\"error\":false,\"body\":{\"id\":\"123\",\"title\":\"Example\",\"content\":\"Sample text\",\"userId\":\"42\",\"userName\":\"Author\",\"tags\":{\"tags\":[]}}}")))
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = FetchTicketResponse.class)))
+    @Parameter(name = IMPORT_TOKEN_HEADER, in = ParameterIn.HEADER, required = true, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
     @PostMapping("/{novelId}")
     public ResponseEntity<?> importNovel(@PathVariable long novelId, HttpServletRequest request) {
         if (!availableTo(request)) {

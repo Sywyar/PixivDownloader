@@ -133,3 +133,20 @@ test('小说画廊恢复旧日期偏好，无效类别不参与查询', () => {
     h.context.restoreTimeRanges({dateFilters: [{field: 'bad', start: '2020-01-01'}]});
     assert.deepEqual(Object.keys(h.context.galleryTimeRanges()), []);
 });
+
+test('only a destructive all-results selection sends full-library confirmation', () => {
+    const h = load();
+    const run = expression => vm.runInContext(expression, h.context);
+    run("batch.mode = 'ids'");
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), undefined);
+
+    vm.runInContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/pixiv-novel-gallery/novel-gallery-views.js'), 'utf8'), h.context);
+
+    run("syncVisibleBatchCards = () => {}; updateBatchBar = () => {}; toast = () => {}; state.totalElements = 7");
+    run("state.search = 'specific'; selectAllResults()");
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), undefined);
+    run("state.search = ''; selectAllResults()");
+    assert.equal(run('buildBatchPayload().confirmAll'), undefined);
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), true);
+});

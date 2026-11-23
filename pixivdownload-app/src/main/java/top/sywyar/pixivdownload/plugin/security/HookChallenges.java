@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.operation.OperationTargets;
 /** 证明暂存只保存有界纯值；准备不授予业务权限，真实请求仍核对发布并消费一次。 */
 @Component
 public final class HookChallenges {
-    static final String TICKET_HEADER = "X-Pixiv-Hook-Ticket";
+    public static final String TICKET_HEADER = "X-Pixiv-Hook-Ticket";
     private static final String IDENTITY_COOKIE = "pixiv_hook_client", TICKET_COOKIE = "pixiv_hook_ticket_";
     private final byte[] key = new byte[32];
     private final java.time.Clock clock;
@@ -21,7 +21,7 @@ public final class HookChallenges {
     record Pending(String digest, List<OperationHookCalls.Identity> providers, long expires, Map<String, String> proofs, String nativeSubject) { }
     record Target(String subject, String scope, String digest) { }
     record Ticket(String token, Pending proof) { }
-    record Response(String code, String error, boolean invoked, String token, String revision, Map<String, String> challenges)
+    public record Response(String code, String error, boolean invoked, String token, String revision, Map<String, String> challenges)
             implements top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse { }
 
     @org.springframework.beans.factory.annotation.Autowired

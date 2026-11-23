@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.operation;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.List;
 import java.util.Set;
 import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
@@ -70,7 +72,7 @@ public interface OperationHook {
      * @param resources 需要明确授权的资源声明
      */
     record Definition(String revision, Set<Phase> phases, String configurationSchema,
-            String inputSchema, String resultSchema, PageInteraction protocol, List<PageResourceProfile> resources) { }
+            String inputSchema, String resultSchema, @HttpApiNullable PageInteraction protocol, List<PageResourceProfile> resources) { }
 
     /**
      * subject 为宿主摘要，correlation 是独立诊断身份；proof 仅交给所属 Hook。

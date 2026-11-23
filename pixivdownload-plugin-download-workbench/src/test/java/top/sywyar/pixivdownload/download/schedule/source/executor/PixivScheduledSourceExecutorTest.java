@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
 import top.sywyar.pixivdownload.download.PixivFetchService;
+import top.sywyar.pixivdownload.download.schedule.source.descriptor.PixivScheduledSourceDescriptors;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
@@ -67,6 +68,54 @@ class PixivScheduledSourceExecutorTest {
         localWorkLookup = mock(PixivScheduledLocalWorkLookup.class);
         support = new PixivScheduledSourceSupport(
                 objectMapper, fetchService, persistenceCodec, localWorkLookup, 37, 0L);
+    }
+
+    @Test
+    void everyPublishedExampleCanBePreparedAndPlanned() throws Exception {
+        var providers = new ArrayList<>(executors(support));
+        providers.add(new PixivExplicitListScheduledSourceExecutor(support));
+        var descriptors = PixivScheduledSourceDescriptors.createAll();
+        assertThat(descriptors).extracting(descriptor -> descriptor.sourceType())
+                .containsExactlyInAnyOrderElementsOf(providers.stream().map(ScheduledSourceExecutor::sourceType).toList());
+        for (var descriptor : descriptors) {
+            var executor = providers.stream().filter(item -> item.sourceType().equals(descriptor.sourceType()))
+                    .findFirst().orElseThrow();
+            var schema = objectMapper.readTree(descriptor.inputSchemaJson());
+            assertThat(schema.path("examples").isArray()).isTrue();
+            assertThat(schema.path("examples").size()).isPositive();
+            for (var example : schema.path("examples")) {
+                var draft = new ScheduledTaskDraft(7, descriptor.sourceType(), descriptor.definitionSchema(),
+                        descriptor.definitionVersion(), example.toString(),
+                        new ScheduledTaskPresentation("Example", null, java.util.Map.of()));
+                assertThat(executor.plan(executor.prepare(draft)).requiredWorkTypes()).isNotEmpty();
+            }
+        }
+        verifyNoInteractions(fetchService);
+    }
+
+    @Test
+    void explicitMixedListPreservesOrderSkipsLocalAndRejectsDuplicates() throws Exception {
+        var executor = new PixivExplicitListScheduledSourceExecutor(support);
+        String input = """
+                {"kind":"mixed","source":{"acquisitionMode":"single-import","works":[
+                {"kind":"illust","id":"12"},{"kind":"novel","id":"12"},{"kind":"illust","id":"13"}]}}
+                """;
+        var task = definition("explicit-list", input);
+        assertThat(executor.plan(task).requiredWorkTypes()).containsExactlyInAnyOrder("illust", "novel");
+        completeLocally("illust:13");
+        var context = context(task, null);
+        executor.discover(context);
+        assertThat(context.sink.submitted).extracting(ScheduledWork::key)
+                .containsExactly(new ScheduledWorkKey("illust", "12"), new ScheduledWorkKey("novel", "12"));
+        assertThat(context.sink.local).extracting(ScheduledWork::key).containsExactly(new ScheduledWorkKey("illust", "13"));
+        verifyNoInteractions(fetchService);
+        assertThatThrownBy(() -> executor.plan(definition("explicit-list", input.replace("\"13\"", "\"12\""))))
+                .isInstanceOf(ScheduledExecutionException.class);
+        assertThatThrownBy(() -> executor.plan(definition("explicit-list", input.replace("\"13\"", "\"013\""))))
+                .isInstanceOf(ScheduledExecutionException.class);
+        assertThat(executor.plan(definition("explicit-list", """
+                {"kind":"mixed","source":{"acquisitionMode":"single-import","works":[{"kind":"illust","id":"12"}]}}
+                """)).requiredWorkTypes()).containsExactly("illust");
     }
 
     @Test
@@ -674,6 +723,24 @@ class PixivScheduledSourceExecutorTest {
                     assertThat(scheduled.category()).isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION);
                     assertThat(scheduled.code()).isEqualTo("schedule.pixiv.discovery-definition-invalid");
                 });
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"illust", "novel"})
+    void missingAuthorDuringDiscoveryHasItsOwnFailureCode(String kind) throws Exception {
+        var notFound = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404);
+        if ("illust".equals(kind)) doThrow(notFound).when(fetchService).discoverUserArtworkIds(eq("1"), any());
+        else doThrow(notFound).when(fetchService).discoverUserNovelIds(eq("1"), any());
+        var task = definition("user-new", """
+                {"kind":"%s","source":{"userId":"1"}}
+                """.formatted(kind));
+        var context = context(task, null);
+        assertThatThrownBy(() -> new PixivUserNewScheduledSourceExecutor(support).discover(context))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class, failure -> {
+                    assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.NOT_FOUND);
+                    assertThat(failure.code()).isEqualTo("schedule.pixiv.discovery-not-found");
+                });
+        assertThat(context.sink.submitted).isEmpty();
     }
 
     @Test

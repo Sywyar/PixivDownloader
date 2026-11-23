@@ -161,9 +161,18 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> rawFile(WorkType workType, long workId, int page) {
+        return pageFile(workType, workId, page, false);
+    }
+
+    @Override
+    public Optional<WorkAssetFile> previewFile(WorkType workType, long workId, int page) {
+        return pageFile(workType, workId, page, true);
+    }
+
+    private Optional<WorkAssetFile> pageFile(WorkType workType, long workId, int page, boolean allowThumbnail) {
         if (pixivDatabase.isUnavailable()) return Optional.empty();
         return switch (workType) {
-            case ARTWORK -> artworkRawFile(workId, page);
+            case ARTWORK -> artworkPageFile(workId, page, allowThumbnail);
             case NOVEL -> novelRawFile(workId, page);
         };
     }
@@ -233,8 +242,8 @@ public class LocalWorkAssetService implements WorkAssetService {
         return Optional.of(new WorkAssetFile(page, thumbnailFile.path(), thumbnailFile.extension()));
     }
 
-    private Optional<WorkAssetFile> artworkRawFile(long workId, int page) {
-        File file = artworkFileService.getImageFile(workId, page);
+    private Optional<WorkAssetFile> artworkPageFile(long workId, int page, boolean allowThumbnail) {
+        File file = artworkFileService.getImageFile(workId, page, allowThumbnail);
         if (file == null) {
             return Optional.empty();
         }

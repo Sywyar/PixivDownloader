@@ -22,6 +22,7 @@ class DownloadTasksTest {
     private final ExternalCapabilityOwner owner = new ExternalCapabilityOwner("example", "example", 1, 1);
     private final RequestOwnerIdentity admin = RequestOwnerIdentity.adminScope();
     private final List<DownloadEvent.Phase> events = new ArrayList<>();
+    private final java.nio.file.Path output = java.nio.file.Path.of("downloads", "作品").toAbsolutePath();
     private final List<Runnable> queue = new ArrayList<>();
     private final AtomicInteger executions = new AtomicInteger();
 
@@ -31,7 +32,7 @@ class DownloadTasksTest {
             @Override public String workType() { return "example"; }
             @Override public void submit(DownloadSubmission submission, DownloadAttempt attempt, String credential) {
                 var task = tracker.prepareQueued(null);
-                lifecycle.track(attempt, task, null, "example", "作品", true);
+                lifecycle.track(attempt, task, null, "example", "作品", true, output);
                 task.bind(() -> {
                     lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
                     executions.incrementAndGet();
@@ -58,13 +59,31 @@ class DownloadTasksTest {
         assertThat(duplicate.duplicate()).isTrue();
         assertThat(duplicate.task().attempt()).isEqualTo(first.task().attempt());
         assertThat(first.task().phase()).isEqualTo(DownloadEvent.Phase.QUEUED);
+        assertThat(first.task().outputPath()).isEqualTo(output.toString());
+        assertThat(duplicate.task().outputPath()).isEqualTo(first.task().outputPath());
         assertThat(queue).hasSize(1);
         queue.get(0).run();
         assertThat(executions).hasValue(1);
         assertThat(events).containsExactly(DownloadEvent.Phase.ACCEPTED, DownloadEvent.Phase.QUEUED,
                 DownloadEvent.Phase.STARTED, DownloadEvent.Phase.COMPLETED);
         assertThat(lifecycle.submit(command, "secret", admin).task().phase()).isEqualTo(DownloadEvent.Phase.COMPLETED);
+        assertThat(lifecycle.submit(command, "secret", admin).task().outputPath()).isEqualTo(output.toString());
         assertThat(lifecycle.snapshot(admin).toString()).doesNotContain("secret");
+    }
+
+    @Test void preparingDuplicatePicksUpTheDirectoryWhenTheProviderRegistersIt() {
+        var registry = new DownloadTaskRegistry(java.time.Clock.systemUTC());
+        var command = command();
+        var attempt = registry.reserve(command, null, admin).task().attempt();
+        var preparing = registry.reserve(command, null, admin);
+        assertThat(preparing.duplicate()).isTrue();
+        assertThat(preparing.task().outputPath()).isNull();
+
+        registry.register(attempt, null, "example", "title", output.toString());
+        registry.register(attempt, null, "example", "title");
+        assertThatThrownBy(() -> registry.register(attempt, null, "example", "title", output.resolve("other").toString()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(registry.find(attempt.attemptId(), admin).orElseThrow().outputPath()).isEqualTo(output.toString());
     }
 
     @Test @DisplayName("相同幂等键变更选项或凭据会冲突，不能再次执行")
@@ -118,9 +137,17 @@ class DownloadTasksTest {
 
     @Test @DisplayName("能力缺席不假报成功，未授权身份不能提交或读取管理员任务")
     void absenceAndOwnerIsolation() {
-        assertThatThrownBy(() -> lifecycle.submit(command(), null, admin))
+        var unsupported = command();
+        var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(),
+                java.util.Set.of("core:downloads.create"));
+        assertThatThrownBy(() -> lifecycle.submit(unsupported, null, admin))
                 .isInstanceOfSatisfying(DownloadTaskException.class,
-                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNAVAILABLE));
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        assertThatThrownBy(() -> lifecycle.submitForProgram(unsupported, null, program))
+                .isInstanceOfSatisfying(DownloadTaskException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        assertThat(lifecycle.snapshot(admin).tasks()).isEmpty();
+        assertThat(lifecycle.snapshot(RequestOwnerIdentity.owner(program.id().toString())).tasks()).isEmpty();
         install();
         var item = lifecycle.submit(command(), null, admin).task();
         var visitor = RequestOwnerIdentity.owner("visitor");
@@ -195,5 +222,64 @@ class DownloadTasksTest {
         assertThat(queue).isEmpty();
         assertThat(lifecycle.snapshot(admin).tasks()).singleElement()
                 .satisfies(task -> assertThat(task.phase()).isEqualTo(DownloadEvent.Phase.FAILED));
+    }
+
+    @Test @DisplayName("程序权限在处理器前检查，回执和幂等键按密钥隔离")
+    void programSubmissionsKeepReceiptOwnershipWithoutChangingProviderContract() {
+        install();
+        var grants = java.util.Set.of("core:downloads.create", "example:downloads.create");
+        var first = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), grants);
+        var second = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), grants);
+        var firstOwner = RequestOwnerIdentity.owner(first.id().toString());
+        var secondOwner = RequestOwnerIdentity.owner(second.id().toString());
+        var command = command();
+        for (var permissions : List.of(java.util.Set.of("core:downloads.create"), java.util.Set.of("example:downloads.create"))) {
+            var denied = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), permissions);
+            assertThatThrownBy(() -> lifecycle.submitForProgram(command, null, denied))
+                    .isInstanceOfSatisfying(DownloadTaskException.class,
+                            failure -> {
+                                assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.FORBIDDEN);
+                                assertThat(failure.programPermission()).isEqualTo(permissions.contains("core:downloads.create")
+                                        ? "example:downloads.create" : "core:downloads.create");
+                            });
+        }
+        assertThat(queue).isEmpty();
+        assertThat(events).isEmpty();
+        assertThat(lifecycle.snapshot(admin).tasks()).isEmpty();
+        var receipt = lifecycle.submitForProgram(command, null, first);
+        var other = lifecycle.submitForProgram(command, null, second);
+        var id = receipt.task().attempt().attemptId();
+        assertThat(other.task().attempt().attemptId()).isNotEqualTo(id);
+        assertThat(lifecycle.submitForProgram(command, null, first).duplicate()).isTrue();
+        assertThat(lifecycle.snapshot(firstOwner).tasks()).containsExactly(receipt.task());
+        assertThat(lifecycle.find(id, secondOwner)).isEmpty();
+        assertThat(lifecycle.cancel(id, secondOwner)).isEqualTo(DownloadTasks.CancelResult.NOT_FOUND);
+        assertThat(lifecycle.cancel(id, firstOwner)).isEqualTo(DownloadTasks.CancelResult.REQUESTED);
+        queue.forEach(Runnable::run);
+        assertThat(executions).hasValue(1);
+        assertThat(lifecycle.find(id, firstOwner).orElseThrow().phase()).isEqualTo(DownloadEvent.Phase.CANCELLED);
+        lifecycle.withdraw(owner);
+        assertThat(lifecycle.submissionOwners()).isEmpty();
+        assertThatThrownBy(() -> lifecycle.submitForProgram(command(), null, first))
+                .isInstanceOfSatisfying(DownloadTaskException.class,
+                        failure -> assertThat(failure.code()).isEqualTo(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE));
+        assertThat(lifecycle.find(other.task().attempt().attemptId(), secondOwner).orElseThrow().phase())
+                .isEqualTo(DownloadEvent.Phase.COMPLETED);
+    }
+
+    @Test @DisplayName("程序下载终态重载后仍按密钥身份隔离")
+    void persistedProgramReceiptRetainsOwner(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) {
+        var registry = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
+        var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), java.util.Set.of());
+        var reserved = registry.reserveForProgram(command(), null, program).task();
+        registry.register(reserved.attempt(), null, "example", "Title");
+        registry.update(new DownloadEvent(reserved.attempt(), DownloadEvent.Phase.COMPLETED));
+        var reloaded = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
+        var identity = RequestOwnerIdentity.owner(program.id().toString());
+        assertThat(reloaded.find(reserved.attempt().attemptId(), identity).orElseThrow().phase())
+                .isEqualTo(DownloadEvent.Phase.COMPLETED);
+        assertThat(reloaded.find(reserved.attempt().attemptId(), RequestOwnerIdentity.owner(UUID.randomUUID().toString()))).isEmpty();
+        assertThat(reloaded.history(null, 10, identity).tasks()).hasSize(1);
+        assertThat(reloaded.snapshot(identity).tasks()).isEmpty();
     }
 }

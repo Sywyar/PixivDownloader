@@ -206,12 +206,8 @@ internal fun ToolsOverview(
                                     val focus = anchors.getOrPut(id) { FocusRequester() }
                                     ToolRow(
                                         if (id == "startup") text(tools[index].title()) else label("$id.title"),
-                                        if (id == "startup") text(TextToken.key("gui.tools.startup-cache.description")) else label("$id.description"),
-                                        when (id) {
-                                            "startup" -> text(TextToken.key("gui.tools.startup-cache.impact"))
-                                            "classifier" -> ""
-                                            else -> label("$id.impact")
-                                        },
+                                        label("$id.description"),
+                                        if (id == "classifier") "" else label("$id.impact"),
                                         toolIcons[index],
                                         "tools.entry.$id",
                                         Modifier.width(itemWidth).focusRequester(focus),

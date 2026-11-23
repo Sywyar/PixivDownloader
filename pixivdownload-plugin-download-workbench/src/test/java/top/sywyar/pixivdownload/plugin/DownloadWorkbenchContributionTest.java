@@ -138,7 +138,7 @@ class DownloadWorkbenchContributionTest {
             assertThat(resource.publicPathPrefix()).isEqualTo("/pixiv-batch/");
             assertThat(resource.exactFile()).isFalse();
         });
-        assertThat(plugin.scheduledSourceDescriptors()).hasSize(7).allSatisfy(descriptor -> {
+        assertThat(plugin.scheduledSourceDescriptors()).filteredOn(descriptor -> descriptor.frontend() != null).hasSize(7).allSatisfy(descriptor -> {
             assertThat(descriptor.frontend()).isNotNull();
             assertThat(descriptor.frontend().moduleUrl())
                     .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL)
@@ -180,7 +180,7 @@ class DownloadWorkbenchContributionTest {
         assertThat(descriptors)
                 .extracting(ScheduledSourceDescriptor::sourceType)
                 .containsExactly("user-new", "user-request", "search", "series",
-                        "my-bookmarks", "follow-latest", "collection");
+                        "my-bookmarks", "follow-latest", "collection", "explicit-list");
         assertThat(descriptors.stream()
                 .flatMap(descriptor -> descriptor.legacyAliases().stream())
                 .toList())

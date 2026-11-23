@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="{{lang}}"><head>
+    <meta charset="utf-8">
+    <meta name="color-scheme" content="light dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="connect-src 'self'; form-action 'none'; object-src 'none'">
+    <title>{{title}}</title>
+    <link rel="service-desc" href="/api/openapi.json" type="application/vnd.oai.openapi+json">
+    <script src="/openapi/ui.js"></script>
+    <link rel="stylesheet" href="/openapi/ui.css">
+    <script defer src="/js/pixiv-i18n.js"></script>
+    <script defer src="/js/pixiv-lang-switcher.js"></script>
+</head><body>
+    <header class="reference-bar"><strong>PixivDownloader</strong><label id="reference-language"></label></header>
+    <main>
+        <section id="reference-access" class="reference-access" data-admin="{{admin}}" data-failure="{{page.failed}}" aria-labelledby="reference-access-title">
+            <h1 id="reference-access-title">{{title}}</h1>
+            <p id="reference-status" class="reference-access-status" role="status">{{page.loading}}</p>
+            <div class="reference-progress" role="progressbar" aria-labelledby="reference-status"></div>
+            <div class="reference-guidance">
+                <p>{{page.document}}</p>
+                <p>{{page.program}}</p>
+                <form id="reference-key-form" hidden autocomplete="off">
+                    <label for="reference-key">{{key}}</label>
+                    <input id="reference-key" type="password" autocomplete="off" spellcheck="false" required>
+                    <button type="submit">{{page.openWithKey}}</button>
+                </form>
+                <p>{{page.admin}}</p>
+            </div>
+        </section>
+        <div id="reference-content"></div>
+    </main>
+</body></html>

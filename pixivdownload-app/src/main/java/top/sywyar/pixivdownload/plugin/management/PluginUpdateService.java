@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
@@ -129,9 +131,9 @@ public class PluginUpdateService {
 
     private static Summary unavailable() { return new Summary(true, 0, 0, true, null, List.of()); }
 
-    public record Update(String pluginId, String repositoryId, String installedVersion, String compatibleVersion,
-                         String latestVersion, String requiredSdk, boolean compatible, boolean sdkBlocked) { }
+    public record Update(String pluginId, String repositoryId, String installedVersion, @HttpApiNullable String compatibleVersion,
+                         String latestVersion, @HttpApiNullable String requiredSdk, boolean compatible, boolean sdkBlocked) { }
     public record Summary(boolean enabled, int compatibleUpdates, int sdkBlockedUpdates, boolean checkFailed,
-                          String checkedAt, List<Update> updates) { }
+                          @HttpApiNullable String checkedAt, List<Update> updates) { }
     private record Cached(long epoch, long created, List<PluginRepository> repositories, Summary summary) { }
 }

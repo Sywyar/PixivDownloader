@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 /**
  * 由宿主针对当前配置快照求值的纯数据条件。插件贡献的条件只能引用同一插件拥有的字段。
  *
@@ -8,7 +10,7 @@ package top.sywyar.pixivdownload.plugin.api.gui;
  * @param value {@link GuiConfigConditionOperator#EQUALS} 和
  *              {@link GuiConfigConditionOperator#NOT_EQUALS} 使用的比较值
  */
-public record GuiConfigCondition(String key, GuiConfigConditionOperator operator, String value) {
+public record GuiConfigCondition(String key, GuiConfigConditionOperator operator, @HttpApiNullable String value) {
 
     /**
      * 对已准入且补齐默认值的配置草稿求值，缺键按空字符串处理。

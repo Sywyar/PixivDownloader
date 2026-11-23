@@ -17,7 +17,7 @@ import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 
 /** 原生 Swing 媒体工具；耗时命令不占用 EDT，关闭面板只停止观察，不主动开始或取消任务。 */
-final class MediaToolsPanel extends JPanel {
+final class MediaToolsPanel extends SwingPage.RowList {
     private final DesktopUiContext context;
     private final Map<DesktopMediaTool.Identity, ToolPanel> panels = new LinkedHashMap<>();
     private final Timer timer = new Timer(1000, event -> {
@@ -27,8 +27,6 @@ final class MediaToolsPanel extends JPanel {
 
     MediaToolsPanel(DesktopUiContext context) {
         this.context = context;
-        setOpaque(false);
-        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         refreshTools();
     }
 
@@ -96,18 +94,20 @@ final class MediaToolsPanel extends JPanel {
             this.tool = tool;
             setLayout(new GridBagLayout());
             setOpaque(false);
-            setBorder(BorderFactory.createTitledBorder(context.resolveText(tool.description().title())));
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+            setBorder(BorderFactory.createEmptyBorder(SwingPage.ROW_PADDING, 0, SwingPage.ROW_PADDING, 0));
+            add(SwingPage.text(SwingPage.Style.STRONG, context.resolveText(tool.description().title())));
             add(help("media.tools.help"));
             images = formats(false);
             animations = formats(true);
             JLabel imagesLabel = label("media.image-formats.label");
             imagesLabel.setLabelFor(images.control());
             add(imagesLabel);
-            add(images.control());
+            add(SwingPage.capped(images.control(), SwingPage.FORM_WIDTH));
             JLabel animationsLabel = label("media.ugoira-formats.label");
             animationsLabel.setLabelFor(animations.control());
             add(animationsLabel);
-            add(animations.control());
+            add(SwingPage.capped(animations.control(), SwingPage.FORM_WIDTH));
             thumbnails = new JCheckBox(text("media.tools.thumbnails"), true);
             thumbnails.setOpaque(false);
             thumbnails.setName("media.thumbnails");
@@ -116,9 +116,7 @@ final class MediaToolsPanel extends JPanel {
             startButton = button("start", this::start);
             cancelButton = button("cancel", this::cancel);
             checkButton = button("check", () -> perform(() -> source().capabilities().valueOrThrow(), this::showCapabilities));
-            JPanel actions = row(previewButton, startButton, cancelButton, button("refresh", this::refresh));
-            actions.setLayout(new GridLayout(0, 2, 6, 6));
-            add(actions);
+            add(SwingPage.inline(previewButton, SwingPage.primary(startButton), cancelButton, button("refresh", this::refresh)));
             add(previewLabel);
             add(files);
             previousButton = button("previous", () -> { page--; showFiles(); });
@@ -126,9 +124,9 @@ final class MediaToolsPanel extends JPanel {
             add(row(previousButton, pageLabel, nextButton));
             add(stateLabel);
             progress.setStringPainted(true);
-            add(progress);
+            add(SwingPage.capped(progress, SwingPage.FORM_WIDTH));
             add(help("media.tools.capabilities-help"));
-            add(row(checkButton));
+            add(SwingPage.inline(checkButton));
             add(capabilities);
             add(notice);
             thumbnails.addActionListener(event -> invalidatePreview());
@@ -146,7 +144,7 @@ final class MediaToolsPanel extends JPanel {
             if (component == notice) constraints.weighty = 1;
             constraints.fill = GridBagConstraints.HORIZONTAL;
             constraints.anchor = GridBagConstraints.NORTHWEST;
-            constraints.insets = new Insets(3, 4, 3, 4);
+            constraints.insets = new Insets(3, 0, 3, 0);
             super.add(component, constraints);
             return component;
         }
@@ -302,11 +300,8 @@ final class MediaToolsPanel extends JPanel {
         boolean running() { return scanning || status != null && (status.state().equals("running") || status.state().equals("scanning")); }
         private DesktopMediaTool.Source source() { return context.host().mediaTool(tool.identity()); }
         private JLabel label(String key) { return new JLabel(text(key)); }
-        private JTextArea help(String key) {
-            JTextArea area = textArea();
-            area.setRows(2);
-            area.setText(text(key));
-            return area;
+        private JComponent help(String key) {
+            return SwingPage.text(SwingPage.Style.SECONDARY, text(key));
         }
         private String text(String key, Object... arguments) {
             return context.resolveText(new DesktopUiText(tool.description().namespace(), key, key, Arrays.stream(arguments).map(String::valueOf).toList()));

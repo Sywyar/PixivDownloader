@@ -160,7 +160,7 @@ public class GalleryService {
                 fileNameTemplateRef == null ? null : fileNameTemplateRef.catalogKey(),
                 fileNameTemplateRef == null ? null : fileNameTemplateRef.template(),
                 toTagResponses(meta.tags()), seriesId == null || seriesId <= 0 ? null : seriesId,
-                meta.seriesOrder(), meta.seriesTitle(), false, meta.uploadTime(), meta.createTime(), meta.updateTime(), meta.reuploadTime());
+                meta.seriesOrder(), meta.seriesTitle(), false, meta.uploadTime(), meta.createTime(), meta.updateTime(), meta.reuploadTime(), meta.fileManagement());
     }
 
     private static List<GalleryTagResponse> toTagResponses(List<WorkTag> tags) {

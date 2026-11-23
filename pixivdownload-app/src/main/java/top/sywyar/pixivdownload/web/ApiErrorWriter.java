@@ -18,9 +18,14 @@ public final class ApiErrorWriter {
     }
 
     public static void write(HttpServletResponse response, int status, String code, String error) throws IOException {
+        write(response, status, ApiErrorResponse.of(code, error));
+    }
+
+    /** 写出带端点诊断字段的错误；{@code code} / {@code error} 仍由 {@link ApiErrorResponse} 保证。 */
+    public static void write(HttpServletResponse response, int status, ApiErrorResponse body) throws IOException {
         response.setStatus(status);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(MAPPER.writeValueAsString(ApiErrorResponse.of(code, error)));
+        response.getWriter().write(MAPPER.writeValueAsString(body));
     }
 }

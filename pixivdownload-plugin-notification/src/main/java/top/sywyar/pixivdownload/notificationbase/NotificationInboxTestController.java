@@ -1,17 +1,20 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.web.LocalRequestTrust;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
+import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,8 +26,8 @@ import java.util.Map;
 
 /** GUI 通知配置页的站内信预览端点；外层与控制器内层均执行 GUI 本地请求校验。 */
 @PluginManagedBean
+@HttpApiGroup("notification-inbox")
 @RestController
-@RequestMapping("/api/gui")
 public class NotificationInboxTestController {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -35,12 +38,22 @@ public class NotificationInboxTestController {
         this.sink = sink;
     }
 
-    @PostMapping("/notification-inbox-test")
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = InboxTestResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/gui/notification-inbox-test")
     public ResponseEntity<?> test(HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
+        return testAdmin();
+    }
+
+    /** HTTP 业务入口沿用声明路由与宿主来源校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = InboxTestResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/admin/notifications/test")
+    public ResponseEntity<?> testAdmin() {
         NotificationScenario scenario = NotificationScenario.RUN_SUMMARY;
         try {
             sink.deliverForTest(scenario, LocaleContextHolder.getLocale(), samplePlaceholders());
@@ -53,12 +66,21 @@ public class NotificationInboxTestController {
         }
     }
 
-    @PostMapping("/notification-inbox-test-all")
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = InboxTestResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/gui/notification-inbox-test-all")
     public ResponseEntity<?> testAll(HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", "Forbidden: local access only"));
         }
+        return testAllAdmin();
+    }
+
+    /** HTTP 业务入口与桌面共享同一组通知场景。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = InboxTestResponse.class)))
+    @PostMapping("/api/admin/notifications/test-all")
+    public ResponseEntity<?> testAllAdmin() {
         Locale locale = LocaleContextHolder.getLocale();
         Map<String, String> placeholders = samplePlaceholders();
         List<String> failures = new ArrayList<>();

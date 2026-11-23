@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.download;
 
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -179,7 +181,7 @@ class NovelDownloadServiceTest {
                 throw (RuntimeException) termination;
             });
             throw original;
-        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(java.nio.file.Path.class));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
             if (blocking) downloads.downloadBlocking(txtRequest(92L, null), "owner");
@@ -202,7 +204,7 @@ class NovelDownloadServiceTest {
         org.mockito.Mockito.doAnswer(call -> {
             call.<QueueTaskTracker.Task>getArgument(1).onTermination(() -> { throw termination; });
             throw original;
-        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(java.nio.file.Path.class));
         doThrow(publication).when(downloadLifecycle).publish(any());
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> downloads.download(txtRequest(93L, null), "owner"))
@@ -250,6 +252,8 @@ class NovelDownloadServiceTest {
         when(downloadLifecycle.options(any(), any())).thenReturn(Map.of("format", "html", "fileNameTemplate", "hooked"));
         var request = txtRequest(89L, null);
         assertThat(service.downloadBlocking(request, null)).isTrue();
+        verify(downloadLifecycle).track(any(), any(), any(), eq("novel"), eq(request.getTitle()), eq(false),
+                eq(tempDir.resolve("novel-89")));
         assertThat(tempDir.resolve("novel-89/hooked.html")).exists();
         var events = org.mockito.ArgumentCaptor.forClass(
                 top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
@@ -446,6 +450,8 @@ class NovelDownloadServiceTest {
         assertThat(targets.getAllValues().get(1).getFileName().toString())
                 .endsWith("_thumb");
         verify(novelDatabase).saveNovelImage(110L, "123", "gif");
+        verify(downloadLifecycle).reportProgress(any(), any(), eq(new DownloadTaskProgress(DownloadTaskProgress.Unit.IMAGES, 1, 1)));
+        verify(downloadLifecycle).reportProgress(any(), any(), eq(new DownloadTaskProgress(DownloadTaskProgress.Unit.BYTES, 12, 20)));
         assertThat(service.getStatus(110L).getCoverTotalBytes()).isEqualTo(20);
         assertThat(service.getStatus(110L).getCoverDownloadedBytes()).isEqualTo(12);
     }

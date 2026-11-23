@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredenti
  * @param publicationId 当前 publication 标识；不可用时为空
  * @param statusCode 策略提供的安全状态码；无状态时为空
  * @param acknowledgedEventTime 已确认事件的时间戳（毫秒）；没有确认时为空
+ * @param accountActionsSchemaJson 当前策略对 actionId 与 parameters 的公开 JSON Schema；未声明或策略不可用时为空
  */
 public record ScheduleCredentialPolicyView(
         String ownerPluginId,
@@ -22,8 +23,27 @@ public record ScheduleCredentialPolicyView(
         boolean available,
         Long publicationId,
         String statusCode,
-        Long acknowledgedEventTime
+        Long acknowledgedEventTime,
+        String accountActionsSchemaJson
 ) {
+
+    /**
+     * 创建没有账号动作声明的策略投影。
+     * @param ownerPluginId 策略所属插件
+     * @param policyId 策略标识
+     * @param accountKey 非敏感账号标识
+     * @param bound 是否持久绑定
+     * @param available 当前策略发布是否可用
+     * @param publicationId 当前发布标识
+     * @param statusCode 策略的状态码
+     * @param acknowledgedEventTime 最近确认的事件时间（Unix 毫秒）
+     */
+    public ScheduleCredentialPolicyView(
+            String ownerPluginId, String policyId, String accountKey, boolean bound, boolean available,
+            Long publicationId, String statusCode, Long acknowledgedEventTime) {
+        this(ownerPluginId, policyId, accountKey, bound, available, publicationId,
+                statusCode, acknowledgedEventTime, null);
+    }
 
     /**
      * 保留绑定身份并投影策略缺席、停止或换代后的不可用状态。
@@ -65,6 +85,6 @@ public record ScheduleCredentialPolicyView(
                 : presentation;
         return new ScheduleCredentialPolicyView(
                 ownerPluginId, policyId, accountKey, bound,
-                true, publicationId, safe.statusCode(), safe.acknowledgedEventTime());
+                true, publicationId, safe.statusCode(), safe.acknowledgedEventTime(), safe.accountActionsSchemaJson());
     }
 }

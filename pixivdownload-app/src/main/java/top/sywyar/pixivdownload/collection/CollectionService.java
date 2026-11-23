@@ -347,7 +347,7 @@ public class CollectionService {
 
     private String expandDownloadRootTemplate(String downloadRoot, String collectionName, long collectionId) {
         return downloadRoot.replace(
-                "{collection_name}",
+                top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables.COLLECTION_ROOT_PLACEHOLDER,
                 safePathSegment(collectionName, collectionId)
         );
     }

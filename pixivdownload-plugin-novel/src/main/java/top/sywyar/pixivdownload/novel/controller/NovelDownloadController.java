@@ -1,7 +1,18 @@
 package top.sywyar.pixivdownload.novel.controller;
 
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.links.Link;
+import io.swagger.v3.oas.annotations.links.LinkParameter;
+import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,41 +23,45 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
-import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
-import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
-import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
-import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
-import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
-import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
-import top.sywyar.pixivdownload.novel.request.NovelDownloadCommand;
-import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
-import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
-import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
-import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
-import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
-import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
-import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
+import top.sywyar.pixivdownload.core.work.WorkActionResult;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
+import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadCommand;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
+import top.sywyar.pixivdownload.novel.response.NovelAlreadyDownloadedResponse;
+import top.sywyar.pixivdownload.novel.response.NovelDownloadResponse;
+import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
+import top.sywyar.pixivdownload.novel.response.NovelProxyRateLimitResponse;
+import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
+import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
+import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+import top.sywyar.pixivdownload.translation.api.NovelTranslationOperations;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 
 import java.io.IOException;
@@ -67,6 +82,7 @@ import java.util.Set;
  * 访问归属由 {@code NovelPlugin.routes()} 以 {@code AccessPolicy.VISITOR} 声明（multi 游客可下载、走配额；
  * solo 需会话；邀请访客 403），与插画下载 {@code /api/download/pixiv} 对称。
  */
+@HttpApiGroup("novel-downloads")
 @RestController
 @RequestMapping("/api")
 @PluginManagedBean
@@ -104,9 +120,27 @@ public class NovelDownloadController {
                 messages.get("download.cancelled")));
     }
 
-    public record PathActionResponse(String code, String error, DownloadPathPlan.Problem pathProblem, String retryToken)
+    public record PathActionResponse(String code, String error,
+                                     @HttpApiNullable DownloadPathPlan.Problem pathProblem,
+                                     @HttpApiNullable String retryToken)
             implements ApiErrorResponse {}
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {NovelDownloadResponse.class, NovelAlreadyDownloadedResponse.class})))
+    @Parameter(name = AcquisitionCredentialResolver.HEADER_NAME, in = ParameterIn.HEADER,
+            schema = @Schema(type = "string", maxLength = AcquisitionCredentialResolver.MAX_LENGTH))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = NovelErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {NovelDownloadController.PathActionResponse.class, NovelErrorResponse.class})))
+    @KnownErrorCodes(status = "429", value = "task.queue.full")
+    @ApiResponse(responseCode = "429", links = {
+            @Link(name = "inspectArchive", operationRef = "#/paths/~1api~1archive~1status~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken")),
+            @Link(name = "downloadArchive", operationRef = "#/paths/~1api~1archive~1download~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken"))
+    }, content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {NovelQuotaExceededResponse.class, NovelProxyRateLimitResponse.class, ApiErrorResponse.Basic.class})))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-program-alternative", value = "POST /api/download/tasks")))
     @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
             @Valid @RequestBody NovelDownloadCommand command,
@@ -216,6 +250,7 @@ public class NovelDownloadController {
             case OWNER_REQUIRED -> ResponseEntity.status(401)
                     .body(new NovelErrorResponse(decision.errorMessage()));
             case RATE_LIMITED -> ResponseEntity.status(429)
+                    .header("Retry-After", Long.toString(java.time.Duration.ofHours(decision.windowHours()).toSeconds()))
                     .body(new NovelProxyRateLimitResponse(
                             decision.errorMessage(), decision.maxRequests(), decision.windowHours()));
         };
@@ -343,10 +378,16 @@ public class NovelDownloadController {
      * 「下载即自动翻译」状态轮询（admin-only：solo，或 multi 管理员）。翻译跑在服务端独立队列、生命周期独立于下载，
      * 前端下载完成后据此展示翻译进度与同系列前序章节等待状态。无该小说翻译记录时返回 204。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/novel/translate-status/{novelId}")
     public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
             @PathVariable Long novelId, HttpServletRequest httpRequest) {
-        if (!requestOwnerIdentityResolver.resolve(httpRequest).admin()) {
+        if (!top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.from(httpRequest.getAttribute(
+                top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE))
+                .map(identity -> identity.permits(top.sywyar.pixivdownload.novel.NovelPlugin.ID, "translation.read"))
+                .orElseGet(() -> requestOwnerIdentityResolver.resolve(httpRequest).admin())) {
             return ResponseEntity.status(403).build();
         }
         NovelAutoTranslateService.StatusView view = novelAutoTranslateService.getStatus(novelId);
@@ -369,6 +410,8 @@ public class NovelDownloadController {
         }
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/novel/series/{seriesId}/merge")
     public ResponseEntity<MergeResponse> mergeSeries(
             @PathVariable long seriesId,
@@ -387,6 +430,9 @@ public class NovelDownloadController {
      * 浏览器下载系列合订本。每次都按当前数据库状态重新生成（原文基准 / 指定语言变体），
      * 然后把生成的文件作为附件回传。
      */
+    @ApiResponse(responseCode = "200", content = {@Content(mediaType = "application/epub+zip", schema = @Schema(type = "string", format = "binary")), @Content(mediaType = "text/html", schema = @Schema(type = "string", format = "binary")), @Content(mediaType = "text/plain", schema = @Schema(type = "string", format = "binary"))})
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/novel/series/{seriesId}/merged")
     public ResponseEntity<byte[]> downloadMergedSeries(
             @PathVariable long seriesId,
@@ -428,6 +474,11 @@ public class NovelDownloadController {
                 messages.get("novel.translate.unavailable")));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(allOf = NovelTranslationOperations.Result.class),
+            schemaProperties = @io.swagger.v3.oas.annotations.media.SchemaProperty(name = "status",
+                    schema = @Schema(type = "string", examples = {"OK", "SKIPPED", "SAME_LANGUAGE", "EMPTY"}))))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/novel/{novelId}/translate")
     public ResponseEntity<?> translateNovel(@PathVariable long novelId,
                                              @RequestBody TranslateRequest request) {
@@ -451,6 +502,8 @@ public class NovelDownloadController {
         return ResponseEntity.ok(result);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/novel/translate-lang-probe")
     public ResponseEntity<TranslateLangProbeResponse> translateLangProbe(
             @RequestBody TranslateLangProbeRequest request) {
@@ -461,6 +514,9 @@ public class NovelDownloadController {
         return ResponseEntity.ok(new TranslateLangProbeResponse(code, !code.isEmpty()));
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TranslateSeriesTitleResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/novel/series/{seriesId}/translate-title")
     public ResponseEntity<?> translateSeriesTitle(
             @PathVariable long seriesId, @RequestBody TranslateSeriesTitleRequest request) {
@@ -564,19 +620,19 @@ public class NovelDownloadController {
             boolean success,
             String message,
             Long novelId,
-            String title,
-            String format,
-            String stage,
+            @HttpApiNullable String title,
+            @HttpApiNullable String format,
+            @HttpApiNullable String stage,
             boolean completed,
             boolean failed,
-            String downloadPath,
+            @HttpApiNullable String downloadPath,
             int embeddedTotal,
             int embeddedDone,
             long coverTotalBytes,
             long coverDownloadedBytes,
-            WorkActionResult bookmarkResult,
-            WorkActionResult collectionResult,
-            String errorCode
+            @HttpApiNullable WorkActionResult bookmarkResult,
+            @HttpApiNullable WorkActionResult collectionResult,
+            @HttpApiNullable String errorCode
     ) {}
 
     public record NovelDownloadedStateResponse(boolean downloaded, boolean deleted) {}
@@ -596,8 +652,12 @@ public class NovelDownloadController {
     public record TranslateSeriesTitleRequest(String targetLanguage, String langHint, Long glossaryId,
                                               Boolean translateTitle, Boolean translateDescription) {}
 
-    public record TranslateSeriesTitleResponse(String langCode, String title,
-                                               String description, String message, String variantKey) {}
+    public record TranslateSeriesTitleResponse(
+            @HttpApiNullable String langCode,
+            @HttpApiNullable String title,
+            @HttpApiNullable String description,
+            @HttpApiNullable String message,
+            @HttpApiNullable String variantKey) {}
 
     public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 }

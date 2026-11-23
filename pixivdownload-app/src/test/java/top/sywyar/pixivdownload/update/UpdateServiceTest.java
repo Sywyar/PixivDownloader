@@ -483,7 +483,11 @@ class UpdateServiceTest {
             service.downloadInstaller(selected);
             assertThat(service.verifiedInstallerForLaunch()).isEqualTo(target.toAbsolutePath().normalize());
 
+            assertThat(service.installerReceipt()).isEqualTo(new UpdateService.InstallerReceipt(hash, payload.length));
             try (var launcher = mockStatic(WindowsInstallerLauncher.class)) {
+                assertThatThrownBy(() -> service.launchInstallerAndExit("f".repeat(64)))
+                        .isInstanceOf(IllegalStateException.class).hasMessage("UPDATE_INSTALLER_STALE");
+                launcher.verifyNoInteractions();
                 for (int code : new int[]{1, WindowsInstallerLauncher.CANCELLED, WindowsInstallerLauncher.TIMED_OUT}) {
                     launcher.when(() -> WindowsInstallerLauncher.launch(target.toAbsolutePath().normalize()))
                             .thenReturn(code);
@@ -504,7 +508,8 @@ class UpdateServiceTest {
 
                 Files.write(target, payload);
                 launcher.when(() -> WindowsInstallerLauncher.launch(target.toAbsolutePath().normalize())).thenReturn(0);
-                service.launchInstallerAndExit();
+                service.launchInstallerAndExit(hash);
+                assertThat(service.installerReceipt()).isNull();
                 verify(service).scheduleExit();
                 assertThatThrownBy(service::verifiedInstallerForLaunch).isInstanceOf(IOException.class);
                 launcher.clearInvocations();

@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.gallerytools;
 
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -53,6 +56,11 @@ public class GalleryToolsPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.admin("/api/stats/dashboard").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("statistics.read", "permission.statistics.read"))),
+                WebRouteContribution.admin("/api/duplicates/groups").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("duplicates.read", "permission.duplicates.read"))),
+                WebRouteContribution.admin("/api/duplicates/scan/status").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("duplicates.read", "permission.duplicates.read"))),
+                WebRouteContribution.admin("/api/duplicates/scan").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("duplicates.scan", "permission.duplicates.scan"))),
+                WebRouteContribution.admin("/api/duplicates/rescan").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("duplicates.scan", "permission.duplicates.scan"))),
                 WebRouteContribution.admin("/pixiv-stats.html"),
                 WebRouteContribution.admin("/pixiv-stats/**"),
                 WebRouteContribution.admin("/api/stats/**"),

@@ -121,7 +121,9 @@ class PixivThumbnailProxyControllerTest {
         mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
                         .param("url", "https://evil.com/malicious.jpg"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(containsString("pximg.net")));
+                .andExpect(jsonPath("$.error").value(containsString("pximg.net")))
+                .andExpect(jsonPath("$.field").value("url"))
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"));
     }
 
     @Test

@@ -67,9 +67,11 @@ class PixivProxyServletTest {
         var access = mock(PixivProxyAccessPolicy.class);
         when(access.evaluate(any(), anyBoolean())).thenReturn(
                 new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
-        when(upstream.get(any(), nullable(String.class))).thenReturn("{\"error\":false,\"body\":{}}");
+        when(upstream.get(any(), nullable(String.class))).thenReturn("{\"error\":false,\"body\":{\"src\":\"https://example.org/animation.zip\",\"frames\":[]}}");
+        when(upstream.get(URI.create("https://www.pixiv.net/ajax/illust/12345/pages"), null))
+                .thenReturn("{\"error\":false,\"body\":[{\"urls\":{\"original\":\"https://example.org/page.jpg\"}}]}");
         doAnswer(call -> {
-            if (call.<Long>getArgument(2) != 12345L) {
+            if (call.<Long>getArgument(2) != 12345L && call.<Long>getArgument(2) != 12346L) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN);
             }
             return null;
@@ -107,7 +109,13 @@ class PixivProxyServletTest {
                     "-1", "0", "9223372036854775808", "9".repeat(100), "%20", "%2012345",
                     "12345%20", "+12345", "%EF%BC%91%EF%BC%92", "54321%23fragment")) {
                 clearInvocations(upstream, visibility);
-                assertThat(request(rawId, endpoint).statusCode()).as(endpoint + " " + rawId).isEqualTo(400);
+                var response = request(rawId, endpoint);
+                assertThat(response.statusCode()).as(endpoint + " " + rawId).isEqualTo(400);
+                var error = JsonMapper.shared().readTree(response.body());
+                assertThat(error.path("code").asString()).isEqualTo("error.request.param.invalid");
+                assertThat(error.path("in").asString()).isEqualTo("path");
+                assertThat(error.path("field").asString()).isEqualTo("artworkId");
+                assertThat(error.path("reason").asString()).isEqualTo("invalid_value");
                 verifyNoInteractions(upstream, visibility);
             }
             clearInvocations(upstream, visibility);
@@ -130,6 +138,18 @@ class PixivProxyServletTest {
                 default -> "";
             };
             verify(upstream).get(URI.create("https://www.pixiv.net/ajax/illust/12345" + suffix), null);
+        }
+    }
+
+    @Test
+    void reportsMalformedAnimationMetadataFromPixiv() throws Exception {
+        when(upstream.get(URI.create("https://www.pixiv.net/ajax/illust/12346/ugoira_meta"), null))
+                .thenReturn("{\"error\":false,\"body\":{\"frames\":[]}}", "invalid JSON");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            var response = request("12346", "ugoira");
+            assertThat(response.statusCode()).isEqualTo(502);
+            assertThat(JsonMapper.shared().readTree(response.body()).path("code").asString())
+                    .isEqualTo("pixiv.proxy.invalid-response");
         }
     }
 

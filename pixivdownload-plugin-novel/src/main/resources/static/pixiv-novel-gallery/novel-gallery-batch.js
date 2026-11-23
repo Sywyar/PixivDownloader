@@ -35,6 +35,7 @@ function resetBatchSelection() {
     batch.selected.clear();
     batch.excluded.clear();
     batch.mode = 'ids';
+    batch.fullLibrary = false;
     batch.filterSnapshot = null;
     batch.filterKey = '';
     batch.total = 0;
@@ -122,6 +123,7 @@ function selectAllResults() {
     const total = Number(state.totalElements || 0);
     if (!total) return;
     batch.mode = 'filter';
+    batch.fullLibrary = !hasActiveNovelFilters();
     batch.filterSnapshot = currentBatchFilterSnapshot();
     batch.filterKey = JSON.stringify(batch.filterSnapshot);
     batch.total = total;
@@ -152,7 +154,7 @@ function updateBatchBar() {
     });
 }
 
-function buildBatchPayload(collectionId) {
+function buildBatchPayload(collectionId, deleting = false) {
     const payload = batch.mode === 'filter'
         ? {
             mode: 'filter',
@@ -163,6 +165,7 @@ function buildBatchPayload(collectionId) {
             mode: 'ids',
             ids: [...batch.selected],
         };
+    if (deleting && payload.mode === 'filter' && batch.fullLibrary) payload.confirmAll = true;
     if (collectionId != null) payload.collectionId = collectionId;
     return payload;
 }
@@ -225,7 +228,7 @@ async function runBatchDelete() {
     const data = await batchApi('/api/gallery/novels/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildBatchPayload())
+        body: JSON.stringify(buildBatchPayload(null, true))
     });
     const deleted = data && typeof data.deleted === 'number' ? data.deleted : expected;
     toast(pageI18n.t('novel-gallery:manage.delete-success', '已删除 {count} 本小说', { count: deleted }), 'success');
@@ -237,7 +240,7 @@ async function runBatchDelete() {
 function openBatchExportModal() {
     if (batchSelectedCount() === 0) return;
     return window.PixivNovelExport.open({
-        selection: buildBatchPayload(), i18n: pageI18n, toast,
+        selection: buildBatchPayload(), fullLibrary: batch.fullLibrary, i18n: pageI18n, toast,
         onSubmitted: exitBatchMode, onDeleted: reloadNovels
     });
 }

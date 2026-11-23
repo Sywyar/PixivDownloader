@@ -19,6 +19,16 @@
 
     <dependencies>
         <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-database-postgresql</artifactId>
             <version>${project.version}</version>

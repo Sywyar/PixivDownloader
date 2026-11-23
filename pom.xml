@@ -147,6 +147,11 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
+                <groupId>io.swagger.core.v3</groupId>
+                <artifactId>swagger-annotations-jakarta</artifactId>
+                <version>2.2.55</version>
+            </dependency>
+            <dependency>
                 <groupId>io.github.sywyar.pixivdownloader</groupId>
                 <artifactId>pixivdownload-sdk-info</artifactId>
                 <version>${pixivdownload.sdk.version}</version>
@@ -260,6 +265,11 @@
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                             <version>1.18.44</version>
+                        </path>
+                        <path>
+                            <groupId>com.github.therapi</groupId>
+                            <artifactId>therapi-runtime-javadoc-scribe</artifactId>
+                            <version>0.15.0</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

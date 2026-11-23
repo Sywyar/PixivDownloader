@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -154,18 +156,20 @@ class SSEControllerTest {
         assertThat(payload.getArtworkId()).isEqualTo(12345L);
         assertThat(payload.getStatus()).isEqualTo("Connecting");
         assertThat(payload.getMessage()).isEqualTo("SSE connection established");
+        assertThat(JsonMapper.shared().valueToTree(payload).has("progress")).isFalse();
         assertThat(payload.isSuccess()).isTrue();
     }
 
-    @Test
+    @ParameterizedTest
+    @CsvSource({"3, 1, 1, 33", "50, 29, 29, 58", "3, 0, 0, 0", "0, -1, 0,"})
     @DisplayName("handleDownloadProgressEvent 应向作品级连接发送本地化进度")
-    void shouldSendLocalizedProgressToArtworkEmitter() throws Exception {
+    void shouldSendLocalizedProgressToArtworkEmitter(int total, int index, int downloaded, Integer percent) throws Exception {
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putArtworkSubscription(777L, emitter, Locale.SIMPLIFIED_CHINESE);
 
-        DownloadStatus status = new DownloadStatus(777L, "test", 4);
-        status.setCurrentImageIndex(1);
-        status.setDownloadedCount(2);
+        DownloadStatus status = new DownloadStatus(777L, "test", total);
+        status.setCurrentImageIndex(index);
+        status.setDownloadedCount(downloaded);
         status.setFolderName("777");
         status.setPresentationAttributes(Map.of("xRestrict", "1", "ai", "true", "illustType", "1"));
 
@@ -180,10 +184,11 @@ class SSEControllerTest {
         assertThat(payload.getArtworkId()).isEqualTo(777L);
         assertThat(payload.getStatus()).isEqualTo("进度更新");
         assertThat(payload.getMessage()).isEqualTo("下载进度已更新");
-        assertThat(payload.getCurrentImageIndex()).isEqualTo(1);
-        assertThat(payload.getTotalImages()).isEqualTo(4);
-        assertThat(payload.getDownloadedCount()).isEqualTo(2);
-        assertThat(payload.getProgress()).isEqualTo(50);
+        assertThat(payload.getCurrentImageIndex()).isEqualTo(index);
+        assertThat(payload.getTotalImages()).isEqualTo(total);
+        assertThat(payload.getDownloadedCount()).isEqualTo(downloaded);
+        assertThat(payload.getProgress()).isEqualTo(percent);
+        assertThat(JsonMapper.shared().valueToTree(payload).has("progress")).isEqualTo(percent != null);
         assertThat(payload.getFolderName()).isEqualTo("777");
         assertThat(payload.getTitle()).isEqualTo("test");
         assertThat(payload.getPresentationAttributes()).isEqualTo(status.getPresentationAttributes());
@@ -246,6 +251,7 @@ class SSEControllerTest {
                 default -> new Object[0];
             };
             assertThat(payload.getMessage()).isEqualTo(messages.get(Locale.US, "download.status." + outcome, args));
+            assertThat(payload.isSuccess()).isTrue();
             assertThat(payload.getCancelled()).isEqualTo(status.isCancelled());
             assertThat(payload.getFailed()).isEqualTo(status.isFailed());
         }

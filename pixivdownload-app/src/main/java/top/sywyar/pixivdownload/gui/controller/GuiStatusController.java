@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.gui.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +19,7 @@ import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
@@ -32,6 +37,7 @@ import java.util.List;
  * 返回字段刻意精简：统计数据（总作品数、活跃队列等）由 monitor.html 专职展示，
  * 此接口只返回 monitor.html 不展示的服务器元信息（端口、模式、启动时间）。
  */
+@HttpApiGroup("core-system")
 @RestController
 @RequestMapping("/api/gui")
 @RequiredArgsConstructor
@@ -61,6 +67,8 @@ public class GuiStatusController {
      * 返回服务器元信息：端口、运行模式、启动时间。
      * 统计数据和下载队列请查看 /monitor.html。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/status")
     public ResponseEntity<GuiStatusResponse> status(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -87,6 +95,8 @@ public class GuiStatusController {
      * GET /api/gui/pixiv-connectivity
      * 使用当前代理配置探测后端到 Pixiv 首页的网络连通性。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/pixiv-connectivity")
     public ResponseEntity<PixivConnectivityResponse> pixivConnectivity(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -102,6 +112,9 @@ public class GuiStatusController {
      * POST /api/gui/restart
      * 请求完整进程重启；新进程等待当前 JVM 完成退出后再初始化。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content)
     @PostMapping("/restart")
     public ResponseEntity<Void> restart(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -115,6 +128,10 @@ public class GuiStatusController {
                 : ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = GuiConfigReloadResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/config/reload")
     public ResponseEntity<?> reloadConfig(
             @RequestBody(required = false) GuiConfigReloadRequest body,
@@ -139,6 +156,8 @@ public class GuiStatusController {
      * 引导进度（供「首页」分步引导轮询）。仅 GUI（本地 + GUI 令牌）可访问，
      * 由 AuthFilter 对 /api/gui/** 统一强制本地 + 令牌校验。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/onboarding")
     public ResponseEntity<OnboardingStatusResponse> onboarding(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -157,6 +176,9 @@ public class GuiStatusController {
      * 与公开的 /api/setup/init（setup.html 后备入口）等价，但走 GUI 令牌通道。
      * 已完成时幂等返回 ok，方便与 setup.html 后备并存。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiSetupInitResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content)
     @PostMapping("/setup/init")
     public ResponseEntity<GuiSetupInitResponse> setupInit(@RequestBody GuiSetupInitRequest body,
                                                           HttpServletRequest req) throws IOException {
@@ -183,6 +205,12 @@ public class GuiStatusController {
      * 修改管理员密码。GUI 侧使用，本地访问 + GUI 令牌双重保护。
      * 修改成功后所有现存 session 会被清空，使用者需要重新登录 web 端。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiChangePasswordResponse.class)))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiChangePasswordResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiChangePasswordResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiChangePasswordResponse.class)))
     @PostMapping("/change-password")
     public ResponseEntity<GuiChangePasswordResponse> changePassword(
             @RequestBody GuiChangePasswordRequest body, HttpServletRequest req) {
@@ -219,6 +247,10 @@ public class GuiStatusController {
         return ResponseEntity.ok(new GuiChangePasswordResponse(true, null));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiLogoutAllResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiLogoutAllResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = GuiLogoutAllResponse.class)))
     @PostMapping("/logout-all")
     public ResponseEntity<GuiLogoutAllResponse> logoutAll(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -238,7 +270,8 @@ public class GuiStatusController {
         }
     }
 
-    public record GuiLogoutAllResponse(boolean success, String code, String error) implements ApiErrorResponse {}
+    public record GuiLogoutAllResponse(boolean success, @HttpApiNullable String code, @HttpApiNullable String error)
+            implements ApiErrorResponse {}
 
     public record OnboardingStatusResponse(
             boolean setupComplete,
@@ -250,13 +283,13 @@ public class GuiStatusController {
     public record GuiSetupInitRequest(String username, String password, String mode) {
     }
 
-    public record GuiSetupInitResponse(boolean success, String mode, String error) {
+    public record GuiSetupInitResponse(boolean success, @HttpApiNullable String mode, @HttpApiNullable String error) {
     }
 
     public record GuiChangePasswordRequest(String oldPassword, String newPassword) {
     }
 
-    public record GuiChangePasswordResponse(boolean success, String error) {
+    public record GuiChangePasswordResponse(boolean success, @HttpApiNullable String error) {
     }
 
     public record GuiConfigReloadRequest(List<String> changedKeys) {
@@ -266,7 +299,7 @@ public class GuiStatusController {
             boolean reachable,
             int statusCode,
             long latencyMs,
-            String errorType) {
+            @HttpApiNullable String errorType) {
     }
 
     // ── 私有工具 ──────────────────────────────────────────────────────────────────

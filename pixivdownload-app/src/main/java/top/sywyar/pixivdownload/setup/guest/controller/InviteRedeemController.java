@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.setup.guest.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -17,6 +22,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import java.io.IOException;
 
 /** 宿主限流和有界输入校验先于 Hook；凭据只在受控业务动作提交后签发。 */
+@HttpApiGroup("core-invites")
 @RestController
 @RequiredArgsConstructor
 public class InviteRedeemController {
@@ -26,6 +32,12 @@ public class InviteRedeemController {
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = RedeemResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/api/auth/invite-redeem")
     @OperationEndpoint(operation = "core:invite-redeem")
     public ResponseEntity<?> redeem(@Valid @RequestBody RedeemRequest body, HttpServletRequest request) throws IOException {

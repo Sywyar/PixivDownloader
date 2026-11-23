@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.setup;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import org.springframework.web.util.ServletRequestPathUtils;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -34,6 +39,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
@@ -61,6 +67,9 @@ public class AuthFilter extends OncePerRequestFilter {
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
     public static final String INVITE_COOKIE = GuestInviteSession.COOKIE_NAME;
 
+    /** 程序密钥的 RFC 6750 质询；realm 是协议值，不随界面语言变化。 */
+    private static final String BEARER_CHALLENGE = "Bearer realm=\"PixivDownloader\"";
+
     private final SetupService setupService;
     private final StaticResourceRateLimitService staticResourceRateLimitService;
     private final RateLimitService rateLimitService;
@@ -69,6 +78,9 @@ public class AuthFilter extends OncePerRequestFilter {
     private final ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider;
     private final GuestInviteService guestInviteService;
     private final GuiTokenProvider guiTokenProvider;
+    private final ProgramKeyService programKeys;
+    @Autowired @Qualifier("requestMappingHandlerMapping")
+    private ObjectProvider<RequestMappingHandlerMapping> mvcMappings;
 
     // 一次请求只解析一次有效路由，公开、邀请、管理员与本地放行共享同一方法和特异性结论。
     // 派生清单仅用于静态资源限流分类，不参与授权。
@@ -91,7 +103,6 @@ public class AuthFilter extends OncePerRequestFilter {
      * 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件，请求侧读取其不可变快照）、
      * {@link StartupRouteRegistry}（{@code /redirect} 默认落点）与 {@link LandingRegistry}（GET 邀请兑换落点）。
      */
-    @Autowired
     public AuthFilter(SetupService setupService,
                       StaticResourceRateLimitService staticResourceRateLimitService,
                       RateLimitService rateLimitService,
@@ -104,6 +115,24 @@ public class AuthFilter extends OncePerRequestFilter {
                       StartupRouteRegistry startupRouteRegistry,
                       LandingRegistry landingRegistry,
                       NavigationRegistry navigationRegistry) {
+        this(setupService, staticResourceRateLimitService, rateLimitService, localeResolver, messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider, routeAccessRegistry, startupRouteRegistry, landingRegistry, navigationRegistry, null);
+    }
+
+    @Autowired
+    public AuthFilter(SetupService setupService,
+                      StaticResourceRateLimitService staticResourceRateLimitService,
+                      RateLimitService rateLimitService,
+                      AppLocaleResolver localeResolver,
+                      AppMessages messages,
+                      ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
+                      GuestInviteService guestInviteService,
+                      GuiTokenProvider guiTokenProvider,
+                      RouteAccessRegistry routeAccessRegistry,
+                      StartupRouteRegistry startupRouteRegistry,
+                      LandingRegistry landingRegistry,
+                      NavigationRegistry navigationRegistry,
+                      ProgramKeyService programKeys) {
+        this.programKeys = programKeys;
         this.setupService = setupService;
         this.staticResourceRateLimitService = staticResourceRateLimitService;
         this.rateLimitService = rateLimitService;
@@ -307,6 +336,81 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        boolean inspectingOwnKey = resolvedRoute.filter(route -> ProgramAccess.isSelf(route, toHttpMethod(method))).isPresent();
+        if (inspectingOwnKey && req.getHeader(HttpHeaders.AUTHORIZATION) == null) {
+            res.setHeader(HttpHeaders.WWW_AUTHENTICATE, BEARER_CHALLENGE);
+            sendJsonError(req, res, 401, "auth.program.required", "This operation requires a program key");
+            return;
+        }
+
+        // 显式程序凭据不回退会话、本机或匿名身份；业务权限仍绑定本次有效路由。
+        if (req.getHeader(HttpHeaders.AUTHORIZATION) != null) {
+            var headers = req.getHeaders(HttpHeaders.AUTHORIZATION);
+            String authorization = headers.nextElement();
+            if (headers.hasMoreElements() || authorization.length() > 128
+                    || !authorization.startsWith("Bearer ") || programKeys == null
+                    || SessionUtils.extractToken(req) != null || GuestInviteSession.isGuestRequest(req)
+                    || req.getHeader(GuiTokenProvider.HEADER_NAME) != null) {
+                res.setHeader(HttpHeaders.WWW_AUTHENTICATE, BEARER_CHALLENGE + ", error=\"invalid_request\"");
+                sendJsonError(req, res, 401, "auth.program.invalid", "Program credentials are invalid or mixed with another identity");
+                return;
+            }
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity identity;
+            try { identity = programKeys.authenticate(authorization.substring(7), req.getRemoteAddr(), req.isSecure()); }
+            catch (ProgramKeyStore.HttpsRequired insecure) {
+                sendJsonError(req, res, 403, "auth.program.https-required", "Use HTTPS for this program key outside the local network");
+                return;
+            }
+            catch (IOException unavailable) {
+                sendJsonError(req, res, 503, "auth.program.unavailable", "Program key storage is unavailable");
+                return;
+            }
+            if (identity == null) {
+                res.setHeader(HttpHeaders.WWW_AUTHENTICATE, BEARER_CHALLENGE + ", error=\"invalid_token\"");
+                sendJsonError(req, res, 401, "auth.program.invalid", "Program credentials or source IP are not accepted");
+                return;
+            }
+            var permission = resolvedRoute.map(route -> route.route().programPermissions().get(toHttpMethod(method))).orElse(null);
+            if (permission == null) {
+                if (resolvedRoute.isEmpty()) {
+                    sendJsonError(req, res, 404, "error.request.not-found", "Requested resource not found");
+                    return;
+                }
+                if (isApi(path) && mvcMappings != null) {
+                    // A route policy may cover several MVC methods. Consult the dispatcher only to classify a denial.
+                    ServletRequestPathUtils.parseAndCache(req);
+                    boolean missing = false;
+                    try {
+                        missing = mvcMappings.getObject().getHandler(req) == null;
+                    } catch (HttpRequestMethodNotSupportedException unsupported) {
+                        res.setHeader(HttpHeaders.ALLOW, unsupported.getHeaders().getFirst(HttpHeaders.ALLOW));
+                        sendJsonError(req, res, 405, "http.status.405", "Method not allowed");
+                        return;
+                    } catch (Exception unavailable) {
+                        // A media or other mapping condition cannot grant program access.
+                        log.debug("MVC lookup for denied program request failed", unavailable);
+                    }
+                    if (missing && resolvedRoute.get().route().pathPattern().contains("*")) {
+                        sendJsonError(req, res, 404, "error.request.not-found", "Requested resource not found");
+                        return;
+                    }
+                }
+                sendJsonError(req, res, 403, "auth.program.unsupported", "This operation does not accept program keys");
+                return;
+            }
+            String owner = resolvedRoute.orElseThrow().pluginId();
+            if (!inspectingOwnKey && !identity.permits(owner, permission.id())) {
+                // 声明了程序权限的路由直接给出所需权限，调用方据此请管理员授权，而不是猜测缺少哪一项。
+                sendProgramCredentialError(req, res, 403, "auth.program.forbidden", "auth.program.forbidden.permission",
+                        "This program key lacks the {0} permission required for this operation",
+                        owner + ":" + permission.id());
+                return;
+            }
+            req.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE, identity);
+            chain.doFilter(req, res);
+            return;
+        }
+
         // 公开身份检查与所有业务路由共享访客身份；失效邀请也不能回退到管理员或本机权限。
         GuestInviteSession guestSession = resolveGuestInviteSession(req);
         if (guestSession != null) {
@@ -409,6 +513,7 @@ public class AuthFilter extends OncePerRequestFilter {
         if (guestSession != null && isAllowedForGuestInvite(resolvedRoute, method)) {
             if (isApi(path)) {
                 if (!rateLimitService.isAllowedForInvite("invite:" + guestSession.code())) {
+                    res.setHeader(HttpHeaders.RETRY_AFTER, "60");
                     sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
                     return;
                 }
@@ -422,12 +527,7 @@ public class AuthFilter extends OncePerRequestFilter {
             String token = SessionUtils.extractToken(req);
             boolean adminValid = setupService.isValidSession(token);
             if (!adminValid) {
-                if (isApi(path)) {
-                    sendJsonError(req, res, 401, "auth.unauthorized", "Unauthorized");
-                } else {
-                    String redirect = URLEncoder.encode(path, StandardCharsets.UTF_8);
-                    res.sendRedirect("/login.html?redirect=" + redirect);
-                }
+                rejectUnauthenticated(req, res, path, resolvedRoute);
                 return;
             }
             if ("multi".equals(setupService.getMode())) {
@@ -438,7 +538,7 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         if (policy == AccessPolicy.LOCAL) {
-            if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
+            if (isLocalOnlyMove(path, toHttpMethod(method))) {
                 if (!NetworkUtils.isLocalRequest(req)) {
                     sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                     return;
@@ -468,6 +568,7 @@ public class AuthFilter extends OncePerRequestFilter {
             if (!isAdmin && isApi(path)) {
                 String uuid = UuidUtils.extractOrGenerateUuid(req);
                 if (!rateLimitService.isAllowed(uuid)) {
+                    res.setHeader(HttpHeaders.RETRY_AFTER, "60");
                     sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
                     return;
                 }
@@ -480,12 +581,47 @@ public class AuthFilter extends OncePerRequestFilter {
         String token = SessionUtils.extractToken(req);
         if (setupService.isValidSession(token)) {
             chain.doFilter(req, res);
-        } else if (isApi(path)) {
-            sendJsonError(req, res, 401, "auth.unauthorized", "Unauthorized");
         } else {
+            rejectUnauthenticated(req, res, path, resolvedRoute);
+        }
+    }
+
+    /**
+     * 没有有效管理员会话：页面导航跳转登录，API 回 401。本次方法接受程序密钥时，401 另按 RFC 6750 给出 Bearer
+     * 质询、所需权限与用法说明，调用方据此改用程序密钥，而不必模拟需要人工验证的登录。
+     */
+    private void rejectUnauthenticated(HttpServletRequest req, HttpServletResponse res, String path,
+                                       Optional<RouteAccessRegistry.RegisteredRoute> resolvedRoute) throws IOException {
+        if (!isApi(path)) {
             String redirect = URLEncoder.encode(path, StandardCharsets.UTF_8);
             res.sendRedirect("/login.html?redirect=" + redirect);
+            return;
         }
+        Optional<String> programPermission = resolvedRoute.flatMap(route ->
+                Optional.ofNullable(route.route().programPermissions().get(toHttpMethod(req.getMethod())))
+                        .map(permission -> route.pluginId() + ":" + permission.id()));
+        if (programPermission.isEmpty()) {
+            sendJsonError(req, res, 401, "auth.unauthorized", "Unauthorized");
+            return;
+        }
+        res.setHeader(HttpHeaders.WWW_AUTHENTICATE, BEARER_CHALLENGE);
+        sendProgramCredentialError(req, res, 401, "auth.unauthorized", "auth.unauthorized.program-key",
+                "Sign in as administrator, or send a program key with the {0} permission as Authorization: Bearer <key>",
+                programPermission.get());
+    }
+
+    /**
+     * 程序凭据错误：稳定 {@code code} 不变，说明与结构化字段给出本次路由要求的完整程序权限。
+     * SDK 只允许 {@code /api/} 路由声明程序权限，因此这里始终走 JSON 错误通道。
+     */
+    private void sendProgramCredentialError(HttpServletRequest req, HttpServletResponse res, int status, String code,
+                                            String messageKey, String defaultMessage, String permission) throws IOException {
+        String message = messages.getOrDefault(localeResolver.resolveLocale(req), messageKey, defaultMessage, permission);
+        ApiErrorWriter.write(res, status, new ProgramCredentialError(code, message, permission));
+    }
+
+    /** 在标准 {@code code} / {@code error} 之外携带本次路由要求的程序权限 ID（{@code owner:局部权限}）。 */
+    public record ProgramCredentialError(@Schema(allowableValues = {"auth.unauthorized", "auth.program.forbidden", "DOWNLOAD_TASK_FORBIDDEN", "CREDENTIAL_FORBIDDEN"}) String code, String error, String programPermission) implements ApiErrorResponse {
     }
 
     /** 请求方法字符串 → contribution 的 {@link HttpMethod}；未知方法返回 {@code null}（仅命中空方法集声明）。 */
@@ -530,14 +666,7 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isValidGuiRequest(HttpServletRequest req) {
-        if (!NetworkUtils.isTrustedLocalRequest(req)) {
-            return false;
-        }
-        String token = guiTokenProvider.getToken();
-        if (token == null) {
-            return false;
-        }
-        return token.equals(req.getHeader(GuiTokenProvider.HEADER_NAME));
+        return GuiTokenProvider.accepts(guiTokenProvider, req);
     }
 
     /**
@@ -713,14 +842,19 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isAllowedForGuestInvite(Optional<RouteAccessRegistry.RegisteredRoute> resolvedRoute, String method) {
         HttpMethod httpMethod = toHttpMethod(method);
-        if (httpMethod != HttpMethod.GET && httpMethod != HttpMethod.HEAD && httpMethod != HttpMethod.POST) {
-            return false;
-        }
-        return resolvedRoute
-                .filter(registered -> isGuestPolicy(registered.route().accessPolicy()))
-                .filter(registered -> httpMethod != HttpMethod.POST
-                        || registered.route().methods().contains(HttpMethod.POST))
-                .isPresent();
+        return resolvedRoute.filter(route -> acceptsGuestInvite(route.route(), httpMethod)).isPresent();
+    }
+
+    /** Whether the effective route explicitly permits this method for an invited guest. */
+    public static boolean acceptsGuestInvite(WebRouteContribution route,
+                                             HttpMethod method) {
+        return isGuestPolicy(route.accessPolicy()) && (method == HttpMethod.GET || method == HttpMethod.HEAD
+                || method == HttpMethod.POST && route.methods().contains(HttpMethod.POST));
+    }
+
+    /** LOCAL move requests never fall back to remote session or visitor access. */
+    public static boolean isLocalOnlyMove(String path, HttpMethod method) {
+        return method == HttpMethod.POST && path.contains("/downloaded/move/");
     }
 
     private void handleInviteRedeemRedirect(HttpServletRequest req, HttpServletResponse res) throws IOException {

@@ -10,6 +10,9 @@ import java.util.stream.Collectors;
 public final class WorkTemplateVariables {
     private WorkTemplateVariables() {}
 
+    /** 收藏夹根路径中由收藏夹名称展开的占位符，包含花括号。 */
+    public static final String COLLECTION_ROOT_PLACEHOLDER = "{collection_name}";
+
     /**
      * 变量的稳定身份、拼写及适用场景。
      * @param id 解析结果中的身份

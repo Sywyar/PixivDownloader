@@ -305,6 +305,11 @@ final class DesktopConfigurationView {
                     )
             ));
         }
+        if (id.equals("access-control")) {
+            content.add(new DesktopUiNode.Button("config.program-keys", "security.program-keys",
+                    DesktopProgramKeysController.label("keys.title"), DesktopProgramKeysController.label("keys.description"),
+                    ButtonStyle.NORMAL, !owner.busy()));
+        }
         if (content.size() == 1 && content.get(0) instanceof DesktopUiNode.Group group
                 && group.title().namespace() == null && group.title().key().equals(label)) {
             content.set(0, group.content());

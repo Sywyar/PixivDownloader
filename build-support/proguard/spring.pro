@@ -8,6 +8,8 @@
 -keep,includedescriptorclasses @org.springframework.web.bind.annotation.RestController class * { <init>(...); !private <methods>; }
 -keep,includedescriptorclasses @org.springframework.web.bind.annotation.RestControllerAdvice class * { <init>(...); !private <methods>; }
 -keep,includedescriptorclasses @org.springframework.web.bind.annotation.ControllerAdvice class * { <init>(...); !private <methods>; }
+# OpenAPI discovers explicit wire models and their nested types through annotation and generic metadata.
+-keep,includedescriptorclasses @io.swagger.v3.oas.annotations.media.Schema class * { <init>(...); <fields>; public <methods>; }
 -keep,includedescriptorclasses @org.springframework.boot.context.properties.ConfigurationProperties class * { *; }
 -keep,includedescriptorclasses @org.springframework.scheduling.annotation.Async class * { <init>(...); !private <methods>; }
 -keep,includedescriptorclasses @org.springframework.transaction.annotation.Transactional class * { <init>(...); !private <methods>; }

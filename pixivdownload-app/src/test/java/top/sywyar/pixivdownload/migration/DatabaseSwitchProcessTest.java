@@ -32,6 +32,15 @@ class DatabaseSwitchProcessTest {
                 draft.toString(), directory.resolve("plan.json").toString());
     }
     private String status() throws Exception { return json.readTree(directory.resolve("data/database-migrations/switch.json").toFile()).path("status").asString(); }
+    @Test @DisplayName("两个入口预检后只接受一次确认，第二次不得覆盖待迁移日志")
+    void competingConfirmationsCannotReplacePendingMigration() throws Exception {
+        byte[] before = Files.readAllBytes(config);
+        assertThat(run("two-confirmations")).isZero();
+        assertThat(status()).isEqualTo("PENDING");
+        assertThat(Files.readAllBytes(config)).isEqualTo(before);
+        assertThat(run("run")).isZero();
+        assertThat(status()).isEqualTo("SUCCEEDED");
+    }
     @Test @DisplayName("只读检查不建目标，确认后仍保留源配置，替代进程核验成功才切换")
     void confirmsThenMigratesBeforeSwitching() throws Exception {
         byte[] before = Files.readAllBytes(config);

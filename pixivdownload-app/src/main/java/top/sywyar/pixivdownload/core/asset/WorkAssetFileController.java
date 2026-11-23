@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.core.asset;
 
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
@@ -29,6 +35,7 @@ import java.util.concurrent.TimeUnit;
  * 统一经 {@link WorkAssetService} 取文件（与小说封面 / 内嵌图自 serving 同形态），不直接依赖下载侧实现类。
  * 访问级别由 {@code CorePlugin.routes()} 声明、{@code AuthFilter} 执行（URL 不变，鉴权语义不变）。
  */
+@HttpApiGroup("core-library")
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -37,12 +44,18 @@ public class WorkAssetFileController {
     private final WorkAssetService workAssetService;
     private final GuestAccessGuard guestAccessGuard;
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
+    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
     @GetMapping({
             "/downloaded/thumbnail/{artworkId}/{page}",
             "/downloaded/thumbnail-file/{artworkId}/{page}"
     })
     public ResponseEntity<Resource> getThumbnail(
             @PathVariable Long artworkId,
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", minimum = "0"))
             @PathVariable int page,
             @RequestParam(defaultValue = "512") int size,
             @RequestParam(defaultValue = "false") boolean cover,
@@ -54,22 +67,39 @@ public class WorkAssetFileController {
         return fileResponse(thumbnail, true);
     }
 
+    @ApiResponse(responseCode = "200", content = {
+            @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "video/*", schema = @Schema(type = "string", format = "binary"))})
+    @ApiResponse(responseCode = "404", content = @Content)
+    @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
+    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
     @GetMapping("/downloaded/image/{artworkId}/{page}")
     public ResponseEntity<Resource> getImage(
             @PathVariable Long artworkId,
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", minimum = "0"))
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        WorkAssetFile raw = workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null);
-        if (raw != null && "zip".equalsIgnoreCase(raw.extension())) {
+        WorkAssetFile preview = workAssetService.previewFile(WorkType.ARTWORK, artworkId, page).orElse(null);
+        if (preview != null && "zip".equalsIgnoreCase(preview.extension())) {
             return fileResponse(workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page).orElse(null), true);
         }
-        return fileResponse(raw, false);
+        return fileResponse(preview, false);
     }
 
+    @ApiResponse(responseCode = "200", content = {
+            @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "video/*", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "application/zip", schema = @Schema(type = "string", format = "binary"))})
+    @ApiResponse(responseCode = "404", content = @Content)
+    @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
+    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
     @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
-    public ResponseEntity<Resource> getRawFile(@PathVariable Long artworkId, @PathVariable int page,
-                                               HttpServletRequest httpRequest) throws IOException {
+    public ResponseEntity<Resource> getRawFile(
+            @PathVariable Long artworkId,
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", minimum = "0"))
+            @PathVariable int page,
+            HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         return fileResponse(workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null), false);
     }
@@ -80,7 +110,6 @@ public class WorkAssetFileController {
         }
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .contentType(mediaTypeForImageExtension(file.extension()))
-                .contentLength(Files.size(file.path()))
                 .lastModified(Files.getLastModifiedTime(file.path()).toMillis());
         if (cacheable) {
             response.cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePrivate());

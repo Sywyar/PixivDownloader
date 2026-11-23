@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.install;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
@@ -36,30 +39,30 @@ import java.util.List;
  * @param dependencyInstallResults 本次市场安装过程中自动安装成功的依赖插件结果
  */
 public record PluginInstallResponse(
-        String outcome,
+        @Schema(implementation = PluginInstallOutcome.class) String outcome,
         boolean accepted,
         boolean effectiveAfterRestart,
         int status,
         String message,
-        String pluginId,
-        String version,
-        String previousVersion,
-        String packageId,
-        String targetVersion,
+        @HttpApiNullable String pluginId,
+        @HttpApiNullable String version,
+        @HttpApiNullable String previousVersion,
+        @HttpApiNullable String packageId,
+        @HttpApiNullable String targetVersion,
         String operation,
-        String runtimePhase,
+        @HttpApiNullable String runtimePhase,
         boolean recoveryBlocked,
         boolean updated,
         List<PluginDependencyView> dependencies,
         List<String> unsatisfiedDependencies,
         List<PluginDependencyProblem> dependencyProblems,
         List<String> diagnostics,
-        String transactionId,
+        @HttpApiNullable String transactionId,
         boolean activated,
         boolean rolledBack,
-        String rollbackVersion,
+        @HttpApiNullable String rollbackVersion,
         List<PluginDependencyInstallResult> dependencyInstallResults,
-        PluginTrustRequirement trustRequirement,
+        @HttpApiNullable PluginTrustRequirement trustRequirement,
         boolean activationBlockedByDevelopmentMode) implements ApiErrorResponse {
 
     /** 非 2xx 安装结局统一暴露的稳定 API 错误码；成功结局同时保留该别名，便于客户端统一读取。 */

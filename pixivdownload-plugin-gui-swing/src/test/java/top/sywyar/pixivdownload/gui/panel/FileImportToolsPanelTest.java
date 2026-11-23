@@ -112,7 +112,8 @@ class FileImportToolsPanelTest {
         var dialog = new AtomicReference<JDialog>();
         SwingUtilities.invokeAndWait(() -> {
             panel.set(new FileImportToolsPanel(context));
-            ((JButton) panel.get().getComponent(0)).doClick();
+            descendants(panel.get()).filter(c -> c instanceof JButton && c.getName() != null
+                    && c.getName().startsWith("tools.import.")).map(JButton.class::cast).findFirst().orElseThrow().doClick();
             dialog.set(Arrays.stream(Window.getWindows()).filter(JDialog.class::isInstance).map(JDialog.class::cast)
                     .filter(w -> w.isVisible() && w.getTitle().equals("History import")).findFirst().orElseThrow());
             dialog.get().setSize(560, 480);

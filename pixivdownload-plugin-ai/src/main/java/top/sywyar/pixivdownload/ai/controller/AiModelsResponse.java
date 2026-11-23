@@ -1,14 +1,15 @@
 package top.sywyar.pixivdownload.ai.controller;
 
 import top.sywyar.pixivdownload.ai.model.AiModelInfo;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 
 import java.util.List;
 
 /** GUI 模型查询端点的有界结构化响应。 */
 public record AiModelsResponse(
         boolean success,
-        String error,
-        String code,
+        @HttpApiNullable String error,
+        @HttpApiNullable String code,
         List<AiModelInfo> models,
         int count
 ) {

@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,11 +17,13 @@ import top.sywyar.pixivdownload.download.response.status.ActiveDownloadResponse;
 import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.status.DownloadStatusResponse;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 
 import java.util.List;
 
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 @RequestMapping("/api")
 @Slf4j
@@ -31,6 +36,7 @@ public class DownloadStatusController {
 
 
     //获取作品下载状态
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-program-alternative", value = "GET /api/download/tasks/{taskId}")))
     @GetMapping("/download/status/{artworkId}")
     public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId,
                                                                     HttpServletRequest httpRequest) {
@@ -69,6 +75,7 @@ public class DownloadStatusController {
                 .build());
     }
 
+    @Operation(extensions = @Extension(properties = @ExtensionProperty(name = "x-program-alternative", value = "GET /api/download/tasks")))
     @GetMapping("download/status/active")
     public ResponseEntity<ActiveDownloadResponse> getActiveDownload(HttpServletRequest httpRequest) {
         RequestOwnerIdentity identity = requestOwnerIdentityResolver.resolve(httpRequest);

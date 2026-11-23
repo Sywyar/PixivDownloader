@@ -37,6 +37,8 @@ import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
+import top.sywyar.pixivdownload.download.controller.AuthorBatchController;
+import top.sywyar.pixivdownload.plugin.api.web.ManualBatchSubmission;
 import top.sywyar.pixivdownload.download.controller.DownloadPageController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
@@ -220,7 +222,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            WorkMetadataCapture workMetadataCapture,
                                                            @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                                            top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle,
-            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database, RuntimePathProvider paths,
+            top.sywyar.pixivdownload.core.asset.FileTransactionService fileTransactions) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
@@ -229,7 +232,7 @@ public class DownloadWorkbenchPluginConfiguration {
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
-                messages, downloadLifecycle, database);
+                messages, downloadLifecycle, database, paths, fileTransactions);
     }
 
     @Bean
@@ -302,6 +305,12 @@ public class DownloadWorkbenchPluginConfiguration {
         return new PixivScheduledSourceSupport(
                 objectMapper, pixivFetchService, persistenceCodec,
                 localWorkLookup, settings::getInboxCheckEvery);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.download.schedule.source.executor.PixivExplicitListScheduledSourceExecutor pixivExplicitListScheduledSourceExecutor(
+            PixivScheduledSourceSupport support) {
+        return new top.sywyar.pixivdownload.download.schedule.source.executor.PixivExplicitListScheduledSourceExecutor(support);
     }
 
     @Bean
@@ -433,6 +442,11 @@ public class DownloadWorkbenchPluginConfiguration {
                 pluginStreamRegistrar,
                 pluginRuntimeTaskRegistrar,
                 artworkDownloadExecutor);
+    }
+
+    @Bean
+    public AuthorBatchController authorBatchController(ManualBatchSubmission batches, ObjectMapper json) {
+        return new AuthorBatchController(batches, json);
     }
 
     @Bean

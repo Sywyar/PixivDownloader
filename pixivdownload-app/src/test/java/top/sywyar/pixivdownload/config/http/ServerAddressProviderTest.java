@@ -10,6 +10,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("实例地址的统一配置与运行时事实")
 class ServerAddressProviderTest {
     @Test
+    void defaultReferenceUrlWithoutSettings() {
+        var address = new ServerAddressProvider(new MockEnvironment(), new SslConfig());
+        assertThat(address.uri("/api/openapi.json").toString()).isEqualTo("http://localhost:6999/api/openapi.json");
+    }
+
+    @Test
     @DisplayName("实际端口优先且域名热更新不改变配置端口")
     void usesActualPortAndCurrentDomain() {
         var environment = new MockEnvironment().withProperty("server.port", "6999")

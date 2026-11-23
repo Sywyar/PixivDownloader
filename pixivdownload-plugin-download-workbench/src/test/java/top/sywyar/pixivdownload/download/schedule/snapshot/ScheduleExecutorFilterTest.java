@@ -36,6 +36,41 @@ class ScheduleExecutorFilterTest {
         return new Filters("all", "all", List.of(), List.of(), "all", null, null, null, null, null, null);
     }
 
+    @Test void batchMatchesBrowserDownloadFiltersOnSameSamples() throws Exception {
+        var samples = new java.util.ArrayList<java.util.Map<String, Object>>();
+        var expected = new java.util.ArrayList<Boolean>();
+        for (String content : List.of("all", "safe", "r18plus", "r18", "r18g"))
+            for (String ai : List.of("all", "only", "exclude"))
+                for (String type : List.of("all", "illust", "manga", "ugoira"))
+                    for (int count : List.of(-1, 0, 100, 150)) {
+                        var filters = new Filters(content, ai, List.of("cat"), List.of("ca"), type, 2, 4, null, null, 100, 200);
+                        for (int restriction : List.of(0, 1, 2)) {
+                            var meta = artwork(1, restriction, true, count, 3, List.of("CAT"));
+                            var ui = java.util.Map.of("content", content, "ai", ai, "type", type, "pageMin", 2, "pageMax", 4,
+                                    "bookmarkMin", 100, "bookmarkMax", 200, "tagsExact", List.of("cat"), "tagsFuzzy", List.of("ca"));
+                            samples.add(java.util.Map.of("filters", ui, "meta", java.util.Map.of("illustType", 1,
+                                    "xRestrict", restriction, "isAi", true, "bookmarkCount", count, "pageCount", 3, "tags", List.of("CAT"))));
+                            expected.add(ScheduleWorkFilter.artworkMatches(meta, filters));
+                        }
+                    }
+        var process = new ProcessBuilder("node", "-e", """
+                const fs=require('node:fs'), vm=require('node:vm');
+                const c={window:{PixivBatch:{queueTypes:{filtersFor:()=>null}}},bt:key=>key,scheduleSettingsDraft:{}};
+                vm.createContext(c);
+                for(const file of ['search-filters.js','batch-filters.js'])
+                    vm.runInContext(fs.readFileSync('src/main/resources/static/pixiv-batch/'+file,'utf8'),c);
+                const {samples,expected}=JSON.parse(fs.readFileSync(0,'utf8'));
+                const results=samples.map(s=>{c.scheduleSettingsDraft.manualFilters=s.filters; return c.evaluateDownloadFilterSkip(s.meta,'illust')===null;});
+                process.stdout.write(JSON.stringify(results.flatMap((value,index)=>value===expected[index]?[]:[index])));
+                """).redirectError(ProcessBuilder.Redirect.INHERIT).start();
+        try {
+            try (var input = process.getOutputStream()) { input.write(MAPPER.writeValueAsBytes(java.util.Map.of("samples", samples, "expected", expected))); }
+            assertThat(process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            assertThat(MAPPER.readTree(process.getInputStream().readAllBytes())).isEqualTo(MAPPER.createArrayNode());
+        } finally { if (process.isAlive()) process.destroyForcibly().waitFor(); }
+    }
+
     @Nested
     @DisplayName("插画筛选 artworkMatches")
     class ArtworkMatches {
@@ -109,14 +144,13 @@ class ScheduleExecutorFilterTest {
         }
 
         @Test
-        @DisplayName("收藏数范围：bookmarkCount>=0 时按 [min,max] 判定；-1（未返回）跳过该判定")
+        @DisplayName("收藏数范围：未知收藏数不能通过已启用的收藏数筛选")
         void bookmarkRange() {
             Filters f = new Filters("all","all", List.of(), List.of(), "all",
                     null, null, null, null, 100, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 50, 0, List.of()), f)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 150, 0, List.of()), f)).isTrue();
-            // -1 表示 Pixiv 未返回收藏数，跳过判定 → 通过
-            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isTrue();
+            assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isFalse();
         }
 
         @Test

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.util.UUID;
 
 /** 宿主持有的启动缓存训练；关闭观察页面不停止任务。 */
@@ -58,7 +60,7 @@ public interface DesktopStartupCache {
      * @param failure 受控失败原因
      * @param pluginCount 本次快照中的插件包数量
      */
-    record Snapshot(UUID executionId, State state, Phase phase, Failure failure, int pluginCount) {
+    record Snapshot(@HttpApiNullable UUID executionId, State state, Phase phase, Failure failure, int pluginCount) {
         /** {@return 是否仍在执行或释放资源} */
         public boolean active() { return state == State.RUNNING || state == State.STOPPING; }
     }

@@ -32,19 +32,20 @@ class PixivScheduledSourceDescriptorsTest {
                 .extracting(ScheduledSourceDescriptor::sourceType)
                 .containsExactly(
                         "user-new", "user-request", "search", "series",
-                        "my-bookmarks", "follow-latest", "collection");
+                        "my-bookmarks", "follow-latest", "collection", "explicit-list");
         assertThat(descriptors)
                 .extracting(ScheduledSourceDescriptor::legacyAliases)
                 .containsExactly(
                         Set.of("USER_NEW"), Set.of("USER_REQUEST"), Set.of("SEARCH"),
                         Set.of("SERIES"), Set.of("MY_BOOKMARKS"), Set.of("FOLLOW_LATEST"),
-                        Set.of("COLLECTION"));
+                        Set.of("COLLECTION"), Set.of());
     }
 
     @Test
     @DisplayName("每类来源声明准确作品类型与取得模式")
     void declaresWorkTypesAndAcquisitionModes() {
         Map<String, Expected> expected = new LinkedHashMap<>();
+        expected.put("explicit-list", new Expected(ILLUST_OR_NOVEL, Set.of(DownloadAcquisitionMode.SINGLE_IMPORT.code())));
         expected.put("user-new", new Expected(
                 ILLUST_OR_NOVEL,
                 Set.of(DownloadAcquisitionMode.USER_PROFILE.code(), DownloadAcquisitionMode.QUICK.code())));
@@ -89,13 +90,13 @@ class PixivScheduledSourceDescriptorsTest {
                     .containsExactly(PixivScheduledSourceDescriptors.OVERUSE_GUARD_ID);
             assertThat(descriptor.presentation().displayNamespace()).isEqualTo("batch");
             assertThat(descriptor.presentation().displayNameKey())
-                    .isEqualTo("schedule.type." + descriptor.sourceType());
+                    .isEqualTo("explicit-list".equals(descriptor.sourceType()) ? "card.import" : "schedule.type." + descriptor.sourceType());
             assertThat(descriptor.presentation().descriptionKey())
                     .isEqualTo(descriptor.presentation().displayNameKey());
             assertThat(descriptor.presentation().iconKey()).isEqualTo("schedule");
             assertThat(descriptor.presentation().colorToken()).isEqualTo("pixiv");
             assertThat(descriptor.frontend()).isEqualTo(
-                    new ScheduledSourceFrontendContribution(
+                    "explicit-list".equals(descriptor.sourceType()) ? null : new ScheduledSourceFrontendContribution(
                             ScheduledSourceFrontendContribution.CURRENT_CONTRACT_VERSION,
                             PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL));
         });

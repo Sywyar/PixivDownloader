@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 
 /**
@@ -37,14 +39,14 @@ public record PluginMarketRepositoryView(
         long readTimeoutMs,
         long maxManifestBytes,
         long maxPackageBytes,
-        String descriptorUrl,
-        String descriptorSha256,
-        String displayName,
-        String publisherId,
-        String publisherDisplayName,
+        @HttpApiNullable String descriptorUrl,
+        @HttpApiNullable String descriptorSha256,
+        @HttpApiNullable String displayName,
+        @HttpApiNullable String publisherId,
+        @HttpApiNullable String publisherDisplayName,
         String catalogProtocol,
         String catalogEndpoint,
-        String revocationsUrl,
+        @HttpApiNullable String revocationsUrl,
         String trustSource) {
 
     public PluginMarketRepositoryView(String repositoryId, String displayNameKey, String manifestUrl,

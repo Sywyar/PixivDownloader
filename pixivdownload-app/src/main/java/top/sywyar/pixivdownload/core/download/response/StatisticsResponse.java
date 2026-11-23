@@ -10,5 +10,7 @@ public class StatisticsResponse {
     private int totalArtworks;
     private int totalImages;
     private int totalMoved;
+    private long libraryArtworks;
+    private long libraryImages;
     private String message;
 }

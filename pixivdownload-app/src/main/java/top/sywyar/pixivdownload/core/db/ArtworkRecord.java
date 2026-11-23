@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.db;
 
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
+
 public record ArtworkRecord(
         long artworkId,
         String title,
@@ -23,7 +25,8 @@ public record ArtworkRecord(
         Boolean isOriginal,
         Long createTime,
         Long updateTime,
-        Long reuploadTime
+        Long reuploadTime,
+        FileManagement fileManagement
 ) {
     public ArtworkRecord(long artworkId,
         String title,
@@ -45,7 +48,7 @@ public record ArtworkRecord(
         boolean deleted,
         Long uploadTime,
         Boolean isOriginal) {
-        this(artworkId, title, folder, count, extensions, time, moved, moveFolder, moveTime, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, deleted, uploadTime, isOriginal, null, null, null);
+        this(artworkId, title, folder, count, extensions, time, moved, moveFolder, moveTime, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId, seriesId, seriesOrder, deleted, uploadTime, isOriginal, null, null, null, FileManagement.MANAGED);
     }
 
     public ArtworkRecord(long artworkId,

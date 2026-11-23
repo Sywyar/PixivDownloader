@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gallery;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,8 +27,13 @@ import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import top.sywyar.pixivdownload.core.work.query.WorkSelectionException;
+import top.sywyar.pixivdownload.core.web.MissingProgramPermissionException;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,6 +71,98 @@ class GalleryBatchServiceTest {
     }
 
     @Test
+    void malformedSelectionNeverTargetsACoercedId() {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        for (String body : List.of(
+                "{\"ids\":[11,42.9]}", "{\"excludeIds\":[\"42\"]}",
+                "{\"filter\":{\"tagIds\":[42.9]}}", "{\"filter\":{\"authorId\":\"42\"}}",
+                "{\"filter\":{\"uploadedFrom\":42.9}}", "{\"collectionId\":42.9}")) {
+            assertThatThrownBy(() -> mapper.readValue(body, ArtworkBatchRequest.class))
+                    .isInstanceOf(tools.jackson.core.JacksonException.class);
+        }
+        var unknown = mapper.readValue("{\"mode\":\"fitler\",\"ids\":[42]}", ArtworkBatchRequest.class);
+        var missing = mapper.readValue("{\"mode\":\"filter\",\"filter\":null,\"ids\":[42]}", ArtworkBatchRequest.class);
+        assertThatThrownBy(() -> service.resolveArtworkIds(unknown, true))
+                .isInstanceOfSatisfying(HttpParameterException.class, e -> assertThat(e.field()).isEqualTo("/mode"));
+        assertThatThrownBy(() -> service.resolveArtworkIds(missing, true))
+                .isInstanceOfSatisfying(HttpParameterException.class, e -> assertThat(e.field()).isEqualTo("/filter"));
+        verifyNoInteractions(galleryService);
+    }
+
+    @Test
+    void unrestrictedDestructiveSelectionRequiresConfirmationBeforeQuerying() throws Exception {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        var selection = service;
+        for (String flag : List.of("deleteAfter", "confirmAll")) {
+            for (Object invalid : List.of(1, 2, "true")) {
+                byte[] body = mapper.writeValueAsBytes(Map.of(flag, invalid));
+                assertThatThrownBy(() -> mapper.readValue(body, ArtworkBatchRequest.class))
+                        .isInstanceOf(tools.jackson.core.JacksonException.class);
+            }
+        }
+        var disabled = mapper.readValue("""
+                {"confirmAll":null,"deleteAfter":null}
+                """, ArtworkBatchRequest.class);
+        assertThat(disabled.confirmsAll()).isFalse();
+        assertThat(disabled.deletesAfterExport()).isFalse();
+        var empty = mapper.readValue("""
+                {"mode":"filter","filter":{}}
+                """, ArtworkBatchRequest.class);
+        var normalized = mapper.readValue("""
+                {"mode":"filter","filter":{"page":3,"size":1,"sort":"date","authorIds":[-1],"ai":"typo"},"excludeIds":[99]}
+                """, ArtworkBatchRequest.class);
+        var control = mapper.readValue(mapper.writeValueAsBytes(Map.of("mode", "filter",
+                "filter", Map.of("search", Character.toString((char) 0)))), ArtworkBatchRequest.class);
+        var wildcards = mapper.readValue("""
+                {"mode":"filter","filter":{"search":"%_%"}}
+                """, ArtworkBatchRequest.class);
+        for (var request : List.of(empty, normalized, control, wildcards)) {
+            assertThatThrownBy(() -> selection.resolveArtworkIds(request, true)).isInstanceOf(WorkSelectionException.class);
+        }
+        verifyNoInteractions(galleryService);
+        var confirmed = mapper.readValue("""
+                {"mode":"filter","filter":{},"confirmAll":true}
+                """, ArtworkBatchRequest.class);
+        var filtered = mapper.readValue("""
+                {"mode":"filter","filter":{"authorIds":[42]}}
+                """, ArtworkBatchRequest.class);
+        selection.resolveArtworkIds(empty, false);
+        selection.resolveArtworkIds(confirmed, true);
+        selection.resolveArtworkIds(filtered, true);
+        verify(galleryService, org.mockito.Mockito.times(3)).findArtworkIds(any());
+    }
+
+    @Test
+    void exportWithoutDeletionGrantFailsBeforeSelectingWorks() throws Exception {
+        var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
+                {"mode":"ids","ids":[42],"deleteAfter":true}
+                """, ArtworkBatchRequest.class);
+        var http = new MockHttpServletRequest();
+        http.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, new ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("gallery:export")));
+        var controller = new GalleryController(galleryService, service, null);
+        assertThatThrownBy(() -> controller.exportArtworks(request, http))
+                .isInstanceOfSatisfying(MissingProgramPermissionException.class,
+                        error -> assertThat(error.permission()).isEqualTo("gallery:delete"));
+        verifyNoInteractions(workMetadataRepository, workAssetService);
+    }
+
+    @Test
+    void rejectsInvalidFormatsBeforeSelectingBatchTargets() throws Exception {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        for (var formats : List.of(List.of("bmp"), List.of("png", "bmp"), List.of(""))) {
+            var body = java.util.Map.of("mode", "filter", "filter", java.util.Map.of("formats", formats));
+            var request = mapper.readValue(mapper.writeValueAsBytes(body), ArtworkBatchRequest.class);
+            assertThatThrownBy(() -> service.resolveArtworkIds(request, false))
+                    .isInstanceOfSatisfying(HttpParameterException.class, e -> {
+                        assertThat(e.in()).isEqualTo("body");
+                        assertThat(e.field()).isEqualTo("/filter/formats");
+                    });
+        }
+        verifyNoInteractions(galleryService);
+    }
+
+    @Test
     @DisplayName("批量筛选从 JSON 完整传递多种日期范围")
     void forwardsDateRangesFromJson() throws Exception {
         var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
@@ -75,7 +173,7 @@ class GalleryBatchServiceTest {
                   "reuploadedFrom":900,"reuploadedBefore":1000}}
                 """, ArtworkBatchRequest.class);
         when(galleryService.findArtworkIds(any())).thenReturn(List.of(7L));
-        assertThat(service.resolveArtworkIds(request)).containsExactly(7L);
+        assertThat(service.resolveArtworkIds(request, false)).containsExactly(7L);
         var captured = ArgumentCaptor.forClass(WorkQuery.class);
         verify(galleryService).findArtworkIds(captured.capture());
         assertThat(captured.getValue().downloadedFrom()).isEqualTo(100L);
@@ -94,8 +192,8 @@ class GalleryBatchServiceTest {
     @DisplayName("ids 模式应去重、过滤非法 ID 并应用排除列表")
     void shouldResolveIdsMode() {
         ArtworkBatchRequest request = new ArtworkBatchRequest("ids",
-                Arrays.asList(1L, 1L, 0L, null, 2L, 3L), List.of(2L), null, null, null, null, null);
-        assertThat(service.resolveArtworkIds(request)).containsExactly(1L, 3L);
+                Arrays.asList(1L, 1L, 0L, null, 2L, 3L), List.of(2L), null, null, null, null, null, null);
+        assertThat(service.resolveArtworkIds(request, false)).containsExactly(1L, 3L);
     }
 
     @Test
@@ -103,16 +201,16 @@ class GalleryBatchServiceTest {
     void shouldResolveFilterMode() {
         ArtworkBatchRequest.Filter filter = new ArtworkBatchRequest.Filter(
                 null, null, "artworkId", "asc", "  needle  ", "title", "r18", "yes",
-                List.of("JPG", "invalid"), Arrays.asList(9L, null, 0L, 9L),
+                List.of("JPG", "jpg"), Arrays.asList(9L, null, 0L, 9L),
                 Arrays.asList(12L, 11L, 12L, 0L, null), List.of(-1L, 13L, 13L),
                 Arrays.asList(null, 15L, 14L, 15L), List.of(21L), List.of(31L, 0L, 31L),
                 Arrays.asList(42L, null, 41L, 42L), 22L, List.of(51L, 0L, 51L),
                 Arrays.asList(null, 61L, -1L, 61L), 52L);
         ArtworkBatchRequest request = new ArtworkBatchRequest("filter",
-                null, List.of(6L), filter, null, null, null, null);
+                null, List.of(6L), filter, null, null, null, null, null);
         when(galleryService.findArtworkIds(any())).thenReturn(List.of(5L, 6L, 7L));
 
-        assertThat(service.resolveArtworkIds(request)).containsExactly(5L, 7L);
+        assertThat(service.resolveArtworkIds(request, false)).containsExactly(5L, 7L);
 
         ArgumentCaptor<WorkQuery> queryCaptor = ArgumentCaptor.forClass(WorkQuery.class);
         verify(galleryService).findArtworkIds(queryCaptor.capture());
@@ -145,7 +243,7 @@ class GalleryBatchServiceTest {
                     null, null, null, null, null, null, null, null,
                     null, ids, ids, ids, ids, ids, ids, ids, null, ids, ids, null);
             service.resolveArtworkIds(new ArtworkBatchRequest("filter",
-                    null, null, filter, null, null, null, null));
+                    null, null, filter, null, null, null, null, null), false);
         }
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
         verify(galleryService, times(3)).findArtworkIds(captor.capture());
@@ -177,7 +275,7 @@ class GalleryBatchServiceTest {
                 null, null, sort, null, null, searchType, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null);
         service.resolveArtworkIds(new ArtworkBatchRequest("filter",
-                null, null, filter, null, null, null, null));
+                null, null, filter, null, null, null, null, null), false);
         ArgumentCaptor<WorkQuery> captor = ArgumentCaptor.forClass(WorkQuery.class);
         verify(galleryService).findArtworkIds(captor.capture());
         assertThat(captor.getValue().sort()).isEqualTo(expectedSort);

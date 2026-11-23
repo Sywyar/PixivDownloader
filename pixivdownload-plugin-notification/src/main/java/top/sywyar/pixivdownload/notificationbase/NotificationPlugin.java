@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -81,9 +83,16 @@ public class NotificationPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         return List.of(
+                WebRouteContribution.admin("/api/admin/notifications/test").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("inbox.test", "permission.inbox.test"))),
+                WebRouteContribution.admin("/api/admin/notifications/test-all").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("inbox.templates.test", "permission.inbox.templates.test"))),
+                WebRouteContribution.admin("/api/notifications/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("inbox.read", "permission.inbox.read"), HttpMethod.DELETE, new ProgramPermission("inbox.delete", "permission.inbox.delete"))),
+                WebRouteContribution.admin("/api/notifications/*/content").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("inbox.read", "permission.inbox.read"))),
+                WebRouteContribution.admin("/api/notifications/*/read").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("inbox.update", "permission.inbox.update"))),
+                WebRouteContribution.admin("/api/notifications/read-all").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("inbox.update", "permission.inbox.update"))),
+                WebRouteContribution.admin("/api/notifications/*/survey-unavailable").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("inbox.update", "permission.inbox.update"))),
                 WebRouteContribution.admin("/pixiv-notifications.html"),
                 WebRouteContribution.admin("/pixiv-notifications/**"),
-                WebRouteContribution.admin("/api/notifications"),
+                WebRouteContribution.admin("/api/notifications").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("inbox.read", "permission.inbox.read"))),
                 WebRouteContribution.admin("/api/notifications/**"),
                 WebRouteContribution.gui("/api/gui/notification-inbox-test"),
                 WebRouteContribution.gui("/api/gui/notification-inbox-test-all"));

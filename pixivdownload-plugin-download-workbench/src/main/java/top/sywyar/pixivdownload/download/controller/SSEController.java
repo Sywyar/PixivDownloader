@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import io.swagger.v3.oas.annotations.extensions.Extension;
+import io.swagger.v3.oas.annotations.extensions.ExtensionProperty;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -15,20 +21,21 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
-import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.response.status.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.status.SseStatusData;
+import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
-import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -48,6 +55,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 @RequestMapping("/api/sse")
 public class SSEController {
@@ -147,6 +155,11 @@ public class SSEController {
 
     private record ProgressFlushHandle(PluginRuntimeTask task, Future<?> cancellation) {}
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "text/event-stream", schema = @Schema(implementation = SseStatusData.class),
+            extensions = @Extension(properties = {
+                    @ExtensionProperty(name = "x-sse-data-event", value = "download-status"),
+                    @ExtensionProperty(name = "x-sse-text-events", value = "heartbeat,sse-closing,plugin-unavailable")}),
+            examples = @ExampleObject(value = "event: download-status\ndata: {\"artworkId\":42,\"progress\":50,\"success\":true}\n\nevent: heartbeat\ndata: ping\n\n")))
     @GetMapping(value = "/download/{artworkId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createSSEConnection(@PathVariable Long artworkId, HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(300_000L);
@@ -204,6 +217,11 @@ public class SSEController {
         return emitter;
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "text/event-stream", schema = @Schema(implementation = SseStatusData.class),
+            extensions = @Extension(properties = {
+                    @ExtensionProperty(name = "x-sse-data-event", value = "download-status"),
+                    @ExtensionProperty(name = "x-sse-text-events", value = "heartbeat,sse-closing,plugin-unavailable,aggregated-ready")}),
+            examples = @ExampleObject(value = "event: aggregated-ready\ndata: example-subscription-token\n\nevent: download-status\ndata: {\"artworkId\":42,\"progress\":50,\"success\":true}\n\nevent: heartbeat\ndata: ping\n\n")))
     @GetMapping(value = "/download", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createAggregatedSSEConnection(HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(86_400_000L);
@@ -267,6 +285,7 @@ public class SSEController {
         return emitter;
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @PostMapping("/close/{artworkId}")
     public ResponseEntity<DownloadResponse> closeSSEConnection(@PathVariable Long artworkId,
                                                                HttpServletRequest request) {
@@ -281,6 +300,8 @@ public class SSEController {
                 .build());
     }
 
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = DownloadResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/close/aggregated/{token}")
     public ResponseEntity<?> closeAggregatedSSEConnection(@PathVariable String token,
                                                            HttpServletRequest request) {
@@ -794,9 +815,8 @@ public class SSEController {
             }
 
             if (downloadStatus.getTotalImages() > 0) {
-                int progress = (int) ((double) downloadStatus.getDownloadedCount()
-                        / downloadStatus.getTotalImages() * 100);
-                builder.progress(progress);
+                long scaledCount = 100L * downloadStatus.getDownloadedCount();
+                builder.progress((int) (scaledCount / downloadStatus.getTotalImages()));
             }
         }
 

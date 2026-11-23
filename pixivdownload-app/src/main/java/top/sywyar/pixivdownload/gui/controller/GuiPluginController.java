@@ -1,5 +1,12 @@
 package top.sywyar.pixivdownload.gui.controller;
 
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +47,7 @@ import java.util.Set;
  * <p>插件展示名称在<b>服务端</b>按请求 locale 解析（复用 {@link WebI18nService} 的 classloader-aware i18n 流水线，
  * 覆盖外置插件），解析失败回退到插件 id，GUI 无需自行解析外置插件的 i18n bundle。
  */
+@HttpApiGroup("core-plugins")
 @RestController
 @RequestMapping("/api/gui/plugins")
 public class GuiPluginController {
@@ -61,6 +69,8 @@ public class GuiPluginController {
      * 运行期阶段 / 是否受管 / 是否必选 / 版本）。状态语义直接取自 {@link PluginManagementService#list()}，仅把展示名称
      * 与简介在服务端解析为请求 locale 文案。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "403", content = @Content)
     @GetMapping("/status")
     public ResponseEntity<GuiPluginStatusResponse> status(HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
@@ -189,13 +199,13 @@ public class GuiPluginController {
             String iconKey,
             String colorToken,
             String source,
-            String status,
-            String runtimePhase,
+            @HttpApiNullable @Schema(implementation = PluginStatus.class) String status,
+            @HttpApiNullable String runtimePhase,
             boolean managed,
             boolean required,
-            String version,
-            PluginManagementService.SdkRequirementView sdkRequirement,
-            String displayVersion,
+            @HttpApiNullable String version,
+            @HttpApiNullable PluginManagementService.SdkRequirementView sdkRequirement,
+            @HttpApiNullable String displayVersion,
             PluginVerificationView verification) {
     }
 }

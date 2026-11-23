@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "required": ["requestId", "workType", "workId", "options"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workType": {
+      "const": "artwork"
+    },
+    "workId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "x-integer-maximum": "9223372036854775807"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "x-max-total-utf8-bytes": 16384,
+      "properties": {
+        "fileNameTemplate": {
+          "type": "string",
+          "x-work-template-scope": "download",
+          "examples": ["{artwork_id}_p{page}"]
+        },
+        "pathOverflowAction": {
+          "type": "string",
+          "examples": ["ASK", "TRUNCATE", "DEFAULT_NAME", "CANCEL"],
+          "x-unrecognized-as": "ASK"
+        },
+        "bookmark": {
+          "type": "string",
+          "enum": ["true", "false"]
+        },
+        "collectionId": {
+          "type": "string",
+          "pattern": "^[+-]?[0-9]+$",
+          "x-integer-minimum": 1,
+          "x-integer-maximum": "9223372036854775807",
+          "examples": ["7"]
+        },
+        "acquisitionMode": {
+          "type": "string",
+          "enum": ["single-import", "user", "series", "search", "quick"]
+        },
+        "username": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "pages": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)(,(0|[1-9][0-9]*))*$",
+          "x-unique-items": true,
+          "examples": ["0,2"]
+        },
+        "imageFormats": {
+          "type": "string",
+          "pattern": "^(original|png|jpg|webp)(,(original|png|jpg|webp))*$",
+          "x-unique-items": true,
+          "examples": ["original", "original,png"]
+        },
+        "ugoiraFormats": {
+          "type": "string",
+          "pattern": "^(webp|gif|apng|mp4|zip)(,(webp|gif|apng|mp4|zip))*$",
+          "x-unique-items": true,
+          "examples": ["webp", "webp,gif"]
+        },
+        "mediaQuality": {
+          "type": "string",
+          "pattern": "^[+-]?[0-9]+$",
+          "x-integer-minimum": 1,
+          "x-integer-maximum": 100,
+          "examples": ["90"]
+        },
+        "mediaWebpLossless": {
+          "type": "string",
+          "enum": ["true", "false"]
+        },
+        "mediaMaximumEdge": {
+          "type": "string",
+          "pattern": "^[+-]?[0-9]+$",
+          "x-integer-minimum": 0,
+          "x-integer-maximum": 16383,
+          "examples": ["0", "2048"]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "requestId": "5d384b4e-662e-4b97-a2f2-c867b1b98070",
+      "workType": "artwork",
+      "workId": "42",
+      "options": {
+        "imageFormats": "original",
+        "bookmark": "false"
+      }
+    }
+  ]
+}

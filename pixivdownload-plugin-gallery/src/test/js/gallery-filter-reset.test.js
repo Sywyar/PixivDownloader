@@ -54,6 +54,7 @@ for (const entry of ['reset', 'collection']) {
     test(`${entry} 清空内容筛选及延迟搜索，只请求一次最终结果`, () => {
         const h = load(), s = h.state;
         s.page = 3; s.search = 'keep'; s.searchType = 'title'; s.sort = 'artworkId'; s.order = 'asc';
+        s.fileManagement = 'EXTERNAL_REFERENCE';
         s.r18 = 'r18'; s.ai = 'yes'; s.formats.add('png'); s.collectionIds.add(9);
         s.dateFilters = [{field: 'uploadTime', start: '2020-01-01', end: '2020-01-31'}];
         s.seriesFilter = {id: 10, title: 'series'}; s.authorNames.set(11, 'author');
@@ -89,6 +90,7 @@ for (const entry of ['reset', 'collection']) {
         assert.equal(s.sort, 'artworkId'); assert.equal(s.order, 'asc');
         assert.equal(h.requests.length, 1);
         assert.equal(h.requests[0].page, 0);
+        assert.equal(h.requests[0].fileManagement, 'any');
         assert.equal(h.requests[0].r18, 'any'); assert.equal(h.requests[0].ai, 'any');
         assert.deepEqual(h.requests[0].formats, []);
         assert.deepEqual(h.requests[0].collectionIds, entry === 'reset' ? [] : [7]);
@@ -220,4 +222,18 @@ test('日期排序从其他排序切换回来时恢复选中态', () => {
     h.state.sort = 'createTime'; h.sandbox.syncDateSort();
     assert.equal(h.node('dateSort').classList.contains('active'), true);
     assert.equal(h.node('dateSort').value, 'createTime');
+});
+
+test('only a destructive all-results selection sends full-library confirmation', () => {
+    const h = load();
+    const run = expression => vm.runInContext(expression, h.sandbox);
+    run("batch.mode = 'ids'");
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), undefined);
+
+    run("syncVisibleBatchCards = () => {}; updateBatchBar = () => {}; toast = () => {}; state.totalElements = 7");
+    run("state.search = 'specific'; selectAllResults()");
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), undefined);
+    run("state.search = ''; selectAllResults()");
+    assert.equal(run('buildBatchPayload().confirmAll'), undefined);
+    assert.equal(run('buildBatchPayload(null, true).confirmAll'), true);
 });

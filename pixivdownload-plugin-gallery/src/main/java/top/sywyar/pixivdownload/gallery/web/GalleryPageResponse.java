@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gallery.web;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
@@ -9,7 +10,7 @@ public record GalleryPageResponse(
         List<GalleryArtworkResponse> content,
         long totalElements,
         int page,
-        int size,
+        @Schema(minimum = "1", maximum = "200") int size,
         int totalPages) {
 
     public GalleryPageResponse {

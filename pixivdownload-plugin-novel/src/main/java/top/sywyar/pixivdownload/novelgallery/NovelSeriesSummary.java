@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novelgallery;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 
 import java.util.List;
@@ -8,10 +10,10 @@ import java.util.List;
 public record NovelSeriesSummary(
         long seriesId,
         String title,
-        Long authorId,
-        String authorName,
+        @HttpApiNullable Long authorId,
+        @HttpApiNullable String authorName,
         long novelCount,
-        String coverExt,
+        @HttpApiNullable String coverExt,
         List<WorkTag> tags
 ) {
     public NovelSeriesSummary {

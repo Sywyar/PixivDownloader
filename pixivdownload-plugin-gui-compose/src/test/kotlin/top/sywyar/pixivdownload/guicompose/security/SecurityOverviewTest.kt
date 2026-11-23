@@ -40,6 +40,8 @@ class SecurityOverviewTest {
             }
         } }
         onNodeWithTag(entry.id()).assertDoesNotExist()
+        onNodeWithTag("security.program-keys").assertTextContains("keys.manage").performScrollTo().performClick()
+        assertEquals("security.program-keys", events.last().nodeId())
         runOnIdle { navigation = listOf(entry) }
         onNodeWithTag(entry.id()).performScrollTo().performClick()
         assertEquals(entry.id(), events.last().nodeId())
@@ -168,12 +170,12 @@ class SecurityOverviewTest {
                     if (it in listOf("current", "new", "confirm")) InputKind.PASSWORD else InputKind.TEXT,
                     values[it].orEmpty(), 24, 1, !busy, revision)
             }
-            val actions = listOf("password", "sessions", "connection", "close", "submit", "logout", "save").map {
+            val actions = listOf("password", "sessions", "program-keys", "connection", "close", "submit", "logout", "save").map {
                 Button("security.$it", "security.$it", key(it), null, ButtonStyle.NORMAL, !busy)
             }
             return DesktopUiNode.SecurityOverview("security.overview", panel, busy, 8, inputs,
                 Toggle("security.https", "security.https", key("https"), null, ToggleStyle.SWITCH, values["https"] == "true", !busy),
-                actions, notice, errorField, revision, success, "password", "http://localhost:8080", false, navigation)
+                actions, notice, errorField, revision, success, "password", "http://localhost:8080", false, navigation, null)
         }
     }
 }

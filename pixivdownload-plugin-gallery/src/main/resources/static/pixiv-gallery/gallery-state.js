@@ -10,6 +10,7 @@
         searchType: 'all',
         r18: 'any',
         ai: 'any',
+        fileManagement: 'any',
         dateFilters: [{field: 'date', start: '', end: ''}],
         formats: new Set(),
         collectionIds: new Set(),
@@ -82,6 +83,7 @@
         selected: new Set(),
         excluded: new Set(),
         mode: 'ids',
+        fullLibrary: false,
         filterSnapshot: null,
         filterKey: '',
         total: 0,
@@ -123,6 +125,7 @@
     const GALLERY_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
     const GALLERY_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
     const GALLERY_AI_VALUES = new Set(['any', 'yes', 'no']);
+    const GALLERY_FILE_MANAGEMENT_VALUES = new Set(['any', 'MANAGED', 'EXTERNAL_REFERENCE']);
     const GALLERY_FORMAT_VALUES = new Set(['jpg', 'png', 'gif', 'webp']);
     let tagOptionsPromise = null;
     let authorOptionsPromise = null;
@@ -138,6 +141,7 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
+            fileManagement: state.fileManagement,
             dateFilters: state.dateFilters.map(row => ({...row})),
             formats: [...state.formats],
             collectionIds: [...state.collectionIds],
@@ -205,6 +209,7 @@
         }
         if (typeof payload.r18 === 'string' && GALLERY_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
         if (typeof payload.ai === 'string' && GALLERY_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
+        if (typeof payload.fileManagement === 'string' && GALLERY_FILE_MANAGEMENT_VALUES.has(payload.fileManagement)) state.fileManagement = payload.fileManagement;
         restoreTimeRanges(payload);
         if (Array.isArray(payload.formats)) {
             state.formats = new Set(payload.formats.filter(v => GALLERY_FORMAT_VALUES.has(v)));
@@ -283,6 +288,7 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
+            fileManagement: state.fileManagement,
             dateFilters: state.dateFilters.map(row => ({...row})),
             sort: state.sort,
             order: state.order,
@@ -329,6 +335,7 @@
         }
         if (typeof transfer.r18 === 'string' && GALLERY_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
         if (typeof transfer.ai === 'string' && GALLERY_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
+        if (typeof transfer.fileManagement === 'string' && GALLERY_FILE_MANAGEMENT_VALUES.has(transfer.fileManagement)) state.fileManagement = transfer.fileManagement;
         restoreTimeRanges(transfer);
         if (typeof transfer.sort === 'string' && GALLERY_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
         if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
@@ -371,6 +378,7 @@
         }
         document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === state.r18));
         document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === state.ai));
+        document.querySelectorAll('.chip[data-management]').forEach(c => c.classList.toggle('active', c.dataset.management === state.fileManagement));
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.toggle('active', state.formats.has(c.dataset.format)));
         const searchInput = document.getElementById('searchInput');
         if (searchInput) searchInput.value = state.search || '';

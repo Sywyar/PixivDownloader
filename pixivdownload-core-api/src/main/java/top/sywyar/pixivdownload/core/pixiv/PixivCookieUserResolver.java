@@ -11,7 +11,7 @@ public final class PixivCookieUserResolver {
     /**
      * 从 Pixiv cookie 串里抽出登录用户的 userId。
      * <p>PHPSESSID 格式为 {@code {userId}_{随机后缀}}，下划线前缀即 userId。返回 null 表示
-     * cookie 缺失或不含合法 PHPSESSID（未登录 / 已过期 / 拼装错误）。
+     * Cookie 缺失或无法取得 UID。此方法仅读取本地字段，不验证会话有效期。
      *
      * @param cookie Cookie
      * @return 方法返回的字符串

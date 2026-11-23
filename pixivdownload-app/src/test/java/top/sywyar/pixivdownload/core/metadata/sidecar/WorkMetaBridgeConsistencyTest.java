@@ -96,7 +96,6 @@ class WorkMetaBridgeConsistencyTest {
         AuthorService authorService = mock(AuthorService.class);
         when(authorService.getAuthorNames(anyCollection())).thenReturn(java.util.Map.of());
         MangaSeriesService mangaSeriesService = mock(MangaSeriesService.class);
-        when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(java.util.List.of());
 
         metadataRepository = new CoreWorkMetadataRepository(
                 () -> true,                 pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);

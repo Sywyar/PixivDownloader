@@ -1,5 +1,31 @@
 package top.sywyar.pixivdownload;
 
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import top.sywyar.pixivdownload.common.web.HttpJsonInput;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
+import top.sywyar.pixivdownload.core.web.HttpParameterError;
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
+import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;
+import top.sywyar.pixivdownload.setup.AuthFilter.ProgramCredentialError;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
+import top.sywyar.pixivdownload.core.web.MissingProgramPermissionException;
+import top.sywyar.pixivdownload.core.work.query.WorkSelectionException;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.http.server.ServletServerHttpResponse;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import org.springframework.core.io.Resource;
+import org.springframework.http.converter.ResourceHttpMessageConverter;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.core.MethodParameter;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
@@ -42,7 +68,40 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 @Slf4j
 @RequiredArgsConstructor
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
+    public static final String INVALID_PARAMETER = "error.request.param.invalid";
+
+    @Override
+    public boolean supports(MethodParameter method, Class<? extends HttpMessageConverter<?>> converter) {
+        return JacksonJsonHttpMessageConverter.class.isAssignableFrom(converter)
+                || ResourceHttpMessageConverter.class.isAssignableFrom(converter);
+    }
+
+    @Override
+    public Object beforeBodyWrite(Object body, MethodParameter method, MediaType media,
+                                  Class<? extends HttpMessageConverter<?>> converter,
+                                  ServerHttpRequest request, ServerHttpResponse response) {
+        // MVC sets 416 and Content-Range for an unsatisfiable Range but still passes the original resource to the converter.
+        if (body instanceof Resource && response instanceof ServletServerHttpResponse fileResponse
+                && fileResponse.getServletResponse().getStatus() == 416) {
+            response.getHeaders().remove(org.springframework.http.HttpHeaders.CONTENT_TYPE);
+            response.getHeaders().setContentLength(0);
+            return null;
+        }
+        if (body instanceof ApiErrorResponse failure && JacksonJsonHttpMessageConverter.class.isAssignableFrom(converter)
+                && response instanceof ServletServerHttpResponse servlet && servlet.getServletResponse().getStatus() == 400
+                && request instanceof ServletServerHttpRequest http) {
+            return HttpParameterBinding.withLocation(failure, http.getServletRequest(), messages, LocaleContextHolder.getLocale());
+        }
+        if (body == null && JacksonJsonHttpMessageConverter.class.isAssignableFrom(converter)
+                && response instanceof ServletServerHttpResponse servlet
+                && servlet.getServletResponse().getStatus() == 404
+                && request instanceof ServletServerHttpRequest http
+                && http.getServletRequest().getRequestURI().startsWith(http.getServletRequest().getContextPath() + "/api/")) {
+            return error("error.request.not-found", messages.get(LocaleContextHolder.getLocale(), "error.request.not-found"));
+        }
+        return body;
+    }
 
     private final AppMessages messages;
 
@@ -60,12 +119,33 @@ public class GlobalExceptionHandler {
                 messages.get(locale, "plugin.recovery.database-unavailable")));
     }
 
+    @ExceptionHandler(UnsupportedArchiveFormatException.class)
+    public ResponseEntity<ApiErrorResponse> handleArchiveFormat(UnsupportedArchiveFormatException failure, Locale locale) {
+        String code = UnsupportedArchiveFormatException.CODE;
+        log.warn(logMessage("error.log.request.failed", messages.getForLog(code, failure.format())));
+        return ResponseEntity.badRequest().body(error(code, messages.get(locale, code, failure.format())));
+    }
+
     @ExceptionHandler(LocalizedException.class)
     public ResponseEntity<ApiErrorResponse> handleLocalized(LocalizedException e, Locale locale) {
         String message = messages.getOrDefault(locale, e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());
         String logDetail = messages.getForLog(e.getMessageCode(), e.getMessageArgs());
         log.warn(logMessage("error.log.request.failed", logDetail));
+        if (e instanceof ProgramAccess.MissingPermission missing)
+            return ResponseEntity.status(e.getStatus()).body(new ProgramCredentialError("auth.program.forbidden", message, missing.permission()));
         return ResponseEntity.status(e.getStatus()).body(error(e.getMessageCode(), message));
+    }
+
+    @ExceptionHandler(MissingProgramPermissionException.class)
+    public ResponseEntity<ApiErrorResponse> handlePluginPermission(
+            MissingProgramPermissionException e, Locale locale) {
+        return handleLocalized(new ProgramAccess.MissingPermission(e.permission()), locale);
+    }
+
+    @ExceptionHandler(WorkSelectionException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnconfirmedSelection(Locale locale) {
+        String code = "work.selection.confirm-all";
+        return ResponseEntity.badRequest().body(error(code, messages.get(locale, code)));
     }
 
     @ExceptionHandler(WorkVisibilityDeniedException.class)
@@ -143,7 +223,7 @@ public class GlobalExceptionHandler {
         String detail = fallbackLogDetail(e.getReason(), e.getStatusCode().toString());
         log.warn(logMessage("error.log.request.failed", detail));
         String messageCode = switch (e.getStatusCode().value()) {
-            case 400 -> "error.request.param.invalid";
+            case 400 -> INVALID_PARAMETER;
             case 401 -> "auth.unauthorized";
             case 403 -> "error.request.security";
             case 404 -> "error.request.not-found";
@@ -170,10 +250,17 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException e, Locale locale) {
+    public ResponseEntity<?> handleValidation(MethodArgumentNotValidException e, Locale locale) {
         String message = buildValidationMessage(e, locale, false);
         String logDetail = buildValidationMessage(e, messages.currentLocale(), true);
         log.warn(logMessage("error.log.request.param.validation-failed", logDetail));
+        var first = e.getBindingResult().getFieldError();
+        if (first != null) {
+            boolean body = e.getParameter().hasParameterAnnotation(RequestBody.class);
+            String field = body ? HttpJsonInput.pointer(first) : first.getField();
+            return ResponseEntity.badRequest().body(new HttpParameterError("error.request.validation", message,
+                    body ? "body" : "query", field, validationReason(first)));
+        }
         return ResponseEntity.badRequest().body(error("error.request.validation", message));
     }
 
@@ -197,35 +284,74 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiErrorResponse> handleUnreadable(HttpMessageNotReadableException e, Locale locale) {
+    public ResponseEntity<?> handleUnreadable(HttpMessageNotReadableException e, Locale locale) {
+        if (e.getCause() instanceof tools.jackson.core.JacksonException binding) {
+            String field = HttpJsonInput.pointer(binding);
+            if (field != null) return parameter("error.request.body.invalid", "body", field, HttpJsonInput.reason(binding), locale);
+        }
         String message = messages.getOrDefault(locale, "error.request.body.invalid", "请求体格式错误");
         log.warn(logMessage("error.log.request.body.parse-failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
         return ResponseEntity.badRequest().body(error("error.request.body.invalid", message));
     }
 
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethod(HttpRequestMethodNotSupportedException failure, Locale locale) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).headers(failure.getHeaders())
+                .contentType(MediaType.APPLICATION_JSON).body(error("http.status.405", messages.get(locale, "http.status.405")));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Void> notAcceptable(HttpMediaTypeNotAcceptableException failure) {
+        return ResponseEntity.status(406).headers(failure.getHeaders()).build();
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMediaType(HttpMediaTypeNotSupportedException failure, Locale locale) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).headers(failure.getHeaders())
+                .contentType(MediaType.APPLICATION_JSON).body(error("http.status.415", messages.get(locale, "http.status.415")));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException e, Locale locale) {
         String rawMessage = e.getMessage();
-        String message = messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误");
+        String message = messages.getOrDefault(locale, INVALID_PARAMETER, "请求参数错误");
         log.warn(logMessage("error.log.request.failed", fallbackLogDetail(rawMessage, e.getClass().getSimpleName())));
-        return ResponseEntity.badRequest().body(error("error.request.param.invalid", message));
+        return ResponseEntity.badRequest().body(error(INVALID_PARAMETER, message));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public ResponseEntity<ApiErrorResponse> handleMissingParameter(
+    public ResponseEntity<HttpParameterError> handleMissingParameter(
             MissingServletRequestParameterException e, Locale locale) {
-        String message = messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误");
-        log.warn(logMessage("error.log.request.param.validation-failed", e.getParameterName()));
-        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
-                .body(error("error.request.param.invalid", message));
+        return parameter(INVALID_PARAMETER, "query", e.getParameterName(), "required", locale);
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)
-    public ResponseEntity<ApiErrorResponse> handleMissingHeader(MissingRequestHeaderException e, Locale locale) {
-        String message = messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误");
-        log.warn(logMessage("error.log.request.param.validation-failed", e.getHeaderName()));
-        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
-                .body(error("error.request.param.invalid", message));
+    public ResponseEntity<HttpParameterError> handleMissingHeader(MissingRequestHeaderException e, Locale locale) {
+        return parameter(INVALID_PARAMETER, "header", e.getHeaderName(), "required", locale);
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<HttpParameterError> handleMissingPart(MissingServletRequestPartException e, Locale locale) {
+        return parameter(INVALID_PARAMETER, "part", e.getRequestPartName(), "required", locale);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<HttpParameterError> handleMismatch(MethodArgumentTypeMismatchException e, Locale locale) {
+        return parameter(HttpParameterBinding.mismatch(e, INVALID_PARAMETER, messages, locale));
+    }
+
+    @ExceptionHandler(HttpParameterException.class)
+    public ResponseEntity<HttpParameterError> handleParameter(HttpParameterException e, Locale locale) {
+        return parameter(INVALID_PARAMETER, e.in(), e.field(), e.reason(), locale);
+    }
+
+    private ResponseEntity<HttpParameterError> parameter(String code, String in, String field, String reason, Locale locale) {
+        return parameter(HttpParameterBinding.error(code, in, field, reason, messages, locale));
+    }
+
+    private ResponseEntity<HttpParameterError> parameter(HttpParameterError error) {
+        log.warn("HTTP input rejected: code={} in={} reason={}", error.code(), error.in(), error.reason());
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(error);
     }
 
     @ExceptionHandler(IOException.class)
@@ -301,6 +427,10 @@ public class GlobalExceptionHandler {
     }
 
     private String resolveFieldMessage(FieldError fieldError, Locale locale, boolean forLog) {
+        if (fieldError.isBindingFailure()) {
+            return forLog ? messages.getForLog("error.request.field.type", fieldError.getField())
+                    : messages.get(locale, "error.request.field.type", fieldError.getField());
+        }
         String code = extractValidationMessageCode(fieldError);
         if (code != null) {
             return forLog
@@ -311,6 +441,14 @@ public class GlobalExceptionHandler {
             return messages.getForLog(fieldError);
         }
         return messages.get(locale, fieldError);
+    }
+
+    private static String validationReason(FieldError error) {
+        if (error.isBindingFailure()) return "type";
+        return switch (error.getCode()) {
+            case "NotNull", "NotBlank", "NotEmpty" -> "required";
+            case null, default -> "invalid_value";
+        };
     }
 
     private String extractValidationMessageCode(FieldError fieldError) {

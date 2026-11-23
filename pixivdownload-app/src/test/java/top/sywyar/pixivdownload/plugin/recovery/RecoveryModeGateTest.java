@@ -212,6 +212,10 @@ class RecoveryModeGateTest {
             "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
             "/plugin-manage.html", "/plugin-manage/plugin-manage-init.js", "/plugin-manage/plugin-manage.css",
             "/api/plugins/recovery",
+            "/api/settings/database", "/api/settings/database/providers", "/api/settings/database/status",
+            "/api/settings/database/migration", "/api/admin/system", "/api/settings/repositories",
+            "/api/settings/environment/installation", "/api/settings/environment/restore",
+            "/api/settings/environment/exports", "/api/settings/environment/exports/00000000-0000-0000-0000-000000000001/archive",
             "/api/navigation",
             "/error/404.html", "/error/error.css", "/error/error.js",
             "/js/pixiv-theme.js", "/css/app.css", "/vendor/fonts/fonts.css",
@@ -227,6 +231,18 @@ class RecoveryModeGateTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"/api/settings/database/check", "/api/settings/database/migration-previews",
+            "/api/settings/database/migrations", "/api/admin/system/restart", "/api/settings/environment/preview",
+            "/api/settings/environment/restore", "/api/settings/environment/exports"})
+    @DisplayName("精确恢复写入口继续交给后续鉴权")
+    void allowsDatabaseRepairCommandsToReachAuthentication(String path) throws Exception {
+        request.setMethod("POST");
+        request.setRequestURI(path);
+        activeGate().doFilterInternal(request, response, chain);
+        verify(chain).doFilter(request, response);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"/", "/index.html", "/sdk.html", "/pixiv-gallery.html"})
     @DisplayName("恢复模式中业务页面仅路由到市场，不新增 SDK 页面例外")
     void redirectsAllBusinessPages(String path) throws Exception {
@@ -238,9 +254,13 @@ class RecoveryModeGateTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"/api/gui/path-prefixes,GET", "/api/gui/path-prefixes/pin,POST",
+    @CsvSource({"/api/admin/system,POST", "/api/admin/system/restart,GET", "/api/admin/system/password,POST", "/api/gui/path-prefixes,GET", "/api/gui/path-prefixes/pin,POST",
             "/api/gui/control-center/directory,POST", "/api/gui/config/reload,POST",
-            "/api/gui/status,POST", "/api/gui/restart,GET", "/api/sdk/storage,POST"})
+            "/api/gui/status,POST", "/api/gui/restart,GET", "/api/sdk/storage,POST",
+            "/api/settings/database/migrations,GET", "/api/settings/database/private,POST",
+            "/api/settings/environment/preview,GET", "/api/settings/environment/restore,DELETE",
+            "/api/settings/repositories,DELETE", "/api/settings/environment/private,POST",
+            "/api/settings/environment/exports/00000000-0000-0000-0000-000000000001/archive,POST"})
     @DisplayName("GUI 与 SDK 调用不能借宽前缀绕过恢复模式")
     void blocksBusinessAndWrongMethodGuiCalls(String path, String method) throws Exception {
         request.setMethod(method);

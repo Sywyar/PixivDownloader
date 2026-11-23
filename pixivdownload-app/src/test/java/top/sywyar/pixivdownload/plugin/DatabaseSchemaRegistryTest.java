@@ -419,6 +419,7 @@ class DatabaseSchemaRegistryTest {
 
         assertThat(merged.all()).containsExactlyInAnyOrder(
                 new PathPrefixColumns.TableColumns("download_directories", "claim_id", List.of("directory")),
+                new PathPrefixColumns.TableColumns("artwork_partial_downloads", "artwork_id", List.of("folder")),
                 new PathPrefixColumns.TableColumns("artworks", "artwork_id", List.of("folder", "move_folder")),
                 new PathPrefixColumns.TableColumns("novels", "novel_id", List.of("folder")),
                 new PathPrefixColumns.TableColumns("manga_series", "series_id", List.of("cover_folder")),

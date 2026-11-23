@@ -11,19 +11,24 @@ import java.util.concurrent.ConcurrentHashMap;
 /** 只保存纯值描述和可撤回代理；旧身份不能触达 replacement。 */
 @Component
 public final class DesktopFileImportToolRegistry {
-    private record Entry(DesktopFileImportTool tool, DesktopFileImportTool.Source source) {}
+    private record Entry(DesktopFileImportTool tool, FileImportExecution source) {}
     private final ConcurrentHashMap<DesktopFileImportTool.Identity, Entry> entries = new ConcurrentHashMap<>();
 
     public void register(ExternalCapabilityOwner owner, DesktopFileImportTool.Description description, DesktopFileImportTool.Source source) {
         var identity = identity(owner);
-        entries.put(identity, new Entry(new DesktopFileImportTool(identity, description), source));
+        entries.put(identity, new Entry(new DesktopFileImportTool(identity, description), new FileImportExecution(source)));
     }
     public void unregister(ExternalCapabilityOwner owner) { entries.remove(identity(owner)); }
+    boolean isPublished(DesktopFileImportTool.Identity identity) { return entries.containsKey(identity); }
+
     public List<DesktopFileImportTool> tools() {
         return entries.values().stream().map(Entry::tool)
                 .sorted(Comparator.comparing(tool -> tool.identity().pluginId())).toList();
     }
     public DesktopFileImportTool.Source source(DesktopFileImportTool.Identity identity) {
+        return execution(identity);
+    }
+    FileImportExecution execution(DesktopFileImportTool.Identity identity) {
         Entry entry = entries.get(identity);
         if (entry == null) throw new DesktopFileImportTool.OperationException(DesktopUiText.key("gui.message.backend-busy"));
         return entry.source();

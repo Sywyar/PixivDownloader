@@ -23,4 +23,14 @@ public interface ArtworkMediaStore {
      * @throws IOException 持久化存储写入失败
      */
     void save(long artworkId, int page, ArtworkMediaManifest media) throws IOException;
+
+    /**
+     * 保存未完成的选页，保留作品库已有的媒体记录。
+     * @param artworkId 作品 ID
+     * @param page 原始页索引
+     * @param media 该页的媒体清单
+     * @param fingerprints 该页产物的文件指纹
+     * @throws IOException 存储写入失败
+     */
+    void savePartial(long artworkId, int page, ArtworkMediaManifest media, String fingerprints) throws IOException;
 }

@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.series;
 
+import io.swagger.v3.oas.annotations.Parameter;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -24,6 +30,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+@HttpApiGroup("core-library")
 @RestController
 @RequestMapping("/api/series")
 @RequiredArgsConstructor
@@ -32,14 +39,19 @@ public class MangaSeriesController {
     private final MangaSeriesService mangaSeriesService;
     private final GalleryRepository galleryRepository;
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public List<MangaSeries> getSeries(HttpServletRequest httpRequest) {
         Set<Long> filter = resolveGuestFilter(httpRequest);
         return mangaSeriesService.getAllSeries(filter);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/paged")
     public MangaSeriesService.PagedSeries getPagedSeries(
+            @Parameter(example = "0", schema = @Schema(type = "integer", format = "int32", defaultValue = "0"))
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "20") int size,
             @RequestParam(required = false) String search,
@@ -49,6 +61,9 @@ public class MangaSeriesController {
         return mangaSeriesService.getPagedSeriesWithArtworks(page, size, search, sort, filter);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/{seriesId}")
     public ResponseEntity<MangaSeriesDetail> getSeriesDetail(
             @PathVariable long seriesId,
@@ -80,6 +95,12 @@ public class MangaSeriesController {
         return ResponseEntity.ok(detail);
     }
 
+    @ApiResponse(responseCode = "200", content = {
+            @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")),
+            @Content(mediaType = "application/octet-stream", schema = @Schema(type = "string", format = "binary"))})
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/{seriesId}/cover")
     public ResponseEntity<byte[]> getSeriesCover(@PathVariable long seriesId,
                                                  HttpServletRequest httpRequest) throws IOException {

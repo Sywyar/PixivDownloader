@@ -116,6 +116,26 @@ public final class ResourceBundleMessageResolver implements MessageResolver {
         return getOrDefault(policy.fallbackLocale(), code, code, args);
     }
 
+    /**
+     * 按查找顺序从这些资源包收集具有指定前缀的本地化条目。
+     * @param locale 请求的语言
+     * @param prefix 待筛选的键前缀
+     * @return 本地化条目，不查询回退解析器
+     */
+    public Map<String, String> localMessages(Locale locale, String prefix) {
+        var selected = new java.util.LinkedHashMap<String, String>();
+        var suffixes = policy.resourceSuffixChain(normalizeLocale(locale));
+        for (String baseName : baseNames) {
+            if (baseName.isBlank()) continue;
+            for (String suffix : suffixes) {
+                bundleCache.computeIfAbsent(resourceName(baseName, suffix), this::load).forEach((key, value) -> {
+                    if (key.startsWith(prefix)) selected.putIfAbsent(key, value);
+                });
+            }
+        }
+        return Map.copyOf(selected);
+    }
+
     /** 物理文件：suffix 为空 → {@code baseName.properties}，否则 {@code baseName_<suffix>.properties}。 */
     private static String resourceName(String baseName, String suffix) {
         String basePath = baseName.replace('.', '/');

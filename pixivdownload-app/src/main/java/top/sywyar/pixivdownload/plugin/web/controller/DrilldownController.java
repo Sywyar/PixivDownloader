@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +34,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 声明（同 {@code /api/navigation} / {@code /api/page-sections}）：multi 普通访客与受邀访客均可只读、solo 未登录 401、
  * 不入 monitor。
  */
+@HttpApiGroup("core-extensions")
 @RestController
 @RequestMapping("/api/drilldowns")
 @RequiredArgsConstructor

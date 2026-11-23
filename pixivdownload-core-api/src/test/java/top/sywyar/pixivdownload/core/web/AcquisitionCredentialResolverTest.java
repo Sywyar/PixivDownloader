@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("取得凭证请求头解析器")
 class AcquisitionCredentialResolverTest {
@@ -21,7 +21,11 @@ class AcquisitionCredentialResolverTest {
     void enforcesCredentialLengthLimit() {
         String maximum = "a".repeat(AcquisitionCredentialResolver.MAX_LENGTH);
         assertThat(AcquisitionCredentialResolver.resolve(maximum)).isEqualTo(maximum);
-        assertThatIllegalArgumentException().isThrownBy(() ->
-                AcquisitionCredentialResolver.resolve(maximum + "a"));
+        assertThatThrownBy(() -> AcquisitionCredentialResolver.resolve(maximum + "a"))
+                .isInstanceOfSatisfying(HttpParameterException.class, error -> {
+                    assertThat(error.in()).isEqualTo("header");
+                    assertThat(error.field()).isEqualTo(AcquisitionCredentialResolver.HEADER_NAME);
+                    assertThat(error.reason()).isEqualTo("out_of_range");
+                });
     }
 }

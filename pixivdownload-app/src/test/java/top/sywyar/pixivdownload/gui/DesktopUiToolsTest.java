@@ -21,6 +21,19 @@ class DesktopUiToolsTest {
     Path tempDir;
 
     @Test
+    @org.junit.jupiter.api.DisplayName("目录扫描在累计条目或路径字符超限时拒绝，不返回截断结果")
+    void boundsClassifierScan() throws Exception {
+        Files.createDirectory(tempDir.resolve("1"));
+        Files.createDirectory(tempDir.resolve("2"));
+        var tools = new DesktopUiTools(() -> "");
+        assertThatThrownBy(() -> tools.listClassifierPaths(tempDir, true, 1, Long.MAX_VALUE))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("CLASSIFIER_DIRECTORY_LIMIT");
+        assertThatThrownBy(() -> tools.listClassifierPaths(tempDir, true, 100, 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("CLASSIFIER_DIRECTORY_LIMIT");
+        assertThat(tools.listClassifierPaths(tempDir, true, 2, Long.MAX_VALUE)).hasSize(2);
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("分类目录混合数字及文字名称时保留全部目录并按稳定顺序排列")
     void sortsMixedClassifierFolderNames() throws Exception {
         for (String name : List.of("2", "10", "1a", "01", "1", "2147483648", "中文")) {

@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.install;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 /**
  * 市场安装目标插件时，由同一受信仓库自动补齐并成功落盘的依赖插件结果。它是轻量机器态投影，
  * 不递归嵌套完整 {@link PluginInstallResponse}。
@@ -7,20 +11,20 @@ package top.sywyar.pixivdownload.plugin.install;
 public record PluginDependencyInstallResult(
         String pluginId,
         String version,
-        String previousVersion,
+        @HttpApiNullable String previousVersion,
         String packageId,
         String targetVersion,
-        String outcome,
+        @HttpApiNullable @Schema(implementation = PluginInstallOutcome.class) String outcome,
         boolean accepted,
         boolean effectiveAfterRestart,
         boolean activated,
         boolean rolledBack,
-        String rollbackVersion,
+        @HttpApiNullable String rollbackVersion,
         String operation,
-        String runtimePhase,
+        @HttpApiNullable String runtimePhase,
         boolean recoveryBlocked,
         boolean updated,
-        String transactionId,
+        @HttpApiNullable String transactionId,
         boolean activationBlockedByDevelopmentMode) {
 
     public PluginDependencyInstallResult(String pluginId, String version, String previousVersion,

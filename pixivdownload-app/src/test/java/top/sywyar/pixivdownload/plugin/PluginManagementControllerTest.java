@@ -91,7 +91,52 @@ class PluginManagementControllerTest {
                 .standaloneSetup(new PluginManagementController(
                         service, installService, installResponseMapper,
                         enabledConfigurationService, backendRestartService, messages, localeResolver))
+                .setControllerAdvice(new top.sywyar.pixivdownload.GlobalExceptionHandler(messages))
                 .build();
+    }
+
+    @Test
+    @DisplayName("程序必须同时获准管理目标和当前消费者，拒绝时无生命周期副作用")
+    void programChecksTargetAndConsumers() throws Exception {
+        var target = mock(PluginManagementService.PluginManagementEntry.class);
+        var consumer = mock(PluginManagementService.PluginManagementEntry.class);
+        when(consumer.id()).thenReturn("consumer");
+        when(consumer.toggleable()).thenReturn(true);
+        when(target.id()).thenReturn("sample");
+        when(target.managed()).thenReturn(true);
+        var report = mock(PluginManagementService.PluginManagementReport.class);
+        when(report.plugins()).thenReturn(List.of(target, consumer));
+        when(service.list()).thenReturn(report);
+        when(service.previewImpact("sample")).thenReturn(
+                new PluginManagementService.PluginImpactPreview("fingerprint", target, List.of(consumer)));
+        var controller = new PluginManagementController(service, installService, null,
+                enabledConfigurationService, backendRestartService, null, null);
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        var id = java.util.UUID.randomUUID();
+        for (var permissions : List.of(java.util.Set.<String>of(), java.util.Set.of("sample:plugins.manage"))) {
+            request.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                    new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id, permissions));
+            mockMvc.perform(post("/api/plugins/sample/stop").requestAttr(
+                            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                            request.getAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE)))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("auth.program.forbidden"))
+                    .andExpect(jsonPath("$.programPermission").value(permissions.isEmpty()
+                            ? "sample:plugins.manage" : "consumer:plugins.manage"));
+            verify(service, never()).perform(anyString(), any());
+        }
+        request.setAttribute(top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity.REQUEST_ATTRIBUTE,
+                new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(id,
+                        java.util.Set.of("sample:plugins.manage", "consumer:plugins.manage")));
+        when(service.confirmImpact(eq("sample"), eq("fingerprint"), any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(2)).get());
+        controller.stop("sample", request);
+        verify(service).perform("sample", LifecycleAction.STOP);
+        org.mockito.Mockito.clearInvocations(service);
+        when(service.confirmImpact(eq("sample"), eq("fingerprint"), any())).thenThrow(
+                new PluginManagementException(PluginManagementErrorCode.IMPACT_CHANGED, "sample", "stop", null, "changed"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.stop("sample", request))
+                .isInstanceOf(PluginManagementException.class);
+        verify(service, never()).perform(anyString(), any());
     }
 
     @Test

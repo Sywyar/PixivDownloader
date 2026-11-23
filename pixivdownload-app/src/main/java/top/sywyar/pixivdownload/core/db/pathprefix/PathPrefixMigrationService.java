@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.db.pathprefix;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -184,7 +186,7 @@ public class PathPrefixMigrationService {
         }
     }
 
-    public record SymbolicRootStatus(boolean active, boolean referenced, boolean orphan, String suggestedOldPath) {
+    public record SymbolicRootStatus(boolean active, boolean referenced, boolean orphan, @HttpApiNullable String suggestedOldPath) {
     }
 
     /**
@@ -432,6 +434,6 @@ public class PathPrefixMigrationService {
     public record PathPrefixMigrationResult(boolean success, int applied, List<PrefixError> errors) {
     }
 
-    public record PrefixError(long id, String reason) {
+    public record PrefixError(long id, @Schema(allowableValues = {"invalid", "not-absolute", "not-exist", "not-directory", "conflict", "unknown-id", "duplicate"}) String reason) {
     }
 }

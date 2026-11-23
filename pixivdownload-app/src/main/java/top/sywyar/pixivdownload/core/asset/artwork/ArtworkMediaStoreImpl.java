@@ -57,6 +57,16 @@ public class ArtworkMediaStoreImpl implements ArtworkMediaStore {
             throw new IOException("Cannot persist artwork media", failure);
         }
     }
+    @Override public void savePartial(long artworkId, int page, ArtworkMediaManifest media, String fingerprints) throws IOException {
+        validateIdentity(artworkId, page);
+        String table = "artwork_partial_pages";
+        int changed = database.transaction(s -> s.update(table, Map.of(
+                "original_extension", value(media.originalExtension()), "extensions", value(String.join(",", media.extensions())),
+                "original_retained", value(media.originalRetained() ? 1L : 0L),
+                "output_fingerprints", value(Objects.requireNonNull(fingerprints))),
+                call(AND, call(EQUAL, column(table, "artwork_id"), value(artworkId)), call(EQUAL, column(table, "page"), value(page)))));
+        if (changed != 1) throw new IOException("Missing partial artwork page");
+    }
     private static void validateIdentity(long artworkId, int page) {
         if (artworkId <= 0 || page < 0) throw new IllegalArgumentException("Invalid artwork page");
     }

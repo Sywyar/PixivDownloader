@@ -786,6 +786,10 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.pluginValueSaved(pluginId, key, value);
     }
 
+    public synchronized void leaveSecurity() {
+        security.leavePage();
+    }
+
     void closeDialog() {
         dialogState = null;
     }

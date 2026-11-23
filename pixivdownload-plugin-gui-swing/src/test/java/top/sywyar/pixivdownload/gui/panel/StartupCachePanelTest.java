@@ -60,8 +60,9 @@ class StartupCachePanelTest {
         SwingUtilities.invokeAndWait(() -> {
             var panel = new StartupCachePanel(host(Optional.empty()));
             assertFalse(button(panel, "startup-cache.start").isEnabled());
-            assertTrue(descendants(panel).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
-                    .anyMatch(value -> value.getText().endsWith(".unavailable")));
+            assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                    .anyMatch(value -> "startup-cache.status".equals(value.getName())
+                            && value.getText().contains("gui.tools.startup-cache.unavailable")));
             panel.close();
         });
     }

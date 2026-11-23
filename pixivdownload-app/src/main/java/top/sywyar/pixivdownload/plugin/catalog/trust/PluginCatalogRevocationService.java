@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.catalog.trust;
 
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
@@ -223,7 +224,7 @@ public final class PluginCatalogRevocationService {
         }
     }
 
-    public record RefreshResult(boolean refreshed, String code) { }
+    public record RefreshResult(boolean refreshed, @HttpApiNullable String code) { }
 
     private String status(String pluginId, String version, String sha256,
                           String keyId, String publisherId, PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {

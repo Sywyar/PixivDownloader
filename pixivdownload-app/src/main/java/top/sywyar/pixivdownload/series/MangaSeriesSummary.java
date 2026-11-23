@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.series;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 public record MangaSeriesSummary(
         long seriesId,
         String title,
-        Long authorId,
-        String authorName,
+        @HttpApiNullable Long authorId,
+        @HttpApiNullable String authorName,
         long artworkCount
 ) {}

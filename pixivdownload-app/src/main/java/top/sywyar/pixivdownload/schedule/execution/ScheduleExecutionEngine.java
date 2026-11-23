@@ -4,7 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledWorkStore;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
@@ -57,7 +57,7 @@ public final class ScheduleExecutionEngine {
     /** 单个计划任务允许的宿主级最大在途作品数。 */
     public static final int MAX_WORK_IN_FLIGHT = ScheduleExecutionPlanGate.MAX_IN_FLIGHT;
 
-    private final ScheduledTaskStore store;
+    private final ScheduledWorkStore store;
     private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final ScheduleCapabilityAccess registry;
     private final ScheduleRunState runState;
@@ -69,9 +69,10 @@ public final class ScheduleExecutionEngine {
     private final ScheduleWorkConcurrencyLimiter workConcurrencyLimiter;
     private final ObjectMapper objectMapper;
     private final ScheduleCredentialSupport credentialSupport;
+    private final java.util.function.Predicate<String> ownerAllowed;
 
     ScheduleExecutionEngine(
-            ScheduledTaskStore store,
+            ScheduledWorkStore store,
             ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
@@ -85,7 +86,7 @@ public final class ScheduleExecutionEngine {
     }
 
     public ScheduleExecutionEngine(
-            ScheduledTaskStore store,
+            ScheduledWorkStore store,
             ScheduleCapabilityAccess registry,
             ScheduleRunState runState,
             ScheduleRunQueue runQueue,
@@ -95,6 +96,23 @@ public final class ScheduleExecutionEngine {
             TaskExecutor workTaskExecutor,
             ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
             ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        this(store, registry, runState, runQueue, config, persistenceCodec, routeResolver,
+                workTaskExecutor, workConcurrencyLimiter, objectMapper, database, owner -> true);
+    }
+
+    public ScheduleExecutionEngine(
+            ScheduledWorkStore store,
+            ScheduleCapabilityAccess registry,
+            ScheduleRunState runState,
+            ScheduleRunQueue runQueue,
+            ScheduleConfig config,
+            ScheduleWorkPersistenceCodec persistenceCodec,
+            ScheduleNetworkRouteResolver routeResolver,
+            TaskExecutor workTaskExecutor,
+            ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
+            ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
+            java.util.function.Predicate<String> ownerAllowed) {
+        this.ownerAllowed = Objects.requireNonNull(ownerAllowed, "ownerAllowed");
         this.database = Objects.requireNonNull(database, "database");
         this.store = Objects.requireNonNull(store, "store");
         this.registry = Objects.requireNonNull(registry, "registry");
@@ -114,6 +132,7 @@ public final class ScheduleExecutionEngine {
         if (!database.available()) return false;
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         try (planning) {
+            if (planning != null) requireOwner(planning.owner().featurePluginId());
             if (planning == null || !registry.activate(planning)
                     || !matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
                 return false;
@@ -125,8 +144,9 @@ public final class ScheduleExecutionEngine {
             validateStoredCheckpoint(plan, task);
             ScheduleExecutionLease execution = registry.prepareExpansion(planning, plan).orElse(null);
             try (execution) {
-                return execution != null && registry.activate(execution)
-                        && !execution.cancellation().isCancellationRequested();
+                if (execution == null || !registry.activate(execution)) return false;
+                requireWorkOwners(execution);
+                return !execution.cancellation().isCancellationRequested();
             }
         } catch (Exception ignored) {
             return false;
@@ -171,6 +191,7 @@ public final class ScheduleExecutionEngine {
                 throw new ScheduleExecutorUnavailableException(
                         task.sourceType(), plan.requiredWorkTypes());
             }
+            requireWorkOwners(execution);
             planning.close();
             execution.cancellation().throwIfCancellationRequested();
             ScheduleCapabilityOwner policyOwner = execution.credentialPolicyOwner()
@@ -237,6 +258,35 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        return executeRun(task, pendingExhaustedListener, policyAccountSuspensionPublisher, null, false);
+    }
+
+    /** 手动批次固定接纳时的来源 publication；只重试时不再次发现新作品。 */
+    public ScheduleExecutionResult executeBatch(
+            ScheduledTask task,
+            String activationToken,
+            boolean pendingOnly,
+            Consumer<ScheduleExecutionControlException> policyAccountSuspensionPublisher)
+            throws ScheduleSourceUnavailableException,
+            ScheduleExecutorUnavailableException,
+            ScheduleDefinitionException,
+            ScheduleExecutionControlException,
+            ScheduledExecutionException {
+        if (activationToken == null || activationToken.isBlank()) throw new IllegalArgumentException("activation token required");
+        return executeRun(task, ignored -> {}, policyAccountSuspensionPublisher, activationToken, pendingOnly);
+    }
+
+    private ScheduleExecutionResult executeRun(
+            ScheduledTask task,
+            Consumer<ScheduleExecutionResult.PendingExhausted> pendingExhaustedListener,
+            Consumer<ScheduleExecutionControlException> policyAccountSuspensionPublisher,
+            String expectedActivationToken,
+            boolean pendingOnly)
+            throws ScheduleSourceUnavailableException,
+            ScheduleExecutorUnavailableException,
+            ScheduleDefinitionException,
+            ScheduleExecutionControlException,
+            ScheduledExecutionException {
         database.requireAvailable();
         Objects.requireNonNull(pendingExhaustedListener, "pendingExhaustedListener");
         Objects.requireNonNull(
@@ -246,6 +296,10 @@ public final class ScheduleExecutionEngine {
             throw new ScheduleSourceUnavailableException(task.sourceType());
         }
         try (planning) {
+        if (expectedActivationToken != null && !expectedActivationToken.equals(planning.activationToken())) {
+            throw new ScheduledExecutionException(ScheduledFailure.Category.ACCESS_UNAVAILABLE,
+                    "schedule.error.source-publication-changed");
+        }
         SourcePlan source = prepareSourcePlan(task, planning);
         ScheduledTaskDefinition definition = source.definition();
         ScheduledSourceExecutor sourceExecutor = source.executor();
@@ -267,6 +321,7 @@ public final class ScheduleExecutionEngine {
                 throw new ScheduleExecutorUnavailableException(
                         task.sourceType(), plan.requiredWorkTypes());
             }
+            requireWorkOwners(execution);
             ScheduledCancellation leaseCancellation = execution.cancellation();
             ScheduledCancellation cancellation = () -> !database.available() || leaseCancellation.isCancellationRequested()
                     || runState.isCancelRequested(task.id());
@@ -325,13 +380,15 @@ public final class ScheduleExecutionEngine {
                     ScheduledDiscoveryResult discovery;
                     try {
                         coordinator.loadPending(pendingRows);
-                        ScheduledPendingReplayPolicy pendingReplayPolicy =
-                                sourceExecutor.pendingReplayPolicy();
+                        ScheduledPendingReplayPolicy pendingReplayPolicy = pendingOnly
+                                ? ScheduledPendingReplayPolicy.ALWAYS : sourceExecutor.pendingReplayPolicy();
                         if (pendingReplayPolicy == ScheduledPendingReplayPolicy.ALWAYS) {
                             coordinator.replayUnseenPending(pendingReplayPolicy);
                         }
                         cancellation.throwIfCancellationRequested();
-                        try (var sourceHandle = credential.openHandle()) {
+                        if (pendingOnly) {
+                            discovery = ScheduledDiscoveryResult.withoutCheckpoint();
+                        } else try (var sourceHandle = credential.openHandle()) {
                             ScheduledSourceContext context = new ScheduledSourceContext() {
                                 @Override
                                 public ScheduledCheckpoint checkpoint() {
@@ -453,6 +510,7 @@ public final class ScheduleExecutionEngine {
             throws ScheduleSourceUnavailableException,
             ScheduleDefinitionException,
             ScheduledExecutionException {
+        requireOwner(planning.owner().featurePluginId());
         try {
             if (!registry.activate(planning)) {
                 planning.close();
@@ -503,6 +561,25 @@ public final class ScheduleExecutionEngine {
             throw pluginFailure("schedule.plan.capability-mismatch");
         }
         return new SourcePlan(definition, sourceExecutor, plan);
+    }
+
+    private void requireOwner(String owner) throws ScheduledExecutionException {
+        if (!ownerAllowed.test(owner)) throw new OwnerDenied(owner);
+    }
+
+    public static final class OwnerDenied extends ScheduledExecutionException {
+        private final String owner;
+
+        private OwnerDenied(String owner) {
+            super(ScheduledFailure.Category.ACCESS_UNAVAILABLE, "auth.program.forbidden");
+            this.owner = owner;
+        }
+
+        public String owner() { return owner; }
+    }
+
+    private void requireWorkOwners(ScheduleExecutionLease execution) throws ScheduledExecutionException {
+        for (var owner : execution.workExecutorOwners().values()) requireOwner(owner.featurePluginId());
     }
 
     private ScheduleExecutionLease prepareExecution(

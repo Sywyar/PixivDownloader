@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.web.page.*;
 /** MVC 选择真实 handler 后统一执行；异步重派发复用同一请求身份。 */
 @Component
 public final class HttpOperationHooks implements AsyncHandlerInterceptor, ServletRequestListener {
+    public static final String RESULT_HEADER = "X-Pixiv-Hook";
     private static final String ATTRIBUTE = HttpOperationHooks.class.getName();
     private final Executor executor;
     private final OperationEndpoints endpoints;
@@ -245,11 +246,11 @@ public final class HttpOperationHooks implements AsyncHandlerInterceptor, Servle
     static void reject(HttpServletResponse response, String code, int status, Map<String, String> challenges) throws IOException {
         reply(response, code, status, "", "", challenges);
     }
-    private record TargetMatch(String code, boolean invoked, String endpoint) { }
+    public record TargetMatch(String code, boolean invoked, String endpoint) { }
     private static void reply(HttpServletResponse response, String code, int status, String token, String revision,
             Map<String, String> challenges) throws IOException {
         response.setStatus(status); response.setContentType("application/json"); response.setCharacterEncoding("UTF-8");
-        response.setHeader("Cache-Control", "no-store"); response.setHeader("X-Pixiv-Hook", code);
+        response.setHeader("Cache-Control", "no-store"); response.setHeader(RESULT_HEADER, code);
         String message = status < 400 ? "" : top.sywyar.pixivdownload.i18n.MessageBundles.get(
                 org.springframework.context.i18n.LocaleContextHolder.getLocale(), "hooks."
                         + (code.equals("CHALLENGE") ? "required" : code.equals("STALE") || code.equals("TARGET_STALE") ? "stale" : code.equals("REJECTED") ? "rejected" : "unavailable"));

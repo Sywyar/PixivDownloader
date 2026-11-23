@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -28,7 +29,10 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -111,6 +115,16 @@ public class MangaSeriesService {
     public List<MangaSeries> getSeriesByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
         return mangaSeriesMapper.findByIds(ids).stream().map(this::resolveSeries).toList();
+    }
+
+    public Map<Long, String> titlesForArtworks(Collection<ArtworkRecord> artworks) {
+        Set<Long> ids = new HashSet<>();
+        for (var artwork : artworks) {
+            if (artwork.seriesId() != null && artwork.seriesId() > 0) ids.add(artwork.seriesId());
+        }
+        Map<Long, String> titles = new HashMap<>();
+        for (var series : getSeriesByIds(ids)) titles.put(series.seriesId(), series.title());
+        return titles;
     }
 
     public List<MangaSeries> getAllSeries(Set<Long> filterIds) {

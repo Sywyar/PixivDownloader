@@ -102,20 +102,29 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
 
     FilteredCandidates findCandidates(int limit, ArtworksBackFillUnreachableStore unreachable, String rootFolder)
             throws SQLException {
-        return findCandidates(limit, unreachable, rootFolder, false);
+        return findCandidates(limit, unreachable, rootFolder, false, List.of());
     }
 
-    FilteredCandidates findCandidates(int limit, ArtworksBackFillUnreachableStore unreachable, String rootFolder, boolean automatic)
+    FilteredCandidates findCandidates(int limit, ArtworksBackFillUnreachableStore unreachable, String rootFolder, boolean automatic, List<Long> artworkIds)
             throws SQLException {
         List<Candidate> candidates = new ArrayList<>();
         int[] skippedUnreachable = {0};
-        for (WorkType type : List.of(WorkType.ARTWORK, WorkType.NOVEL)) {
+        var types = artworkIds.isEmpty() ? List.of(WorkType.ARTWORK, WorkType.NOVEL) : List.of(WorkType.ARTWORK);
+        for (WorkType type : types) {
             long afterId = 0;
             while (limit <= 0 || candidates.size() < limit) {
                 Candidate[] localCheck = {null};
                 // 先关闭候选游标，再单独读取快照；不把整批 JSON 留在查询结果或候选列表中。
                 try (var session = target.storageSession(connection, SCHEMA)) {
-                    session.scan(candidateQuery(type, call(GREATER, column("a", key(type)), value(afterId))), row -> {
+                    Expression id = column("a", key(type));
+                    Expression filter = call(GREATER, id, value(afterId));
+                    if (!artworkIds.isEmpty()) {
+                        var values = new ArrayList<Expression>();
+                        values.add(id);
+                        artworkIds.forEach(selected -> values.add(value(selected)));
+                        filter = call(AND, filter, new Call(IN, values));
+                    }
+                    session.scan(candidateQuery(type, filter), row -> {
                         if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
                         var candidate = candidateFromRow(type, row);
                         if (unreachable.blocksNetwork(candidate.workType(), candidate.artworkId(), automatic)) {

@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.core.download.request;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import jakarta.validation.constraints.AssertTrue;
+import org.springframework.util.StringUtils;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -22,6 +25,14 @@ public class RecoverMetadataRequest {
     private Boolean isAi;
     private String description;
     private Integer pageCount;
+
+    @JsonIgnore
+    @AssertTrue(message = "{error.request.body.invalid}")
+    public boolean isMetadataProvided() {
+        return StringUtils.hasText(title) || authorId != null || xRestrict != null
+                || isAi != null || StringUtils.hasText(description)
+                || pageCount != null && pageCount > 0;
+    }
 
     @JsonGetter("xRestrict")
     public Integer getXRestrict() {

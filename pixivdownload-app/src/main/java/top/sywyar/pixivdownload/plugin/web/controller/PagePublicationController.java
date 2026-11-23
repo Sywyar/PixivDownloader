@@ -1,5 +1,14 @@
 package top.sywyar.pixivdownload.plugin.web.controller;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiAccess;
+
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Schema;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,6 +26,8 @@ import top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore;
 import java.util.*;
 
 /** 匿名请求只读公开页面；私有投影仍要求真实管理员身份和原页面的常规访问策略。 */
+@HttpApiGroup("core-extensions")
+@HttpApiAccess(HttpApiAccess.Condition.PAGE_VISIBILITY)
 @RestController
 public final class PagePublicationController {
     private final PageContributionRegistry registry;
@@ -32,6 +43,12 @@ public final class PagePublicationController {
         this.registry = registry; this.publications = publications; this.identities = identities; this.routes = routes;
         this.endpoints = endpoints; this.store = store;
     }
+    @Parameter(name = "revision", in = ParameterIn.QUERY, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, headers = @Header(name = "X-Pixiv-Page-Revision",
+            schema = @Schema(type = "string")))
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content)
     @GetMapping("/api/web/page-publications/{page}")
     public ResponseEntity<JsonNode> published(@PathVariable String page, jakarta.servlet.http.HttpServletRequest request) throws java.io.IOException {
         if (visible(page, request) == null) return ResponseEntity.notFound().build();
@@ -70,6 +87,12 @@ public final class PagePublicationController {
             List<String> headerConditions, List<String> consumes, List<String> produces, List<OperationBinding.Field> fields) { }
     public record HttpActions(String revision, List<HttpAction> targets) { }
 
+    @Parameter(name = "revision", in = ParameterIn.QUERY, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true, headers = @Header(name = "X-Pixiv-Page-Revision",
+            schema = @Schema(type = "string")))
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content)
+    @ApiResponse(responseCode = "503", content = @Content)
     @GetMapping("/api/web/page-publications/{page}/targets")
     public ResponseEntity<HttpActions> targets(@PathVariable String page, jakarta.servlet.http.HttpServletRequest request) {
         var definition = visible(page, request);

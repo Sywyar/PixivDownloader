@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
@@ -246,8 +248,10 @@ public class PluginCatalogInstallPreview {
     }
 
     public record View(String fingerprint, List<Item> packages, List<Conflict> conflicts) { }
-    public record Item(String pluginId, String version, String repositoryId, String publisher, String sha256,
-            String installedVersion, String installedRepositoryId, String action, List<String> consumers,
+    public record Item(String pluginId, String version, String repositoryId, @HttpApiNullable String publisher,
+            @HttpApiNullable String sha256,
+            @HttpApiNullable String installedVersion, @HttpApiNullable String installedRepositoryId, String action,
+            List<String> consumers,
             List<String> activeConsumers, String restartImpact) { }
     public record Conflict(String code, String pluginId, List<String> arguments) { }
     public record Plan(View view, List<PluginCatalogService.ResolvedPackage> packages) { }

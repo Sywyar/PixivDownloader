@@ -88,12 +88,17 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
     @Override
     public Map<String, String> prepare(Map<String, String> updates) throws IOException {
         try {
-            return prepare(updates, true, saved());
+            return prepareForApi(updates);
         } catch (IOException failure) {
             String key = DesktopDatabaseSettings.failureMessageKey(failure.getMessage());
             if (key.equals("gui.config.database.error.unknown")) throw failure;
             throw new IOException(MessageBundles.get(key));
         }
+    }
+
+    /** 保留受控失败码供 HTTP 入口按请求语言投影。 */
+    public Map<String, String> prepareForApi(Map<String, String> updates) throws IOException {
+        return prepare(updates, true, saved());
     }
 
     private Map<String, String> prepare(Map<String, String> updates, boolean saving,
@@ -127,11 +132,11 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
         if (saving) {
             if (previous != null && (!previous.providerOwner().equals(next.providerOwner())
                     || !previous.description().equals(next.description())))
-                throw new IOException(MessageBundles.get("gui.config.database.migration.required"));
+                throw new IOException("DATABASE_MIGRATION_REQUIRED");
             try {
                 top.sywyar.pixivdownload.core.db.schema.PrivateDatabaseMigrationState.requireReady(next, availableProviders.get());
             } catch (IOException required) {
-                throw new IOException(MessageBundles.get("gui.config.database.private-migration-required"));
+                throw new IOException("DATABASE_PRIVATE_MIGRATION_REQUIRED");
             }
         }
         return normalized;

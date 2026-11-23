@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.mail.controller;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,16 +11,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.mail.MailSenderSettings;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -39,8 +42,8 @@ import java.util.Set;
  * {@link MailService#sendTest} 发送 {@link MailTemplateRegistry#TEMPLATE_CONFIG_SUCCESS} 模板邮件，
  * 把成功 / 失败摘要原样回给 GUI；失败摘要绝不含密码（由 {@code MailService.safeMessage} 截断 + 异常链脱敏）。
  */
+@HttpApiGroup("mail-email")
 @RestController
-@RequestMapping("/api/gui")
 @RequiredArgsConstructor
 @Slf4j
 public class MailTestController {
@@ -52,13 +55,30 @@ public class MailTestController {
     private final MessageResolver messages;
     private final UserDisplayNameProvider displayNameProvider;
 
-    @PostMapping("/mail-test")
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = MailTestResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/gui/mail-test")
     public ResponseEntity<?> test(@RequestBody MailTestRequest body,
                                   HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
+        return testSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = MailTestResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/admin/mail/test")
+    public ResponseEntity<?> testAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody MailTestRequest body) {
+        return testSettings(body);
+    }
+
+    private ResponseEntity<?> testSettings(MailTestRequest body) {
         if (body == null) {
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
                     "mail.error.settings-missing", messages.get("mail.error.settings-missing")));
@@ -91,13 +111,28 @@ public class MailTestController {
      * 逐一以 {@link MailService#sendTest} 发送（失败仅记入 {@link MailTestAllResponse#failures}，不抛、不中断后续模板）。
      * 失败摘要由 {@code MailService.safeMessage} 截断 + 异常链脱敏，绝不含密码。
      */
-    @PostMapping("/mail-test-all")
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = MailTestAllResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/gui/mail-test-all")
     public ResponseEntity<?> testAll(@RequestBody MailTestRequest body,
                                      HttpServletRequest request) {
         if (!trustedLocalRequest(request)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of("auth.local-only", messages.get("auth.local-only")));
         }
+        return testAllSettings(body);
+    }
+
+    /** 管理员入口使用临时设置；身份与 CSRF 由声明路由统一校验。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = MailTestAllResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @PostMapping("/api/admin/mail/test-all")
+    public ResponseEntity<?> testAllAdmin(@top.sywyar.pixivdownload.plugin.api.web.RequestBodyLimit(64 * 1024) @RequestBody MailTestRequest body) {
+        return testAllSettings(body);
+    }
+
+    private ResponseEntity<?> testAllSettings(MailTestRequest body) {
         if (body == null) {
             return ResponseEntity.badRequest().body(ApiErrorResponse.of(
                     "mail.error.settings-missing", messages.get("mail.error.settings-missing")));

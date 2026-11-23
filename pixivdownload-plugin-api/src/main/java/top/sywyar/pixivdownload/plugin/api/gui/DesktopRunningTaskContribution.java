@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.gui;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import java.time.Instant;
 import java.util.Objects;
 
@@ -24,7 +26,7 @@ public record DesktopRunningTaskContribution(
         DesktopUiText title,
         DesktopUiText supportingText,
         Status status,
-        Double progress,
+        @HttpApiNullable Double progress,
         DesktopControlCenterAvailability availability,
         Instant observedAt
 ) {

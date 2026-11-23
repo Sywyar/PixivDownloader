@@ -37,9 +37,9 @@ public class PixivConnectivityProbe {
      * 探测结果。
      *
      * @param reachable  是否可达（上游返回 2xx~4xx 视为网络可达）
-     * @param statusCode 上游 HTTP 状态码（不可达时为 0）
+     * @param statusCode 上游 HTTP 状态码（未收到 HTTP 响应时为 0）
      * @param latencyMs  往返耗时（毫秒）
-     * @param errorType  失败类型：{@code timeout} / {@code interrupted} / {@code network} / {@code unknown}；成功为 null
+     * @param errorType  失败类型：{@code timeout} / {@code interrupted} / {@code network} / {@code unknown}；收到 HTTP 响应时为 null
      */
     public record Result(boolean reachable, int statusCode, long latencyMs, String errorType) {
     }

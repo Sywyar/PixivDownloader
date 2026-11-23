@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novelgallery;
 
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
+import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetails;
 import top.sywyar.pixivdownload.novel.metadata.NovelWorkDetailsRepository;
@@ -27,6 +29,11 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import top.sywyar.pixivdownload.core.work.query.WorkSelectionException;
+import top.sywyar.pixivdownload.core.web.MissingProgramPermissionException;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import top.sywyar.pixivdownload.novelgallery.controller.NovelGalleryController;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +42,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -71,7 +79,7 @@ class NovelBatchServiceTest {
         lenient().when(archiveExportService.normalizeFormat(nullable(String.class))).thenAnswer(invocation -> {
             String normalized = ArchiveExportRules.normalizeFormatToken(invocation.getArgument(0));
             if (!ArchiveExportRules.supportsFormat(normalized)) {
-                throw new IllegalArgumentException("unsupported format: " + normalized);
+                throw new UnsupportedArchiveFormatException(normalized);
             }
             return normalized;
         });
@@ -89,6 +97,84 @@ class NovelBatchServiceTest {
     }
 
     @Test
+    void malformedSelectionNeverTargetsACoercedId() {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        for (String body : List.of(
+                "{\"ids\":[11,42.9]}", "{\"excludeIds\":[\"42\"]}",
+                "{\"filter\":{\"tagIds\":[42.9]}}", "{\"filter\":{\"authorId\":\"42\"}}",
+                "{\"filter\":{\"uploadedFrom\":42.9}}", "{\"collectionId\":42.9}")) {
+            assertThatThrownBy(() -> mapper.readValue(body, NovelBatchRequest.class))
+                    .isInstanceOf(tools.jackson.core.JacksonException.class);
+        }
+        var unknown = mapper.readValue("{\"mode\":\"fitler\",\"ids\":[42]}", NovelBatchRequest.class);
+        var missing = mapper.readValue("{\"mode\":\"filter\",\"filter\":null,\"ids\":[42]}", NovelBatchRequest.class);
+        assertThatThrownBy(() -> service.resolveNovelIds(unknown, true))
+                .isInstanceOfSatisfying(HttpParameterException.class, e -> assertThat(e.field()).isEqualTo("/mode"));
+        assertThatThrownBy(() -> service.resolveNovelIds(missing, true))
+                .isInstanceOfSatisfying(HttpParameterException.class, e -> assertThat(e.field()).isEqualTo("/filter"));
+        verifyNoInteractions(novelGalleryService);
+    }
+
+    @Test
+    void unrestrictedDestructiveSelectionRequiresConfirmationBeforeQuerying() throws Exception {
+        var mapper = JsonMapper.builderWithJackson2Defaults().build();
+        var search = org.mockito.Mockito.mock(NovelOwnedWorkSearch.class);
+        var gallery = new NovelGalleryService(null, search, null, null, null, null);
+        var selection = new NovelBatchService(gallery, workMetadataRepository, novelWorkDetailsRepository,
+                workAssetService, workCollectionMembership, archiveExportService, mapper, novelExportService);
+        for (String flag : List.of("deleteAfter", "confirmAll")) {
+            for (Object invalid : List.of(1, 2, "true")) {
+                byte[] body = mapper.writeValueAsBytes(Map.of(flag, invalid));
+                assertThatThrownBy(() -> mapper.readValue(body, NovelBatchRequest.class))
+                        .isInstanceOf(tools.jackson.core.JacksonException.class);
+            }
+        }
+        var disabled = mapper.readValue("""
+                {"confirmAll":null,"deleteAfter":null}
+                """, NovelBatchRequest.class);
+        assertThat(disabled.confirmsAll()).isFalse();
+        assertThat(disabled.deletesAfterExport()).isFalse();
+        var empty = mapper.readValue("""
+                {"mode":"filter","filter":{}}
+                """, NovelBatchRequest.class);
+        var normalized = mapper.readValue("""
+                {"mode":"filter","filter":{"page":3,"size":1,"sort":"date","authorIds":[-1],"ai":"typo"},"excludeIds":[99]}
+                """, NovelBatchRequest.class);
+        var control = mapper.readValue(mapper.writeValueAsBytes(Map.of("mode", "filter",
+                "filter", Map.of("search", Character.toString((char) 0)))), NovelBatchRequest.class);
+        for (var request : List.of(empty, normalized, control)) {
+            assertThatThrownBy(() -> selection.resolveNovelIds(request, true)).isInstanceOf(WorkSelectionException.class);
+        }
+        verifyNoInteractions(search);
+        var confirmed = mapper.readValue("""
+                {"mode":"filter","filter":{},"confirmAll":true}
+                """, NovelBatchRequest.class);
+        var filtered = mapper.readValue("""
+                {"mode":"filter","filter":{"searchType":"content","search":"chapter"}}
+                """, NovelBatchRequest.class);
+        selection.resolveNovelIds(empty, false);
+        selection.resolveNovelIds(confirmed, true);
+        selection.resolveNovelIds(filtered, true);
+        verify(search, org.mockito.Mockito.times(2)).searchAll(any(), org.mockito.ArgumentMatchers.isNull());
+        verify(search).searchAll(any(), eq("chapter"));
+    }
+
+    @Test
+    void exportWithoutDeletionGrantFailsBeforeSelectingWorks() throws Exception {
+        var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
+                {"mode":"ids","ids":[42],"deleteAfter":true}
+                """, NovelBatchRequest.class);
+        var http = new MockHttpServletRequest();
+        http.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, new ProgramIdentity(java.util.UUID.randomUUID(),
+                java.util.Set.of("novel:library.export")));
+        var controller = new NovelGalleryController(novelGalleryService, service, null, null, null, null, null);
+        assertThatThrownBy(() -> controller.exportNovels(request, http))
+                .isInstanceOfSatisfying(MissingProgramPermissionException.class,
+                        error -> assertThat(error.permission()).isEqualTo("novel:library.delete"));
+        verifyNoInteractions(workMetadataRepository, workAssetService);
+    }
+
+    @Test
     @DisplayName("批量筛选从 JSON 完整传递多种日期范围")
     void forwardsDateRangesFromJson() throws Exception {
         var request = JsonMapper.builderWithJackson2Defaults().build().readValue("""
@@ -98,10 +184,10 @@ class NovelBatchServiceTest {
                   "createdFrom":500,"createdBefore":600,"updatedFrom":700,"updatedBefore":800,
                   "reuploadedFrom":900,"reuploadedBefore":1000}}
                 """, NovelBatchRequest.class);
-        when(novelGalleryService.findNovelIds(any())).thenReturn(List.of(7L));
-        assertThat(service.resolveNovelIds(request)).containsExactly(7L);
+        when(novelGalleryService.findNovelIds(any(), eq(false))).thenReturn(List.of(7L));
+        assertThat(service.resolveNovelIds(request, false)).containsExactly(7L);
         var captured = ArgumentCaptor.forClass(NovelGalleryService.NovelGalleryQuery.class);
-        verify(novelGalleryService).findNovelIds(captured.capture());
+        verify(novelGalleryService).findNovelIds(captured.capture(), eq(false));
         assertThat(captured.getValue().downloadedFrom()).isEqualTo(100L);
         assertThat(captured.getValue().downloadedBefore()).isEqualTo(200L);
         assertThat(captured.getValue().uploadedFrom()).isEqualTo(300L);
@@ -118,8 +204,8 @@ class NovelBatchServiceTest {
     @DisplayName("ids 模式应去重、过滤非法 ID 并应用排除列表")
     void shouldResolveIdsMode() {
         NovelBatchRequest request = new NovelBatchRequest("ids",
-                Arrays.asList(4L, 4L, 0L, null, 5L, 6L), List.of(5L), null, null, null, null, null, null);
-        assertThat(service.resolveNovelIds(request)).containsExactly(4L, 6L);
+                Arrays.asList(4L, 4L, 0L, null, 5L, 6L), List.of(5L), null, null, null, null, null, null, null);
+        assertThat(service.resolveNovelIds(request, false)).containsExactly(4L, 6L);
     }
 
     @Test
@@ -129,10 +215,10 @@ class NovelBatchServiceTest {
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null);
         NovelBatchRequest request = new NovelBatchRequest("filter",
-                null, List.of(8L), filter, null, null, null, null, null);
-        when(novelGalleryService.findNovelIds(any())).thenReturn(List.of(7L, 8L, 9L));
+                null, List.of(8L), filter, null, null, null, null, null, null);
+        when(novelGalleryService.findNovelIds(any(), eq(false))).thenReturn(List.of(7L, 8L, 9L));
 
-        assertThat(service.resolveNovelIds(request)).containsExactly(7L, 9L);
+        assertThat(service.resolveNovelIds(request, false)).containsExactly(7L, 9L);
     }
 
     @Test

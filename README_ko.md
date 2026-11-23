@@ -16,6 +16,7 @@ PixivDownloader는 Pixiv 일러스트, 만화, 우고이라(Ugoira), 소설을 �
 - **미디어 변환 및 소설 기능**: 이미지는 원본·PNG·JPG·WebP, 우고이라는 WebP·GIF·APNG·MP4·원본 ZIP 다중 선택 저장을 지원합니다. [소설](https://sywyar.github.io/PixivDownloader/#/ko/novel)은 TXT / HTML / EPUB(시리즈 합본 포함) 저장, 본문 전체 검색, AI / Youdao / LibreTranslate 번역 및 AI 다중 화자 낭독을 지원합니다.
 - **로컬 갤러리 및 정리 도구**: [작품 갤러리](https://sywyar.github.io/PixivDownloader/#/ko/gallery)와 소설 갤러리에서 다중 조건 필터, 3상태 태그/작가 조합, 로컬 컬렉션, 일괄 ZIP 내보내기, 통계 대시보드, 지각 해시(dHash) 중복 이미지 감지 및 읽기 전용 게스트 초대 링크를 제공합니다.
 - **예약 작업 및 알림**: [예약 작업](https://sywyar.github.io/PixivDownloader/#/ko/scheduled-tasks)으로 고정 주기 또는 6필드 Cron 일정에 따라 신작을 증분 다운로드하고, 인증 만료·과도한 접근 경고·연속 실패 시 이메일과 푸시 채널로 알림을 보냅니다.
+- **[OpenAPI를 통한 자동화](https://sywyar.github.io/PixivDownloader/#/ko/http-api)**: 스크립트나 에이전트에서 프로그램 키로 다운로드를 요청하고 진행 상황을 확인할 수 있습니다. 인스턴스의 `/openapi`에서 사용 가능한 API와 필요한 권한을 확인하세요.
 - **플러그인 및 UI 확장**: Compose / Swing 데스크톱 UI, SQLite 및 선택적 PostgreSQL 데이터베이스, [플러그인 관리 및 마켓](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management), [PixivBatchDownloader 가져오기 지원](https://sywyar.github.io/PixivDownloader/#/ko/pixiv-batch-downloader-import) 및 공개 [타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development)를 제공합니다.
 - **페이지 편집 및 폼 인증**: 필요에 따라 [페이지 편집기](https://sywyar.github.io/PixivDownloader/#/ko/page-editor)를 설치해 로그인과 초대 코드 교환 화면의 레이아웃을 조정하고, 재사용 가능한 구성 요소를 만들고, 페이지를 게시하거나 복원할 수 있습니다. [작업 인증(CAPTCHA)](https://sywyar.github.io/PixivDownloader/#/ko/captcha)은 온라인 및 오프라인 구성 요소를 제공하며, 폼으로 끌어와 게시하면 서버에서 인증을 강제합니다.
 

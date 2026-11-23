@@ -190,7 +190,7 @@ class GalleryToolsStatsBootContextTest {
                 .filteredOn(r -> r.pluginId().equals("gallery-tools")
                         && r.route().pathPattern().contains("stats"))
                 .extracting(r -> r.route().pathPattern())
-                .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**");
+                .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**", "/api/stats/dashboard");
     }
 
     @Test

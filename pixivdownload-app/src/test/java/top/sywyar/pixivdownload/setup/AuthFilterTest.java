@@ -12,10 +12,13 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.support.StaticMessageSource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import org.springframework.beans.factory.ObjectProvider;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
@@ -55,8 +58,7 @@ class AuthFilterTest {
     private RateLimitService rateLimitService;
     @Mock
     private AppLocaleResolver localeResolver;
-    @Mock
-    private AppMessages appMessages;
+    private final AppMessages appMessages = new AppMessages(new StaticMessageSource());
     @Mock
     private FilterChain filterChain;
     @Mock
@@ -77,9 +79,6 @@ class AuthFilterTest {
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         lenient().when(staticResourceRateLimitService.isAllowed(any())).thenReturn(true);
-        lenient().when(appMessages.getOrDefault(nullable(java.util.Locale.class), anyString(), anyString()))
-                .thenAnswer(inv -> inv.getArgument(2));
-        lenient().when(appMessages.getForLog(anyString(), any(), any())).thenReturn("rate limited");
         lenient().when(maintenanceProvider.getIfAvailable()).thenReturn(null);
         lenient().when(guestInviteService.resolveSession(any())).thenReturn(Optional.empty());
     }
@@ -95,24 +94,47 @@ class AuthFilterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"solo", "multi"})
-    @DisplayName("本地导入 API 不向匿名请求开放，包括本机请求")
-    void localImportRequiresAdmin(String mode) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({"solo,/api/local-import/previews", "multi,/api/local-import/previews",
+            "solo,/api/admin/control-center", "multi,/api/admin/control-center",
+            "solo,/api/download/batches", "multi,/api/download/batches",
+            "solo,/api/settings/environment/exports", "multi,/api/settings/environment/exports",
+            "solo,/api/settings/repositories", "multi,/api/settings/repositories",
+            "solo,/api/settings/presets", "multi,/api/settings/presets",
+            "solo,/api/admin/update/install", "multi,/api/admin/update/install",
+            "solo,/api/tools/backfill/tasks", "multi,/api/tools/backfill/tasks",
+            "solo,/api/tools/media/tasks", "multi,/api/tools/media/tasks",
+            "solo,/api/tools/ffmpeg", "multi,/api/tools/ffmpeg", "solo,/api/tools/ffmpeg/tasks", "multi,/api/tools/ffmpeg/tasks",
+            "solo,/api/tools/file-import/tasks", "multi,/api/tools/file-import/tasks",
+            "solo,/api/settings/database/check", "multi,/api/settings/database/check",
+            "solo,/api/admin/system/password", "multi,/api/admin/system/password",
+            "solo,/api/admin/system/restart", "multi,/api/admin/system/restart",
+            "solo,/api/tools/path-prefixes/pin", "multi,/api/tools/path-prefixes/pin",
+            "solo,/api/settings", "multi,/api/settings", "solo,/api/settings/validate", "multi,/api/settings/validate",
+            "solo,/api/tools/logs/example.html", "multi,/api/tools/logs/example.html",
+            "solo,/api/tools/history", "multi,/api/tools/history", "solo,/api/tools/directories", "multi,/api/tools/directories"})
+    @DisplayName("导入和回填 API 不向匿名请求开放，包括本机请求")
+    void localImportRequiresAdmin(String mode, String path) throws Exception {
         when(setupService.isSetupComplete()).thenReturn(true);
         when(setupService.getMode()).thenReturn(mode);
-        request.setMethod("POST"); request.setRequestURI("/api/local-import/previews"); request.setRemoteAddr("127.0.0.1");
+        request.setMethod("POST"); request.setRequestURI(path); request.setRemoteAddr("127.0.0.1");
         authFilter.doFilterInternal(request, response, filterChain);
         assertThat(response.getStatus()).isIn(401, 403);
         verify(filterChain, never()).doFilter(request, response);
     }
 
-    @Test @DisplayName("管理员令牌可进入本地导入 API")
-    void localImportAcceptsAdminToken() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"/api/download/batches", "/api/settings/environment/exports", "/api/settings/repositories", "/api/admin/control-center", "/api/admin/update/install", "/api/local-import/previews", "/api/tools/backfill/tasks",
+            "/api/tools/media/tasks", "/api/tools/file-import/tasks", "/api/settings/database/check",
+            "/api/settings", "/api/settings/validate", "/api/settings/presets",
+            "/api/tools/ffmpeg", "/api/tools/ffmpeg/tasks",
+            "/api/admin/system/password", "/api/admin/system/restart", "/api/tools/path-prefixes/pin",
+            "/api/tools/logs/example.html", "/api/tools/history", "/api/tools/directories"})
+    @DisplayName("管理员令牌可进入导入和回填 API")
+    void localImportAcceptsAdminToken(String path) throws Exception {
         when(setupService.isSetupComplete()).thenReturn(true);
         when(setupService.getMode()).thenReturn("solo");
         when(setupService.isValidSession("import-admin")).thenReturn(true);
         request.addHeader("X-Session-Token", "import-admin");
-        request.setMethod("POST"); request.setRequestURI("/api/local-import/previews"); request.setRemoteAddr("127.0.0.1");
+        request.setMethod("POST"); request.setRequestURI(path); request.setRemoteAddr("127.0.0.1");
         authFilter.doFilterInternal(request, response, filterChain);
         verify(filterChain).doFilter(request, response);
     }
@@ -210,9 +232,11 @@ class AuthFilterTest {
 
             assertThat(response.getStatus()).isEqualTo(401);
             assertThat(response.getContentType()).startsWith("application/json");
-            assertThat(response.getContentAsString())
-                    .contains("\"code\":\"auth.unauthorized\"")
-                    .contains("\"error\":\"Unauthorized\"");
+            assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Bearer realm=\"PixivDownloader\"");
+            var body = JsonMapper.shared().readTree(response.getContentAsByteArray());
+            assertThat(body.path("code").asString()).isEqualTo("auth.unauthorized");
+            assertThat(body.path("programPermission").asString()).isEqualTo("core:application.read");
+            assertThat(body.path("error").asString()).contains("Authorization: Bearer", "core:application.read");
             verify(filterChain, never()).doFilter(request, response);
         }
 
@@ -878,6 +902,7 @@ class AuthFilterTest {
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
             authFilter.doFilterInternal(request, response, filterChain);
             assertThat(response.getStatus()).isEqualTo(429);
+            assertThat(response.getHeader("Retry-After")).isEqualTo("60");
             verify(rateLimitService).isAllowedForInvite("invite:invite-code");
             verify(filterChain, never()).doFilter(request, response);
         }

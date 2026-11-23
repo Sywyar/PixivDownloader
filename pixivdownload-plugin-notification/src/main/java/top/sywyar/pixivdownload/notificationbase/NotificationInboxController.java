@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -14,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -23,6 +28,7 @@ import java.util.regex.Pattern;
 
 /** 管理员站内信查询、已读与显式删除接口；访问控制由插件 ADMIN 路由统一执行。 */
 @PluginManagedBean
+@HttpApiGroup("notification-inbox")
 @RestController
 @RequestMapping("/api/notifications")
 public class NotificationInboxController {
@@ -87,6 +93,8 @@ public class NotificationInboxController {
         this.inbox = inbox;
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping
     public ResponseEntity<InboxSnapshot> latest(@RequestParam(required = false) String category,
                                                 @RequestParam(defaultValue = "false") boolean unreadOnly,
@@ -105,6 +113,9 @@ public class NotificationInboxController {
                 : new InboxSnapshot(0, 0, List.of(), false));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/{id}")
     public ResponseEntity<NotificationMessage> detail(@PathVariable String id,
                                                       @RequestParam(required = false) String lang) {
@@ -114,6 +125,9 @@ public class NotificationInboxController {
         return noStore(requireMessage(message));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping(value = "/{id}/content", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> htmlContent(@PathVariable String id,
                                               @RequestParam(required = false) String lang,
@@ -133,6 +147,9 @@ public class NotificationInboxController {
                 .body(withContentBridge(content, nonce));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/read")
     public ResponseEntity<NotificationMessage> markRead(@PathVariable String id,
                                                         @RequestParam(required = false) String lang) {
@@ -140,12 +157,18 @@ public class NotificationInboxController {
         return noStore(requireMessage(inbox.markRead(id, lang)));
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/read-all")
     public ResponseEntity<Integer> markAllRead(@RequestParam(required = false) String category) {
         inbox.synchronizePersistentSurveys();
         return noStore(inbox.markAllRead(category(category)));
     }
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping("/{id}/survey-unavailable")
     public ResponseEntity<Void> surveyUnavailable(@PathVariable String id) {
         inbox.synchronizePersistentSurveys();
@@ -157,6 +180,9 @@ public class NotificationInboxController {
                 .build();
     }
 
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         inbox.synchronizePersistentSurveys();

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.setup.guest.dto;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.Data;
 
 import java.util.List;
@@ -11,6 +12,7 @@ public class InviteCreateRequest {
     private String name;
 
     /** 有效期天数；{@code null} 表示永久。 */
+    @HttpApiNullable
     private Integer expireDays;
 
     private boolean allowSfw = true;

@@ -69,7 +69,7 @@ public class StatsService implements DesktopDashboardSource {
 
     private StatsDto.Overview toOverview(StatsAggregates.Overview o) {
         return new StatsDto.Overview(o.totalArtworks(), o.totalImages(), o.totalMoved(),
-                o.totalNovels(), o.totalAuthors(), o.totalTags(), o.totalSeries());
+                o.totalNovels(), o.totalAuthors(), o.totalTags(), o.totalSeries(), o.libraryArtworks(), o.libraryImages());
     }
 
     /** 作者表缺名时回退到 author_id 字符串，保证前端始终有可显示的标签。 */

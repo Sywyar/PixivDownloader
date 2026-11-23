@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.update;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
+
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -100,7 +102,8 @@ public class UpdateService {
      * 最近一次安装包下载的进度；null 表示尚未发起下载。
      * done=true 时 installerPath 仅用于状态展示；安装步骤只使用服务端保存的 VerifiedInstaller。
      */
-    public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
+    public record DownloadProgress(long received, long total, boolean done, boolean failed,
+            @HttpApiNullable String error, @HttpApiNullable String installerPath) {}
 
     private volatile UpdateCheckResult lastResult;
     private volatile Instant lastSuccessfulCheckAt;
@@ -370,6 +373,14 @@ public class UpdateService {
         return currentDownloadProgress;
     }
 
+    public static boolean isNightlyDownload(String channel) {
+        return switch (channel) {
+            case "official" -> false;
+            case "nightly" -> true;
+            default -> throw new IllegalArgumentException("channel");
+        };
+    }
+
     /**
      * 在后台线程异步启动安装包下载，立即返回。
      * 进度通过 {@link #currentDownloadProgress} 暴露；GUI 轮询 {@code /api/gui/update/download/progress}。
@@ -591,6 +602,24 @@ public class UpdateService {
      * Inno Setup 安装包带有 UAC manifest，会请求管理员权限，
      * 当前进程退出后 installer 可以覆盖已安装文件。
      */
+    /** 不暴露安装缓存路径；确认必须绑定已验证文件的内容身份。 */
+    public record InstallerReceipt(String sha256, long sizeBytes) {}
+
+    public synchronized InstallerReceipt installerReceipt() {
+        var verified = verifiedInstaller;
+        return downloadInProgress || verified == null ? null
+                : new InstallerReceipt(verified.sha256(), verified.sizeBytes());
+    }
+
+    /** 防止远程确认误安装 GUI 或另一请求刚替换的安装包。 */
+    public synchronized void launchInstallerAndExit(String expectedSha256) throws IOException {
+        var receipt = installerReceipt();
+        if (receipt == null || !receipt.sha256().equalsIgnoreCase(expectedSha256)) {
+            throw new IllegalStateException("UPDATE_INSTALLER_STALE");
+        }
+        launchInstallerAndExit();
+    }
+
     public synchronized void launchInstallerAndExit() throws IOException {
         String platformKey = currentPlatformAssetKey();
         if (!ASSET_WIN_X64_INSTALLER.equals(platformKey)) {

@@ -53,6 +53,30 @@ public final class FfmpegInstaller {
     private static final String FFMPEG_LICENSE = "ffmpeg-LGPLv2.1.txt";
     private static final String LIBWEBP_LICENSE = "libwebp-COPYING.txt";
     private static final String LIBWEBP_PATENTS = "libwebp-PATENTS.txt";
+    private static final java.util.concurrent.atomic.AtomicBoolean INSTALLING = new java.util.concurrent.atomic.AtomicBoolean();
+
+    public static boolean isInstalling() { return INSTALLING.get(); }
+
+    public static final class BusyException extends IOException {
+        public BusyException() { super(message("gui.message.backend-busy")); }
+    }
+
+    public static final class InstallationException extends IOException {
+        private final String code;
+        private final top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText text;
+        InstallationException(String code, String message, String key, Object... safeArguments) {
+            super(message);
+            this.code = code;
+            this.text = new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText(null, key, key,
+                    java.util.Arrays.stream(safeArguments).map(String::valueOf).toList());
+        }
+        public String code() { return code; }
+        public top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText text() { return text; }
+    }
+
+    private static InstallationException failure(String code, String key, Object... safeArguments) {
+        return new InstallationException(code, message(key, safeArguments), key, safeArguments);
+    }
 
     private FfmpegInstaller() {}
 
@@ -93,8 +117,15 @@ public final class FfmpegInstaller {
     public static FfmpegInstallation installManaged(ProxySettings proxySettings,
                                                     ProgressListener listener)
             throws IOException, InterruptedException {
+        if (!INSTALLING.compareAndSet(false, true)) throw new BusyException();
+        try { return install(proxySettings, listener); }
+        finally { INSTALLING.set(false); }
+    }
+
+    private static FfmpegInstallation install(ProxySettings proxySettings, ProgressListener listener)
+            throws IOException, InterruptedException {
         String assetName = assetName(System.getProperty("os.name", ""), System.getProperty("os.arch", ""))
-                .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.unsupported")));
+                .orElseThrow(() -> failure("FFMPEG_INSTALL_UNSUPPORTED", "gui.ffmpeg.install.unsupported"));
         URI archiveUri = URI.create(RELEASE_BASE_URL + assetName);
 
         ProxySettings settings = proxySettings == null ? ProxySettings.disabled() : proxySettings;
@@ -139,7 +170,7 @@ public final class FfmpegInstaller {
 
             progress.onProgress(ProgressStage.COMPLETED, 1L, 1L);
             return FfmpegLocator.managedInstallation()
-                    .orElseThrow(() -> new IOException(message("gui.ffmpeg.install.result-missing")));
+                    .orElseThrow(() -> failure("FFMPEG_INSTALL_RESULT_MISSING", "gui.ffmpeg.install.result-missing"));
         } finally {
             deleteRecursively(tempDir);
         }
@@ -192,7 +223,7 @@ public final class FfmpegInstaller {
                 .send(request, HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             response.body().close();
-            throw new IOException(message("gui.ffmpeg.install.download-http-error", response.statusCode()));
+            throw failure("FFMPEG_INSTALL_HTTP", "gui.ffmpeg.install.download-http-error", response.statusCode());
         }
         return response;
     }
@@ -271,7 +302,7 @@ public final class FfmpegInstaller {
     }
 
     private static IOException integrityFailure(String diagnosticCode) {
-        return new IOException(message("gui.ffmpeg.install.integrity-error", diagnosticCode));
+        return failure("FFMPEG_INSTALL_INTEGRITY", "gui.ffmpeg.install.integrity-error", diagnosticCode);
     }
 
     /**
@@ -288,11 +319,20 @@ public final class FfmpegInstaller {
      * @throws IOException 任一已有节点不安全、创建失败或权限不足
      */
     public static void requirePlainManagedDirectory(Path directory) throws IOException {
+        try { prepareManagedDirectory(directory); }
+        catch (InstallationException failure) { throw failure; }
+        catch (IOException failure) {
+            throw (InstallationException) new InstallationException("FFMPEG_INSTALL_FILESYSTEM", failure.getMessage(),
+                    "ffmpeg.api.filesystem").initCause(failure);
+        }
+    }
+
+    private static void prepareManagedDirectory(Path directory) throws IOException {
         PlainFilePathGuard.DirectoryOpenPrecondition precondition =
                 PlainFilePathGuard.requireDirectoryOpenPrecondition(directory);
         PlainFilePathGuard.RejectedNode rejected = precondition.rejectedNode();
         if (rejected != null) {
-            throw new IOException(linkRejection(rejected));
+            throw new InstallationException("FFMPEG_INSTALL_UNSAFE_DIRECTORY", linkRejection(rejected), "ffmpeg.api.unsafe-directory");
         }
         if (precondition.ready()) {
             return;
@@ -304,7 +344,8 @@ public final class FfmpegInstaller {
                 PlainFilePathGuard.DirectoryOpenPrecondition current =
                         PlainFilePathGuard.requireDirectoryOpenPrecondition(level);
                 if (current.rejectedNode() != null) {
-                    throw new IOException(linkRejection(current.rejectedNode()), raced);
+                    throw (InstallationException) new InstallationException("FFMPEG_INSTALL_UNSAFE_DIRECTORY",
+                            linkRejection(current.rejectedNode()), "ffmpeg.api.unsafe-directory").initCause(raced);
                 }
                 if (!current.ready()) {
                     throw new IOException(message("gui.ffmpeg.install.managed-create-failed", directory), raced);
@@ -318,7 +359,7 @@ public final class FfmpegInstaller {
         PlainFilePathGuard.DirectoryOpenPrecondition created =
                 PlainFilePathGuard.requireDirectoryOpenPrecondition(directory);
         if (created.rejectedNode() != null) {
-            throw new IOException(linkRejection(created.rejectedNode()));
+            throw new InstallationException("FFMPEG_INSTALL_UNSAFE_DIRECTORY", linkRejection(created.rejectedNode()), "ffmpeg.api.unsafe-directory");
         }
         if (!created.ready()) {
             throw new IOException(message("gui.ffmpeg.install.managed-create-failed", directory));
@@ -376,7 +417,8 @@ public final class FfmpegInstaller {
 
                 Path target = extractDir.resolve(fileName.toString()).normalize();
                 if (!target.startsWith(extractDir)) {
-                    throw new IOException(message("gui.ffmpeg.install.archive.illegal-path", normalizedName));
+                    throw new InstallationException("FFMPEG_INSTALL_UNSAFE_ARCHIVE",
+                            message("gui.ffmpeg.install.archive.illegal-path", normalizedName), "ffmpeg.api.unsafe-archive");
                 }
 
                 Files.copy(zipInputStream, target, StandardCopyOption.REPLACE_EXISTING);
@@ -396,11 +438,11 @@ public final class FfmpegInstaller {
         }
 
         if (ffmpegPath == null || ffprobePath == null) {
-            throw new IOException(message("gui.ffmpeg.install.archive.invalid-structure",
-                    FfmpegLocator.executableName(), FfmpegLocator.probeExecutableName()));
+            throw failure("FFMPEG_INSTALL_INVALID_ARCHIVE", "gui.ffmpeg.install.archive.invalid-structure",
+                    FfmpegLocator.executableName(), FfmpegLocator.probeExecutableName());
         }
         if (ffmpegLicense == null || libwebpLicense == null || libwebpPatents == null) {
-            throw new IOException(message("gui.ffmpeg.install.result-missing"));
+            throw failure("FFMPEG_INSTALL_RESULT_MISSING", "gui.ffmpeg.install.result-missing");
         }
 
         return new ExtractedFiles(ffmpegPath, ffprobePath, ffmpegLicense, libwebpLicense, libwebpPatents);
@@ -411,7 +453,7 @@ public final class FfmpegInstaller {
             return;
         }
         if (!path.toFile().setExecutable(true, false)) {
-            throw new IOException(message("gui.ffmpeg.install.result-missing"));
+            throw failure("FFMPEG_INSTALL_RESULT_MISSING", "gui.ffmpeg.install.result-missing");
         }
     }
 

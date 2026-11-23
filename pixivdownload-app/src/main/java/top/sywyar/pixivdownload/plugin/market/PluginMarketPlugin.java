@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
@@ -65,6 +68,19 @@ public class PluginMarketPlugin implements PixivFeaturePlugin {
         // 管理员专属（方法不限，按 monitor 语义保护）：市场页面 + 页面专属静态资源 + 后端市场 API。
         // 路由由本插件声明、随其活动快照进出 —— 禁用 plugin-market 即三条声明缺席，对应 URL「未声明即 404」。
         return List.of(
+                WebRouteContribution.admin("/api/plugin-market/operations").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("operations.prepare", "permission.operations.prepare"))),
+                WebRouteContribution.admin("/api/plugin-market/operations/*/execute").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("install", "permission.install"))),
+                WebRouteContribution.admin("/api/plugin-market/operations/*/discard").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("operations.discard", "permission.operations.discard"))),
+                WebRouteContribution.admin("/api/plugin-market/repositories").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/plugin-market/repositories/import/preview").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("repositories.preview", "permission.repositories.preview"))),
+                WebRouteContribution.admin("/api/plugin-market/repositories/import/trust").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("repositories.trust", "permission.repositories.trust"))),
+                WebRouteContribution.admin("/api/plugin-market/catalog").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/plugin-market/plugins/*/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/plugin-market/*/*/*/install").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("install", "permission.install"))),
+                WebRouteContribution.admin("/api/plugin-market/*/*/*/install-preview").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"), HttpMethod.POST, new ProgramPermission("install", "permission.install"))),
+                WebRouteContribution.admin("/api/plugin-market/plugins/*/*/*/facts").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/plugin-market/content/*/*/*/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
+                WebRouteContribution.admin("/api/plugin-market/content/*/*/image").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("read", "permission.read"))),
                 WebRouteContribution.admin("/plugin-market.html"),
                 WebRouteContribution.admin("/plugin-market/**"),
                 WebRouteContribution.admin("/api/plugin-market/**"));

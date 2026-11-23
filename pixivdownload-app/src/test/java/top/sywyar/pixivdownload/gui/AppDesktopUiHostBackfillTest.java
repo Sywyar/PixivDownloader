@@ -37,7 +37,9 @@ class AppDesktopUiHostBackfillTest {
             return task(id, 0, DesktopUiHost.BackfillState.RUNNING);
         });
         try (var files = org.mockito.Mockito.mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var history = org.mockito.Mockito.mockStatic(DesktopToolHistory.class);
              var backend = org.mockito.Mockito.mockStatic(BackendLifecycleManager.class)) {
+            history.when(DesktopToolHistory::shared).thenReturn(new DesktopToolHistory(directory));
             files.when(top.sywyar.pixivdownload.config.RuntimeFiles::guiStateDirectory).thenReturn(directory);
             files.when(top.sywyar.pixivdownload.config.RuntimeFiles::logDirectory).thenReturn(directory);
             backend.when(() -> BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class)).thenReturn(runner);

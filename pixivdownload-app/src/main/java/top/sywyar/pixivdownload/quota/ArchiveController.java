@@ -1,5 +1,13 @@
 package top.sywyar.pixivdownload.quota;
 
+import io.swagger.v3.oas.annotations.links.Link;
+import io.swagger.v3.oas.annotations.links.LinkParameter;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +41,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+@HttpApiGroup("core-archives")
 @RestController
 @Slf4j
 @RequiredArgsConstructor
@@ -48,6 +57,7 @@ public class ArchiveController {
      * 初始化配额会话：返回当前用户的 UUID 和配额状态。
      * 若用户没有 UUID cookie，则自动分配并写入 cookie。
      */
+    @Parameter(name = "X-User-UUID", in = ParameterIn.HEADER, schema = @Schema(type = "string", format = "uuid"))
     @PostMapping("/api/quota/init")
     public ResponseEntity<QuotaInitResponse> initQuota(HttpServletRequest request) {
         if (setupService.isAdminLoggedIn(request)) {
@@ -85,6 +95,18 @@ public class ArchiveController {
      * 在 archiveExpireMinutes 窗口内最多触发 maxArtworks 次。
      * 若用户无已记录的文件夹（如首次调用或已清空），返回 204。
      */
+    @ApiResponse(responseCode = "200", links = {
+            @Link(name = "inspectArchive", operationRef = "#/paths/~1api~1archive~1status~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken")),
+            @Link(name = "downloadArchive", operationRef = "#/paths/~1api~1archive~1download~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken"))
+    }, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = TriggerPackResponse.class)))
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PackRateLimitResponse.class)))
+    @Parameter(name = "X-User-UUID", in = ParameterIn.HEADER, schema = @Schema(type = "string", format = "uuid"))
     @PostMapping("/api/quota/pack")
     public ResponseEntity<?> triggerPack(HttpServletRequest request) {
 
@@ -105,7 +127,7 @@ public class ArchiveController {
         if (!userQuotaService.checkAndReservePack(uuid)) {
             int max = multiModeConfig.getQuota().getMaxArtworks();
             int windowMin = multiModeConfig.getQuota().getArchiveExpireMinutes();
-            return ResponseEntity.status(429).body(new PackRateLimitResponse(
+            return ResponseEntity.status(429).header("Retry-After", Long.toString(windowMin * 60L)).body(new PackRateLimitResponse(
                     messages.get("archive.pack.rate-limit.exceeded"), max, windowMin));
         }
 
@@ -120,10 +142,22 @@ public class ArchiveController {
         return ResponseEntity.ok(new TriggerPackResponse(token, expireSeconds));
     }
 
+    @ApiResponse(responseCode = "200", links = {
+            @Link(name = "inspectArchive", operationRef = "#/paths/~1api~1archive~1status~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken")),
+            @Link(name = "downloadArchive", operationRef = "#/paths/~1api~1archive~1download~1%7Btoken%7D/get",
+                    parameters = @LinkParameter(name = "token", expression = "$response.body#/archiveToken"))
+    }, content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = TriggerPackResponse.class)))
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "401", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
     @PostMapping("/api/archive/pack-artworks")
     public ResponseEntity<?> triggerAdminPack(@Valid @RequestBody AdminPackRequest request,
                                               HttpServletRequest httpRequest) {
-        if (!setupService.isAdminLoggedIn(httpRequest)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(httpRequest)
+                .map(identity -> identity.permits("core", "archives.create"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(httpRequest))) {
             return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
 
@@ -171,9 +205,13 @@ public class ArchiveController {
      * 管理员压缩任务列表：返回所有未过期的导出/打包任务，供任务列表模块展示。
      * 仅管理员可用（多人模式下访客请求会被拒绝）。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = AdminArchiveTasksResponse.class)))
     @GetMapping("/api/archive/list")
     public ResponseEntity<?> listAdminArchives(HttpServletRequest request) {
-        if (!setupService.isAdminLoggedIn(request)) {
+        if (!top.sywyar.pixivdownload.setup.ProgramAccess.identity(request)
+                .map(identity -> identity.permits("core", "archives.read"))
+                .orElseGet(() -> setupService.isAdminLoggedIn(request))) {
             return ResponseEntity.status(401).body(error("auth.unauthorized"));
         }
         long now = System.currentTimeMillis();
@@ -194,6 +232,10 @@ public class ArchiveController {
     /**
      * 查询压缩包状态。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ArchiveStatusResponse.class),
+            examples = {
+                    @io.swagger.v3.oas.annotations.media.ExampleObject(name = "active", value = "{\"token\":\"example-token\",\"status\":\"ready\",\"expireSeconds\":300}"),
+                    @io.swagger.v3.oas.annotations.media.ExampleObject(name = "expired", value = "{\"status\":\"expired\"}")}))
     @GetMapping("/api/archive/status/{token}")
     public ResponseEntity<ArchiveStatusResponse> archiveStatus(@PathVariable String token) {
         UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
@@ -215,6 +257,14 @@ public class ArchiveController {
     /**
      * 下载压缩包文件。
      */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/octet-stream",
+            schema = @Schema(type = "string", format = "binary")))
+    @ApiResponse(responseCode = "202", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "410", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "204", content = @Content)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.class)))
+    @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
     @GetMapping("/api/archive/download/{token}")
     public ResponseEntity<?> downloadArchive(@PathVariable String token) {
         UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
@@ -222,14 +272,14 @@ public class ArchiveController {
             return ResponseEntity.status(410)
                     .body(error("archive.download.expired-or-missing"));
         }
-        if (!"ready".equals(entry.getStatus())) {
-            return ResponseEntity.status(202)
-                    .body(error("archive.download.preparing"));
+        switch (entry.getStatus()) {
+            case "pending", "creating" -> { return ResponseEntity.accepted().body(error("archive.download.preparing")); }
+            case "empty" -> { return ResponseEntity.noContent().build(); }
+            case "cancelled" -> { return ResponseEntity.status(410).body(error("archive.download.expired-or-missing")); }
+            case "ready" -> { /* Serve the completed file below. */ }
+            default -> { return ResponseEntity.status(409).body(error("archive.download.failed")); }
         }
-        if (entry.getArchivePath() == null || !entry.getArchivePath().toFile().exists()) {
-            if ("empty".equals(entry.getStatus())) {
-                return ResponseEntity.status(204).build();
-            }
+        if (entry.getArchivePath() == null || !entry.getArchivePath().toFile().isFile()) {
             return ResponseEntity.status(404)
                     .body(error("archive.download.file.missing"));
         }

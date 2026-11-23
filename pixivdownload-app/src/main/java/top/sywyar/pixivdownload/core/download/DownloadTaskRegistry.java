@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmission;
 import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskException;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot;
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 
@@ -61,6 +62,7 @@ public final class DownloadTaskRegistry {
         final byte[] fingerprint;
         QueueTaskTracker.Task task;
         DownloadEvent.Phase publishedPhase;
+        boolean programSubmission;
         boolean saved;
         boolean saving;
         boolean saveFailureLogged;
@@ -74,8 +76,22 @@ public final class DownloadTaskRegistry {
     }
 
     Reservation reserve(DownloadSubmission command, String credential, RequestOwnerIdentity owner) {
-        Objects.requireNonNull(owner, "owner");
+        return reserve(command, credential, owner, true);
+    }
+
+    Reservation reserve(DownloadSubmission command, String credential, RequestOwnerIdentity owner, boolean supported) {
+        java.util.Objects.requireNonNull(owner, "owner");
         if (!owner.admin()) throw new DownloadTaskException(DownloadTaskException.Code.FORBIDDEN);
+        return reserve(command, credential, owner, false, supported);
+    }
+
+    Reservation reserveForProgram(DownloadSubmission command, String credential,
+            top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity program) {
+        return reserve(command, credential, RequestOwnerIdentity.owner(program.id().toString()), true, true);
+    }
+
+    private Reservation reserve(DownloadSubmission command, String credential, RequestOwnerIdentity owner,
+                                boolean programSubmission, boolean supported) {
         expire();
         RequestKey key = new RequestKey(owner.ownerUuid(), command.requestId());
         byte[] fingerprint = fingerprint(command, credential);
@@ -87,12 +103,14 @@ public final class DownloadTaskRegistry {
                     throw new DownloadTaskException(DownloadTaskException.Code.CONFLICT);
                 return new Reservation(entry.value, true);
             }
+            if (!supported) throw new DownloadTaskException(DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE);
             requireCapacity();
             UUID id;
             do { id = UUID.randomUUID(); } while (entries.containsKey(id) || registrations.containsKey(id));
             DownloadAttempt attempt = new DownloadAttempt(id, command.workType(), command.workId());
-            Entry entry = new Entry(value(attempt, "", attempt.workId(), DownloadEvent.Phase.ACCEPTED),
+            Entry entry = new Entry(value(attempt, "", attempt.workId(), DownloadEvent.Phase.ACCEPTED, null),
                     owner.ownerUuid(), key, fingerprint);
+            entry.programSubmission = programSubmission;
             entries.put(id, entry);
             requests.put(key, id);
             return new Reservation(entry.value, false);
@@ -100,6 +118,10 @@ public final class DownloadTaskRegistry {
     }
 
     public void register(DownloadAttempt attempt, String owner, String queueType, String title) {
+        register(attempt, owner, queueType, title, null);
+    }
+
+    void register(DownloadAttempt attempt, String owner, String queueType, String title, String outputPath) {
         Objects.requireNonNull(attempt, "attempt");
         String safeType = queueType == null ? "" : queueType;
         if (!safeType.isEmpty() && !safeType.matches("[a-z][a-z0-9-]{0,63}"))
@@ -115,10 +137,15 @@ public final class DownloadTaskRegistry {
                 if (registration == null) {
                     Entry entry = entries.get(id);
                     if (entry != null) {
-                        if (!entry.value.attempt().equals(attempt) || !Objects.equals(entry.owner, owner)
+                        // 程序拥有宿主回执；旧类型处理器仍以安装范围登记业务下载。
+                        if (!entry.value.attempt().equals(attempt) || !(Objects.equals(entry.owner, owner) || entry.programSubmission && owner == null)
                                 || entry.task != null || entry.value.terminal())
                             throw new IllegalArgumentException("download task identity already registered");
-                        entry.value = value(attempt, safeType, safeTitle, entry.value.phase());
+                        String existingPath = entry.value.outputPath();
+                        if (existingPath != null && outputPath != null && !existingPath.equals(outputPath))
+                            throw new IllegalArgumentException("download task output directory already registered");
+                        entry.value = value(attempt, safeType, safeTitle, entry.value.phase(),
+                                existingPath != null ? existingPath : outputPath);
                         return;
                     }
                     requireCapacity();
@@ -135,7 +162,7 @@ public final class DownloadTaskRegistry {
                 throw new IllegalArgumentException("download task identity already registered");
             synchronized (this) {
                 entries.put(id, new Entry(
-                        value(attempt, safeType, safeTitle, DownloadEvent.Phase.ACCEPTED), owner, null, null));
+                        value(attempt, safeType, safeTitle, DownloadEvent.Phase.ACCEPTED, outputPath), owner, null, null));
                 registrations.remove(id);
             }
         } finally {
@@ -149,6 +176,18 @@ public final class DownloadTaskRegistry {
         if (entry == null || !entry.value.attempt().equals(attempt) || entry.task != null)
             throw new IllegalStateException("download task is not available");
         entry.task = Objects.requireNonNull(task, "task");
+    }
+
+    synchronized void reportProgress(DownloadAttempt attempt, QueueTaskTracker.Task task, DownloadTaskProgress progress) {
+        Objects.requireNonNull(task);
+        Objects.requireNonNull(progress);
+        Entry entry = entries.get(attempt.attemptId());
+        if (entry == null || entry.task != task) return;
+        var previous = entry.value;
+        if (!previous.attempt().equals(attempt) || previous.phase() != DownloadEvent.Phase.STARTED
+                || progress.equals(previous.progress())) return;
+        entry.value = new DownloadTaskSnapshot(attempt, previous.queueType(), previous.title(), previous.phase(),
+                clock.instant(), ++revision, previous.failureReason(), previous.outputPath(), progress);
     }
 
     /** 返回 false 时事件已经过期或与终态冲突，不能再次通知观察者。 */
@@ -166,7 +205,7 @@ public final class DownloadTaskRegistry {
             if (event.phase() == DownloadEvent.Phase.QUEUED && before != DownloadEvent.Phase.ACCEPTED) return false;
             if (event.phase() == DownloadEvent.Phase.STARTED && before == DownloadEvent.Phase.STARTED) return false;
             entry.value = new DownloadTaskSnapshot(event.attempt(), entry.value.queueType(), entry.value.title(),
-                    event.phase(), clock.instant(), ++revision, event.failureReason());
+                    event.phase(), clock.instant(), ++revision, event.failureReason(), entry.value.outputPath(), entry.value.progress());
             entry.publishedPhase = event.phase();
             terminal = entry.value.terminal();
             if (terminal) entry.task = null;
@@ -194,6 +233,11 @@ public final class DownloadTaskRegistry {
         }
     }
 
+    public DownloadTasks.HistoryPage history(DownloadTasks.HistoryCursor before, int limit, RequestOwnerIdentity owner) {
+        if (results == null) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
+        return results.history(before, limit, owner);
+    }
+
     public DownloadTasks.CancelResult cancel(UUID taskId, RequestOwnerIdentity owner) {
         Objects.requireNonNull(owner, "owner");
         expire();
@@ -219,8 +263,8 @@ public final class DownloadTaskRegistry {
         return owner.admin() || Objects.equals(owner.ownerUuid(), entry.owner);
     }
 
-    private DownloadTaskSnapshot value(DownloadAttempt attempt, String queueType, String title, DownloadEvent.Phase phase) {
-        return new DownloadTaskSnapshot(attempt, queueType, title, phase, clock.instant(), ++revision);
+    private DownloadTaskSnapshot value(DownloadAttempt attempt, String queueType, String title, DownloadEvent.Phase phase, String outputPath) {
+        return new DownloadTaskSnapshot(attempt, queueType, title, phase, clock.instant(), ++revision, null, outputPath);
     }
 
     private void requireCapacity() {

@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.gallery;
 
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.core.web.HttpParameterException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +53,32 @@ class GalleryControllerTest {
     private GalleryBatchService galleryBatchService;
     @Mock
     private WorkVisibilityService workVisibilityService;
+
+    @Test
+    void rejectsInvalidSelectionsBeforeQuerying() {
+        for (String ids : List.of("no-id", "1,no-id", "1,", ",1", "1,,2", "0", "-1", "9223372036854775808")) {
+            assertThatThrownBy(() -> mockMvc.perform(get("/api/gallery/artworks").param("tagIds", ids)))
+                    .rootCause().isInstanceOfSatisfying(HttpParameterException.class, failure -> {
+                        assertThat(failure.in()).isEqualTo("query");
+                        assertThat(failure.field()).isEqualTo("tagIds");
+                    });
+        }
+        assertThatThrownBy(() -> mockMvc.perform(get("/api/gallery/tags/lookup").param("translatedName", " ")))
+                .rootCause().isInstanceOfSatisfying(HttpParameterException.class, failure -> {
+                    assertThat(failure.field()).isEqualTo("translatedName");
+                    assertThat(failure.reason()).isEqualTo("required");
+                });
+        verifyNoInteractions(galleryService);
+    }
+
+    @Test
+    void deleteArtworkUsesOnlyThePathId() throws Exception {
+        when(galleryService.deleteArtwork(17L)).thenReturn(true);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/gallery/artwork/17")
+                        .contentType("application/json").content("{"))
+                .andExpect(status().isOk());
+        verify(galleryService).deleteArtwork(17L);
+    }
 
     @BeforeEach
     void setUp() {

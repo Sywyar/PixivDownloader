@@ -19,6 +19,7 @@ final class DesktopSecurityController {
     private final DesktopUiHost host;
     private final int serverPort;
     private final Map<String, String> formValues;
+    private final DesktopProgramKeysController programKeys;
     private final Map<String, String> connectionValues = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile String panel = "";
     private volatile TextToken notice;
@@ -35,6 +36,7 @@ final class DesktopSecurityController {
         this.host = host;
         this.formValues = formValues;
         this.serverPort = serverPort;
+        this.programKeys = new DesktopProgramKeysController(owner, host, formValues);
     }
 
     DesktopUiNode page(Map<String, Runnable> nextActions) {
@@ -42,6 +44,10 @@ final class DesktopSecurityController {
         actions.add(action("password", nextActions, () -> open("password")));
         actions.add(action("sessions", nextActions, () -> open("sessions")));
         actions.add(action("connection", nextActions, this::loadConnection));
+        String keysAction = "security.program-keys";
+        nextActions.put(keysAction, () -> { open("program-keys"); programKeys.load(); });
+        actions.add(new Button(keysAction, keysAction, DesktopProgramKeysController.label("keys.title"), null,
+                ButtonStyle.NORMAL, !owner.busy(), DesktopUiIcon.SECURITY));
         List<Button> navigation = new ArrayList<>();
         for (var entry : DesktopControlCenterView.navigationEntries(owner.currentSources(), NavigationPlacements.DESKTOP_SECURITY_ACTIONS)) {
             var contribution = entry.navigation();
@@ -71,11 +77,12 @@ final class DesktopSecurityController {
                     label(field), null, secret ? InputKind.PASSWORD : InputKind.TEXT,
                     secret ? "" : value(field), 24, 1, !owner.busy(), formRevision));
         }
+        var keysView = panel.equals("program-keys") ? programKeys.view(nextActions, actions) : null;
         return new SecurityOverview("security.overview", panel, owner.busy(), host.minimumPasswordLength(),
                 inputs, new Toggle("security.https", "security.https", label("https"), null,
                 ToggleStyle.SWITCH, Boolean.parseBoolean(value("https")), !owner.busy()),
                 actions, notice, errorField, formRevision, successRevision, successOperation,
-                runningAddress, keyStoreConfigured, navigation);
+                runningAddress, keyStoreConfigured, navigation, keysView);
     }
 
     private Button action(String name, Map<String, Runnable> actions, Runnable callback) {
@@ -109,7 +116,15 @@ final class DesktopSecurityController {
         owner.rebuild();
     }
 
+    void leavePage() {
+        if (!panel.equals("program-keys")) return;
+        clearSecrets();
+        panel = "";
+        owner.rebuild();
+    }
+
     void clearSecrets() {
+        programKeys.clear();
         for (String name : List.of("current", "new", "confirm")) formValues.remove("security." + name);
         formRevision++;
     }

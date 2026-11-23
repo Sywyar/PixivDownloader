@@ -40,6 +40,21 @@ public final class PixivScheduledCredentialPolicy implements ScheduledCredential
     public static final String ACTION_DEFER = "defer";
     public static final String OVERUSE_REASON_CODE = "PIXIV_OVERUSE";
     public static final int MIN_DEFER_MINUTES = 60;
+    private static final String ACCOUNT_ACTIONS_SCHEMA = """
+            {
+              "$schema":"https://json-schema.org/draft/2020-12/schema",
+              "type":"object","required":["actionId"],
+              "description":"An account must have a task suspended with PIXIV_OVERUSE and no busy tasks.",
+              "oneOf":[
+                {"properties":{"actionId":{"const":"%s"},"parameters":{"type":"object","maxProperties":0}}},
+                {"properties":{"actionId":{"const":"%s"},"parameters":{"type":"object","additionalProperties":false,
+                  "properties":{"minutes":{"type":"string","pattern":"^[0-9]+$",
+                    "description":"Decimal minutes from %d to 2147483647. Omit to use the configured delay."}}}}}
+              ],
+              "examples":[{"actionId":"%s"},{"actionId":"%s","parameters":{"minutes":"%d"}}]
+            }
+            """.formatted(ACTION_IGNORE_RISK, ACTION_DEFER, MIN_DEFER_MINUTES,
+                    ACTION_IGNORE_RISK, ACTION_DEFER, MIN_DEFER_MINUTES);
     private static final String STATUS_AUTH_EXPIRED = "AUTH_EXPIRED";
     private static final String STATUS_OVERUSE_PAUSED = "OVERUSE_PAUSED";
     private static final String NOTIFICATION_SCENARIO = "overuse-paused";
@@ -141,7 +156,7 @@ public final class PixivScheduledCredentialPolicy implements ScheduledCredential
                 // 损坏或未来版本状态不伪造兼容确认时间；宿主仍返回原始中性机器态。
             }
         }
-        return new ScheduledCredentialTaskPresentation(statusCode, acknowledgedEventTime);
+        return new ScheduledCredentialTaskPresentation(statusCode, acknowledgedEventTime, ACCOUNT_ACTIONS_SCHEMA);
     }
 
     @Override

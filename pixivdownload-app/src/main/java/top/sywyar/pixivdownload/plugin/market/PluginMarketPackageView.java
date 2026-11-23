@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
@@ -33,17 +34,17 @@ public record PluginMarketPackageView(
         long expectedSizeBytes,
         String sha256,
         boolean signaturePresent,
-        String requiredSdk,
+        @HttpApiNullable String requiredSdk,
         boolean compatible,
         boolean effectiveAfterRestart,
         List<String> dependencies,
-        String releasedTime,
+        @HttpApiNullable String releasedTime,
         List<String> changeNotes,
-        String channel,
+        @HttpApiNullable String channel,
         boolean deprecated,
         PluginVerificationView verification,
         boolean installable,
-        top.sywyar.pixivdownload.sdk.community.content.MarketContent content,
+        @HttpApiNullable top.sywyar.pixivdownload.sdk.community.content.MarketContent content,
         String installationMatch) {
 
     public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,

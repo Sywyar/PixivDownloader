@@ -6,13 +6,12 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.http.HttpStatus;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 
@@ -156,7 +155,7 @@ class QuotaArchiveExportServiceAdapterTest {
     }
 
     @Test
-    @DisplayName("不支持的格式应保留原 400 状态与 i18n 参数")
+    @DisplayName("不支持的格式应保留用于错误提示的规范化格式")
     void preservesUnsupportedFormatError() {
         ArchiveExportRequest request = new ArchiveExportRequest(
                 List.of(ArchiveExportEntry.bytes("manifest.json", new byte[]{1})),
@@ -164,11 +163,8 @@ class QuotaArchiveExportServiceAdapterTest {
 
         Throwable thrown = catchThrowable(() -> adapter.export(request));
 
-        assertThat(thrown).isInstanceOfSatisfying(LocalizedException.class, error -> {
-            assertThat(error.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
-            assertThat(error.getMessageCode()).isEqualTo("validation.archive.export.format.unsupported");
-            assertThat(error.getMessageArgs()).containsExactly("rar");
-        });
+        assertThat(thrown).isInstanceOfSatisfying(UnsupportedArchiveFormatException.class,
+                error -> assertThat(error.format()).isEqualTo("rar"));
         verify(userQuotaService, never()).triggerAdminFileArchive(
                 anyList(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());

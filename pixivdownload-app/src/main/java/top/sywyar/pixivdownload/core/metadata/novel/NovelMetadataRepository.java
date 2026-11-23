@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
+import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
@@ -58,6 +61,7 @@ public class NovelMetadataRepository {
         var columns = fields("novels", "novel_id", "title", "folder", "count", "extensions", "time", "r18", "is_ai",
                 "author_id", "description", "file_name", "file_author_name_id", "series_id", "series_order",
                 "is_original", "cover_ext", "deleted", "source_upload_time", "create_time", "update_time", "reupload_time");
+        columns.put("external_file", ExternalWorkFiles.referenceMarker(WorkType.NOVEL, column("novels", "novel_id"), column("novels", "time")));
         return database.read(s -> s.query(new Query("novels", columns, where, List.of(), order, limit, 0)))
                 .stream().map(this::novel).toList();
     }
@@ -78,6 +82,10 @@ public class NovelMetadataRepository {
         Expression where = call(AND, equal("novels", "deleted", 0),
                 WorkQueryPredicates.visible("novels", "novel_id", "novel_tags", "novel_collections", query.restriction()));
         where = call(AND, where, WorkQueryPredicates.additionalTimeRanges("novels", query));
+        if (query.fileManagement() != null) {
+            var managed = call(IS_NULL, ExternalWorkFiles.referenceMarker(WorkType.NOVEL, column("novels", "novel_id"), column("novels", "time")));
+            where = call(AND, where, query.fileManagement() == FileManagement.MANAGED ? managed : call(NOT, managed));
+        }
         if (query.downloadedFrom() != null) where = call(AND, where,
                 call(GREATER_EQUAL, column("novels", "time"), value(query.downloadedFrom())));
         if (query.downloadedBefore() != null) where = call(AND, where,
@@ -101,7 +109,8 @@ public class NovelMetadataRepository {
                 (Long) row.get("file_name"), (Long) row.get("file_author_name_id"), (Long) row.get("series_id"),
                 (Long) row.get("series_order"), bool(row, "is_original"), (String) row.get("cover_ext"),
                 Boolean.TRUE.equals(bool(row, "deleted")), (Long) row.get("source_upload_time"), (Long) row.get("create_time"),
-                (Long) row.get("update_time"), (Long) row.get("reupload_time"));
+                (Long) row.get("update_time"), (Long) row.get("reupload_time"),
+                row.get("external_file") == null ? FileManagement.MANAGED : FileManagement.EXTERNAL_REFERENCE);
     }
     private List<Map<String, Object>> tags(Expression where) {
         var columns = fields("tags", "tag_id", "name", "translated_name");

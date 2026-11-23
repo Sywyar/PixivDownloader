@@ -19,6 +19,10 @@ public final class ScheduleTiming {
 
     private ScheduleTiming() {}
 
+    public static ZoneId timeZone() {
+        return ZoneId.systemDefault();
+    }
+
     /**
      * 计算下次运行时刻。
      *
@@ -34,12 +38,13 @@ public final class ScheduleTiming {
             if (cronExpr == null || cronExpr.isBlank() || !CronExpression.isValidExpression(cronExpr)) {
                 return null;
             }
-            LocalDateTime from = LocalDateTime.ofInstant(Instant.ofEpochMilli(fromMillis), ZoneId.systemDefault());
+            ZoneId zone = timeZone();
+            LocalDateTime from = LocalDateTime.ofInstant(Instant.ofEpochMilli(fromMillis), zone);
             LocalDateTime next = CronExpression.parse(cronExpr).next(from);
             if (next == null) {
                 return null;
             }
-            return next.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            return next.atZone(zone).toInstant().toEpochMilli();
         }
         // 默认按固定周期处理
         if (intervalMinutes == null || intervalMinutes <= 0) {

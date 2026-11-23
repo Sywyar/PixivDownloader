@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import java.util.List;
 import java.util.Map;
 
@@ -12,7 +13,7 @@ import java.util.Map;
  */
 public record ScheduleQueueView(
         long taskId,
-        Long startedTime,
+        @HttpApiNullable Long startedTime,
         boolean truncated,
         int total,
         List<Item> items

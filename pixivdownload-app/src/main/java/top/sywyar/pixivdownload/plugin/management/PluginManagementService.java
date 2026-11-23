@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.plugin.management;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateState;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -176,6 +179,10 @@ public class PluginManagementService {
         // 连续并发变化时不再读取或发布任何跨组件状态，等待下一次请求取得稳定 seqlock 快照。
         return new PluginManagementReport(false, HostPrivilegeDetector.isElevated(),
                 TransactionRecoveryView.unstableLifecycleSnapshot(), List.of(), List.of());
+    }
+
+    public static boolean allowsManagementGrant(PluginManagementEntry target) {
+        return target.managed() || target.toggleable();
     }
 
     private List<PluginManagementEntry> buildEntries(
@@ -815,7 +822,7 @@ public class PluginManagementService {
     }
 
     public record TransactionRecoveryView(
-            String state,
+            @Schema(implementation = PluginRecoveryGateState.class) String state,
             boolean safeToScan,
             List<TransactionRecoveryFailureView> failures) {
 
@@ -876,18 +883,18 @@ public class PluginManagementService {
      */
     public record PluginManagementEntry(
             String id,
-            String displayNamespace,
-            String displayNameKey,
-            String descriptionKey,
+            @HttpApiNullable String displayNamespace,
+            @HttpApiNullable String displayNameKey,
+            @HttpApiNullable String descriptionKey,
             String iconKey,
             String colorToken,
-            String version,
-            PluginKind kind,
-            SdkRequirementView sdkRequirement,
+            @HttpApiNullable String version,
+            @HttpApiNullable PluginKind kind,
+            @HttpApiNullable SdkRequirementView sdkRequirement,
             List<PluginDependencyView> dependencies,
             String source,
             PluginStatus status,
-            PluginRuntimePhase runtimePhase,
+            @HttpApiNullable PluginRuntimePhase runtimePhase,
             boolean managed,
             boolean requiredByPolicy,
             boolean allowDisable,
@@ -895,15 +902,15 @@ public class PluginManagementService {
             List<String> messages,
             PluginVerificationView verification,
             PluginTrustView trust,
-            Long generation,
+            @HttpApiNullable Long generation,
             ExternalPluginOperation operation,
-            String transactionId,
-            String operationDiagnostic,
-            PluginExecutionMode executionMode,
-            PluginLifecyclePolicy lifecyclePolicy,
+            @HttpApiNullable String transactionId,
+            @HttpApiNullable String operationDiagnostic,
+            @HttpApiNullable PluginExecutionMode executionMode,
+            @HttpApiNullable PluginLifecyclePolicy lifecyclePolicy,
             boolean configuredEnabled,
             boolean toggleable,
-            String loadedVersion,
+            @HttpApiNullable String loadedVersion,
             boolean effectiveAfterRestart) {
 
         /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
@@ -981,11 +988,11 @@ public class PluginManagementService {
 
     public record PluginTrustView(
             PluginTrustState state,
-            String artifactSha256,
-            String publisherKeyFingerprint,
-            PluginTrustDecision.ApprovalType approvalType,
-            Instant approvedAt,
-            Instant revokedAt,
+            @HttpApiNullable String artifactSha256,
+            @HttpApiNullable String publisherKeyFingerprint,
+            @HttpApiNullable PluginTrustDecision.ApprovalType approvalType,
+            @HttpApiNullable Instant approvedAt,
+            @HttpApiNullable Instant revokedAt,
             boolean approvable,
             boolean revocable) {
 

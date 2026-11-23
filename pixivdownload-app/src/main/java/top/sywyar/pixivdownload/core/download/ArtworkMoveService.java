@@ -36,20 +36,26 @@ public class ArtworkMoveService {
 
     @Async
     public void moveArtWork(Long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
+        try {
+            recordMove(artworkId, movePath, moveTime, classifierTargetFolder);
+        } catch (Exception e) {
+            log.error(messages.getForLog("download.log.move-record.failed", e.getMessage()), e);
+        }
+    }
+
+    /** 同步记录移动结果，供需要区分文件完成与记录失败的调用方使用。 */
+    public boolean recordMove(long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
-            try {
-                ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
-                if (existing == null) {
-                    return;
-                }
-                pixivDatabase.updateArtworkMove(artworkId, movePath,
-                        EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
-                if (!existing.moved()) {
-                    pixivDatabase.incrementMoved();
-                }
-            } catch (Exception e) {
-                log.error(messages.getForLog("download.log.move-record.failed", e.getMessage()), e);
+            ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
+            if (existing == null) {
+                return false;
             }
+            pixivDatabase.updateArtworkMove(artworkId, movePath,
+                    EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
+            if (!existing.moved()) {
+                pixivDatabase.incrementMoved();
+            }
+            return true;
         }
     }
 }

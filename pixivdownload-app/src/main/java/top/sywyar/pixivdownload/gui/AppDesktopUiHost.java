@@ -111,16 +111,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private DatabaseTarget processDatabaseTarget;
     private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
-    private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private final DesktopToolHistory toolHistory = DesktopToolHistory.shared();
     private final Optional<top.sywyar.pixivdownload.startup.DesktopStartupCacheService> startupCache =
-            top.sywyar.pixivdownload.startup.DesktopStartupCacheService.create((result, started) -> {
-                ToolOutcome outcome = switch (result.state()) {
-                    case SUCCEEDED -> ToolOutcome.SUCCEEDED;
-                    case CANCELLED -> ToolOutcome.CANCELLED;
-                    default -> ToolOutcome.FAILED;
-                };
-                toolHistory.record(ToolId.STARTUP_CACHE, outcome, started, null, null, null, null);
-            });
+            StartupCacheOperations.service();
 
     @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopStartupCache> startupCache() {
         return startupCache.map(value -> value);
@@ -522,33 +515,28 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public synchronized java.util.UUID startBackfill(BackfillOptions options, boolean automatic) throws Exception {
         if (migrationRunning) throw new IllegalStateException(message("gui.message.backend-busy"));
         var runner = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class);
+        var history = toolHistory;
         var observation = new java.util.concurrent.atomic.AtomicReference<BackfillTask>();
         var mapped = map(options);
         var receipt = runner.start(automatic ? mapped.forStartup() : mapped, value -> {
             observation.accumulateAndGet(value, (previous, next) -> previous == null || next.revision() > previous.revision() ? next : previous);
-            if (!value.active()) {
-                var outcome = switch (value.state()) {
-                    case COMPLETED -> ToolOutcome.SUCCEEDED;
-                    case INCOMPLETE -> ToolOutcome.INCOMPLETE;
-                    case RATE_LIMITED -> ToolOutcome.RATE_LIMITED;
-                    case CANCELLED -> ToolOutcome.CANCELLED;
-                    default -> ToolOutcome.FAILED;
-                };
-                toolHistory.record(ToolId.ARTWORKS_BACKFILL, outcome, value.startedAtEpochMs(), value.processed(),
-                        value.dryRun() ? null : value.changed(), null,
-                        value.logFileName() == null ? null : RuntimeFiles.logDirectory().resolve("html").resolve(value.logFileName()),
-                        value.executionId(), null);
-            }
+            if (!value.active()) history.recordBackfill(value);
         });
         observation.compareAndSet(null, receipt);
         backfillObservation = observation;
         return receipt.executionId();
     }
 
-    @Override public Optional<BackfillTask> backfillTask() { return Optional.ofNullable(backfillObservation.get()); }
+    @Override public Optional<BackfillTask> backfillTask() {
+        if (BackendLifecycleManager.isRunning()) {
+            var current = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).snapshot();
+            if (current.isPresent()) return current;
+        }
+        return Optional.ofNullable(backfillObservation.get());
+    }
 
     @Override public boolean cancelBackfill(java.util.UUID executionId) {
-        var value = backfillObservation.get();
+        var value = backfillTask().orElse(null);
         if (value == null || !value.active() || !value.executionId().equals(executionId)) return false;
         return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).cancel(executionId);
     }
@@ -571,9 +559,12 @@ final class AppDesktopUiHost implements DesktopUiHost {
             migrationRunning = true;
         }
         try {
-            var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
-                    toolDatabaseTarget(options.dbPath())), reporter,
-                    BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
+            java.util.concurrent.Callable<JsonToSqliteMigration.Summary> operation = () -> JsonToSqliteMigration.run(
+                    new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(), toolDatabaseTarget(options.dbPath())),
+                    reporter, BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
+            var value = BackendLifecycleManager.isRunning()
+                    ? BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).whileIdle(operation)
+                    : operation.call();
             return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message(), value.failed());
         } finally {
             synchronized (this) { migrationRunning = false; }

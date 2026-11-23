@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gallery.web;
 
+import java.util.Collection;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
@@ -35,15 +36,15 @@ public final class GalleryWorkQueryFactory {
                                    String r18,
                                    String ai,
                                    List<String> formats,
-                                   List<Long> collectionIds,
-                                   List<Long> tagIds,
-                                   List<Long> excludedTagIds,
-                                   List<Long> optionalTagIds,
-                                   List<Long> authorIds,
-                                   List<Long> excludedAuthorIds,
-                                   List<Long> optionalAuthorIds,
-                                   List<Long> seriesIds,
-                                   List<Long> excludedSeriesIds,
+                                   Collection<Long> collectionIds,
+                                   Collection<Long> tagIds,
+                                   Collection<Long> excludedTagIds,
+                                   Collection<Long> optionalTagIds,
+                                   Collection<Long> authorIds,
+                                   Collection<Long> excludedAuthorIds,
+                                   Collection<Long> optionalAuthorIds,
+                                   Collection<Long> seriesIds,
+                                   Collection<Long> excludedSeriesIds,
                                    WorkRestriction restriction) {
         return WorkQuery.builder(WorkType.ARTWORK)
                 .page(Math.max(0, page == null ? 0 : page))
@@ -54,7 +55,7 @@ public final class GalleryWorkQueryFactory {
                 .searchType(normalizeChoice(searchType, ALLOWED_SEARCH_TYPES, "all"))
                 .r18(normalizeToken(r18, ALLOWED_R18))
                 .ai(normalizeToken(ai, ALLOWED_TRISTATE))
-                .formats(formats)
+                .formats(normalizeFormats(formats))
                 .collectionIds(normalizeIds(collectionIds))
                 .tagIds(normalizeIds(tagIds))
                 .excludedTagIds(normalizeIds(excludedTagIds))
@@ -68,7 +69,20 @@ public final class GalleryWorkQueryFactory {
                 .build();
     }
 
-    private static List<Long> normalizeIds(List<Long> ids) {
+    private static final Set<String> IMAGE_FORMATS = Set.of("jpg", "jpeg", "png", "gif", "webp");
+
+    private static List<String> normalizeFormats(List<String> formats) {
+        if (formats == null || formats.isEmpty()) return null;
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String format : formats) {
+            String value = format == null ? "" : format.trim().toLowerCase(Locale.ROOT);
+            if (!IMAGE_FORMATS.contains(value)) throw new WorkQuery.InvalidField("formats", "Unknown gallery image format");
+            normalized.add(value);
+        }
+        return List.copyOf(normalized);
+    }
+
+    private static List<Long> normalizeIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return null;
         }

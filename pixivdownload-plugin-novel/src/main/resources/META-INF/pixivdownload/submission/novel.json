@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "required": ["requestId", "workType", "workId", "options"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workType": {
+      "const": "novel"
+    },
+    "workId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "x-integer-maximum": "9223372036854775807"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "x-max-total-utf8-bytes": 16384,
+      "properties": {
+        "fileNameTemplate": {
+          "type": "string",
+          "x-work-template-scope": "download",
+          "examples": ["{artwork_id}_p{page}"],
+          "maxLength": 512
+        },
+        "pathOverflowAction": {
+          "type": "string",
+          "enum": ["ASK", "TRUNCATE", "DEFAULT_NAME", "CANCEL"]
+        },
+        "bookmark": {
+          "type": "string",
+          "enum": ["true", "false"]
+        },
+        "collectionId": {
+          "type": "string",
+          "pattern": "^[+-]?[0-9]+$",
+          "x-integer-minimum": 1,
+          "x-integer-maximum": "9223372036854775807",
+          "examples": ["7"]
+        },
+        "acquisitionMode": {
+          "type": "string",
+          "enum": ["single-import", "user", "series", "search", "quick"]
+        },
+        "username": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "html", "epub"]
+        },
+        "autoTranslate": {
+          "type": "string",
+          "enum": ["true", "false"]
+        },
+        "autoTranslateLanguage": {
+          "type": "string",
+          "maxLength": 100,
+          "examples": ["en"]
+        },
+        "autoTranslateSegmentSize": {
+          "type": "string",
+          "pattern": "^[+-]?[0-9]+$",
+          "x-integer-minimum": 0,
+          "x-integer-maximum": 1000000,
+          "examples": ["1000"]
+        },
+        "autoTranslateMerge": {
+          "type": "string",
+          "enum": ["true", "false"]
+        },
+        "autoTranslateMergeFormat": {
+          "type": "string",
+          "pattern": "^([tT][xX][tT]|[hH][tT][mM][lL]|[eE][pP][uU][bB])$",
+          "examples": ["epub"]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "requestId": "5d384b4e-662e-4b97-a2f2-c867b1b98070",
+      "workType": "novel",
+      "workId": "42",
+      "options": {
+        "format": "epub",
+        "autoTranslate": "false"
+      }
+    }
+  ]
+}

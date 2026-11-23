@@ -601,6 +601,7 @@ private fun ComposeDesktopRoot(
         dismissAutomaticBackfill = model::dismissAutomaticBackfill,
         requestedBackfill = snapshot.requestedBackfill(),
         consumeBackfillNavigation = model::consumeBackfillNavigation,
+        leaveSecurity = model::leaveSecurity,
         dispatch = { event -> model.dispatch(snapshot, event) },
     )
     document.dialogs().forEach { dialog ->
@@ -636,6 +637,7 @@ internal fun DesktopShell(
     dismissAutomaticBackfill: (UUID) -> Boolean,
     requestedBackfill: UUID? = null,
     consumeBackfillNavigation: (UUID) -> Boolean = { false },
+    leaveSecurity: () -> Unit = {},
     dispatch: (DesktopUiNode.Event) -> Unit,
 ) {
     val pageIds = document.pages().map { it.id() }
@@ -648,6 +650,8 @@ internal fun DesktopShell(
         if (directoryConfirmation && "settings" in pageIds) selected = "settings"
     }
     val activePage = activePageId(document, selected)
+    val exitSecurity by rememberUpdatedState(leaveSecurity)
+    DisposableEffect(activePage) { onDispose { if (activePage == "security") exitSecurity() } }
     val pageStates = rememberSaveableStateHolder()
     val sceneIds = document.pages().map(::pageSceneId)
     val retainedSceneIds = remember { linkedSetOf<String>() }
@@ -723,6 +727,10 @@ internal fun DesktopShell(
                                             page.content(), resolveText, {
                                                 if (active && currentVisit.value === visit) {
                                                     dispatch(it)
+                                                    if (it.nodeId() == "config.program-keys" && "security" in pageIds) {
+                                                        focusManager.clearFocus()
+                                                        selected = "security"
+                                                    }
                                                     if (it.nodeId() == "status.ffmpeg.settings" && "settings" in pageIds) {
                                                         toolsExit?.invoke()
                                                         focusManager.clearFocus()

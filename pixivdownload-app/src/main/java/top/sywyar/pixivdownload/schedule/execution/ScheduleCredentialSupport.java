@@ -6,7 +6,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledWorkStore;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
@@ -34,10 +34,10 @@ import static top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionSafet
 /** 计划凭证的装载、探活、绑定结果净化与持久化材料检查。 */
 final class ScheduleCredentialSupport {
 
-    private final ScheduledTaskStore store;
+    private final ScheduledWorkStore store;
     private final ObjectMapper objectMapper;
 
-    ScheduleCredentialSupport(ScheduledTaskStore store, ObjectMapper objectMapper) {
+    ScheduleCredentialSupport(ScheduledWorkStore store, ObjectMapper objectMapper) {
         this.store = Objects.requireNonNull(store, "store");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
     }

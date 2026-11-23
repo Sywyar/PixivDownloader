@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledWorkStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
@@ -40,7 +40,7 @@ final class ScheduleGuardInvoker {
     private final ScheduleCredentialMaterial credential;
     private final ScheduleExecutionLease execution;
     private final ScheduledExecutionPlan plan;
-    private final ScheduledTaskStore store;
+    private final ScheduledWorkStore store;
     private final ScheduleRunState runState;
     private boolean failureInvoked;
     private ScheduleExecutionControlException failureDecision;
@@ -53,7 +53,7 @@ final class ScheduleGuardInvoker {
             ScheduleCredentialMaterial credential,
             ScheduleExecutionLease execution,
             ScheduledExecutionPlan plan,
-            ScheduledTaskStore store,
+            ScheduledWorkStore store,
             ScheduleRunState runState) {
         this.taskRow = taskRow;
         this.definition = definition;

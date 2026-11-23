@@ -143,7 +143,9 @@
                 options.toast(t('export.downloaded'), 'success');
                 return;
             }
-            const data = await post('/api/gallery/novels/export', {...options.selection, ...choice});
+            const payload = {...options.selection, ...choice};
+            if (choice.deleteAfter && payload.mode === 'filter' && options.fullLibrary) payload.confirmAll = true;
+            const data = await post('/api/gallery/novels/export', payload);
             if (request.signal.aborted) return;
             if (!data?.archiveToken) { options.toast(t('manage.export-empty'), 'error'); return; }
             activeRequest = null;

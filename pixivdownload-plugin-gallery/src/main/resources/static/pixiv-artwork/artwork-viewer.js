@@ -252,6 +252,9 @@
 
         const stats = [];
         stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.id', 'ID: {id}', {id: artwork.artworkId}))}</span>`);
+        if (artwork.fileManagement === 'EXTERNAL_REFERENCE') {
+            stats.push('<span class="artwork-stat">' + escapeHtml(wt('stats.external', 'Imported artwork')) + '</span>');
+        }
         const publishedTime = artwork.createTime || artwork.uploadTime;
         if (publishedTime) stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.published', 'Published: {time}', {time: formatTime(publishedTime)}))}</span>`);
         if (artwork.xRestrict === 2) stats.push('<span class="artwork-stat" style="color:#b91c1c">R-18G</span>');

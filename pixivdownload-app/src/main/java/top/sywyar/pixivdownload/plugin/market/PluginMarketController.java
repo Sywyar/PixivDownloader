@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -44,6 +48,7 @@ import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
  * <b>不</b>重复实现鉴权、<b>不</b>持有任何 PF4J 类型、<b>不</b>触数据库。
  */
 @PluginManagedBean
+@HttpApiGroup("core-market")
 @RestController
 @RequestMapping("/api/plugin-market")
 public class PluginMarketController {
@@ -72,12 +77,22 @@ public class PluginMarketController {
     }
 
     /** 只读拉取并展示 repository.json 的全部信任事实，不修改配置。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @PostMapping("/repositories/import/preview")
     public RepositoryImportPreview previewRepository(@RequestBody RepositoryPreviewRequest request) {
         return repositoryImportService.preview(request != null ? request.descriptorUrl() : null);
     }
 
     /** 二次拉取相同 URL、比较预览摘要后，才把描述符事实写入配置。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @PostMapping("/repositories/import/trust")
     public RepositoryTrustResult trustRepository(@RequestBody RepositoryTrustRequest request) {
         if (request == null) {
@@ -91,6 +106,10 @@ public class PluginMarketController {
      * 指定仓库（{@code repositoryId} 缺省取默认）的 catalog 摘要 + 分类计数。<b>{@code repositoryId} 只能引用服务端已配置
      * 仓库</b>（未知 → {@code UNKNOWN_REPOSITORY}），绝不接受任意 URL。主开关关闭 → 200 + {@code enabled=false} + 空。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/catalog")
     public PluginMarketView catalog(@RequestParam(name = "repositoryId", required = false) String repositoryId,
                                     @RequestParam(name = "cursor", required = false) String cursor,
@@ -112,6 +131,10 @@ public class PluginMarketController {
     }
 
     /** 指定仓库 + 插件 id 的详情 + 版本历史。{@code repositoryId} 只能引用已配置仓库；未知插件 → {@code UNKNOWN_PLUGIN}。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/plugins/{repositoryId}/{pluginId}")
     public PluginMarketEntryView pluginDetail(@PathVariable String repositoryId,
                                               @PathVariable String pluginId,
@@ -131,6 +154,15 @@ public class PluginMarketController {
      * + 本地化 {@code message}，含完整性不符 {@code REJECTED_INTEGRITY} 等结局）；catalog / 下载层失败经 {@code @ExceptionHandler}
      * 映射为稳定错误响应。
      */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
     @PostMapping("/{repositoryId}/{pluginId}/{version}/install")
     public ResponseEntity<PluginInstallResponse> install(@PathVariable String repositoryId,
                                                          @PathVariable String pluginId,
@@ -143,12 +175,25 @@ public class PluginMarketController {
         return installResponseMapper.toResponse(report, request);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/{repositoryId}/{pluginId}/{version}/install-preview")
     public top.sywyar.pixivdownload.plugin.catalog.PluginCatalogInstallPreview.View installPreview(
             @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version) {
         return marketService.preview(repositoryId, pluginId, version);
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {PluginCatalogErrorResponse.class, PluginInstallResponse.class})))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginInstallResponse.class)))
     @PostMapping("/{repositoryId}/{pluginId}/{version}/install-preview")
     public ResponseEntity<PluginInstallResponse> installPreviewed(
             @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version,
@@ -174,6 +219,10 @@ public class PluginMarketController {
     }
 
     /** 所选版本的独立信任维度及包内声明；沿用市场 ADMIN 路由。 */
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
+    @ApiResponse(responseCode = "502", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginCatalogErrorResponse.class)))
     @GetMapping("/plugins/{repositoryId}/{pluginId}/{version}/facts")
     public top.sywyar.pixivdownload.plugin.verification.PluginVerificationView packageFacts(
             @PathVariable String repositoryId, @PathVariable String pluginId, @PathVariable String version) {

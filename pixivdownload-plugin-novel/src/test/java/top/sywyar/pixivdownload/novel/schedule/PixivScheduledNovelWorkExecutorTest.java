@@ -189,14 +189,14 @@ class PixivScheduledNovelWorkExecutorTest {
 
     @ParameterizedTest
     @org.junit.jupiter.params.provider.NullSource
-    @ValueSource(strings = {"user", "series", "quick"})
+    @ValueSource(strings = {"user", "series", "quick", "single-import"})
     @DisplayName("珍藏集小说执行保留显式来源和来源用户名，旧计划仍使用默认模板")
     void collectionMixedDefinitionExecutesNovelWork(String mode) throws Exception {
         when(pixivAjaxProxyClient.get(any(URI.class), isNull()))
                 .thenReturn(minimalNovelResponse());
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
         ScheduledTaskDefinition collectionTask = task(
-                "collection",
+                "single-import".equals(mode) ? "explicit-list" : "collection",
                 """
                         {"kind":"mixed","source":{"collectionId":"42","username":"source reader","acquisitionMode":%s},"filters":{},
                          "download":{"redownloadDeleted":false}}

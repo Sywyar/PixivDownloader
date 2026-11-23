@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramPermission;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadAcquisitionMode;
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.notification.SurveyInboxMessage;
@@ -136,12 +138,19 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     // VISITOR 允许 multi 匿名游客与管理员访问，solo 仍需会话，不放行邀请访客。
     // 管理、只读分享与本地端点分别声明更具体的访问策略。
     private static final List<WebRouteContribution> ROUTES = List.of(
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/*/meta").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/*/pages").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/*/ugoira").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitor("/api/pixiv/search").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitor("/api/pixiv/search/range").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitor("/api/pixiv/series/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+                WebRouteContribution.visitor("/api/batch/state").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("state.read", "permission.state.read"), HttpMethod.POST, new ProgramPermission("state.write", "permission.state.write"))),
         WebRouteContribution.visitor("/pixiv-batch.html"),
         WebRouteContribution.visitor("/pixiv-batch/**"),
         WebRouteContribution.visitor("/pixiv-batch-alt.html"),
         WebRouteContribution.visitor("/pixiv-batch-alt/**"),
-        WebRouteContribution.admin("/api/batch/page"),
-        WebRouteContribution.admin("/api/batch/profiles"),
+        WebRouteContribution.admin("/api/batch/page").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("page.write", "permission.page.write"))),
+        WebRouteContribution.admin("/api/batch/profiles").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("profiles.read", "permission.profiles.read"), HttpMethod.PUT, new ProgramPermission("profiles.write", "permission.profiles.write"))),
         WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),
@@ -158,16 +167,18 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.invitedGuest("/api/download/status/active"),
         WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
         WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
-        WebRouteContribution.visitor("/api/pixiv/user/*/artworks"),
-        WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks"),
-        WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards"),
+        new WebRouteContribution("/api/pixiv/user/*/downloads", AccessPolicy.ADMIN, Set.of(HttpMethod.POST), false)
+                .withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("batches.execute", "permission.batches.execute"))),
+        WebRouteContribution.visitor("/api/pixiv/user/*/artworks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
         WebRouteContribution.visitor("/api/pixiv/search**"),
         WebRouteContribution.visitor("/api/pixiv/series/**"),
-        WebRouteContribution.visitor("/api/pixiv/me/illust-bookmarks"),
-        WebRouteContribution.visitor("/api/pixiv/me/following"),
-        WebRouteContribution.visitor("/api/pixiv/me/follow-latest"),
-        WebRouteContribution.visitor("/api/pixiv/me/collections"),
-        WebRouteContribution.visitor("/api/pixiv/me/collection/*/works"),
+        WebRouteContribution.visitor("/api/pixiv/me/illust-bookmarks").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/me/following").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/me/follow-latest").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/me/collections").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
+        WebRouteContribution.visitor("/api/pixiv/me/collection/*/works").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("pixiv.read", "permission.pixiv.read"))),
         WebRouteContribution.visitor("/api/sse/**"),
         WebRouteContribution.visitor("/api/download/pixiv"),
         WebRouteContribution.visitor("/api/batch/**"));

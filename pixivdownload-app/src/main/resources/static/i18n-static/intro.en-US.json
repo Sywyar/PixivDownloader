@@ -69,7 +69,7 @@
     "batch.tip.action": "Enqueue every selected work; live progress shown on the Monitor page",
     "batch.tip.batch": "Current page: four-in-one batch entry",
     "batch.tip.btn-add-all": "Send every result on the current page to the download queue",
-    "batch.tip.btn-search": "Calls the backend /api/pixiv/search proxy, 60 results per page",
+    "batch.tip.btn-search": "Searches for illustrations via /api/pixiv/search. Pixiv usually returns 60 results per page.",
     "batch.tip.chip.ai": "AI filter: All / Exclude AI / AI only",
     "batch.tip.chip.bookmarks": "Bookmark count filter: keep only works with ≥ 500 bookmarks",
     "batch.tip.chip.content": "Client-side filter: show only all-ages results",

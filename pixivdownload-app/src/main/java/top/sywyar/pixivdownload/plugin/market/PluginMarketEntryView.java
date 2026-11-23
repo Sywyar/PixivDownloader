@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
@@ -35,23 +36,23 @@ import java.util.List;
  */
 public record PluginMarketEntryView(
         String pluginId,
-        String displayNamespace,
-        String displayNameKey,
-        String descriptionKey,
-        String latestVersion,
-        PluginMarketMetaView market,
+        @HttpApiNullable String displayNamespace,
+        @HttpApiNullable String displayNameKey,
+        @HttpApiNullable String descriptionKey,
+        @HttpApiNullable String latestVersion,
+        @HttpApiNullable PluginMarketMetaView market,
         List<PluginMarketPackageView> packages,
         MarketInstallStatus installStatus,
-        String installedVersion,
+        @HttpApiNullable String installedVersion,
         boolean updateAvailable,
         boolean compatible,
-        String compatibilityReason,
+        @HttpApiNullable String compatibilityReason,
         String assuranceLevel,
-        String versionsGeneration,
-        String nextVersionCursor,
-        Long totalVersionsApproximate,
+        @HttpApiNullable String versionsGeneration,
+        @HttpApiNullable String nextVersionCursor,
+        @HttpApiNullable Long totalVersionsApproximate,
         boolean versionsStale,
-        String recommendedVersion,
+        @HttpApiNullable String recommendedVersion,
         boolean compatibilitySearchIncomplete,
         PluginMarketInstallationView installation) {
 

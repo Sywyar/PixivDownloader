@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.core.pixiv.PixivCoverUrlResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
+import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /** 下载小说封面和正文内嵌图片，受共享传输预算约束；图片映射随正文统一发布。 */
 @Slf4j
@@ -45,7 +47,7 @@ final class NovelDownloadMediaDownloader {
                                                Map<String, String> urlMap,
                                                Path downloadPath, String cookie,
                                                NovelDownloadStatus status,
-                                               AtomicLong remainingImageBytes) {
+                                               AtomicLong remainingImageBytes, Consumer<DownloadTaskProgress> reportProgress) {
         Set<String> ids = NovelMarkupParser.findUploadedImageIds(rawContent);
         if (ids.isEmpty() || urlMap == null || urlMap.isEmpty()) {
             // 没有占位符或者前端没传 URL（可能为公开 API 限制等），直接跳过
@@ -62,6 +64,7 @@ final class NovelDownloadMediaDownloader {
             status.setStage("downloading-images");
             status.setEmbeddedTotal(plannedTotal);
             status.setEmbeddedDone(0);
+            if (plannedTotal > 0) reportProgress.accept(new DownloadTaskProgress(DownloadTaskProgress.Unit.IMAGES, 0, plannedTotal));
         }
         Map<String, String> success = new LinkedHashMap<>();
         URI referer = novelPageReferer(novelId);
@@ -80,7 +83,10 @@ final class NovelDownloadMediaDownloader {
             String ext = downloadOneEmbeddedImage(
                     novelId, id, url, referer, downloadPath, cookie, status, remainingImageBytes);
             if (ext != null) success.put(id, ext);
-            if (status != null) status.setEmbeddedDone(status.getEmbeddedDone() + 1);
+            if (status != null) {
+                status.setEmbeddedDone(status.getEmbeddedDone() + 1);
+                reportProgress.accept(new DownloadTaskProgress(DownloadTaskProgress.Unit.IMAGES, status.getEmbeddedDone(), plannedTotal));
+            }
         }
         if (!success.isEmpty()) {
             log.info("novel embedded images downloaded: novelId={}, count={}/{}", novelId, success.size(), ids.size());
@@ -93,13 +99,13 @@ final class NovelDownloadMediaDownloader {
      * Best-effort：URL 缺失、host 非 .pximg.net、网络失败一律返回 null，调用方据此把 cover_ext 置 NULL。
      */
     String downloadCover(long novelId, String coverUrl, Path downloadPath, String baseName, String cookie,
-                         NovelDownloadStatus status, AtomicLong remainingImageBytes) {
+                         NovelDownloadStatus status, AtomicLong remainingImageBytes, Consumer<DownloadTaskProgress> reportProgress) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
         URI referer = novelPageReferer(novelId);
         for (String candidateUrl : PixivCoverUrlResolver.downloadCandidates(coverUrl)) {
             ensureNotCancelled(status);
             String ext = downloadCoverCandidate(
-                    candidateUrl, referer, downloadPath, baseName, cookie, status, remainingImageBytes);
+                    candidateUrl, referer, downloadPath, baseName, cookie, status, remainingImageBytes, reportProgress);
             if (ext != null) {
                 return ext;
             }
@@ -109,7 +115,7 @@ final class NovelDownloadMediaDownloader {
 
     private String downloadCoverCandidate(String coverUrl, URI referer, Path downloadPath,
                                           String baseName, String cookie,
-                                          NovelDownloadStatus status, AtomicLong remainingImageBytes) {
+                                          NovelDownloadStatus status, AtomicLong remainingImageBytes, Consumer<DownloadTaskProgress> reportProgress) {
         URI uri;
         try {
             uri = URI.create(coverUrl);
@@ -129,7 +135,7 @@ final class NovelDownloadMediaDownloader {
                     referer,
                     targetStem,
                     cookie,
-                    coverTransferObserver(status),
+                    coverTransferObserver(status, reportProgress),
                     remainingImageBytes);
             if (extension != null) {
                 return extension;
@@ -188,8 +194,9 @@ final class NovelDownloadMediaDownloader {
         return URI.create("https://www.pixiv.net/novel/show.php?id=" + novelId);
     }
 
-    private PixivImageTransferObserver coverTransferObserver(NovelDownloadStatus status) {
+    private PixivImageTransferObserver coverTransferObserver(NovelDownloadStatus status, Consumer<DownloadTaskProgress> reportProgress) {
         return new PixivImageTransferObserver() {
+            private int reportedPercent = -1;
             @Override
             public void checkCancelled() {
                 ensureNotCancelled(status);
@@ -199,6 +206,8 @@ final class NovelDownloadMediaDownloader {
             public void onContentLength(long contentLength) {
                 if (status != null) {
                     status.setCoverTotalBytes(contentLength);
+                    reportedPercent = -1;
+                    onBytesTransferred(0);
                 }
             }
 
@@ -206,6 +215,13 @@ final class NovelDownloadMediaDownloader {
             public void onBytesTransferred(long transferredBytes) {
                 if (status != null) {
                     status.setCoverDownloadedBytes(transferredBytes);
+                    long total = status.getCoverTotalBytes();
+                    if (total <= 0 || transferredBytes < 0 || transferredBytes > total) return;
+                    int percent = (int) (100.0 * transferredBytes / total);
+                    if (percent != reportedPercent) {
+                        reportedPercent = percent;
+                        reportProgress.accept(new DownloadTaskProgress(DownloadTaskProgress.Unit.BYTES, transferredBytes, total));
+                    }
                 }
             }
         };

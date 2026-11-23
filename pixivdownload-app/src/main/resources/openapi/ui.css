@@ -1,0 +1,91 @@
+:root { color-scheme: light dark; }
+body { margin: 0; background: Canvas; color: CanvasText; }
+.reference-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: .6rem 1.25rem;
+    background: var(--scalar-background-1, Canvas);
+    color: var(--scalar-color-1, CanvasText);
+    border-bottom: 1px solid var(--scalar-border-color, ButtonBorder);
+    font: 1rem system-ui, sans-serif;
+}
+.reference-bar select { font: inherit; color: inherit; background: inherit; border: 0; }
+.reference-access {
+    box-sizing: border-box;
+    max-width: 42rem;
+    margin: 2rem auto;
+    padding: 0 1.25rem;
+    font: 1rem/1.6 system-ui, sans-serif;
+}
+.reference-access h1 { font-size: 1.5rem; line-height: 1.3; margin: 0 0 1rem; }
+.reference-access code { overflow-wrap: anywhere; }
+.reference-access a { color: LinkText; }
+#reference-key-form:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+#reference-key-form label { flex-basis: 100%; }
+#reference-key-form input, #reference-key-form button { box-sizing: border-box; max-width: 100%; padding: .4rem .65rem; font: inherit; }
+/* Scalar sets its theme on body while mounting. Keep the shell on its first-paint scheme until handoff. */
+body:has(#reference-access) { color-scheme: inherit; background: Canvas; color: CanvasText; }
+body:has(#reference-access) .reference-bar { background: Canvas; color: CanvasText; border-color: ButtonBorder; }
+#reference-access + #reference-content { visibility: hidden; }
+#reference-status, .reference-progress { display: none; }
+@media (scripting: enabled) {
+    .reference-access[data-admin="true"] .reference-guidance { display: none; }
+    .reference-access[data-admin="true"] #reference-status { display: block; }
+}
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+    .reference-access[data-admin="true"] .reference-progress {
+        display: block;
+        width: 10rem;
+        height: .375rem;
+        overflow: hidden;
+        border-radius: 1rem;
+        background: color-mix(in srgb, currentColor 20%, transparent);
+    }
+    .reference-progress::after {
+        content: "";
+        display: block;
+        width: 33.333%;
+        height: 100%;
+        border-radius: inherit;
+        background: currentColor;
+        animation: reference-progress-slide 1s ease-in-out infinite alternate;
+    }
+}
+@keyframes reference-progress-slide {
+    from { transform: translateX(0); }
+    to { transform: translateX(200%); }
+}
+.reference-access[data-failed] #reference-status { display: block; font-weight: 600; }
+
+.reference-related {
+    min-width: 0;
+    margin-top: 1.5rem;
+    padding-top: .75rem;
+    border-top: 1px solid var(--scalar-border-color);
+    color: var(--scalar-color-2);
+    font-size: var(--scalar-small, 14px);
+    line-height: 1.5;
+}
+.reference-related h4 { margin: 0 0 .375rem; color: var(--scalar-color-1); font: inherit; font-weight: 500; }
+.reference-related ul { list-style: none; margin: 0; padding: 0; }
+.reference-related li + li { margin-top: .25rem; }
+.reference-related a { color: inherit; text-decoration: underline; text-underline-offset: .15em; overflow-wrap: anywhere; }
+.reference-related a:hover, .reference-related a:focus-visible { color: var(--scalar-color-1); }
+.reference-related code { font-family: var(--scalar-font-code); font-size: .92em; }
+
+.operation-description .markdown .reference-disclosure > summary {
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+}
+.operation-description .reference-disclosure > summary > h3 { margin: 0; font-size: 1rem; }
+.operation-description .markdown .reference-disclosure > summary::before {
+    order: 1;
+    margin: 0;
+}
+.reference-disclosure > summary:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.reference-disclosure > div { overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+    .operation-description .markdown details.reference-disclosure[open] > summary::before { transition: none; }
+}

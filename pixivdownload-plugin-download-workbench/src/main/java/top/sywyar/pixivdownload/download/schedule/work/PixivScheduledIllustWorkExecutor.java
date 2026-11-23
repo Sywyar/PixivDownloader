@@ -208,7 +208,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
             PixivFetchService.ArtworkPages pages = fetchService.resolveArtworkPages(id, cookie);
             imageUrls = pages.urls();
             pagesBody = pages.body();
-            if (imageUrls.isEmpty()) {
+            if (imageUrls.isEmpty() || meta.pageCount() > 0 && imageUrls.size() != meta.pageCount()) {
                 throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                         "pixiv.illust.images-empty");
             }
@@ -216,6 +216,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
 
         ScheduleTaskSnapshot.Download download = snapshot.download();
         DownloadRequest.Other other = new DownloadRequest.Other();
+        other.setResolvedPageList(true);
+        other.setSourceUploadDate(capture.uploadDate());
         other.setAcquisitionMode(snapshot.source().path("acquisitionMode").asString(null));
         other.setUsername(snapshot.source().path("username").asString(null));
         other.setAuthorId(meta.authorId());

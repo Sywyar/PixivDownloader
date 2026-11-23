@@ -197,14 +197,14 @@ public class ArtworkFileService {
         }
     }
 
-    public File getImageFile(Long artworkId, int page) {
+    public File getImageFile(Long artworkId, int page, boolean allowThumbnail) {
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork == null) return null;
 
         int count = artwork.count();
         if (count <= page || page < 0) return null;
 
-        return artworkFileLocator.resolveImageFile(artwork, page);
+        return artworkFileLocator.resolveImageFile(artwork, page, allowThumbnail);
     }
 
     /**

@@ -31,6 +31,14 @@ public class DownloadRequest {
 
     @Data
     public static class Other {
+        /** Original zero-based page indices selected by a server-resolved submission. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private java.util.Set<Integer> selectedPages = java.util.Set.of();
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private boolean resolvedPageList;
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private String sourceUploadDate;
+
         private String imageFormats;
         private String ugoiraFormats;
         private int mediaQuality = MediaOutputSettings.DEFAULT_QUALITY;

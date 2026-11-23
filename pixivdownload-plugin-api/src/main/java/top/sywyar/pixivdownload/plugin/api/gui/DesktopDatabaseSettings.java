@@ -21,6 +21,8 @@ public interface DesktopDatabaseSettings {
      */
     static String failureMessageKey(String code) {
         String value = code == null ? "" : code;
+        if (value.equals("DATABASE_MIGRATION_REQUIRED")) return "gui.config.database.migration.required";
+        if (value.equals("DATABASE_PRIVATE_MIGRATION_REQUIRED")) return "gui.config.database.private-migration-required";
         if (value.startsWith("SQLSTATE_")) value = value.substring("SQLSTATE_".length());
         String reason = switch (value) {
             case "28P01" -> "authentication";

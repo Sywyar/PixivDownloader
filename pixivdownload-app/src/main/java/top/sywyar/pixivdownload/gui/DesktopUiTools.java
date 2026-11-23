@@ -40,6 +40,12 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 final class DesktopUiTools {
+    private static final java.util.concurrent.locks.ReentrantLock CLASSIFICATION = new java.util.concurrent.locks.ReentrantLock();
+    static final class ClassificationBusyException extends IOException {
+        ClassificationBusyException() {
+            super(top.sywyar.pixivdownload.i18n.MessageBundles.get("gui.message.backend-busy"));
+        }
+    }
 
     private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
             CoreMigrationSchema.create(DatabaseSchemaRegistry.forBuiltInPlugins(), true);
@@ -62,6 +68,13 @@ final class DesktopUiTools {
     }
 
     DesktopUiHost.FolderCheckResult checkArtworkFolders(Connection connection, DatabaseTarget target, String rootFolder) throws SQLException {
+        var page = checkArtworkFolders(connection, target, rootFolder, 0, Integer.MAX_VALUE);
+        return new DesktopUiHost.FolderCheckResult(page.total(), page.inaccessible());
+    }
+
+    record FolderPage(int total, int missing, List<DesktopUiHost.FolderArtwork> inaccessible) {}
+
+    FolderPage checkArtworkFolders(Connection connection, DatabaseTarget target, String rootFolder, int offset, int limit) throws SQLException {
         var actual = target.readSchema(connection);
         var table = actual.get("artworks");
         if (table == null) throw new SQLException("DATABASE_EXISTING_MAIN_REQUIRED", "42P01");
@@ -70,9 +83,11 @@ final class DesktopUiTools {
         var fields = new java.util.LinkedHashMap<String, Expression>();
         for (String field : List.of("artwork_id", "title", "folder", "moved", "move_folder")) fields.put(field, column("artworks", field));
         var query = new Query("artworks", fields, filter, List.of(),
-                List.of(new Query.Order(column("artworks", "time"), true, false)), Integer.MAX_VALUE, 0);
+                List.of(new Query.Order(column("artworks", "time"), true, false),
+                        new Query.Order(column("artworks", "artwork_id"), true, false)), Integer.MAX_VALUE, 0);
         List<DesktopUiHost.FolderArtwork> inaccessible = new ArrayList<>();
         int[] total = {0};
+        int[] missing = {0};
         try (var session = target.storageSession(connection, SCHEMA)) {
             var codec = loadPathCodec(session, actual.containsKey("path_prefixes"), rootFolder);
             session.scan(query, row -> {
@@ -80,12 +95,15 @@ final class DesktopUiTools {
                 boolean moved = Long.valueOf(1).equals(row.get("moved"));
                 String stored = (String) (moved && row.get("move_folder") != null ? row.get("move_folder") : row.get("folder"));
                 String path = codec.resolve(stored);
-                if (!isDirectory(path)) inaccessible.add(new DesktopUiHost.FolderArtwork((Long) row.get("artwork_id"),
-                        (String) row.get("title"), path, moved));
+                if (!isDirectory(path)) {
+                    if (missing[0]++ >= offset && inaccessible.size() < limit)
+                        inaccessible.add(new DesktopUiHost.FolderArtwork((Long) row.get("artwork_id"),
+                                (String) row.get("title"), path, moved));
+                }
                 return true;
             });
         }
-        return new DesktopUiHost.FolderCheckResult(total[0], inaccessible);
+        return new FolderPage(total[0], missing[0], List.copyOf(inaccessible));
     }
 
     void updateArtworkFolder(DatabaseTarget target, String rootFolder,
@@ -154,22 +172,29 @@ final class DesktopUiTools {
     }
 
     List<Path> listImageClassifierFolders(Path parent) throws IOException {
-        try (var paths = Files.list(parent)) {
-            return paths.filter(Files::isDirectory)
-                    .sorted(Comparator.comparing((Path path) -> parseLongOrNull(path.getFileName().toString()),
-                                    Comparator.nullsLast(Comparator.naturalOrder()))
-                            .thenComparing(path -> path.getFileName().toString()))
-                    .toList();
-        }
+        return listClassifierPaths(parent, true, Integer.MAX_VALUE, Long.MAX_VALUE);
     }
 
     List<Path> listImageClassifierImages(Path folder) throws IOException {
-        try (var paths = Files.list(folder)) {
-            return paths.filter(Files::isRegularFile)
-                    .filter(DesktopUiTools::isSupportedImage)
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                    .toList();
+        return listClassifierPaths(folder, false, Integer.MAX_VALUE, Long.MAX_VALUE);
+    }
+
+    List<Path> listClassifierPaths(Path folder, boolean directories, int itemBudget, long characterBudget) throws IOException {
+        var result = new ArrayList<Path>();
+        int count = 0;
+        long characters = 0;
+        try (var paths = Files.newDirectoryStream(folder)) {
+            for (Path path : paths) {
+                if (++count > itemBudget || (characters += path.toString().length()) > characterBudget)
+                    throw new IllegalArgumentException("CLASSIFIER_DIRECTORY_LIMIT");
+                if (directories ? Files.isDirectory(path) : Files.isRegularFile(path) && isSupportedImage(path))
+                    result.add(path);
+            }
         }
+        Comparator<Path> names = Comparator.comparing(path -> path.getFileName().toString());
+        result.sort(directories ? Comparator.comparing((Path path) -> parseLongOrNull(path.getFileName().toString()),
+                Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(names) : names);
+        return List.copyOf(result);
     }
 
     void deleteImageClassifierFolderIfEmpty(Path folder) throws IOException {
@@ -247,6 +272,18 @@ final class DesktopUiTools {
     Path classifyImageFolder(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
                              DesktopUiHost.ImageClassifierServer server,
                              DesktopUiHost.ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
+        try (var work = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(
+                top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
+            if (!CLASSIFICATION.tryLock()) throw new ClassificationBusyException();
+            try {
+                return classifyFiles(sourceFolder, images, artworkId, targetFolder, server, deleteFailureHandler);
+            } finally { CLASSIFICATION.unlock(); }
+        }
+    }
+
+    private Path classifyFiles(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
+                               DesktopUiHost.ImageClassifierServer server,
+                               DesktopUiHost.ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
         if (images == null || images.isEmpty()) {
             throw new IOException("No images were supplied for classification");
         }
@@ -346,7 +383,7 @@ final class DesktopUiTools {
         }
     }
 
-    private static boolean isSupportedImage(Path path) {
+    static boolean isSupportedImage(Path path) {
         String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
         return IMAGE_EXTENSIONS.stream().anyMatch(name::endsWith);
     }

@@ -21,6 +21,8 @@ public class HostRequestOwnerIdentityResolver implements RequestOwnerIdentityRes
     @Override
     public RequestOwnerIdentity resolve(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");
+        var program = ProgramAccess.identity(request);
+        if (program.isPresent()) return RequestOwnerIdentity.owner(program.get().id().toString());
         if (setupService.hasAdminScope(request)) {
             return RequestOwnerIdentity.adminScope();
         }
@@ -30,7 +32,9 @@ public class HostRequestOwnerIdentityResolver implements RequestOwnerIdentityRes
     @Override
     public Optional<String> resolveExistingOwnerUuid(HttpServletRequest request) {
         Objects.requireNonNull(request, "request");
-        return Optional.ofNullable(UuidUtils.extractExistingUuid(request));
+        var program = ProgramAccess.identity(request);
+        return program.isPresent() ? Optional.of(program.get().id().toString())
+                : Optional.ofNullable(UuidUtils.extractExistingUuid(request));
     }
 
     @Override

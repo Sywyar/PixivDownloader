@@ -6,11 +6,16 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceFronte
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
+
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 七类 Pixiv 计划任务来源的纯数据描述符事实源。 */
+/** Pixiv 来源的纯数据描述符事实源。 */
 public final class PixivScheduledSourceDescriptors {
 
     public static final String OVERUSE_GUARD_ID = "pixiv-overuse";
@@ -28,6 +33,7 @@ public final class PixivScheduledSourceDescriptors {
             PixivSchedulePersistenceCodec.WORK_TYPE_ILLUST,
             PixivSchedulePersistenceCodec.WORK_TYPE_NOVEL);
 
+    private static final Map<String, String> INPUT_SCHEMAS = loadInputSchemas();
     private static final List<ScheduledSourceDescriptor> DESCRIPTORS = List.of(
             descriptor(
                     "user-new",
@@ -63,12 +69,18 @@ public final class PixivScheduledSourceDescriptors {
                     "collection",
                     "schedule.type.collection",
                     Set.of(DownloadAcquisitionMode.QUICK.code()),
-                    ILLUST_OR_NOVEL));
+                    ILLUST_OR_NOVEL),
+            new ScheduledSourceDescriptor("explicit-list", Set.of(),
+                    PixivSchedulePersistenceCodec.DEFINITION_SCHEMA, PixivSchedulePersistenceCodec.DEFINITION_VERSION,
+                    new ScheduledSourcePresentation("batch", "card.import", "card.import", "schedule", "pixiv"),
+                    Set.of(DownloadAcquisitionMode.SINGLE_IMPORT.code()), ILLUST_OR_NOVEL,
+                    Set.of(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID), Set.of(OVERUSE_GUARD_ID), null,
+                    INPUT_SCHEMAS.get("explicit-list")));
 
     private PixivScheduledSourceDescriptors() {
     }
 
-    /** 返回固定顺序、不可变的七类来源描述符。 */
+    /** 返回固定顺序、不可变的来源描述符。 */
     public static List<ScheduledSourceDescriptor> createAll() {
         return DESCRIPTORS;
     }
@@ -89,7 +101,44 @@ public final class PixivScheduledSourceDescriptors {
                 possibleWorkTypes,
                 Set.of(PixivSchedulePersistenceCodec.CREDENTIAL_POLICY_ID),
                 Set.of(OVERUSE_GUARD_ID),
-                FRONTEND);
+                FRONTEND,
+                INPUT_SCHEMAS.get(sourceType));
+    }
+
+    private static Map<String, String> loadInputSchemas() {
+        String resource = "/pixivdownload/download-workbench/schedule/definition-v1.json";
+        try (var input = PixivScheduledSourceDescriptors.class.getResourceAsStream(resource)) {
+            if (input == null) throw new IllegalStateException("Missing schedule schema: " + resource);
+            var catalog = new JsonMapper().readTree(input);
+            var schemas = new HashMap<String, String>();
+            for (var entry : catalog.get("sources").properties()) {
+                ObjectNode schema = ((ObjectNode) catalog.get("common")).deepCopy();
+                var source = entry.getValue();
+                ObjectNode properties = (ObjectNode) schema.get("properties");
+                properties.set("kind", source.get("kind"));
+                var definition = (ObjectNode) source.get("source").deepCopy();
+                var context = (ObjectNode) ((ObjectNode) schema.get("$defs")).remove("context");
+                if ("#/$defs/context".equals(definition.path("$ref").asString(""))) {
+                    definition.remove("$ref");
+                    addContextFields((ObjectNode) definition.get("properties"), (ObjectNode) context.remove("properties"));
+                    addContextFields(definition, context);
+                }
+                properties.set("source", definition);
+                schema.set("required", source.get("required"));
+                schema.set("examples", source.get("examples"));
+                schemas.put(entry.getKey(), schema.toString());
+            }
+            return Map.copyOf(schemas);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Cannot read schedule schema: " + resource, failure);
+        }
+    }
+
+    private static void addContextFields(ObjectNode target, ObjectNode shared) {
+        for (var field : shared.properties()) {
+            if (target.has(field.getKey())) throw new IllegalStateException("Conflicting source schema field: " + field.getKey());
+            target.set(field.getKey(), field.getValue());
+        }
     }
 
     private static Set<String> legacyAliases(String sourceType) {

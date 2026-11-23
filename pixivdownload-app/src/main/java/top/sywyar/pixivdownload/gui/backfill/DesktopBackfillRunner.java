@@ -10,6 +10,10 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.*;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 
 import javax.sql.DataSource;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
@@ -17,20 +21,44 @@ import java.util.function.Consumer;
 /** 后端拥有执行线程与连接生命周期，桌面只观察机器事实。 */
 @Component
 public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBean {
+    static final String BACKFILL_BUSY = "BACKFILL_BUSY";
+    static final String BACKFILL_UNAVAILABLE = "BACKFILL_UNAVAILABLE";
+
     // 沿用工具日志层级，让任务失败原因同时进入精确会话日志与主程序日志。
     private static final Logger LOG = LoggerFactory.getLogger(ArtworksBackFill.class.getName() + ".desktop");
+    static final int MAX_TERMINAL_TASKS = 64;
+    static final Duration TERMINAL_RETENTION = Duration.ofHours(1);
+    private final Clock clock;
+    private final LinkedHashMap<UUID, BackfillTask> completed = new LinkedHashMap<>();
     private final Operation operation;
     private final java.util.concurrent.Callable<ToolLogSession> logFactory;
     private boolean running;
     private Execution execution;
+    private volatile BackfillTask latest;
+    private DataSource dataSource;
+    private boolean migrationActive;
+    private java.util.function.Consumer<BackfillTask> completion = ignored -> {};
 
     @org.springframework.beans.factory.annotation.Autowired
+    public DesktopBackfillRunner(DataSource dataSource,
+            org.springframework.beans.factory.ObjectProvider<top.sywyar.pixivdownload.gui.DesktopToolHistory> history) {
+        this(dataSource);
+        var store = history.getIfAvailable();
+        if (store != null) completion = store::recordBackfill;
+    }
+
     public DesktopBackfillRunner(DataSource dataSource) {
         this((options, progress) -> ArtworksBackFill.runObserved(options, dataSource, progress),
                 () -> top.sywyar.pixivdownload.gui.ToolHtmlLogSession.openStatic("artworks-backfill", ArtworksBackFill.class));
+        this.dataSource = dataSource;
     }
 
     DesktopBackfillRunner(Operation operation, java.util.concurrent.Callable<ToolLogSession> logFactory) {
+        this(operation, logFactory, Clock.systemUTC());
+    }
+
+    DesktopBackfillRunner(Operation operation, java.util.concurrent.Callable<ToolLogSession> logFactory, Clock clock) {
+        this.clock = clock;
         this.operation = operation;
         this.logFactory = logFactory;
     }
@@ -47,9 +75,10 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
     public BackfillTask start(ArtworksBackFill.Options options, Consumer<BackfillTask> observer) {
         Execution next;
         synchronized (this) {
-            if (!running || execution != null) throw new IllegalStateException("BACKFILL_BUSY");
+            if (!running || execution != null || migrationActive) throw new IllegalStateException(BACKFILL_BUSY);
             next = new Execution(options, observer);
             execution = next;
+            latest = next.snapshot;
             next.thread.start();
         }
         return next.snapshot;
@@ -59,6 +88,36 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
         Execution current;
         synchronized (this) { current = execution; }
         return current != null && current.id.equals(id) && current.cancel();
+    }
+
+    public Optional<BackfillTask> snapshot() {
+        return Optional.ofNullable(latest);
+    }
+
+    public synchronized Optional<BackfillTask> snapshot(UUID id) {
+        if (latest != null && latest.active() && latest.executionId().equals(id)) return Optional.of(latest);
+        pruneCompleted();
+        return Optional.ofNullable(completed.get(id));
+    }
+
+    private void pruneCompleted() {
+        long cutoff = clock.millis() - TERMINAL_RETENTION.toMillis();
+        completed.values().removeIf(task -> task.finishedAtEpochMs() <= cutoff);
+    }
+
+    public int countCandidates(ArtworksBackFill.Options options) throws Exception {
+        if (dataSource == null || !isRunning()) throw new IllegalStateException(BACKFILL_UNAVAILABLE);
+        return ArtworksBackFill.countCandidates(options, dataSource);
+    }
+
+    /** 在线旧记录迁移与所有回填入口共用准入；执行过程中不持有执行器锁。 */
+    public <T> T whileIdle(java.util.concurrent.Callable<T> operation) throws Exception {
+        synchronized (this) {
+            if (!running || execution != null || migrationActive) throw new IllegalStateException(BACKFILL_BUSY);
+            migrationActive = true;
+        }
+        try { return operation.call(); }
+        finally { synchronized (this) { migrationActive = false; } }
     }
 
     @Override public void stop() {
@@ -93,7 +152,7 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
             this.options = options;
             this.observer = observer;
             snapshot = new BackfillTask(id, 0, BackfillState.RUNNING, BackfillPhase.IMPORTING,
-                    options.automatic(), options.dryRun(), System.currentTimeMillis(), 0,
+                    options.automatic(), options.dryRun(), clock.millis(), 0,
                     0, null, 0, 0, 0, null, null, null, null);
             thread = new Thread(this::run, "metadata-backfill-" + id);
             thread.setDaemon(true);
@@ -165,6 +224,10 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
                             summary == null ? snapshot.summary() : summary, true);
                 }
                 try {
+                    try { completion.accept(terminal); }
+                    catch (RuntimeException failure) {
+                        LOG.warn("Could not record backfill history: executionId={}, failureType={}", id, failure.getClass().getSimpleName());
+                    }
                     publish(terminal);
                     LOG.info(MessageBundles.getForLog("gui.tools.backfill.task.finished", id, terminal.state(),
                             terminal.processed(), terminal.changed(), terminal.remaining()));
@@ -177,13 +240,25 @@ public final class DesktopBackfillRunner implements SmartLifecycle, DisposableBe
         private BackfillTask replace(BackfillState state, BackfillPhase phase, BackfillSummary summary, boolean finished) {
             var value = snapshot;
             snapshot = new BackfillTask(id, value.revision() + 1, state, phase, value.automatic(), value.dryRun(),
-                    value.startedAtEpochMs(), finished ? System.currentTimeMillis() : 0,
+                    value.startedAtEpochMs(), finished ? clock.millis() : 0,
                     value.processed(), value.total(), value.changed(), value.remaining(), value.unavailable(),
                     finished ? null : value.workType(), finished ? null : value.workId(), summary, value.logFileName());
             return snapshot;
         }
 
-        void publish(BackfillTask value) { observer.accept(value); }
+        void publish(BackfillTask value) {
+            synchronized (DesktopBackfillRunner.this) {
+                if (execution == this && value.revision() > latest.revision()) {
+                    latest = value;
+                    if (!value.active()) {
+                        pruneCompleted();
+                        completed.put(id, value);
+                        if (completed.size() > MAX_TERMINAL_TASKS) completed.pollFirstEntry();
+                    }
+                }
+            }
+            observer.accept(value);
+        }
     }
 
     public static BackfillSummary summary(ArtworksBackFill.Summary value) {

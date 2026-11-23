@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.ObjectReader;
-import tools.jackson.databind.json.JsonMapper;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
@@ -17,6 +18,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectReader;
+import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.download.LayoutFeedbackIdentityDeriver;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 import top.sywyar.pixivdownload.download.response.feedback.LayoutFeedbackStateResponse;
@@ -25,6 +29,7 @@ import top.sywyar.pixivdownload.download.state.LayoutFeedbackRevisionExhaustedEx
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateEntry;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateSnapshot;
 import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
 
@@ -56,6 +61,7 @@ import java.util.Locale;
  * distinct ID / submission ID / revision / status·canShow·retryAfterMs·seenLayouts 一律不得被代理或浏览器
  * 缓存。原始安装 UUID 只用于派生 scoped ID，绝不进入响应。
  */
+@HttpApiGroup("download-workbench-workbench")
 @RestController
 @RequestMapping("/api/layout-feedback/state")
 public class LayoutFeedbackStateController {
@@ -91,8 +97,11 @@ public class LayoutFeedbackStateController {
         this.clock = clock;
     }
 
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<LayoutFeedbackStateResponse> getState(
+            @Parameter(required = true, schema = @Schema(pattern = "^[A-Za-z0-9_-]{8,128}$"))
             @RequestParam(value = "surveyId", required = false) String surveyId) {
         if (!LayoutFeedbackIdentityDeriver.isValidSurveyId(surveyId)) {
             return statusResponse(HttpStatus.BAD_REQUEST);
@@ -106,9 +115,18 @@ public class LayoutFeedbackStateController {
         return jsonResponse(HttpStatus.OK, buildResponse(store.snapshot(), surveyId, serverNow));
     }
 
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
+            mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackCommandRequest.class)))
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
+    @ApiResponse(responseCode = "403", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
+    @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
+    @ApiResponse(responseCode = "415", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LayoutFeedbackStateResponse.class)))
     @PostMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<LayoutFeedbackStateResponse> saveState(
             HttpServletRequest request,
+            @Parameter(required = true, schema = @Schema(pattern = "^[A-Za-z0-9_-]{8,128}$"))
             @RequestParam(value = "surveyId", required = false) String surveyId) {
         // 1. 模式检查：multi 在任何 Store / 身份 / body 读取之前返回 403。
         if (!isSolo()) {

@@ -27,7 +27,7 @@ import java.util.UUID;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity;
 
 /** 桌面维护工具终态历史的有界持久化。 */
-final class DesktopToolHistory {
+public final class DesktopToolHistory {
     static final int MAX_ENTRIES = 100;
     static final int MAX_FILE_BYTES = 256 * 1024;
     private static final int SCHEMA_VERSION = 2;
@@ -43,13 +43,35 @@ final class DesktopToolHistory {
     private List<ToolHistoryEntry> entries;
     private boolean writable = true;
 
+    private static final class ProcessInstance {
+        private static final DesktopToolHistory HISTORY = new DesktopToolHistory(
+                top.sywyar.pixivdownload.config.RuntimeFiles.guiStateDirectory());
+    }
+
+    /** 后端重启及离线桌面共用写入者，避免旧快照覆盖其它工具的终态。 */
+    static DesktopToolHistory shared() { return ProcessInstance.HISTORY; }
+
     DesktopToolHistory(Path guiStateDirectory) {
         file = guiStateDirectory.resolve(FILE_NAME);
         entries = load();
     }
 
-    synchronized List<ToolHistoryEntry> entries() {
+    public synchronized List<ToolHistoryEntry> entries() {
         return List.copyOf(entries);
+    }
+
+    public void recordBackfill(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask task) {
+        var outcome = switch (task.state()) {
+            case COMPLETED -> ToolOutcome.SUCCEEDED;
+            case INCOMPLETE -> ToolOutcome.INCOMPLETE;
+            case RATE_LIMITED -> ToolOutcome.RATE_LIMITED;
+            case CANCELLED -> ToolOutcome.CANCELLED;
+            default -> ToolOutcome.FAILED;
+        };
+        record(ToolId.ARTWORKS_BACKFILL, outcome, task.startedAtEpochMs(), task.processed(),
+                task.dryRun() ? null : task.changed(), null,
+                task.logFileName() == null ? null : top.sywyar.pixivdownload.config.RuntimeFiles.logDirectory()
+                        .resolve("html").resolve(task.logFileName()), task.executionId(), null);
     }
 
     synchronized void record(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,

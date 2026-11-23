@@ -1,5 +1,12 @@
 package top.sywyar.pixivdownload.core.download.web;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,6 +35,7 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
  * 清空队列对全部在场作品类型成立——某作品类型插件被禁 /
  * 卸载时其操作缺席，清空只作用于在场类型。solo / multi / admin / 访客的归属语义保持不变。
  */
+@HttpApiGroup("core-downloads")
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -52,6 +60,9 @@ public class DownloadQueueController {
      * <p>请求无法证明它指向页面曾展示的 descriptor 与队列命令，因此固定返回冲突，不解析当前 operation，
      * 避免迟到请求误取消 replacement。
     */
+    @ApiResponse(responseCode = "409", useReturnTypeSchema = true)
+    @Operation(deprecated = true, parameters = @Parameter(name = "artworkId", in = ParameterIn.PATH,
+            required = true, schema = @Schema(type = "string")))
     @PostMapping({"/cancel/{artworkId}", "/download/cancel/{artworkId}"})
     public ResponseEntity<QueueCancelFailure> rejectLegacyCancel() {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new QueueCancelFailure(
@@ -61,6 +72,12 @@ public class DownloadQueueController {
     }
 
     /** 稳定入口：按精确 descriptor publication 定向取消不透明 workKey。 */
+    @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = DownloadControlResponse.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = QueueCancelFailure.class)))
+    @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = QueueCancelFailure.class)))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = QueueCancelFailure.class)))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = QueueCancelFailure.class)))
     @PostMapping("/download/queue/{queueType}/cancel")
     public ResponseEntity<?> cancelDownload(
             @PathVariable String queueType,
@@ -129,7 +146,9 @@ public class DownloadQueueController {
         return ResponseEntity.ok(DownloadControlResponse.success(messages.get("download.queue-cleared", String.valueOf(cleared))));
     }
 
-    public record QueueCancelRequest(String workKey, QueueCancelOwner owner) {
+    public record QueueCancelRequest(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String workKey,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) QueueCancelOwner owner) {
     }
 
     public record QueueCancelOwner(

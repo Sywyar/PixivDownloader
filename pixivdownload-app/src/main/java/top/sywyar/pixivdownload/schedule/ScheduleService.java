@@ -93,6 +93,11 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
     private final ScheduleHostLifecycle hostLifecycle;
     private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
+    public boolean hasCredentialPolicy(String ownerId, String policyId) {
+        return scheduleCapabilityRegistry.snapshot().owners().stream().anyMatch(owner ->
+                owner.owner().featurePluginId().equals(ownerId) && owner.credentialPolicyIds().contains(policyId));
+    }
+
     public ScheduleSourceManifestView sources() {
         ScheduleCapabilitySnapshot snapshot = scheduleCapabilityRegistry.snapshot();
         List<ScheduleSourceManifestView.Source> sources = snapshot.owners().stream()
@@ -100,7 +105,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
                         .map(descriptor -> sourceView(owner, descriptor)))
                 .sorted(java.util.Comparator.comparing(ScheduleSourceManifestView.Source::sourceType))
                 .toList();
-        return new ScheduleSourceManifestView(snapshot.epoch(), snapshot.revision(), sources);
+        return new ScheduleSourceManifestView(snapshot.epoch(), snapshot.revision(), ScheduleTiming.timeZone().getId(), sources);
     }
 
     public List<ScheduleTaskView> list() {
@@ -890,17 +895,21 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
                 .orElseThrow(this::definitionConcurrentChange);
     }
 
-    private ResolvedDefinition resolveDefinition(
-            long taskId,
-            ScheduleTaskRequest req,
-            String existingOwnerPluginId,
-            SchedulePlanningLease planning) {
-        if (!Objects.equals(req.getActivationToken(), planning.activationToken())) {
+    public static void requireActivationToken(String current, String supplied) {
+        if (!Objects.equals(current, supplied)) {
             throw new ScheduleManagementException(
                     ScheduleManagementException.Code.CONFLICT,
                     "schedule.error.source-publication-changed",
                     "计划任务来源已刷新，请重新加载后重试");
         }
+    }
+
+    private ResolvedDefinition resolveDefinition(
+            long taskId,
+            ScheduleTaskRequest req,
+            String existingOwnerPluginId,
+            SchedulePlanningLease planning) {
+        requireActivationToken(planning.activationToken(), req.getActivationToken());
         String ownerPluginId = planning.owner().featurePluginId();
         if (existingOwnerPluginId != null
                 && !existingOwnerPluginId.equals(ownerPluginId)) {
@@ -1030,7 +1039,7 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
                 presentation,
                 descriptor.acquisitionModes().stream().sorted().toList(),
                 descriptor.possibleWorkTypes().stream().sorted().toList(),
-                frontend);
+                frontend, descriptor.inputSchemaJson());
     }
 
     private ScheduleTaskView taskView(
