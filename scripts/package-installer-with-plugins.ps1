@@ -151,6 +151,7 @@ try {
     if ($PluginSource -eq "Catalog") {
         Write-Step "Staging official plugin inputs from signed catalog"
         & $StagePluginsScript `
+            -IncludeInstallerArtifacts -RequireProguard `
             -ManifestUrl $ManifestUrl `
             -OutputDir $PluginInputsDir `
             -SignatureToolJar $resolvedSignatureToolJar

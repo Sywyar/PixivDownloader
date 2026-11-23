@@ -62,6 +62,11 @@ class PluginSupplyChainVerifierTest {
                 artifact, "demo", "1.0.0", Files.size(artifact), "00" + sha256.substring(2), signature,
                 VerificationPolicy.customRepository())), VerificationStatus.HASH_MISMATCH);
 
+        Path variant = Files.writeString(tempDir.resolve("plugin-windows-x64.jar"), "variant");
+        assertStatus(fixture.verifier.verifyArtifact(request(
+                variant, "demo", "1.0.0", Files.size(variant), Hashing.hex(Hashing.sha256(variant)), signature,
+                VerificationPolicy.customRepository())), VerificationStatus.INVALID_SIGNATURE);
+
         SignatureMetadata wrongAlgorithm = new SignatureMetadata(1, "RSA", fixture.key.keyId(), signature.value());
         assertStatus(fixture.verifier.verifyArtifact(request(
                 artifact, "demo", "1.0.0", Files.size(artifact), sha256, wrongAlgorithm,

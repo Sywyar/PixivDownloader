@@ -233,9 +233,29 @@ function Wait-ForHealthyApplication {
     throw "$Label did not become healthy within three minutes"
 }
 
+function Assert-DistributionPluginVariants([string]$Root, [bool]$ForSetup) {
+    $manifest = Get-Content -LiteralPath (Get-ManifestPath $Root) -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($plugin in Get-OfficialDefaultInstalledPlugins) {
+        $variant = Get-InstallerPluginVariant $plugin
+        if (-not $variant) { continue }
+        $entry = @($manifest | Where-Object id -ceq $plugin.Id)
+        if ($entry.Count -ne 1) { throw "Missing bundled plugin: $($plugin.Id)" }
+        $file = if ($ForSetup) { "$($plugin.Module).jar" } else { Get-OfficialPluginArtifactName $plugin $entry[0].version }
+        $relative = if ($ForSetup) { $file } else { "plugins/$file" }
+        if ($file -match '[/\\:]' -or $entry[0].file -cne $relative) { throw "Unexpected bundled plugin path: $relative" }
+        $jar = Join-Path $Root "plugins/$file"
+        if ((Get-Sha256Hex $jar) -cne $entry[0].sha256) { throw "Installed digest mismatch: $file" }
+        $expected = if ($ForSetup) { $variant } else { $plugin }
+        [void](Assert-OfficialPluginArtifact $jar $expected)
+    }
+}
+
 function Test-ApplicationLayout {
     param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot,
         [switch]$AdverseScenarios)
+    if ($Label -in @('windows-installer', 'java-standard', 'full-offline')) {
+        Assert-DistributionPluginVariants $Root ($Label -eq 'windows-installer')
+    }
     if ($null -eq $script:ReleaseTools) {
         $jar = if (Test-Path -LiteralPath (Join-Path $Root "PixivDownload-$Version.jar") -PathType Leaf) {
             Join-Path $Root "PixivDownload-$Version.jar"

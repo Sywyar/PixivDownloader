@@ -297,9 +297,9 @@ process.stdout.write(action.runs.steps.find(step => step.run).run);
         $stageRoot = Join-Path $fixture 'catalog-stage'
         [IO.Directory]::CreateDirectory((Join-Path $stageRoot 'scripts')) | Out-Null
         [IO.File]::WriteAllText((Join-Path $stageRoot 'scripts/stage-official-plugin-inputs-from-catalog.ps1'), @'
-param($OutputDir, $SignatureToolJar, $IncludeOptional, $RequireProguard, $ManifestUrl)
+param($OutputDir, $SignatureToolJar, $IncludeOptional, $RequireProguard, $IncludeInstallerArtifacts, $ManifestUrl)
 [IO.File]::WriteAllText((Join-Path (Get-Location) 'observed-url.txt'), $ManifestUrl)
-if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/packaging validation.' }
+if (-not $IncludeOptional -or -not $RequireProguard -or -not $IncludeInstallerArtifacts) { throw 'Missing signature/packaging validation.' }
 '@, [Text.UTF8Encoding]::new($false))
         function Get-ChildItem { return [pscustomobject]@{ Name='signature.jar'; FullName='fixture-signature.jar'; LastWriteTime=[DateTime]::UtcNow } }
         $originalCommit = $env:PLUGIN_MANIFEST_COMMIT
@@ -353,6 +353,9 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             Assert-Equal ([IO.File]::ReadAllText($ApplicationJar)) 'fixture'
             $script:probes.Add($ApplicationJar)
             return @{ Agent = 'fixture'; Fixture = 'fixture' }
+        }
+        function Assert-DistributionPluginVariants($Root, $ForSetup) {
+            Assert-Equal $ForSetup ((Split-Path -Leaf $Root) -eq 'installed')
         }
         function Test-ApplicationScenario {
             param($Label, $Root, $Launcher)
@@ -449,6 +452,7 @@ Write-Output 'Certificate probe diagnostic output'
     }
 
     & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         . (Join-Path $repo 'scripts/market-content-publication.ps1')
@@ -462,7 +466,7 @@ Write-Output 'Certificate probe diagnostic output'
         $script:buildExit = 0
         $script:existing = $false
         $script:missingAssetSuffixes = @()
-        $plugins = @(@{Id='first'; Module='first'}, @{Id='second'; Module='second'})
+        $plugins = @(@{Id='first'; Module='first'; Format='jar'}, @{Id='second'; Module='second'; Format='jar'})
         foreach ($plugin in $plugins) {
             $descriptor = Join-Path $fixture "$($plugin.Module)/src/main/resources/plugin.properties"
             [IO.Directory]::CreateDirectory((Split-Path -Parent $descriptor)) | Out-Null
@@ -486,7 +490,6 @@ Write-Output 'Certificate probe diagnostic output'
         function Find-ModulePluginArtifact { param($Plugin) return (Join-Path $publishedSource "$($Plugin.Module)/src/main/resources/plugin.properties") }
         function Assert-OfficialPluginArtifact { return @{'plugin.version'='1.0.0'} }
         function Assert-ProguardProcessedArtifact { }
-        function Get-OfficialPluginArtifactName { param($Plugin, $Version) return "$($Plugin.Id)-$Version.jar" }
         function Get-NightlyPluginVersion { param($SourceVersion, $Suffix) return "$SourceVersion-$Suffix" }
         $script:requiredSdkValues = [Collections.Generic.List[string]]::new()
         function Set-StagedPluginVersion {
@@ -603,6 +606,24 @@ Write-Output 'Certificate probe diagnostic output'
             }
             Assert-Equal $script:builds.Count 0
         }
+        $plugins = @([pscustomobject]@{Id='first'; Module='first'; Format='jar'; InstallerClassifier='windows-x64'; NativeTargets=@('windows-x64','linux-x64')})
+        $script:existing = $false
+        foreach ($nightly in @($false, $true)) {
+            $script:writes.Clear()
+            $variantParameters = $parameters.Clone()
+            $expectedVersion = '1.0.0'
+            if ($nightly) {
+                $variantParameters.NightlyBuildVersion = '1.2.3-nightly.20260909.1.1'
+                $expectedVersion += '-nightly.20260909.1.1'
+            }
+            & $program.Main @variantParameters
+            $publishedFiles = $script:writes -join ' '
+            foreach ($name in @("first-$expectedVersion.jar", "first-$expectedVersion-windows-x64.jar")) {
+                foreach ($suffix in @('', '.sha256', '.sig')) {
+                    if (-not $publishedFiles.Contains("$name$suffix ")) { throw "Missing published asset: $name$suffix" }
+                }
+            }
+        }
         $script:missingAssetSuffixes = @()
         Remove-Item -LiteralPath $toolJar
         $script:builds.Clear(); $script:writes.Clear()
@@ -623,6 +644,12 @@ Write-Output 'Certificate probe diagnostic output'
         Assert-Equal @(Get-OfficialRequiredPlugins).Count 0
         $marketPlugin = @(Get-OfficialDefaultInstalledPlugins | Where-Object { $_.Id -eq 'download-workbench' })[0]
         $ProjectRoot = $repo
+        $swapTargets = $false
+        $marketPlugin | Add-Member -Force -NotePropertyName PrivateLibs -NotePropertyValue $true
+        $marketPlugin | Add-Member -Force -NotePropertyName ClassPrefix -NotePropertyValue 'fixture/'
+        $marketPlugin | Add-Member -Force -NotePropertyName RequiredLibPatterns -NotePropertyValue @('^common\.jar$')
+        $marketPlugin | Add-Member -NotePropertyName InstallerClassifier -NotePropertyValue 'windows-x64'
+        $marketPlugin | Add-Member -NotePropertyName NativeTargets -NotePropertyValue @('windows-x64', 'linux-x64')
         $sourceDescriptor = Read-PropertiesFile (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties")
         $currentSdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
         $marketRoot = Join-Path $fixture 'market'
@@ -650,6 +677,13 @@ Write-Output 'Certificate probe diagnostic output'
         function Invoke-PluginSignatureTool {
             param($Tool, $Arguments)
             if ($Arguments[0] -eq 'verify-manifest') { return }
+            if ($Arguments[0] -eq 'verify-artifact') {
+                $file = $Arguments[[Array]::IndexOf($Arguments, '--artifact') + 1]
+                Assert-Equal ($file -like '*-windows-x64.jar') $true
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--sha256') + 1] (Get-Sha256Hex $file)
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--expected-size') + 1] (Get-Item -LiteralPath $file).Length
+                return
+            }
             if ($Arguments[0] -eq 'artifact') {
                 Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--plugin-id') + 1] $marketPlugin.Id
                 Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--version') + 1] $fixtureVersion
@@ -679,8 +713,16 @@ Write-Output 'Certificate probe diagnostic output'
             if ($args[0] -eq 'release' -and $args[1] -eq 'download') {
                 $directory = $args[[Array]::IndexOf($args, '--dir') + 1]
                 $name = $args[[Array]::IndexOf($args, '--pattern') + 1]
+                if ($name -like '*-windows-x64.jar.sig') {
+                    [IO.File]::WriteAllText((Join-Path $directory $name), '{"algorithm":"Ed25519","keyId":"fixture","value":"variant","formatVersion":1}')
+                    return
+                }
                 $archive = [IO.Compression.ZipFile]::Open((Join-Path $directory $name), [IO.Compression.ZipArchiveMode]::Create)
                 try {
+                    foreach ($entry in @('fixture/Plugin.class', 'lib/common.jar', 'lib/skiko-awt-runtime-windows-x64-1.jar')) {
+                        [void]$archive.CreateEntry($entry)
+                    }
+                    if (($name -notlike '*-windows-x64.jar') -ne $swapTargets) { [void]$archive.CreateEntry('lib/skiko-awt-runtime-linux-x64-1.jar') }
                     $stream = New-Object IO.StreamWriter($archive.CreateEntry('plugin.properties').Open(), $fixtureUtf8)
                     try { $stream.Write("plugin.id=$($marketPlugin.Id)`nplugin.version=$fixtureVersion`nplugin.requires=$($case.Expected)`nplugin.dependencies=fixture-dependency@2.0`n") }
                     finally { $stream.Dispose() }
@@ -729,6 +771,11 @@ Write-Output 'Certificate probe diagnostic output'
                 Assert-Equal $signature.value 'fixture'
             }
             Assert-Equal $package.signatureUrl "$($package.packageUrl).sig"
+            $attachment = $package.installerArtifacts.'windows-x64'
+            Assert-Equal $attachment.packageUrl ($package.packageUrl -replace '\.jar$', '-windows-x64.jar')
+            Assert-Equal $attachment.signatureUrl "$($attachment.packageUrl).sig"
+            Assert-Equal $attachment.signature.value 'variant'
+            Assert-Equal ($attachment.sha256 -ne $package.sha256) $true
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
             Assert-Equal $package.channel $(if ($case.ContainsKey('Nightly')) { 'nightly' } else { 'stable' })
@@ -738,6 +785,9 @@ Write-Output 'Certificate probe diagnostic output'
                 if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
             }
         }
+        $swapTargets = $true
+        Assert-Rejected { & $program.Main @parameters } 'Unexpected Skiko native runtime set'
+        $swapTargets = $false
         foreach ($missing in @(
             @{Path=$descriptorPath; Message='Missing source descriptor'},
             @{Path=(Join-Path $resources $bundle); Message='Missing i18n bundle'}
@@ -870,7 +920,7 @@ Write-Output 'Certificate probe diagnostic output'
                 default { throw "Unexpected request: $Uri" }
             }
         }
-        foreach ($case in @('source', 'tool-inside', 'tool-equal', 'build-root', 'repo-root', 'ancestor', 'separate-input')) {
+        foreach ($case in @('source', 'tool-inside', 'tool-equal', 'build-root', 'repo-root', 'ancestor', 'separate-input', 'missing-variant')) {
             $root = Join-Path $fixture "catalog-input-$case"
             $project = Join-Path $root 'project'
             $scripts = Join-Path $project 'scripts'
@@ -892,6 +942,7 @@ Write-Output 'Certificate probe diagnostic output'
                 'repo-root' { $output = $project; $expectedError = 'repository root' }
                 'ancestor' { $output = $root; $expectedError = 'ancestor' }
                 'separate-input' { $expectedError = 'Fixture asset download failed' }
+                'missing-variant' { $expectedError = 'Missing signed windows-x64 installer artifact' }
             }
             [IO.Directory]::CreateDirectory((Split-Path -Parent $tool)) | Out-Null
             [IO.File]::WriteAllText($tool, 'signature fixture', $fixtureEncoding)
@@ -904,11 +955,11 @@ Write-Output 'Certificate probe diagnostic output'
             $requests = [Collections.Generic.List[string]]::new()
             $failure = $null
             try {
-                & (Join-Path $scripts 'stage-official-plugin-inputs-from-catalog.ps1') -OutputDir $output -SignatureToolJar $tool -ManifestUrl 'https://example.test/manifest.json'
+                & (Join-Path $scripts 'stage-official-plugin-inputs-from-catalog.ps1') -OutputDir $output -SignatureToolJar $tool -ManifestUrl 'https://example.test/manifest.json' -IncludeInstallerArtifacts:($case -eq 'missing-variant')
             } catch { $failure = $_ }
             Assert-Equal ([IO.File]::ReadAllText($tool, $fixtureEncoding)) 'signature fixture'
             Assert-Equal (Test-Path -LiteralPath $marker) ($case -ne 'separate-input')
-            Assert-Equal $requests.Count $(if ($case -eq 'separate-input') { 3 } else { 0 })
+            Assert-Equal $requests.Count $(if ($case -eq 'separate-input') { 3 } elseif ($case -eq 'missing-variant') { 2 } else { 0 })
             if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected catalog result: $failure" }
         }
     }
@@ -946,15 +997,18 @@ Write-Output 'Certificate probe diagnostic output'
         $source = Join-Path $fixture 'producer'
         $destination = Join-Path $fixture 'consumer'
         $candidates = Join-Path $fixture 'candidates'
-        $module = 'pixivdownload-plugin-example'
+        $module = 'pixivdownload-plugin-gui-compose'
         foreach ($root in @($source, $destination)) {
             [IO.Directory]::CreateDirectory((Join-Path $root "$module/src/main/resources")) | Out-Null
             [IO.File]::WriteAllText((Join-Path $root "$module/src/main/resources/plugin.properties"), 'plugin.id=example')
-            [IO.File]::WriteAllText((Join-Path $root 'pom.xml'), "<project><modules><module>$module</module></modules></project>")
+            [IO.File]::WriteAllText((Join-Path $root 'pom.xml'), "<project><version>1.0</version><modules><module>$module</module></modules></project>")
         }
         [IO.Directory]::CreateDirectory((Join-Path $source "$module/target/classes")) | Out-Null
         [IO.File]::WriteAllText((Join-Path $source "$module/target/classes/Example.class"), 'classes')
         [IO.File]::WriteAllText((Join-Path $source "$module/target/$module-1.0.jar"), 'verified jar')
+        $variant = "$module/target/windows-x64/$module-1.0-windows-x64.jar"
+        [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $source $variant))) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $source $variant), 'installer artifact')
         $parameters = @{Directory=$candidates; SourceSha=$sha; RunId='12'; Attempt='2'}
         & $program.Main @parameters -Mode Export -ProjectRoot $source
         $manifestPath = Join-Path $candidates 'manifest.json'
@@ -966,6 +1020,10 @@ Write-Output 'Certificate probe diagnostic output'
             Assert-Rejected { & $program.Main @parameters -Mode Import -ProjectRoot $destination } 'provenance mismatch'
         }
         [IO.File]::WriteAllText($manifestPath, $original)
+        $manifest = $original | ConvertFrom-Json
+        $manifest.files = @($manifest.files | Where-Object path -cne $variant)
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5))
+        Assert-Rejected { & $program.Main @parameters -Mode Import -ProjectRoot $destination } 'Missing Windows installer plugin'
         $manifest = $original | ConvertFrom-Json
         $manifest.attempt = '3'
         [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5))
@@ -979,6 +1037,7 @@ Write-Output 'Certificate probe diagnostic output'
         [IO.File]::WriteAllText($payload, 'verified jar')
         & $program.Main @parameters -Mode Import -ProjectRoot $destination
         Assert-Equal ([IO.File]::ReadAllText((Join-Path $destination "$module/target/$module-1.0.jar"))) 'verified jar'
+        Assert-Equal ([IO.File]::ReadAllText((Join-Path $destination $variant))) 'installer artifact'
         Assert-Rejected { & $program.Main @parameters -Mode Import -ProjectRoot $destination } 'must be absent'
     }
     & {

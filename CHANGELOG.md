@@ -62,6 +62,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 
+- Windows x64 安装包中的 Compose 桌面插件只携带 Windows x64 版 Skiko，缩小了安装包和安装后的插件体积。
 - 无图形环境或使用 `--no-gui` 启动时，后端仅在其他启动插件需要 Swing 或 Compose 作为必需依赖时加载对应的桌面插件。跳过的插件仍可在管理页查看。
 - 再次启动时复用内容未变的插件扫描、复制和解压结果；插件、校验规则或 Java 环境变化后自动重新准备。
 - Compose 设置搜索可按界面显示名称、所属分组和模式查找，清空搜索后保留搜索框焦点。

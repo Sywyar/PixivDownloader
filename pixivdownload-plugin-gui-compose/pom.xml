@@ -190,6 +190,11 @@
                                     <file>${project.build.directory}/${project.build.finalName}.jar</file>
                                     <type>jar</type>
                                 </artifact>
+                                <artifact>
+                                    <file>${project.build.directory}/windows-x64/${project.build.finalName}-windows-x64.jar</file>
+                                    <type>jar</type>
+                                    <classifier>windows-x64</classifier>
+                                </artifact>
                             </artifacts>
                         </configuration>
                     </execution>

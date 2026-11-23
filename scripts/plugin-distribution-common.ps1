@@ -84,17 +84,14 @@ function Get-OfficialDefaultInstalledPlugins {
         [pscustomobject]@{
             Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
+            InstallerClassifier = 'windows-x64'
+            NativeTargets = @('windows-x64', 'windows-arm64', 'linux-x64', 'linux-arm64', 'macos-arm64')
             RequiredLibPatterns = @(
                 "^ui-desktop-[0-9].*\.jar$",
                 "^material-icons-extended-desktop-[0-9].*\.jar$",
                 "^jna-[0-9].*\.jar$",
                 "^jna-platform-[0-9].*\.jar$",
                 "^skiko-awt-[0-9].*\.jar$",
-                "^skiko-awt-runtime-windows-x64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-windows-arm64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-linux-x64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-linux-arm64-[0-9].*\.jar$",
-                "^skiko-awt-runtime-macos-arm64-[0-9].*\.jar$",
                 "^kotlin-stdlib-[0-9].*\.jar$"
             )
         },
@@ -186,12 +183,24 @@ function Get-OfficialPluginArtifactExtension {
     throw "Unsupported official plugin artifact format '$format' for $($Plugin.Id)."
 }
 
+function Get-InstallerPluginVariant($Plugin) {
+    if ($Plugin.PSObject.Properties['InstallerClassifier']) {
+        $variant = $Plugin.PSObject.Copy()
+        $variant | Add-Member -NotePropertyName Classifier -NotePropertyValue $Plugin.InstallerClassifier
+        $variant.NativeTargets = @($Plugin.InstallerClassifier)
+        return $variant
+    }
+}
+
 function Get-OfficialPluginArtifactName {
     param(
         [Parameter(Mandatory = $true)]$Plugin,
         [Parameter(Mandatory = $true)][string]$Version
     )
     $extension = Get-OfficialPluginArtifactExtension $Plugin
+    if ($Plugin.PSObject.Properties['Classifier']) {
+        return "$($Plugin.Module)-$Version-$($Plugin.Classifier).$extension"
+    }
     return "$($Plugin.Module)-$Version.$extension"
 }
 
@@ -203,14 +212,21 @@ function Find-PrebuiltOfficialPluginArtifact {
     $extension = Get-OfficialPluginArtifactExtension $Plugin
     $artifactNamePattern = '^' + [regex]::Escape($Plugin.Module) +
         '-(?:0|[1-9][0-9]*)\..*\.' + [regex]::Escape($extension) + '$'
-    $candidate = Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue |
+    if ($Plugin.PSObject.Properties['Classifier']) {
+        $Directory = Join-Path $Directory $Plugin.Classifier
+        $artifactNamePattern = '^' + [regex]::Escape($Plugin.Module) + '-[0-9].*-' +
+            [regex]::Escape($Plugin.Classifier) + '\.' + [regex]::Escape($extension) + '$'
+    }
+    $candidates = @(Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue |
         Where-Object {
             $_.Name -match $artifactNamePattern -and
                 $_.Name -notlike "*-sources.jar" -and
                 $_.Name -notlike "*-javadoc.jar"
-        } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+        } | Sort-Object LastWriteTime -Descending)
+    if ($Plugin.PSObject.Properties['InstallerClassifier'] -and $candidates.Count -gt 1) {
+        throw "Ambiguous plugin artifacts for $($Plugin.Module) under $Directory."
+    }
+    $candidate = $candidates | Select-Object -First 1
     if (-not $candidate) {
         throw "Prebuilt plugin artifact for module $($Plugin.Module) not found under $Directory."
     }
@@ -740,6 +756,9 @@ function Find-ModulePluginArtifact {
         [Parameter(Mandatory = $true)]$Plugin,
         [Parameter(Mandatory = $true)][string]$ProjectRoot
     )
+    if ($Plugin.PSObject.Properties['Classifier']) {
+        return Find-PrebuiltOfficialPluginArtifact $Plugin (Join-Path $ProjectRoot "$($Plugin.Module)/target")
+    }
     $format = if ($Plugin.Format) { $Plugin.Format } else { "jar" }
     if ($format -eq "jar") {
         return Find-ModuleJar $Plugin.Module $ProjectRoot
@@ -811,6 +830,16 @@ function Assert-JarWithPrivatePluginLibs {
     $libJars = @($entries | Where-Object { $_ -match "^lib/[^/]+\.jar$" })
     if (-not $libJars) {
         throw "Plugin jar missing lib/*.jar payload: $JarPath"
+    }
+    if ($Plugin.PSObject.Properties['NativeTargets']) {
+        $runtimes = @($libJars | Where-Object { $_ -clike 'lib/skiko-awt-runtime-*' })
+        if ($runtimes.Count -ne $Plugin.NativeTargets.Count) {
+            throw "Unexpected Skiko native runtime set in $JarPath. Expected: $($Plugin.NativeTargets -join ', ')"
+        }
+        foreach ($target in $Plugin.NativeTargets) {
+            $pattern = '^lib/skiko-awt-runtime-' + [regex]::Escape($target) + '-[0-9][^/]*\.jar$'
+            if (@($runtimes -cmatch $pattern).Count -ne 1) { throw "Missing Skiko runtime $target in $JarPath." }
+        }
     }
     $requiredLibPatterns = @($Plugin.RequiredLibPatterns)
     foreach ($required in $requiredLibPatterns) {

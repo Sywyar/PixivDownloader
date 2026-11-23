@@ -93,6 +93,7 @@ try {
     }
 
     & {
+        . (Join-Path $repoRoot 'scripts/plugin-distribution-common.ps1')
         # Run the publisher with only build, signing and GitHub process boundaries replaced.
         $parseErrors = $null
         $ast = [Management.Automation.Language.Parser]::ParseFile(

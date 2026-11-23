@@ -39,6 +39,9 @@ $OnlineAppImageRoot = Join-Path $BuildRoot "app-image-online"
 $OnlineAppDir = Join-Path $OnlineAppImageRoot "PixivDownload"
 $OfflineAppImageRoot = Join-Path $BuildRoot "app-image-full"
 $OfflineAppDir = Join-Path $OfflineAppImageRoot "PixivDownload"
+$SetupImageRoot = Join-Path $BuildRoot 'app-image-setup'
+$SetupAppDir = $OnlineAppDir
+$separateSetupImage = -not $SkipPlugins -and -not $SkipInstaller -and (-not $SkipPortable -or -not $SkipOfflinePortable)
 $InnoToolchainDir = Join-Path $BuildRoot "inno-admin-loader"
 $OutDir = if ($AllowUnsignedLocalPlugins) {
     Join-Path $BuildRoot "out-local-unsigned"
@@ -309,6 +312,7 @@ try {
     }
 
     $cleanPaths = @($InputDir, $RuntimeDir, $AotTrainingDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)
+    if ($separateSetupImage) { $cleanPaths += $SetupImageRoot }
     $protectedInputs = @($resolvedPrebuiltJar, $resolvedPrebuiltPluginsDir)
     if (-not $SkipInstaller) {
         $protectedInputs += Split-Path -Parent $innoCompilerSource
@@ -419,23 +423,37 @@ try {
     if (-not $SkipPlugins) {
         Write-Step "Staging official default-installed external plugins into app-image plugins/"
         $defaultInstalledPlugins = @(Get-OfficialDefaultInstalledPlugins)
-        $defaultInstalledCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -Plugins $defaultInstalledPlugins `
-            -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
-            -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
-            -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
-        Write-Host ("    {0} official default-installed plugin(s) staged under plugins/." -f $defaultInstalledCount) -ForegroundColor Green
-        if (-not $AllowUnsignedLocalPlugins) {
-            Write-Step "Training GUI startup with the staged default plugins"
-            New-DistributionAotCache -Java (Join-Path $OnlineAppDir 'runtime/bin/java.exe') `
-                -Jar (Join-Path $OnlineAppDir "app/application/$AppName-$Version.jar") `
-                -Cache (Join-Path $OnlineAppDir 'app/application.aot') `
-                -Training ($AotTrainingDir + '-gui') -Plugins (Join-Path $OnlineAppDir 'plugins')
+        $images = @($OnlineAppDir)
+        if ($separateSetupImage) {
+            Ensure-Directory $SetupImageRoot
+            Copy-Item -LiteralPath $OnlineAppDir -Destination $SetupImageRoot -Recurse
+            $SetupAppDir = Join-Path $SetupImageRoot $AppName
+            $images += $SetupAppDir
+        }
+        foreach ($image in $images) {
+            $forSetup = -not $SkipInstaller -and $image -eq $SetupAppDir
+            $plugins = @(foreach ($plugin in $defaultInstalledPlugins) {
+                $variant = if ($forSetup) { Get-InstallerPluginVariant $plugin }
+                if ($variant) { $variant } else { $plugin }
+            })
+            $defaultInstalledCount = Stage-OfficialPlugins -AppDir $image -Plugins $plugins `
+                -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
+                -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
+                -SignatureToolJar $SignatureToolJar -AllowUnsignedLocalPlugins:$AllowUnsignedLocalPlugins
+            Write-Host "    Staged $defaultInstalledCount default plugins in $image."
+            if (-not $AllowUnsignedLocalPlugins) {
+                $training = if ($forSetup) { "$AotTrainingDir-setup-gui" } else { "$AotTrainingDir-gui" }
+                New-DistributionAotCache -Java (Join-Path $image 'runtime/bin/java.exe') `
+                    -Jar (Join-Path $image "app/application/$AppName-$Version.jar") `
+                    -Cache (Join-Path $image 'app/application.aot') `
+                    -Training $training -Plugins (Join-Path $image 'plugins')
+            }
         }
 
         if ($EnableInstallerPluginSelection) {
             Write-Step "Staging signed installer plugin catalog snapshot"
             Stage-InstallerPluginCatalogSnapshot `
-                -AppDir $OnlineAppDir `
+                -AppDir $SetupAppDir `
                 -SignatureToolJar $SignatureToolJar `
                 -CatalogUrl $OfficialPluginCatalogUrl `
                 -SdkVersion $InstallerSdkVersion `
@@ -492,10 +510,11 @@ try {
 
         Write-Step "Building Windows setup"
         $installerPluginCatalogEnabled = if ((-not $SkipPlugins) -and $EnableInstallerPluginSelection) { "1" } else { "0" }
+        if ($separateSetupImage) { Assert-NoPrivateKeyMaterial $SetupAppDir }
         Invoke-External $innoCompiler @(
             "/DAppVersion=$Version",
             "/DInstallerVersion=$InstallerVersion",
-            "/DAppImageDir=$OnlineAppDir",
+            "/DAppImageDir=$SetupAppDir",
             "/DOutputDir=$OutDir",
             "/DSdkVersion=$InstallerSdkVersion",
             "/DInstallerPluginCatalogEnabled=$installerPluginCatalogEnabled",
