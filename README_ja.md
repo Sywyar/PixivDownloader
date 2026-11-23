@@ -16,6 +16,7 @@ PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説を�
 - **メディア変換と小説機能**：画像は元の形式・PNG・JPG・WebP、うごイラは WebP・GIF・APNG・MP4・元の ZIP を複数選択して保存可能。[小説](https://sywyar.github.io/PixivDownloader/#/ja/novel)は TXT / HTML / EPUB（シリーズ合本対応）での保存、本文全文検索、AI / Youdao / LibreTranslate 翻訳、AI 多役朗読に対応。
 - **ローカルギャラリーと整理ツール**：[作品ギャラリー](https://sywyar.github.io/PixivDownloader/#/ja/gallery)と小説ギャラリーで、条件フィルター、3 状態のタグ/作者絞り込み、ローカルコレクション、一括 ZIP エクスポート、統計ダッシュボード、知覚ハッシュ（dHash）による類似画像検出、読み取り専用のゲスト招待リンクを提供。
 - **スケジュールと通知**：[スケジュールタスク](https://sywyar.github.io/PixivDownloader/#/ja/scheduled-tasks)で一定間隔または 6 フィールド Cron による差分取得を実行し、認証切れ、過剰アクセス警告、連続失敗時にメールやプッシュで通知。
+- **[OpenAPI を使った自動化](https://sywyar.github.io/PixivDownloader/#/ja/http-api)**：スクリプトやエージェントからプログラムキーでダウンロードを開始し、進捗を確認できます。利用できる API と必要な権限はインスタンスの `/openapi` に掲載されています。
 - **プラグインと画面の拡張**：Compose / Swing デスクトップ UI、SQLite と任意の PostgreSQL データベース対応、[プラグイン管理・マーケット](https://sywyar.github.io/PixivDownloader/#/ja/plugin-management)、[PixivBatchDownloader インポート](https://sywyar.github.io/PixivDownloader/#/ja/pixiv-batch-downloader-import)、公開 [サードパーティプラグイン SDK](https://sywyar.github.io/PixivDownloader/#/ja/plugin-development) を提供。
 - **ページ編集とフォーム認証**：必要に応じて[ページエディター](https://sywyar.github.io/PixivDownloader/#/ja/page-editor)をインストールし、ログイン・招待コード引き換え画面のレイアウト変更、再利用可能なコンポーネントの作成、ページの公開・復元ができます。[操作認証（CAPTCHA）](https://sywyar.github.io/PixivDownloader/#/ja/captcha)のオンライン・オフライン対応コンポーネントをフォームにドラッグして公開すると、サーバー側で認証を必須にします。
 
