@@ -20,6 +20,7 @@ PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説を�
 | Pixiv をキーワードで検索してダウンロードする | [検索ダウンロード](/ja/search) |
 | 小説を保存、EPUB に合本、閲覧、翻訳、読み上げする | [小説と読み上げ](/ja/novel) |
 | 新作を定期的に検出してダウンロードする | [スケジュールタスク](/ja/scheduled-tasks) |
+| スクリプトやエージェントからダウンロードを開始し、進捗を確認する | [OpenAPI とプログラムキー](/ja/http-api) |
 | Pixiv のページからダウンロード支援機能を呼び出す | [ユーザースクリプト](/ja/userscripts) |
 | PixivBatchDownloader のダウンロードをギャラリーに登録する | [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import) |
 | 登録済み作品の閲覧、絞り込み、エクスポート、削除を行う | [作品ギャラリー](/ja/gallery) |

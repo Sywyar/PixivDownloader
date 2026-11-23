@@ -20,6 +20,7 @@
   - [Configuration reference](/en/configuration)
   - [Storage and backup](/en/storage)
   - [CLI and advanced reference](/en/usage-guide)
+  - [OpenAPI and program keys](/en/http-api)
   - [Network access and third-party services](/en/network-access)
   - [FAQ](/en/faq)
 
@@ -31,7 +32,6 @@
 - **Contribute**
   - [Third-party plugin SDK](/en/plugin-development)
   - [Main repository development](/en/development)
-  - [Administrator HTTP API](/en/http-api)
   - [Writing HTTP APIs and permissions](/en/http-api-development)
 
 ---

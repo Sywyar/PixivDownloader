@@ -68,6 +68,16 @@ Compose 中的本地作品导入位于「快捷工具」，以弹窗打开。收
 - 导入的外部文件以只读方式引用；应用删除作品登记不会删除这些原文件。原文件以后移动或被删除，引用可能失效，请同时备份数据库和外部目录。
 - 标题、作者和完整页数不一定能从路径推断。元数据待补全不代表本地登记失败；后续联网补全的访问见[网络访问说明](/zh-cn/network-access)。
 
+| 预览结果 | 执行时如何计数 |
+| --- | --- |
+| `NEW` · 登记新作品。 | 写入计入 `imported`，执行时已无变更计入 `skipped`，写入出错计入 `failed`。 |
+| `SUPPLEMENT` · 给已导入作品增加外部文件或页面。 | 写入计入 `imported`，执行时已无变更计入 `skipped`，写入出错计入 `failed`。 |
+| `DUPLICATE` · 所有文件均已登记。 | `skipped` |
+| `CONFLICT` · 登记存在冲突，例如同一页匹配到两个文件。 | `failed` |
+| `MISSING` · 没有匹配的文件。 | `failed` |
+
+计数单位是作品。四部作品均为 `CONFLICT` 时，结果为 `imported: 0, skipped: 0, failed: 4`。可在预览条目的 `reason` 或任务的 `problems` 中查看原因。
+
 ## HTTP API
 
 管理员可通过 `/api/local-import` 使用相同流程，沿用应用的登录鉴权与 CSRF 保护。调用顺序如下：
@@ -92,3 +102,21 @@ Compose 中的本地作品导入位于「快捷工具」，以弹窗打开。收
 `202` 表示请求已接纳，需继续查询结果。同一实例同时只运行一个导入任务；预览和索引不跨进程重启保留。本页描述 HTTP 接口，不代表已经提供独立 MCP 工具。
 
 下载器历史 JSON 的导入是另一种入口，见[导入外部下载](/zh-cn/pixiv-batch-downloader-import)。
+
+## 导入后补齐作品资料 :id=metadata-backfill
+
+导入会登记每页文件及路径模板中能读出的字段。模板只有作品 ID 时，标题、作者、标签和系列可以为空。画廊会立即计入这件作品；按标题、标签或系列查找，则需要先有对应资料。
+
+需要立即补齐时，打开桌面「工具 → 数据回填」。启用启动回填后，下次启动也会检查候选。回填默认先用已登记的本地元数据，再按需要向 Pixiv 查询缺项。上游没有标签或系列时，对应视图仍可能为空。
+
+要只处理刚导入的插画，从导入结果取得作品 ID。在下列请求中把 `12345` 换成该 ID。
+
+1. 查看候选数 — `POST /api/tools/backfill/candidates` `{"artworkIds":[12345]}`
+2. 预演。收到 `202` 后按 `Location` 轮询至结束 — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":true}`
+3. 正式回填。收到 `202` 后同样轮询至结束 — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":false}`
+
+每次只运行一个回填任务。任务结束后可通过原 Location 查询 1 小时，最多保留最近 64 个终态。过期、被挤出或服务重启后，按 ID 查询返回 404。
+
+省略 `artworkIds` 会在全库插画和小说中选择候选，`limit` 只限制数量。查询候选及状态需要 `core:backfill.read`，启动任务需要 `core:backfill.execute`。
+
+读取原文件时，用 `GET /api/downloaded/rawfile/{artworkId}/{page}` 按页访问，首页是 `0`。导入记录的 `folder` 可能只是模板固定前缀，各页也可以分散在不同目录。

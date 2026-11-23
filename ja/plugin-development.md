@@ -131,6 +131,14 @@ public List<WebRouteContribution> routes() {
 4. **`QueueOperations` と実際の処理完了待ち（Quiesce / Drain）を実装**：`workKey` は不透明な文字列で、ホストが `POST /api/download/queue/{queueType}/cancel` の JSON 本文に入れて渡します。非同期・バックグラウンドタスクを持つキューは、`prepareQuiesce` をオーバーライドして新規受付を停止し、正の世代番号を持つ実際の `QueueDrain` を返す必要があります。処理中のタスクがゼロになってから drain を完了します。
 5. **UI スロットとスケジュール機能（任意）**：`uiSlots()` で `WebUiSlotContribution` を提供します。ホストの `PixivVue.mountUiSlot` を使い、Vue runtime はパッケージに含めません。`scheduledSourceDescriptors()` と、子コンテキストの `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean でスケジュール機能を提供します。ホストはスケジューリング、ロック、認証情報、ウォーターマークのコミットを担当します。次のページを取得する前や作品種別を切り替える前に、取得元は `context.workSink().drain()` を呼び出せます。完了後に `context.isPending(key)` を使うと、そのページに再試行待ちの作品があるか確認できます。
 
+`POST /api/download/tasks` でこの作品タイプを受け付けるには、プラグインの子コンテキストに `DownloadSubmissionHandler` Bean を登録します。`workType()` はタイプ ID を返します。OpenAPI に入力スキーマを掲載するには、`inputSchemaResource()` からプラグイン内の JSON Schema の絶対クラスパスを返してください。`submit` でオプションを検証し、正常に戻る前にホストから渡された `DownloadAttempt` を `DownloadLifecycle.track` で登録します。
+
+対象作品のメタデータを取得する際に取得元が 404 を返した場合は、`submit` で `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` をスローします。ホストは SDK のデフォルトメソッド `submitAndReportFailure` を呼び、プラグインのプロキシ経由で理由コードを受け取ります。初回の送信には `404 WORK_NOT_FOUND` が返ります。個別のページや添付ファイルのみが欠けている場合は、そのリソースのエラーとして扱ってください。既存のハンドラーは引き続き `submit` を実装できます。
+
+送信オプションが無効な場合は、JSON Pointer と安定した理由コードを持つ `InputFieldException` を送出します。例は `/options/pages` と `out_of_range` です。標準の `submitAndReportFailure` はプラグインプロキシを通じてフィールドと理由を渡します。診断に入力値や認証情報を含めないでください。
+
+作業量を測定できる場合は、その試行に登録したキューハンドルで `DownloadLifecycle.reportProgress(attempt, task, progress)` を呼びます。`DownloadTaskProgress` の単位は `PAGES`、`IMAGES`、`BYTES` です。工程の総数が既知で正の場合に、同じ単位の完了数と総数を報告します。最終結果は終端イベントで通知します。
+
 ## プラグイン専用ギャラリーの追加
 
 ダウンロード種類のプラグインは、自分のギャラリーの HTML、CSS/JS、ルート、i18n、Controller をすべて所有します。`/pixiv-gallery.html` と `/api/gallery/**` は公式 Pixiv ギャラリープラグイン専用で、汎用のギャラリー集約 API はありません。

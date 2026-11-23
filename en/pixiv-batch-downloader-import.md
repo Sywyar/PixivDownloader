@@ -56,3 +56,5 @@ Keep the page open during import. 100% means processing is finished, not that ev
 4. Click Start import and check successful, skipped and failed counts. No Pixiv cookie is needed. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or the application exits normally.
 
 The PixivBatchDownloader import support userscript makes importing past downloads easier: use method 1 above to read browser history directly. Desktop import also works independently. Closing its dialog leaves the task running; use Cancel to stop it.
+
+[Fill in metadata after import](/en/local-import?id=metadata-backfill)

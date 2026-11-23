@@ -20,6 +20,7 @@
   - [配置参考](/zh-cn/configuration)
   - [存储与备份](/zh-cn/storage)
   - [CLI 与进阶参考](/zh-cn/usage-guide)
+  - [OpenAPI 与程序密钥](/zh-cn/http-api)
   - [网络访问与第三方服务](/zh-cn/network-access)
   - [常见问题](/zh-cn/faq)
 
@@ -31,7 +32,6 @@
 - **参与开发**
   - [第三方插件 SDK](/zh-cn/plugin-development)
   - [主仓库开发](/zh-cn/development)
-  - [管理员 HTTP API](/zh-cn/http-api)
   - [编写 HTTP API 与权限声明](/zh-cn/http-api-development)
 
 ---

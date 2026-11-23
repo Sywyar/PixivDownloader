@@ -20,6 +20,7 @@ PixivDownloader 将 Pixiv 插画、漫画、动图和小说下载到本地电脑
 | 按关键词搜索 Pixiv 并下载 | [搜索下载](/zh-cn/search) |
 | 保存小说、合订 EPUB、阅读、翻译或朗读 | [小说与朗读](/zh-cn/novel) |
 | 定期自动发现并下载新作 | [计划任务](/zh-cn/scheduled-tasks) |
+| 用脚本或 Agent 提交下载、查询进度 | [OpenAPI 与程序密钥](/zh-cn/http-api) |
 | 在 Pixiv 网页直接调用下载辅助 | [油猴脚本](/zh-cn/userscripts) |
 | 将 PixivBatchDownloader 的下载登记到画廊 | [导入外部下载](/zh-cn/pixiv-batch-downloader-import) |
 | 浏览、筛选、导出与删除已登记作品 | [作品画廊](/zh-cn/gallery) |

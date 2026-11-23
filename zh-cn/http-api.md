@@ -1,12 +1,28 @@
 # HTTP API 与程序权限
 
-外部程序可使用 `Authorization: Bearer <程序密钥>`。在安全页面的「程序访问密钥」中创建密钥，设置名称、明确权限和允许的来源 IP。完整密钥仅显示一次，服务端只保存摘要。密钥默认不过期，可编辑权限及来源范围，也可撤销。选择整个插件只包含当前列出的权限，不包含未来新增权限。
+## 用脚本或 Agent 访问 API
+
+1. 在运行 PixivDownloader 的实例上打开 `/openapi`（本机默认 `http://localhost:6999/openapi`）。以管理员身份登录后，可查看当前接口、请求示例和每项操作所需的权限。
+2. 在桌面「设置 → 访问控制 → 程序访问密钥」创建密钥，选好来源 IP 和任务所需权限。脚本或 Agent 要自行读取接口文档，还需勾选 `core:api-reference.read`。没有桌面时，管理员可用登录会话调用 `/api/security/program-keys`。
+3. 脚本通过 `Authorization: Bearer <程序密钥>` 请求 `GET /api/openapi.json`，即可读取机器可读的 OpenAPI 文档。使用 Agent 时，可在创建密钥后点「复制提示词」，将实例的文档地址交给 Agent，密钥单独配置。密钥缺少文档读取权限时，由管理员提供所需的接口说明。
+
+任何人都可以打开 `/openapi` 的访问说明。读取 JSON 文档需要管理员会话或具有文档读取权限的程序密钥；`HEAD /api/openapi.json` 可用相同身份检查权限。
+
+建议使用 HTTPS。来自本机或局域网以外的 HTTP 程序请求默认被拒绝。如需例外，请先复核该密钥的风险，再确认允许公网 HTTP。编辑权限或来源会恢复 HTTPS 要求。即使服务器拒绝请求，已通过明文发送的密钥仍可能被截获。
+
+完整密钥只在创建成功时显示一次，服务端只保存摘要。密钥默认不过期，可编辑权限及来源范围，也可撤销。选择整个插件只包含当前列出的权限。
 
 来源限制接受数值 IPv4、IPv6 和 CIDR 网段。受限模式至少填写一项，「任何来源」需要明确选择。使用反向代理前先配置可信代理。不要同时发送程序密钥、管理员会话、邀请码或 GUI 凭据。采集凭据仍通过独立的 `X-Acquisition-Credential` 传递。
 
 管理员会话仍可通过 `X-Session-Token` 使用原有接口。程序密钥只能访问权限目录明确列出的方法与路径，其他接口保留人类管理员或本机流程。密钥管理和管理员凭据修改只允许人类管理员。这里不提供 MCP 服务。
 
+单独发送有效密钥访问未声明 `programKey` 的操作会收到 `403 auth.program.unsupported`，包括允许匿名访问的操作。无效密钥或混用凭据可能返回 `401 auth.program.invalid`。
+
 使用 Cookie 的写请求必须通过同源检查。浏览器发送跨域 Origin 会被拒绝；插件管理、计划任务等入口还要求明确的同源信号。`/api/gui/**` 保留本机与 GUI token 限制，远程程序使用下列业务接口。插件能力只在对应插件活动且依赖可用时提供。
+
+调用 `GET /api/security/program-keys/self` 可查看当前密钥的 `id` 和 `permissions`，权限列表可以为空。使用 Bearer 发送写请求时也要查看 `x-csrf-origin`。`POST /api/schedule/tasks` 要求同源 Origin 或 Referer。对于没有浏览器凭证的原生 Bearer 客户端，`POST /api/download/tasks` 和 `/api/download/batches` 允许省略两者。
+
+轮换密钥时，管理员在桌面安全页或通过管理员会话创建新密钥。客户端切换后，用 `GET /api/security/program-keys/self` 核对新密钥的身份和权限，再由管理员撤销旧密钥。新密钥无法读取旧密钥提交的任务，可在撤销前轮询至终态，或用管理员会话跟踪。
 
 ## 接口索引
 
@@ -60,12 +76,14 @@
 ## 后台手动批次
 
 1. GET `/api/schedule/sources` 获取当前 `sourceType` 和 `activationToken`。来源定义由所属插件解释。
-2. POST `/api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definitionJson`，可选 `proxy`。`definitionJson` 是 JSON 字符串，最多 1 MiB UTF-8；整个请求最多 8 MiB。
+2. POST `/api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definition`，可选 `proxy`。 将 `definition` 作为 JSON 对象发送，序列化为 UTF-8 后最多 1 MiB，整个请求最多 8 MiB。
 3. 使用返回的 UUID 查询 GET `/api/download/batches/{id}` 和 `/{id}/items?offset=0&limit=100`。逐项身份为批次 UUID 加 `workType`、`id`；它不是单项下载的执行 UUID。
 4. POST `/{id}/pause`、`/cancel`、`/resume`、`/retry` 分别暂停、取消、恢复扫描或只重试失败项。停止中的状态只有在实际执行退出后才终结。重试已发现的失败项不会补扫尚未完成的来源。
 5. 空闲时 DELETE `/{id}` 删除批次记录。一个进程同时保留一个批次；开始新批次前必须删除旧批次。结果不跨进程恢复。
 
-`explicit-list` 支持混合插画和小说。将下列对象序列化成 `definitionJson`；作品 ID 必须为正整数的十进制字符串，同类型不接受重复 ID：
+提交时收到 403，可从 `programPermission` 读取已知的缺失权限。收到 `auth.program.unsupported` 时，查看操作的 `x-program-alternative`。收到 202 后，持 `core:batches.read` 访问 `Location`。若后台执行缺权，批次结果会在 `programPermission` 中给出权限 ID。
+
+`explicit-list` 支持混合插画和小说。将下列对象放入 `definition`。作品 ID 必须为正整数的十进制字符串，同类型不接受重复 ID：
 
 ```json
 {
@@ -110,7 +128,7 @@
 ```json
 {
   "delayMs": 0,
-  "limit": 100,
+  "artworkIds": [12345],
   "dryRun": true,
   "alwaysNetwork": false
 }
@@ -120,11 +138,49 @@
 
 数据库迁移使用预览返回的 token 确认。环境恢复使用预览 token、选择字段、路径映射及密码，返回 `RESTORE_PENDING` 后由替代进程执行。环境导出须给出服务器绝对 `destination` 和 `confirmRestart:true`，可选 `password`、`includeCredentials`、`includeDatabases`、`includeState`、`includeResources`；资源须同时包含数据库，凭据、数据库或状态须设置密码。归档不会覆盖已有目标。服务会停止后端、导出、再请求完整重启，客户端需重新连接查询；重启失败时须手动启动应用。更新安装须提交当前已验证安装包的 SHA-256。
 
+`POST /api/library/artworks/{artworkId}/recover-metadata` 接受调用方提供的字段，保留已有值；请求体缺失、不可读或没有可用字段会返回 `400`。要由后端获取标签和系列，可按导入作品 ID 启动回填。 [导入后补齐作品资料](/zh-cn/local-import?id=metadata-backfill)
+
+使用 `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 筛选引用外部文件的作品。`MANAGED` 表示文件由应用管理，删除作品时一并清理。`EXTERNAL_REFERENCE` 表示当前登记引用外部文件，删除作品时保留原件。删除后，作品库保留 `deleted=true` 的记录供查重。
+
+在 `/openapi` 打开一个操作，点击响应列表下方「相关接口」里的方法名即可跳转。例如，「列出本地导入预设」可直接跳到「预览本地作品扫描」。服务端按语言缓存接口文档和相关链接。插件路由等目录内容发生变化后，下次打开页面即可看到更新。
+
+操作的 `externalDocs` 指向使用指南。响应 `links` 给出后续请求，并指明从响应何处取参。`x-related-operations` 优先列出声明的替代入口和响应链接，其次是说明中提到的路由和同资源或同组操作。调用前核对目标接口的参数和权限。`x-related-guides` 列出这些操作的指南。
+
+插画和小说的批量筛选覆盖所有匹配页。`"mode":"filter"` 要求 `filter` 是 JSON 对象。ID 数组只接受正的 JSON 整数，例如 `42`。小数 `42.9`、字符串 `"42"`、零和负数都会返回 HTTP 400，可根据响应中的 `field` 修正。显式传入 `"filter":{}` 或仅含分页参数的 `filter` 时，会选中该类型的全部作品。删除或导出后清理源作品时，须用 `"confirmAll":true` 确认这种选择；程序密钥还须具备对应图库的删除权限。导出返回 `archiveToken` 后，使用 `core:archives.read` 轮询 `GET /api/archive/status/{token}`。状态为 `ready` 时，使用 `core:archives.download` 调用 `GET /api/archive/download/{token}`。
+
 ## 错误与历史
+
+查询插画或小说元数据，或通过 `POST /api/download/tasks` 提交下载时，`404 WORK_NOT_FOUND` 表示来源在当前身份下找不到目标作品。请核对作品 ID 和可见性。按任务 ID 查询时，`404 DOWNLOAD_TASK_NOT_FOUND` 表示当前调用方查不到该任务。
+
+轮询手动批次时，用 `state` 判断状态。`code` 可以为空，也可以是来源插件或账号策略提供的原因码。`batch.work-failed` 可通过批次的 `items` 查看失败项；作者批次返回 `schedule.pixiv.discovery-not-found` 时，应核对作者 ID。遇到未知码仍按 `state` 处理。
 
 错误响应包含机器 `code` 和本地化 `error`。400 表示非法参数，401/403 表示身份或权限拒绝，404 表示指定身份不存在，409 表示忙碌、版本冲突或状态不允许，413 表示正文超限，503 表示当前能力不可用。按业务状态处理，不把所有非 2xx 自动重试。
 
-GET `/api/download/tasks/history` 默认每页 50 项、最多 200 项，按返回的 `beforeTime` 与 `beforeId` 一起续页。它只枚举已保存终态，不恢复在途下载。单项下载的请求去重限于当前进程保留窗口；查不到执行不代表可以安全重投。工具历史与批次结果使用各自保留规则。
+`POST /api/download/tasks` 返回 202 时，可轮询 `Location`。路径参数 `taskId` 取回执中的 `task.attempt.attemptId`。
+
+建议每 2 秒读取一次。`revision` 持续不变时逐步延长至 10 秒，有更新时恢复到 2 秒。`phase` 为 `COMPLETED`、`FAILED` 或 `CANCELLED` 时停止。收到 `Retry-After` 时，至少等待指定时间再请求。
+
+从 `x-download-submissions` 选择 `workType`。未发布的类型返回 `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`。请求体字段出错时，`field` 是 JSON Pointer。查询、路径、请求头和 multipart 参数的 `field` 是接口声明中的名称。调用方可按 `in`、`field` 和 `reason` 定位问题。例如 `/options/pages` 配合 `out_of_range` 表示页码超出作品范围。`explicit-list` 批次缺少 `/definition/source/acquisitionMode` 时，在创建批次前返回 400。
+
+有进度时，一起读取 `progress.unit`、`completed` 和 `total`。这些值描述本次尝试的当前步骤，最终结果看 `phase`。`progress` 为空表示没有测量值。
+
+| 值 | 读取和提交方式 |
+| --- | --- |
+| Pixiv 作品 ID | 图库 `artworkId`、导出 `ids[]` 是 JSON 整数。Pixiv 搜索 `id`、任务 `workId`、批次 `key.id` 是字符串。转换时保留整数精度，其他提供方自行定义 `workId`。 |
+| 下载设置 | 单任务 `options` 用 `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`。批次 `definition.download` 用 `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`。 |
+| 时间与文件 | 任务 `updatedAt` 使用 ISO 8601。批次 `createdTime`、图库 `time`、计划 `nextRunTime` 使用 Unix 毫秒。`outputPath` 是本次任务预定的服务器目录，图库 `folder` 是作品登记位置。按作品 ID 关联。 |
+| 响应结构 | `GET /api/authors` 返回数组，`GET /api/authors/paged` 返回含 `content` 的分页对象，`GET /api/downloaded/statistics` 返回含 `success` 和计数的对象。 |
+
+| 接口 | 分页参数 | 如何获取下一页 |
+| --- | --- | --- |
+| `GET /api/gallery/artworks` | `page`, `size` | 首页传 `page=0`，随后将 `page` 加一。 |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | 从 `offset=0` 开始，按本页实际返回的条目数增加偏移量。 |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 首页省略两个游标字段。续页时原样传回上一页返回的两个值。 |
+| `GET /api/pixiv/search` | `page` | 从第 1 页开始，小于 1 取第 1 页。 |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 将 `nextCursor` 原样传为 `cursor`。插件版本列表的续页字段是 `nextVersionCursor`。 |
+
+下载任务历史默认每页 50 项，最多 200 项。它只枚举已保存终态，不恢复在途下载。同一调用方在当前进程仍保留幂等记录时，以相同 `requestId` 重试相同命令可取得原回执。终态结果保存后，幂等记录可在任务结束五分钟后过期，再次提交可能创建新任务。工具历史与批次结果使用各自保留规则。
+
 ## 程序权限列表
 
 当前安装的权威目录由管理员调用 GET `/api/security/program-keys/permissions` 获取。下表列出内置声明；外部插件的权限以当前目录为准。`*` 表示一个路径段。密钥只接受精确授权，不支持插件或路径通配授权。
@@ -156,6 +212,7 @@ GET `/api/download/tasks/history` 默认每页 50 项、最多 200 项，按返�
 | `ai:connection.test` | 测试 AI 连接（会调用模型） | POST `/api/admin/ai/test` |
 | `ai:models.read` | 查询可用 AI 模型 | POST `/api/admin/ai/models` |
 | `ai:status.read` | 查看 AI 配置状态 | GET `/api/admin/ai/status` |
+| `core:api-reference.read` | 读取或探测 HTTP 接口目录 | GET, HEAD `/api/openapi.json` |
 | `core:application.read` | 读取程序信息与界面语言资源 | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
 | `core:archives.create` | 创建插画导出归档 | POST `/api/archive/pack-artworks` |
 | `core:archives.download` | 下载安装实例的导出归档 | GET `/api/archive/download/*` |

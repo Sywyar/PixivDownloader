@@ -68,6 +68,16 @@ Variable names must match the lowercase snake_case spellings in the table exactl
 - External files are referenced read-only. Deleting an artwork registration in the application does not delete its original files. Moving or deleting those files later can break references; back up both the database and the external directories.
 - Paths may not contain titles, authors or the complete page count. Pending metadata does not mean registration failed. See [network access](/en/network-access) for subsequent online metadata requests.
 
+| Preview disposition | Count when executed |
+| --- | --- |
+| `NEW` · Register a new work. | A write counts as `imported`, no change as `skipped` and a write failure as `failed`. |
+| `SUPPLEMENT` · Add external files or pages to a previously imported work. | A write counts as `imported`, no change as `skipped` and a write failure as `failed`. |
+| `DUPLICATE` · All files are already registered. | `skipped` |
+| `CONFLICT` · A conflict prevents registration, for example two files matching the same page. | `failed` |
+| `MISSING` · No file matches. | `failed` |
+
+Counts are per work. Four works with `CONFLICT` give `imported: 0, skipped: 0, failed: 4`. Check the item’s `reason` or the task’s `problems` for details.
+
 ## HTTP API
 
 Administrators can use the same workflow through `/api/local-import`, with the application's authentication and CSRF protection:
@@ -92,3 +102,21 @@ Request body to scan two artworks using all saved paths:
 A `202` response means the request was accepted; keep checking the result. Each instance runs one import task at a time. Previews and the index do not survive a process restart. These are HTTP endpoints, not a claim that a separate MCP tool is available.
 
 For downloader history JSON, see [import external downloads](/en/pixiv-batch-downloader-import).
+
+## Fill in metadata after import :id=metadata-backfill
+
+Import registers the files for each page and the fields present in the path template. An ID-only template can leave the title, author, tags and series empty. The gallery counts the work immediately. Title searches, tag filters and series views need the corresponding metadata.
+
+To fill the gaps now, open the database backfill tool in desktop Tools. When startup backfill is enabled it also checks candidates on startup. By default, backfill uses registered local metadata first and queries Pixiv for missing fields. A work can still have no tags or series if the source has none.
+
+To process only the illustrations just imported, take their IDs from the import results. Replace `12345` below with an imported ID.
+
+1. Count matching candidates — `POST /api/tools/backfill/candidates` `{"artworkIds":[12345]}`
+2. Preview the run. After `202`, poll `Location` until it finishes — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":true}`
+3. Apply the changes. Poll the new `Location` to completion — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":false}`
+
+One backfill runs at a time. Its Location remains readable for up to one hour after completion. Only the latest 64 terminal results are retained. Expiry, eviction or a server restart gives 404 for that ID.
+
+Omitting `artworkIds` selects candidates from all illustrations and novels. `limit` caps the count. Candidate and status requests require `core:backfill.read`, and starting a task requires `core:backfill.execute`.
+
+Read original files with `GET /api/downloaded/rawfile/{artworkId}/{page}`, starting at page `0`. An import's `folder` may be only the fixed template prefix, and pages can live in different directories.

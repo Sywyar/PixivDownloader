@@ -131,6 +131,14 @@ public List<WebRouteContribution> routes() {
 4. **实现 `QueueOperations` 与真实排空（Quiesce / Drain）**：`workKey` 为不透明字符串（由宿主通过 `POST /api/download/queue/{queueType}/cancel` 的 JSON 请求体传递）。凡有异步或后台任务的队列，必须覆写 `prepareQuiesce` 停止新接纳并返回正代际的真实 `QueueDrain`，待在途任务归零后完成 drain。
 5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。来源需要在翻页或切换作品类别前等候时，可以调用 `context.workSink().drain()`。等待返回后，仍可通过 `context.isPending(key)` 检查本页是否有作品待重试。
 
+要让 `POST /api/download/tasks` 接纳这个作品类型，在插件子上下文注册 `DownloadSubmissionHandler` Bean。`workType()` 返回类型标识，`inputSchemaResource()` 可返回插件内 JSON Schema 的绝对 classpath 路径，供宿主生成 OpenAPI。实现 `submit` 时校验选项，并在成功返回前用 `DownloadLifecycle.track` 登记宿主传入的 `DownloadAttempt`。
+
+如果来源在查询目标作品元数据时明确返回 404，在 `submit` 中抛出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`。宿主调用 SDK 的默认方法 `submitAndReportFailure`，将原因码传过插件代理，首次提交返回 `404 WORK_NOT_FOUND`。仅缺少某一页或附件时，应保留该资源的失败语义。已有处理器可以继续实现 `submit`。
+
+提交选项无效时，抛出带 JSON Pointer 和稳定原因码的 `InputFieldException`，例如 `/options/pages` 和 `out_of_range`。默认的 `submitAndReportFailure` 会把字段和原因传过插件代理。诊断中不要包含输入原值或凭证。
+
+工作量可测时，使用该尝试登记的队列句柄调用 `DownloadLifecycle.reportProgress(attempt, task, progress)`。`DownloadTaskProgress` 的单位可为 `PAGES`、`IMAGES` 或 `BYTES`，已完成数和总数使用同一单位。仅在当前步骤总量已知且大于零时报告，最终结果仍由终态事件给出。
+
 ## 新增插件自有画廊
 
 每个下载类型插件完整拥有自己的画廊 HTML、CSS/JS、路由、i18n 与 Controller（`/pixiv-gallery.html` 与 `/api/gallery/**` 仅归官方 Pixiv 画廊插件所有，不存在通用画廊聚合 API）。

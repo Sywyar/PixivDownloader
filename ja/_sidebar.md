@@ -20,6 +20,7 @@
   - [設定リファレンス](/ja/configuration)
   - [ストレージとバックアップ](/ja/storage)
   - [CLI と詳細リファレンス](/ja/usage-guide)
+  - [OpenAPI とプログラムキー](/ja/http-api)
   - [ネットワークアクセスと外部サービス](/ja/network-access)
   - [よくある質問](/ja/faq)
 
@@ -31,7 +32,6 @@
 - **開発への参加**
   - [サードパーティープラグイン SDK](/ja/plugin-development)
   - [主リポジトリの開発](/ja/development)
-  - [管理者 HTTP API](/ja/http-api)
   - [HTTP API と権限宣言の作成](/ja/http-api-development)
 
 ---

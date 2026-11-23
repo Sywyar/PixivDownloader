@@ -68,6 +68,16 @@ Compose 中的本機作品匯入位於「快捷工具」，以彈窗開啟。收
 - 外部檔案以唯讀方式參照；在應用程式刪除作品登記不會刪除原檔案。之後搬移或刪除原檔案可能使參照失效，請同時備份資料庫與外部目錄。
 - 路徑不一定包含標題、作者與完整頁數。中繼資料待補全不代表登記失敗；後續連線補全請見[網路存取說明](/zh-hant/network-access)。
 
+| 預覽結果 | 執行時如何計數 |
+| --- | --- |
+| `NEW` · 登錄新作品。 | 寫入計入 `imported`，執行時已無變更計入 `skipped`，寫入失敗計入 `failed`。 |
+| `SUPPLEMENT` · 為已匯入作品新增外部檔案或頁面。 | 寫入計入 `imported`，執行時已無變更計入 `skipped`，寫入失敗計入 `failed`。 |
+| `DUPLICATE` · 所有檔案皆已登錄。 | `skipped` |
+| `CONFLICT` · 登錄有衝突，例如同一頁比對到兩個檔案。 | `failed` |
+| `MISSING` · 找不到相符的檔案。 | `failed` |
+
+以作品為單位計數。四部作品皆為 `CONFLICT` 時，結果為 `imported: 0, skipped: 0, failed: 4`。可從預覽項目的 `reason` 或任務的 `problems` 查看原因。
+
 ## HTTP API
 
 管理員可透過 `/api/local-import` 使用相同流程，沿用應用程式的登入驗證與 CSRF 保護：
@@ -92,3 +102,21 @@ Compose 中的本機作品匯入位於「快捷工具」，以彈窗開啟。收
 `202` 表示已接受請求，仍須查詢結果。每個執行個體同時只執行一個匯入工作；預覽與索引不會在程序重新啟動後保留。本頁介紹 HTTP 介面，不表示已提供獨立 MCP 工具。
 
 下載器歷史 JSON 請使用另一個入口：[匯入外部下載](/zh-hant/pixiv-batch-downloader-import)。
+
+## 匯入後補齊作品資料 :id=metadata-backfill
+
+匯入會登錄每頁檔案及路徑範本中能讀出的欄位。範本只有作品 ID 時，標題、作者、標籤和系列可能空白。收藏庫會立即計入這件作品；依標題、標籤或系列查找則需要對應資料。
+
+需要立即補齊時，請開啟桌面「工具 → 資料回填」。啟用啟動時回填後，下次啟動也會檢查候選。預設先使用已登錄的本機中繼資料，再視需要向 Pixiv 查詢缺項。來源沒有標籤或系列時，對應檢視仍可能空白。
+
+若要只處理剛匯入的插畫，請從匯入結果取得作品 ID。將下例的 `12345` 換成該 ID。
+
+1. 查看候選數 — `POST /api/tools/backfill/candidates` `{"artworkIds":[12345]}`
+2. 試跑。收到 `202` 後依 `Location` 查詢至完成 — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":true}`
+3. 正式回填。依新的 `Location` 查詢至完成 — `POST /api/tools/backfill/tasks` `{"artworkIds":[12345], "dryRun":false}`
+
+一次只執行一個回填任務。結束後可透過原 Location 查詢最多 1 小時，僅保留最近 64 個最終結果。逾時、超出筆數遭移除或服務重啟後，依 ID 查詢會回傳 404。
+
+省略 `artworkIds` 會從整個收藏庫的插畫及小說選取候選，`limit` 只限制數量。查詢候選及狀態需要 `core:backfill.read`，啟動工作需要 `core:backfill.execute`。
+
+請用 `GET /api/downloaded/rawfile/{artworkId}/{page}` 逐頁讀取原檔，首頁是 `0`。匯入記錄的 `folder` 可能只有範本固定前綴，各頁也可能位於不同目錄。

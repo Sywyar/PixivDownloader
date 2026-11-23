@@ -1,6 +1,30 @@
 # Writing HTTP APIs and permission declarations
 
+Spring MVC supplies the methods, paths and parameters. Descriptions can come from Javadoc retained at compile time. Use `@Operation`, `@Schema` and OpenAPI request body annotations for examples, manually decoded JSON and response details. Permissions come from active route declarations. Check each new operation in `/openapi` for its inputs, success status, target plugin restrictions and main errors. For asynchronous calls, explain how to retrieve the result.
+
 When adding or changing business features in Web, Swing, Compose or CLI, check their HTTP API coverage in the same change. See [HTTP API](/en/http-api) for calls and endpoints, and [Third-party plugin SDK](/en/plugin-development) for plugin contracts.
+
+In the controller’s HTTP language bundle, set `guide` to the group’s guide URL. Use `<Controller>.<method>.<VERB>.guide` for a more specific page or section. The generated operation exposes its own guide in `externalDocs` and distinct guides from related operations in `x-related-guides`. For a follow-up request whose parameters come from a response, declare `links` on that `@ApiResponse`.
+
+Read the route grant from `x-program-permission`. For operations with additional checks, `x-program-permissions.route` has the same value. `discovery` identifies the call that supplies the source token. Each `submit` entry selects a grant directly, by request header, or from a catalog. In `x-schedule-sources`, use `schedulePermission` to manage schedules and `batchSubmitPermission` to submit a batch. A plugin endpoint that submits a manual batch for a fixed source declares `x-manual-batch-source` with that source type. The caller needs no discovery request on that endpoint. The instance OpenAPI document defines each phase, field and context prefix (`request#`, `task#`, `batch#`, `item#`) in its top-level `x-program-permission-conditions`.
+
+For a conditional grant, read the JSON field at `when.keyFrom` and compare it to the literal `when.value`. For example, gallery export also requires the delete grant when `request#/deleteAfter` is the boolean `true`.
+
+`execution` lists the grants for the work types selected by the plan in `executePermissionsByWorkType`. The worker also rechecks the source grant. A known missing grant appears at the JSON Pointer in `reportedIn.pointer`: read the HTTP 403 body on submission, or follow the 202 response’s `Location` with `core:batches.read` and read the batch result. A typed download rejection exposes the same ID through `DownloadTaskException.programPermission()`. For `auth.program.unsupported`, check `x-program-alternative` for another operation.
+
+`x-csrf-origin` is `origin-or-referer` when a native client must send one of the two same-origin headers. `origin-required` uses the Origin parameter’s own constraints. For `conditional`, follow the parameter description for browser signals and cookies.
+
+For a named JSON SSE event, declare the event DTO as the `text/event-stream` content schema and set the content extension `x-sse-data-event` to the event name. The generated media type keeps its string wire format and maps the event name to the DTO schema under `x-sse-events`. To link a browser operation to its program-key alternative, set `x-program-alternative` on the operation to its HTTP method and path, for example `POST /api/download/tasks`.
+
+## Write an operation description and optional Details section
+
+The controller annotation `@HttpApiGroup("core-batch")` selects `src/main/resources/i18n/http/core-batch.properties` in the module that owns the controller. Add the text there and translations in the same directory, for example in `core-batch_en.properties`. The host reads the bundle for the document language when it generates OpenAPI.
+
+Each key starts with the controller’s simple class name, the Java method name and the uppercase HTTP method. Use `ANY` if the method mapping does not specify exactly one HTTP method. For `POST /api/download/batches`, `ManualBatchController.create.POST.summary` supplies the title, `.description` supplies the introduction, and `ManualBatchController.create.POST.details` holds optional Markdown.
+
+The host appends the Markdown to the OpenAPI operation’s `description`, and `/openapi` shows a collapsed **Details** row. Select the row to read the full text. On `POST /api/download/tasks`, active download providers can also supply per-type text through `schema.DownloadSubmission.<workType>.description`. The page omits the section when neither the operation nor its providers supply text.
+
+Before writing the section, trace every reachable path from the HTTP handler, including authorization, validation, provider dispatch, background work, file writes, result lookup and failure recovery where applicable. State which results the caller gets at submission and which become available when the task finishes. Check each language in `/api/openapi.json`, then open the matching method and path in `/openapi` and check that **Details** starts collapsed and opens from the keyboard to show the full text.
 
 ## When an API is required
 
@@ -42,6 +66,10 @@ Shared APIs also check the target resource. Settings, media and file imports req
 Document methods, paths, permissions, target scope, request fields and budgets, asynchronous states and major errors. Validate paths, credentials and JSON at trust boundaries. Send keys only in `Authorization: Bearer`, never URLs, logs or browser storage. Use the client address normalized by the trusted proxy filter, not raw forwarding headers. Existing CSRF, recovery mode and plugin leases still apply.
 
 Errors retain a stable `code` and localized `error`. Distinguish invalid input, denial, missing objects, revision conflicts, limits, unavailable capabilities and uncertain results. Query results after network interruption; do not automatically replay writes.
+
+When a plugin validates an HTTP parameter itself, it can throw `top.sywyar.pixivdownload.core.web.HttpParameterException` from the SDK’s JDK-only `pixivdownload-core-api` module. For example, reject an unsupported `order` query value with `new HttpParameterException("query", "order", "invalid_value")`. The host returns HTTP 400 with `code=error.request.param.invalid`, a localized `error`, and `in`, `field` and `reason`. Existing plugins can keep their own error responses. To include this error and its fields in the instance’s OpenAPI document, annotate the operation with `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")`.
+
+Use `query`, `path`, `header`, `part` or `body` for `in`. For the first four, `field` is the parameter or part name on the wire. For a JSON body it is a JSON Pointer such as `/options/pages`. Use a stable `reason`, for example `required`, `type` or `invalid_value`. Keep submitted values out of these three fields. The host identifies missing parameters and conversion failures reported by Spring during binding.
 
 Tests must exercise real filters or HTTP entry points and prove denied operations have no business effects. Cover methods, target plugins, source networks, revocation, replacement and failed persistence. Update the permission catalog, callers, five-language documentation and relevant regressions with the API. Declarations and compilation do not replace interaction and runtime verification.
 

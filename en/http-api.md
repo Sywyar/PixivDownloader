@@ -1,12 +1,28 @@
 # HTTP API and program permissions
 
-External programs can use `Authorization: Bearer <program-key>`. Open **Program access keys** from the security page to create a named key with explicit permissions and allowed source IPs. The full key is shown once; the server stores its digest. Keys have no default expiry. You can edit permissions and sources or revoke a key. Selecting a plugin includes only its currently listed permissions, excluding future additions.
+## Connect a script or agent
+
+1. Open `/openapi` on your PixivDownloader instance (locally, the default is `http://localhost:6999/openapi`). Sign in as an administrator to see the available endpoints, request examples and permissions for each operation.
+2. In desktop **Settings → Access control → Program access keys**, create a key for the client’s source IP and the operations it needs. Grant `core:api-reference.read` if the script or agent will read the API reference itself. On a headless server, an administrator can manage keys through `/api/security/program-keys` using a signed-in session.
+3. A script can request `GET /api/openapi.json` with `Authorization: Bearer <program-key>` to read the OpenAPI document. For an agent, choose **Copy prompt** after creating the key to share your instance’s documentation URL. Configure the key separately. If the key lacks permission to read the document, provide the relevant operation descriptions yourself.
+
+Anyone can open the access instructions at `/openapi`. Reading the JSON document requires an administrator session or a program key with reference access. Use `HEAD /api/openapi.json` with the same credentials to check access.
+
+Use HTTPS. By default the server rejects program keys sent over HTTP from outside the local network. To allow an exception, review the risk for the individual key, then confirm public HTTP access. Editing its permissions or sources restores the HTTPS requirement. A server rejection cannot protect a key already sent in plaintext.
+
+The full key appears once at creation. The server stores its digest. Keys have no default expiry. You can change a key’s permissions and allowed sources or revoke it. Selecting a whole plugin grants only the permissions currently listed.
 
 Source restrictions accept numeric IPv4, IPv6 and CIDR networks. Restricted mode requires at least one entry; **Any source** is an explicit choice. Configure trusted proxies before using a reverse proxy. Do not combine a program key with administrator sessions, invitations or GUI credentials. Send acquisition credentials separately in `X-Acquisition-Credential`.
 
 Administrator sessions can still use existing endpoints through `X-Session-Token`. Program keys can access only methods and paths explicitly listed in the permission catalog. Other endpoints retain their human-administrator or local workflows. Key management and administrator credential changes require a human administrator. This API does not provide an MCP server.
 
+A valid Bearer key sent on its own to an operation without `programKey` receives `403 auth.program.unsupported`, even when anonymous access is allowed. An invalid key or mixed credentials can return `401 auth.program.invalid`.
+
 Cookie-authenticated writes require a same-origin check. Cross-origin browser requests are rejected; plugin management and scheduled-task endpoints also require an explicit same-origin signal. `/api/gui/**` retains its local-machine and GUI-token restrictions. Remote programs use the business endpoints below. Plugin capabilities require an active plugin and available dependencies.
+
+Use `GET /api/security/program-keys/self` to read the current key’s `id` and `permissions`, including an empty grant list. For writes, check `x-csrf-origin` even when using Bearer authentication. `POST /api/schedule/tasks` requires a same-origin Origin or Referer. `POST /api/download/tasks` and `/api/download/batches` allow a native Bearer client without browser credentials to omit both.
+
+To rotate a key, an administrator creates its replacement on the desktop Security page or through an administrator session. Switch the client, verify the new identity and grants with `GET /api/security/program-keys/self`, then have the administrator revoke the old key. Tasks submitted with the old key remain scoped to it. Finish polling them before revocation or follow them with an administrator session.
 
 ## Endpoint index
 
@@ -60,12 +76,14 @@ Repository edits must carry the `revision` returned by GET. Adding a repository 
 ## Background manual batches
 
 1. GET `/api/schedule/sources` for the current `sourceType` and `activationToken`. The source plugin defines its input format.
-2. POST `/api/download/batches` with `name`, `sourceType`, `activationToken`, `definitionJson` and optional `proxy`. `definitionJson` is a JSON string, limited to 1 MiB UTF-8; the whole request is limited to 8 MiB.
+2. POST `/api/download/batches` with `name`, `sourceType`, `activationToken`, `definition` and optional `proxy`. Send `definition` as a JSON object, up to 1 MiB after serialization to UTF-8. The entire request is limited to 8 MiB.
 3. Query the returned UUID with GET `/api/download/batches/{id}` and `/{id}/items?offset=0&limit=100`. An item is identified by batch UUID plus `workType` and `id`, not an individual download execution UUID.
 4. POST `/{id}/pause`, `/cancel`, `/resume` or `/retry` to pause, cancel, resume discovery or retry only failed items. Stopping is terminal only after execution really exits. Retrying discovered failures does not finish an incomplete source scan.
 5. DELETE `/{id}` while idle to remove the record. A process retains one batch; delete it before creating another. Batch results do not survive process restarts.
 
-`explicit-list` accepts mixed artwork and novel entries. Serialize this object as `definitionJson`. Work IDs must be positive decimal integer strings, with no duplicate ID within a type:
+On submission, a 403 response includes `programPermission` when the required grant is known. For `auth.program.unsupported`, consult the operation’s `x-program-alternative`. After a 202, follow `Location` with `core:batches.read`. A failed batch can report the missing executor grant in `programPermission`.
+
+`explicit-list` accepts mixed artwork and novel entries. Put this object in `definition`. Work IDs must be positive decimal integer strings, with no duplicate ID within a type:
 
 ```json
 {
@@ -110,7 +128,7 @@ Example for POST `/api/tools/backfill/tasks`:
 ```json
 {
   "delayMs": 0,
-  "limit": 100,
+  "artworkIds": [12345],
   "dryRun": true,
   "alwaysNetwork": false
 }
@@ -120,11 +138,49 @@ Example for POST `/api/tools/backfill/tasks`:
 
 Confirm database migration with the preview token. Environment restore takes a preview token, selected fields, path mappings and password; `RESTORE_PENDING` means a replacement process will perform the restore. Export requires an absolute server `destination` and `confirmRestart:true`, with optional `password`, `includeCredentials`, `includeDatabases`, `includeState` and `includeResources`. Resources require databases; credentials, databases or state require a password. An existing destination is never overwritten. The backend stops, exports and requests a full restart; reconnect to query the result. If restart fails, start the application manually. Update installation requires the verified package's current SHA-256.
 
+`POST /api/library/artworks/{artworkId}/recover-metadata` fills missing fields from supplied values. A missing, unreadable or empty payload returns `400`. To fetch tags and series through the backend, start a backfill scoped to the imported artwork IDs. [Fill in metadata after import](/en/local-import?id=metadata-backfill)
+
+Use `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` to list works that reference external files. MANAGED files are removed when the work is deleted. EXTERNAL_REFERENCE means the current record references external files, which are kept on deletion. After deletion, the library keeps the record with `deleted=true` for duplicate detection.
+
+On `/openapi`, find **Related operations** directly below the list of responses and follow a link. For example, the local import presets link to the scan preview. The server caches the document and its links by language. Reload the page after the catalog changes, such as when a plugin registers new routes.
+
+Open `externalDocs` for the operation’s guide. Response `links` describe a follow-up request with parameters taken from the response. `x-related-operations` prioritizes declared alternatives and response links, then routes in the description and operations sharing resource names or a group. Check the target operation’s inputs and permissions. `x-related-guides` lists guides for these operations.
+
+An artwork or novel filter applies to all matching works across pages. With `"mode":"filter"`, supply a JSON object for `filter`. ID arrays accept positive JSON integers such as `42`. A decimal such as `42.9`, a string such as `"42"`, zero or a negative number returns HTTP 400. Use `field` to locate the error. An explicit `"filter":{}` or a `filter` containing only pagination selects all works of that type. For deletion or export with source cleanup, confirm an unrestricted selection with `"confirmAll":true`. Program keys need the corresponding delete grant for export with cleanup. When an export returns `archiveToken`, poll `GET /api/archive/status/{token}` (`core:archives.read`). Once `ready`, fetch `GET /api/archive/download/{token}` (`core:archives.download`).
+
 ## Errors and history
+
+When you look up illustration or novel metadata or submit a download through `POST /api/download/tasks`, `404 WORK_NOT_FOUND` means the source could not find the work for the current identity. Check the work ID and its visibility. When you look up a task by ID, `404 DOWNLOAD_TASK_NOT_FOUND` means the caller cannot find that task.
+
+When polling a manual batch, use `state` to determine its status. The reason `code` can be null or come from a source or account policy plugin. For `batch.work-failed`, inspect the batch’s `items`. For `schedule.pixiv.discovery-not-found` in an author batch, check the author ID. Continue using `state` if you encounter an unfamiliar code.
 
 Errors contain a machine `code` and localized `error`. 400 means invalid input, 401/403 authentication or authorization failure, 404 an unknown identity, 409 busy/conflicting/disallowed state, 413 an oversized body and 503 an unavailable capability. Handle the business state rather than retrying every non-2xx response.
 
-GET `/api/download/tasks/history` defaults to 50 items, at most 200. Pass both returned `beforeTime` and `beforeId` for the next page. It lists persisted terminal results and does not restore active downloads. Individual-download deduplication lasts only within the current process retention window. An unknown execution is not permission to resubmit safely. Tool history and batch results have separate retention rules.
+After `POST /api/download/tasks` returns 202, poll the URL in `Location`. The path parameter `taskId` is `task.attempt.attemptId` in the receipt.
+
+Start polling every 2 seconds. If `revision` stays the same, increase the interval up to 10 seconds. Return to 2 seconds after an update. Stop when `phase` is `COMPLETED`, `FAILED` or `CANCELLED`. If a response includes `Retry-After`, wait at least that long before the next request.
+
+Use `workType` from `x-download-submissions`. An unpublished type returns `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`. For a body field, `field` is a JSON Pointer. For a query, path, header or multipart parameter, `field` is its name on the wire. Use `in`, `field` and `reason` when present to locate the problem. For example, `/options/pages` with `out_of_range` identifies a page outside the work. An `explicit-list` batch missing `/definition/source/acquisitionMode` returns 400 before the batch is created.
+
+Read `progress.unit`, `completed` and `total` together when present. They measure the current step of this attempt. Use `phase` to detect terminal success. A null `progress` means there is no measurement.
+
+| Value | Where to read or send it |
+| --- | --- |
+| Pixiv work ID | Gallery `artworkId` and export `ids[]` are JSON integers. Pixiv search `id`, task `workId` and batch `key.id` are strings. Preserve integer precision when converting. Other providers define their own `workId`. |
+| Download settings | Single task `options`: `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`. Batch `definition.download`: `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`. |
+| Time and files | Task `updatedAt` is ISO 8601. Batch `createdTime`, gallery `time` and schedule `nextRunTime` use Unix milliseconds. `outputPath` is the server directory planned for this attempt. Gallery `folder` is the recorded library location. Match works by ID. |
+| Response shape | `GET /api/authors` returns an array. `GET /api/authors/paged` returns a page with `content`. `GET /api/downloaded/statistics` returns an object with `success` and counts. |
+
+| Endpoint | Pagination | Fetching the next page |
+| --- | --- | --- |
+| `GET /api/gallery/artworks` | `page`, `size` | Pass `page=0` for the first page, then increment `page`. |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | Start at `offset=0` and advance by the number of items received. |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | Omit both cursor fields on the first request. Send the returned pair together for the next page. |
+| `GET /api/pixiv/search` | `page` | Start at page 1. Values below 1 select page 1. |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | Pass `nextCursor` as `cursor` for the next page. A plugin’s version list returns `nextVersionCursor`. |
+
+Download task history defaults to 50 records per page, up to 200. It lists persisted terminal results and does not restore active downloads. An identical submission with the same caller and `requestId` returns the original receipt while the process retains its idempotency entry. Once the terminal result is saved, the entry can expire five minutes after the task ended. A later submission can start a new task. Tool history and batch results have separate retention rules.
+
 ## Program permission list
 
 An administrator can read the authoritative catalog for the current installation with GET `/api/security/program-keys/permissions`. The table lists built-in declarations; consult the current catalog for external plugins. `*` represents one path segment. Keys store explicit permissions, not plugin or path wildcards.
@@ -156,6 +212,7 @@ Identity setup, key management, GUI tokens, CAPTCHA, browser collection tickets,
 | `ai:connection.test` | Test AI connections (invokes the model) | POST `/api/admin/ai/test` |
 | `ai:models.read` | Query available AI models | POST `/api/admin/ai/models` |
 | `ai:status.read` | View AI configuration status | GET `/api/admin/ai/status` |
+| `core:api-reference.read` | Read or probe the HTTP API reference | GET, HEAD `/api/openapi.json` |
 | `core:application.read` | Read application information and UI language resources | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
 | `core:archives.create` | Create artwork export archives | POST `/api/archive/pack-artworks` |
 | `core:archives.download` | Download this installation’s export archives | GET `/api/archive/download/*` |

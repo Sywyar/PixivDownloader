@@ -20,6 +20,7 @@
   - [設定參考](/zh-hant/configuration)
   - [儲存與備份](/zh-hant/storage)
   - [CLI 與進階參考](/zh-hant/usage-guide)
+  - [OpenAPI 與程式金鑰](/zh-hant/http-api)
   - [網路存取與第三方服務](/zh-hant/network-access)
   - [常見問題](/zh-hant/faq)
 
@@ -31,7 +32,6 @@
 - **參與開發**
   - [第三方外掛 SDK](/zh-hant/plugin-development)
   - [主儲存庫開發](/zh-hant/development)
-  - [管理員 HTTP API](/zh-hant/http-api)
   - [編寫 HTTP API 與權限宣告](/zh-hant/http-api-development)
 
 ---

@@ -20,6 +20,7 @@
   - [설정 참조](/ko/configuration)
   - [저장소 및 백업](/ko/storage)
   - [CLI 및 고급 참조](/ko/usage-guide)
+  - [OpenAPI와 프로그램 키](/ko/http-api)
   - [네트워크 접근 및 외부 서비스](/ko/network-access)
   - [자주 묻는 질문](/ko/faq)
 
@@ -31,7 +32,6 @@
 - **개발 참여**
   - [서드파티 플러그인 SDK](/ko/plugin-development)
   - [주 저장소 개발](/ko/development)
-  - [관리자 HTTP API](/ko/http-api)
   - [HTTP API 및 권한 선언 작성](/ko/http-api-development)
 
 ---

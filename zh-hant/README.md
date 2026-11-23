@@ -20,6 +20,7 @@ PixivDownloader 將 Pixiv 插畫、漫畫、動圖和小說下載到本機電腦
 | 依關鍵字搜尋 Pixiv 並下載 | [搜尋下載](/zh-hant/search) |
 | 儲存小說、合訂 EPUB、閱讀、翻譯或朗讀 | [小說與朗讀](/zh-hant/novel) |
 | 定期自動探索並下載新作 | [排程工作](/zh-hant/scheduled-tasks) |
+| 以指令碼或 Agent 提交下載並查詢進度 | [OpenAPI 與程式金鑰](/zh-hant/http-api) |
 | 在 Pixiv 網頁直接呼叫下載輔助 | [使用者腳本](/zh-hant/userscripts) |
 | 將 PixivBatchDownloader 的下載登記到畫廊 | [匯入外部下載](/zh-hant/pixiv-batch-downloader-import) |
 | 瀏覽、篩選、匯出與刪除已登記作品 | [作品畫廊](/zh-hant/gallery) |

@@ -1,6 +1,30 @@
 # 編寫 HTTP API 與權限宣告
 
+方法、路徑與參數取自 Spring MVC，說明可取自編譯時保留的 Javadoc。使用 `@Operation`、`@Schema` 與 OpenAPI 請求內容註解補充範例、手動解析的 JSON 與回應狀態。權限來自生效的路由宣告。在 `/openapi` 核對輸入、成功狀態、目標外掛限制與主要錯誤，非同步操作須說明如何查詢結果。
+
 新增或修改 Web、Swing、Compose、CLI 的業務功能時，同時檢查是否需要配套 HTTP API。呼叫方式與介面清單見 [HTTP API](/zh-hant/http-api)，外掛契約見 [第三方外掛 SDK](/zh-hant/plugin-development)。
+
+在控制器所屬的 HTTP 多語言資源中，用 `guide` 設定整組操作共用的指南，用 `<Controller>.<method>.<VERB>.guide` 指定單一操作的頁面或章節。產生的操作將直接指南放在 `externalDocs`，將相關操作引用的指南去重後放在 `x-related-guides`。可從回應取得下一次呼叫所需的參數時，請在對應的 `@ApiResponse` 宣告 `links`。
+
+從 `x-program-permission` 讀取路由權限。有額外檢查時，`x-program-permissions.route` 會給出相同的值。`discovery` 指出取得來源權杖的介面，`submit` 陣列逐項列出固定權限、由請求標頭觸發的權限或目錄查詢條件。在 `x-schedule-sources` 中，管理排程查 `schedulePermission`，提交批次查 `batchSubmitPermission`。外掛介面若代為提交固定來源的手動批次，以 `x-manual-batch-source` 宣告來源類型，呼叫端可直接提交。 實例匯出的 OpenAPI 在頂層 `x-program-permission-conditions` 中列出各階段、欄位以及 `request#`、`task#`、`batch#`、`item#` 的解析規則。
+
+條件授權以 `when.keyFrom` 讀取 JSON 欄位，再與 `when.value` 的字面值比較。例如圖庫匯出僅在 `request#/deleteAfter` 為布林值 `true` 時額外要求刪除權限。
+
+`execution` 透過 `executePermissionsByWorkType` 列出執行器權限，依本次計畫所需的作品類型授權。背景執行時也會複查來源權限。缺少的權限 ID 位於 `reportedIn.pointer` 指定的 JSON Pointer。提交時讀取 HTTP 403 回應本文，受理後用 `core:batches.read` 存取 202 回應的 `Location`，讀取批次結果。下載提交例外可透過 `DownloadTaskException.programPermission()` 取得已知權限。收到 `auth.program.unsupported` 時，可從 `x-program-alternative` 查找替代介面。
+
+`x-csrf-origin` 為 `origin-or-referer` 時，原生用戶端須傳送同源 Origin 或 Referer。`origin-required` 的具體限制見 Origin 參數。`conditional` 依參數說明區分瀏覽器來源訊號與 Cookie。
+
+發布具名 JSON SSE 事件時，在 `text/event-stream` 的 content 上用事件 DTO 宣告 schema，並將 content 擴充 `x-sse-data-event` 設為事件名稱。產生的媒體類型保留字串傳輸格式，`x-sse-events` 依事件名稱提供 DTO schema。瀏覽器操作可用 `x-program-alternative` 指向程式金鑰入口，值為方法和路徑，例如 `POST /api/download/tasks`。
+
+## 填寫介面說明與選用的「詳細資訊」
+
+控制器上的 `@HttpApiGroup("core-batch")` 指定資源檔 `src/main/resources/i18n/http/core-batch.properties`。請在控制器所屬模組填寫說明，並在同一目錄的語言檔（例如 `core-batch_en.properties`）提供譯文。主程式產生 OpenAPI 文件時會依文件語言讀取這些鍵。
+
+鍵的前綴依序是控制器類別名稱（不含套件名）、Java 方法名稱和大寫的 HTTP 方法。若方法映射未指定唯一的 HTTP 方法，最後一段用 `ANY`。以 `POST /api/download/batches` 為例，`ManualBatchController.create.POST.summary` 是操作標題，`.description` 是簡介，`ManualBatchController.create.POST.details` 是選用的 Markdown 內文。
+
+主程式將內文附加到 OpenAPI 操作的 `description`，`/openapi` 預設收合「詳細資訊」，點選標題即可展開全文。對於 `POST /api/download/tasks`，已啟用的下載提供者還可用 `schema.DownloadSubmission.<workType>.description` 補充各類型的說明。操作和提供者都沒有內文時，頁面會省略整節。
+
+填寫前須從 HTTP 入口讀完所有可達的執行路徑，涵蓋適用的授權、驗證、提供者、非同步執行、檔案寫入、結果查詢和失敗復原流程。說明哪些結果在送出時就能取得，哪些要等工作結束。逐一核對各語言的 `/api/openapi.json`，再到 `/openapi` 找到對應的方法和路徑，確認章節預設收合，再用鍵盤展開並核對內文。
 
 ## 何時需要配套介面
 
@@ -42,6 +66,10 @@ owner 由宿主註冊身分決定；若為 `example`，完整權限為 `example:
 介面說明列出方法、路徑、權限、目標範圍、請求欄位與預算、非同步狀態及主要錯誤。在信任邊界驗證路徑、憑證與 JSON。金鑰僅透過 `Authorization: Bearer` 傳遞，不寫入 URL、日誌或瀏覽器持久儲存。來源 IP 使用可信代理處理後的用戶端位址，不自行信任轉送標頭。既有 CSRF、復原模式與外掛租約繼續生效。
 
 錯誤保留穩定 `code` 與本地化 `error`。區分參數錯誤、拒絕、物件不存在、修訂衝突、超限、能力不可用及結果不確定。網路中斷後先查詢結果，不自動重送寫入操作。
+
+外掛在 HTTP 入口自行驗證參數時，可使用 SDK 中的 `top.sywyar.pixivdownload.core.web.HttpParameterException`。這項契約位於僅依賴 JDK 的 `pixivdownload-core-api`。例如，確認查詢參數 `order` 不在允許的選項中時，可拋出 `new HttpParameterException("query", "order", "invalid_value")`。宿主傳回 HTTP 400、`code=error.request.param.invalid`、當前語言的 `error`，以及 `in`、`field`、`reason`。既有外掛可沿用原來的錯誤回應。 在可能拋出此例外的操作加上 `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")`，實例的 OpenAPI 就會列出這項錯誤及其欄位。
+
+`in` 可為 `query`、`path`、`header`、`part` 或 `body`。前四種的 `field` 填入介面宣告的參數名稱或表單部分名稱，JSON 請求本文則填入 JSON Pointer，例如 `/options/pages`。`reason` 使用穩定的機器值，如 `required`、`type` 或 `invalid_value`。這三個欄位僅描述位置與原因，不含呼叫端傳入的值。Spring 綁定參數時偵測到的缺少參數或型別轉換錯誤，由宿主指出位置。
 
 測試須經過真實過濾器或 HTTP 入口，證明權限不足時沒有業務副作用，並涵蓋方法差異、目標外掛、來源網段、撤銷、換代與儲存失敗。修改介面時同步權限目錄、呼叫端、五語言文件與相關迴歸；宣告或編譯通過不能取代互動與執行驗證。
 

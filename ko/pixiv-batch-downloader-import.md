@@ -56,3 +56,5 @@
 4. '가져오기 시작'을 누르고 성공, 건너뜀과 실패 개수를 확인합니다. Pixiv Cookie는 필요하지 않습니다. 임시 정리 폴더는 `data/pixiv-batch-downloader-import/history-import/`이며 작업이 끝나거나 프로그램이 정상 종료될 때 정리됩니다.
 
 'PixivBatchDownloader 가져오기 지원' 사용자 스크립트로 위의 방법 1에 따라 브라우저 기록을 직접 읽으면 더 간편합니다. 데스크톱 가져오기는 스크립트 없이도 사용할 수 있습니다. 대화상자를 닫아도 작업은 계속되므로 중지하려면 취소를 누르세요.
+
+[가져온 작품의 메타데이터 보충](/ko/local-import?id=metadata-backfill)

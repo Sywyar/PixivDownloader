@@ -56,3 +56,5 @@
 4. 點擊「開始匯入」並核對成功、略過與失敗計數，無需填寫 Pixiv Cookie。暫存整理目錄位於 `data/pixiv-batch-downloader-import/history-import/`，任務結束或程式正常退出時會清理。
 
 使用「PixivBatchDownloader 匯入支援」腳本匯入歷史下載資料更方便，可依上面的方式一直接讀取瀏覽器歷史。桌面匯入也可以獨立使用；關閉匯入彈窗後任務繼續執行，需要停止時請點擊取消。
+
+[匯入後補齊作品資料](/zh-hant/local-import?id=metadata-backfill)

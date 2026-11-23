@@ -20,6 +20,7 @@ Compose is the default desktop interface, and distributions also include Swing. 
 | Search Pixiv by keyword and download | [Search download](/en/search) |
 | Save novels, compile EPUBs, read, translate or listen | [Novels and narration](/en/novel) |
 | Discover and download new works automatically on a schedule | [Scheduled tasks](/en/scheduled-tasks) |
+| Submit downloads and check progress from a script or agent | [OpenAPI and program keys](/en/http-api) |
 | Use download helpers directly on Pixiv pages | [Userscripts](/en/userscripts) |
 | Register PixivBatchDownloader downloads in the gallery | [Import external downloads](/en/pixiv-batch-downloader-import) |
 | Browse, filter, export or delete registered works | [Artwork gallery](/en/gallery) |

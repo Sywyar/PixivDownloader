@@ -4,6 +4,8 @@ The artwork gallery lets you browse, filter, organize and batch-export illustrat
 
 Address: `http://localhost:6999/pixiv-gallery.html`
 
+Choose File management in the illustration gallery filters. Imported illustrations show “Imported artwork” on their detail page.
+
 ## Find, filter and sort works
 
 Use the left sidebar to switch views (All images, By author, By manga series), manage local collections and open feature pages. Buttons along its right edge collapse navigation or open the administrator's Task list to show background packaging progress and expiry. The top toolbar provides a gallery-type switcher for illustrations, novels and other enabled gallery plugins, a search box, filters and sorting.
@@ -62,4 +64,4 @@ Administrators can click Invite guests at the top right of the gallery, set an e
 
 If expected works are missing, clear search and filters first, especially the upload-date range and three-state tags. Check the invitation allowlist, connected database, download directory and deletion markers. Moving files on disk alone does not update another database; see [storage and backup](/en/storage) for relocation and recovery.
 
-Administrators can open `http://localhost:6999/pixiv-stats.html` with the `gallery-tools` plugin enabled to view total work and image counts, a monthly download line chart, top-author rankings and a popular-tag word cloud. Click an author or tag to open the corresponding gallery filter.
+`GET /api/downloaded/statistics` returns current artworks and registered pages in `libraryArtworks` and `libraryImages`, including imports and excluding deleted works. For administrators, `totalArtworks` and `totalImages` count cumulative downloads. With `gallery-tools` enabled, administrators can view both sets at `http://localhost:6999/pixiv-stats.html`. The monthly chart groups current artworks and novels by registration month. Select an author or tag to open its gallery filter.

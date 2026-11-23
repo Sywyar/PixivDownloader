@@ -56,3 +56,5 @@
 4. 点击「开始导入」并核对成功、跳过与失败计数，无需填写 Pixiv Cookie。临时整理目录位于 `data/pixiv-batch-downloader-import/history-import/`，任务结束或程序正常退出时清理。
 
 使用「PixivBatchDownloader 导入支持」脚本导入历史下载数据更便捷，可按上面的方式一直接读取浏览器历史。桌面导入也可以独立使用；关闭导入弹窗后任务继续运行，需要停止时请点击取消。
+
+[导入后补齐作品资料](/zh-cn/local-import?id=metadata-backfill)

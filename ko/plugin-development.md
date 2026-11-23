@@ -131,6 +131,14 @@ public List<WebRouteContribution> routes() {
 4. **`QueueOperations` 및 실제 Quiesce / Drain 구현**: `workKey`는 불투명 문자열이며 호스트가 `POST /api/download/queue/{queueType}/cancel`의 JSON 요청 본문으로 전달합니다. 비동기나 백그라운드 작업이 있는 대기열은 `prepareQuiesce`를 재정의하여 새 작업 수락을 중지하고 양의 세대를 가진 실제 `QueueDrain`을 반환해야 합니다. 진행 중인 작업이 0이 된 후 drain을 완료합니다.
 5. **UI 슬롯 및 예약 작업 기능(선택 사항)**: `uiSlots()`로 `WebUiSlotContribution`을 제공합니다. 호스트 `PixivVue.mountUiSlot`을 사용하며 Vue runtime을 패키징하지 않습니다. `scheduledSourceDescriptors()`와 자식 컨텍스트의 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean으로 예약 작업을 지원합니다. 호스트는 스케줄링, 잠금, 자격 증명과 워터마크 커밋을 담당합니다. 다음 페이지를 요청하거나 작품 유형을 바꾸기 전에 소스에서 `context.workSink().drain()`을 호출할 수 있습니다. 대기가 끝난 뒤 `context.isPending(key)`로 현재 페이지에 재시도할 작품이 남았는지 확인하세요.
 
+`POST /api/download/tasks`에서 이 작품 유형을 받으려면 플러그인의 자식 컨텍스트에 `DownloadSubmissionHandler` 빈을 등록하세요. `workType()`은 유형 ID를 반환합니다. OpenAPI에 입력 스키마를 표시하려면 `inputSchemaResource()`에서 플러그인에 포함된 JSON Schema의 절대 클래스패스 경로를 반환하세요. `submit`에서 옵션을 검증하고 정상적으로 반환하기 전에 호스트가 전달한 `DownloadAttempt`를 `DownloadLifecycle.track`으로 등록하세요.
+
+대상 작품의 메타데이터를 조회할 때 원본 사이트가 404를 반환하면 `submit`에서 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`를 던지세요. 호스트는 SDK의 기본 메서드 `submitAndReportFailure`를 호출해 플러그인 프록시를 통해 사유 코드를 받습니다. 최초 제출 응답은 `404 WORK_NOT_FOUND`입니다. 특정 페이지나 첨부 파일만 없다면 해당 리소스의 오류로 처리하세요. 기존 처리기는 계속 `submit`을 구현하면 됩니다.
+
+제출 옵션이 잘못되면 JSON Pointer와 안정적인 사유 코드를 담은 `InputFieldException`을 던지세요. 예를 들어 `/options/pages`와 `out_of_range`를 사용합니다. 기본 `submitAndReportFailure`는 플러그인 프록시를 통해 필드와 사유를 전달합니다. 진단에 입력값이나 자격 증명을 포함하지 마세요.
+
+작업량을 측정할 수 있으면 해당 시도에 등록한 큐 핸들로 `DownloadLifecycle.reportProgress(attempt, task, progress)`를 호출하세요. `DownloadTaskProgress`는 `PAGES`, `IMAGES`, `BYTES` 단위를 지원합니다. 현재 단계의 전체 수가 알려진 양수일 때 같은 단위로 완료 수와 전체 수를 보고하세요. 최종 결과는 종료 이벤트로 알립니다.
+
 ## 플러그인 자체 갤러리 추가
 
 각 다운로드 유형 플러그인은 자체 갤러리 HTML, CSS/JS, 라우트, i18n과 Controller를 모두 소유합니다. `/pixiv-gallery.html`과 `/api/gallery/**`는 공식 Pixiv 갤러리 플러그인에만 속하며 범용 갤러리 집계 API는 없습니다.

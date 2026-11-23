@@ -131,6 +131,14 @@ public List<WebRouteContribution> routes() {
 4. **實作 `QueueOperations` 與確實排空（Quiesce / Drain）**：`workKey` 為不透明字串（由宿主透過 `POST /api/download/queue/{queueType}/cancel` 的 JSON 請求主體傳遞）。凡有非同步或背景任務的佇列，必須覆寫 `prepareQuiesce` 以停止接納新請求，並回傳具有正世代編號的真實 `QueueDrain`，待進行中任務歸零後完成 drain。
 5. **UI 插槽與排程工作能力（選用）**：透過 `uiSlots()` 貢獻 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；透過 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 貢獻排程工作支援（宿主負責排程、鎖、憑證與進度水位提交）。來源若要在翻頁或切換作品類別前等候，可呼叫 `context.workSink().drain()`。等待結束後，可透過 `context.isPending(key)` 檢查本頁是否有作品待重試。
 
+若要讓 `POST /api/download/tasks` 接受這個作品類型，請在外掛的子上下文註冊 `DownloadSubmissionHandler` Bean。`workType()` 回傳類型識別碼，`inputSchemaResource()` 可回傳外掛內 JSON Schema 的絕對 classpath 路徑，供主程式產生 OpenAPI。實作 `submit` 時請驗證選項，並在成功回傳前用 `DownloadLifecycle.track` 登記主程式傳入的 `DownloadAttempt`。
+
+查詢目標作品的中繼資料時，若來源明確回傳 404，請在 `submit` 中拋出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`。主程式呼叫 SDK 的預設方法 `submitAndReportFailure`，透過外掛代理取得原因碼，首次送出會收到 `404 WORK_NOT_FOUND`。若只缺少某一頁或附件，應保留該資源的失敗原因。現有處理器可以繼續實作 `submit`。
+
+提交選項無效時，拋出帶有 JSON Pointer 和穩定原因碼的 `InputFieldException`，例如 `/options/pages` 和 `out_of_range`。預設的 `submitAndReportFailure` 會透過外掛代理傳遞欄位和原因。診斷資訊請勿包含輸入原值或憑證。
+
+可測量工作量時，使用該次嘗試登記的佇列控制代碼呼叫 `DownloadLifecycle.reportProgress(attempt, task, progress)`。`DownloadTaskProgress` 的單位可為 `PAGES`、`IMAGES` 或 `BYTES`。完成數和總數使用相同單位，僅在目前步驟總數已知且大於零時回報。最終結果仍由終態事件提供。
+
 ## 新增外掛自有畫廊
 
 每個下載類型外掛完整擁有自己的畫廊 HTML、CSS/JS、路由、i18n 與 Controller（`/pixiv-gallery.html` 與 `/api/gallery/**` 僅歸官方 Pixiv 畫廊外掛所有，不存在通用畫廊聚合 API）。

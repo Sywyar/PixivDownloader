@@ -131,6 +131,14 @@ The same plugin contributes the parts of a download type together:
 4. **Implement `QueueOperations` and real Quiesce / Drain**: `workKey` is an opaque string (passed by the host in the JSON body of `POST /api/download/queue/{queueType}/cancel`). Any queue with async or background tasks must override `prepareQuiesce`, stop new admissions and return a real `QueueDrain` with a positive generation. Complete the drain only once in-flight tasks reach zero.
 5. **UI slots and scheduled-task capabilities (optional)**: contribute `WebUiSlotContribution` through `uiSlots()` (use host `PixivVue.mountUiSlot`; do not bundle the Vue runtime). Contribute scheduling support through `scheduledSourceDescriptors()` and child-context `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Beans (the host manages scheduling, locks, credentials and watermark commits). A source can call `context.workSink().drain()` before requesting the next page or switching work types. After it returns, use `context.isPending(key)` to check whether a work on the current page still needs a retry.
 
+To accept this work type through `POST /api/download/tasks`, register a `DownloadSubmissionHandler` bean in the plugin’s child context. Return the type ID from `workType()`. To include the submission schema in OpenAPI, return its absolute classpath path from `inputSchemaResource()`. In `submit`, validate the options and register the host-supplied `DownloadAttempt` with `DownloadLifecycle.track` before returning successfully.
+
+If the source returns 404 when looking up the requested work’s metadata, throw `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` from `submit`. The host calls the SDK’s default `submitAndReportFailure` method to carry the reason code across the plugin proxy. The initial submission returns `404 WORK_NOT_FOUND`. If only a page or attachment is missing, report the failure for that resource. Existing handlers can continue implementing `submit`.
+
+If a submission option is invalid, throw `InputFieldException` with a JSON Pointer and a stable reason, for example `/options/pages` and `out_of_range`. The default `submitAndReportFailure` carries the field and reason through the plugin proxy. Omit received credentials and input values from diagnostics.
+
+For measurable work, call `DownloadLifecycle.reportProgress(attempt, task, progress)` with the queue handle registered for that attempt. `DownloadTaskProgress` accepts `PAGES`, `IMAGES` or `BYTES`, a completed count, and a positive total in the same unit. Report the current step only when the total is known. The terminal event still reports the outcome.
+
 ## Add a plugin-owned gallery
 
 Each download-type plugin fully owns its gallery HTML, CSS/JS, routes, i18n and Controller (`/pixiv-gallery.html` and `/api/gallery/**` belong only to the official Pixiv gallery plugin; there is no generic gallery aggregation API).

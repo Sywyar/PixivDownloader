@@ -1,12 +1,28 @@
 # HTTP API 與程式權限
 
-外部程式可使用 `Authorization: Bearer <程式金鑰>`。在安全頁面的「程式存取金鑰」建立金鑰，指定名稱、權限及允許的來源 IP。完整金鑰僅顯示一次，伺服器只儲存摘要。金鑰預設不過期，可編輯權限及來源範圍，也可撤銷。選取整個外掛只包含目前列出的權限，不包含未來新增權限。
+## 使用指令碼或 Agent 存取 API
+
+1. 在執行 PixivDownloader 的主機上開啟 `/openapi`（本機預設為 `http://localhost:6999/openapi`）。以管理員身分登入後，即可查看目前可用的介面、請求範例及各項操作所需的權限。
+2. 在桌面「設定 → 存取控制 → 程式存取金鑰」建立金鑰，指定來源 IP 與工作所需權限。指令碼或 Agent 若要自行讀取 API 文件，請一併勾選 `core:api-reference.read`。沒有桌面環境時，管理員可透過已登入的工作階段呼叫 `/api/security/program-keys`。
+3. 指令碼可在 `GET /api/openapi.json` 請求中帶上 `Authorization: Bearer <程式金鑰>`，取得機器可讀的 OpenAPI 文件。使用 Agent 時，可在建立金鑰後點選「複製提示詞」，將執行個體的文件網址交給 Agent，金鑰另外設定。若金鑰無權讀取文件，請由管理員提供所需的介面說明。
+
+任何人都可以開啟 `/openapi` 的存取說明。讀取 JSON 文件需要管理員工作階段或具備文件讀取權限的程式金鑰。`HEAD /api/openapi.json` 可用相同身分檢查權限。
+
+建議使用 HTTPS。來自本機或區域網路以外的 HTTP 程式請求預設被拒絕。如需例外，先檢視該金鑰的風險，再確認允許公網 HTTP。修改權限或來源後會恢復 HTTPS 要求。即使伺服器拒絕請求，已用明文送出的金鑰仍可能遭攔截。
+
+完整金鑰只在建立成功時顯示一次，伺服器只儲存摘要。金鑰預設不過期，可編輯權限與來源範圍，也可撤銷。選取整個外掛只包含目前列出的權限。
 
 來源限制接受數值 IPv4、IPv6 及 CIDR 網段。受限模式至少填寫一項；「任何來源」需要明確選擇。使用反向代理前先設定可信代理。不要同時傳送程式金鑰、管理員工作階段、邀請碼或 GUI 憑證。擷取憑證仍透過獨立的 `X-Acquisition-Credential` 傳遞。
 
 管理員工作階段仍可透過 `X-Session-Token` 使用原有介面。程式金鑰只能存取權限目錄明確列出的方法及路徑，其他介面保留人類管理員或本機流程。金鑰管理及管理員憑證修改僅允許人類管理員。此 API 不提供 MCP 服務。
 
+單獨傳送有效金鑰存取未宣告 `programKey` 的操作，會收到 `403 auth.program.unsupported`，包括允許匿名存取的操作。金鑰無效或混用憑證時，可能收到 `401 auth.program.invalid`。
+
 使用 Cookie 的寫入請求須通過同源檢查；瀏覽器跨來源請求會被拒絕，外掛管理與計畫任務等入口還要求明確的同源訊號。`/api/gui/**` 保留本機與 GUI token 限制，遠端程式使用下列業務介面。外掛須處於活動狀態且依賴可用。
+
+呼叫 `GET /api/security/program-keys/self` 可查看目前金鑰的 `id` 和 `permissions`，權限清單可以為空。使用 Bearer 傳送寫入請求時也要查看 `x-csrf-origin`。`POST /api/schedule/tasks` 要求同源的 Origin 或 Referer。沒有瀏覽器憑證的原生 Bearer 用戶端呼叫 `POST /api/download/tasks` 或 `/api/download/batches` 時可省略兩者。
+
+輪換金鑰時，管理員在桌面安全頁或透過管理員工作階段建立新金鑰。用戶端切換後，以 `GET /api/security/program-keys/self` 核對新金鑰的身分和權限，再由管理員撤銷舊金鑰。新金鑰無法讀取舊金鑰提交的任務，可在撤銷前輪詢至終態，或以管理員工作階段追蹤。
 
 ## 介面索引
 
@@ -60,12 +76,14 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 ## 背景手動批次
 
 1. GET `/api/schedule/sources` 取得目前的 `sourceType` 與 `activationToken`，定義格式由來源外掛解釋。
-2. POST `/api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definitionJson` 與可選 `proxy`。`definitionJson` 是 JSON 字串，上限為 1 MiB UTF-8；整個請求上限為 8 MiB。
+2. POST `/api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definition` 與可選 `proxy`。 將 `definition` 作為 JSON 物件傳送，序列化為 UTF-8 後上限為 1 MiB，整個請求上限為 8 MiB。
 3. 以傳回的 UUID 查詢 GET `/api/download/batches/{id}` 與 `/{id}/items?offset=0&limit=100`。逐項身分是批次 UUID 加 `workType` 與 `id`，不是單項下載的執行 UUID。
 4. POST `/{id}/pause`、`/cancel`、`/resume`、`/retry` 分別暫停、取消、恢復掃描或只重試失敗項。停止中的狀態須等實際執行退出後才終結。重試已發現的失敗項不會補掃尚未完成的來源。
 5. 閒置時 DELETE `/{id}` 移除記錄。一個程序只保留一個批次，建立新批次前須刪除舊批次；結果不跨程序恢復。
 
-`explicit-list` 支援混合插畫與小說。將下列物件序列化成 `definitionJson`；作品 ID 須為正整數十進位字串，同類型不得重複：
+提交時收到 403，可從 `programPermission` 讀取已知的缺少權限。收到 `auth.program.unsupported` 時，查看操作的 `x-program-alternative`。收到 202 後，以 `core:batches.read` 存取 `Location`。若背景執行缺少權限，批次結果會在 `programPermission` 中給出權限 ID。
+
+`explicit-list` 支援混合插畫與小說。將下列物件放入 `definition`。作品 ID 須為正整數十進位字串，同類型不得重複：
 
 ```json
 {
@@ -110,7 +128,7 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 ```json
 {
   "delayMs": 0,
-  "limit": 100,
+  "artworkIds": [12345],
   "dryRun": true,
   "alwaysNetwork": false
 }
@@ -120,11 +138,49 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 
 資料庫遷移以預覽 token 確認。環境恢復傳入預覽 token、選取欄位、路徑映射與密碼，`RESTORE_PENDING` 表示由替代程序執行。匯出須給伺服器絕對 `destination` 與 `confirmRestart:true`，可選 `password`、`includeCredentials`、`includeDatabases`、`includeState`、`includeResources`。資源須同時包含資料庫；憑據、資料庫或狀態須設密碼。已有目標不會覆寫。後端停止、匯出後請求完整重新啟動，用戶端重新連線查詢；重新啟動失敗時須手動啟動應用程式。更新安裝須提交目前已驗證安裝包的 SHA-256。
 
+`POST /api/library/artworks/{artworkId}/recover-metadata` 會以呼叫端提供的值補齊缺漏欄位。本文缺失、無法讀取或沒有可用欄位時回傳 `400`。要由後端取得標籤和系列，可依匯入的作品 ID 啟動回填。 [匯入後補齊作品資料](/zh-hant/local-import?id=metadata-backfill)
+
+使用 `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 篩選參照外部檔案的作品。`MANAGED` 表示檔案由應用程式管理，刪除作品時一併清理。`EXTERNAL_REFERENCE` 表示目前的登錄參照外部檔案，刪除作品時保留原檔。刪除後，作品庫保留 `deleted=true` 的記錄以供查重。
+
+在 `/openapi` 開啟操作後，可點選回應清單下方「相關介面」中的連結前往其他操作，例如從本機匯入預設清單開啟掃描預覽。伺服器會依語言快取文件與連結。外掛新增路由等變更反映在目錄後，重新整理頁面即可看到更新。
+
+操作的 `externalDocs` 指向使用指南。回應的 `links` 提供後續請求，並說明如何從回應取得參數。`x-related-operations` 優先列出宣告的替代入口與回應連結，接著列出說明中提到的路由，以及同資源或同組操作。呼叫前請確認目標操作的參數和權限。`x-related-guides` 列出這些操作的指南。
+
+插畫與小說的批次篩選涵蓋所有符合條件的頁面。`"mode":"filter"` 要求 `filter` 是 JSON 物件。ID 陣列只接受正的 JSON 整數，例如 `42`。小數 `42.9`、字串 `"42"`、零和負數都會傳回 HTTP 400，可依回應中的 `field` 修正。明確傳入 `"filter":{}` 或只含分頁參數的 `filter` 時，會選取此類型的全部作品。刪除或匯出後清理來源作品時，須透過 `"confirmAll":true` 確認這項選取。程式金鑰還須具備對應圖庫的刪除權限。匯出傳回 `archiveToken` 後，以 `core:archives.read` 輪詢 `GET /api/archive/status/{token}`。狀態為 `ready` 時，以 `core:archives.download` 呼叫 `GET /api/archive/download/{token}`。
+
 ## 錯誤與歷史
+
+查詢插畫或小說的中繼資料，或透過 `POST /api/download/tasks` 送出下載時，`404 WORK_NOT_FOUND` 表示來源以目前身分找不到該作品。請核對作品 ID 和可見範圍。依工作 ID 查詢時，`404 DOWNLOAD_TASK_NOT_FOUND` 表示目前的呼叫者查不到該工作。
+
+輪詢手動批次時，請用 `state` 判斷狀態。`code` 可以是 null，也可能是來源或帳號原則外掛提供的原因碼。遇到 `batch.work-failed` 可在批次的 `items` 查看失敗項目；作者批次回傳 `schedule.pixiv.discovery-not-found` 時，請核對作者 ID。遇到未知碼時仍依 `state` 處理。
 
 錯誤包含機器 `code` 與本地化 `error`。400 為非法參數，401/403 為身分或權限拒絕，404 為身分不存在，409 為忙碌、衝突或狀態不允許，413 為本文超限，503 為能力不可用。按業務狀態處理，不將所有非 2xx 自動重試。
 
-GET `/api/download/tasks/history` 預設每頁 50 項、最多 200 項，以傳回的 `beforeTime` 與 `beforeId` 一起續頁。只列出已儲存終態，不恢復在途下載。單項下載去重限於目前程序的保留期間，查不到執行不代表可安全重投。工具歷史與批次結果各有保留規則。
+`POST /api/download/tasks` 傳回 202 時，可輪詢 `Location`。路徑參數 `taskId` 取回執中的 `task.attempt.attemptId`。
+
+建議每 2 秒讀取一次。`revision` 持續不變時逐步延長至 10 秒，有更新時恢復到 2 秒。`phase` 為 `COMPLETED`、`FAILED` 或 `CANCELLED` 時停止。收到 `Retry-After` 時，至少等候指定時間再請求。
+
+從 `x-download-submissions` 選擇 `workType`。未發布的類型會傳回 `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`。請求本文欄位出錯時，`field` 是 JSON Pointer。查詢、路徑、標頭與 multipart 參數的 `field` 是介面宣告中的名稱。呼叫端可依 `in`、`field` 和 `reason` 定位問題。例如 `/options/pages` 搭配 `out_of_range` 表示頁碼超出作品範圍。`explicit-list` 批次缺少 `/definition/source/acquisitionMode` 時，會在建立批次前傳回 400。
+
+有進度時，一併讀取 `progress.unit`、`completed` 和 `total`。這些值描述本次嘗試的目前步驟，最終結果以 `phase` 為準。`progress` 為空表示沒有測量值。
+
+| 值 | 讀取與提交方式 |
+| --- | --- |
+| Pixiv 作品 ID | 圖庫的 `artworkId`、匯出的 `ids[]` 是 JSON 整數。Pixiv 搜尋 `id`、任務 `workId` 與批次 `key.id` 是字串。轉換時請保留整數精度。其他提供者自行定義 `workId`。 |
+| 下載設定 | 單一任務 `options` 使用 `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`。批次 `definition.download` 使用 `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`。 |
+| 時間與檔案 | 任務 `updatedAt` 使用 ISO 8601。批次 `createdTime`、圖庫 `time`、排程 `nextRunTime` 使用 Unix 毫秒。`outputPath` 是本次任務預定的伺服器目錄，圖庫 `folder` 是作品登記的位置。請用作品 ID 比對。 |
+| 回應結構 | `GET /api/authors` 傳回陣列，`GET /api/authors/paged` 傳回含 `content` 的分頁物件，`GET /api/downloaded/statistics` 傳回含 `success` 和計數的物件。 |
+
+| 端點 | 分頁參數 | 如何取得下一頁 |
+| --- | --- | --- |
+| `GET /api/gallery/artworks` | `page`, `size` | 首頁傳入 `page=0`，之後將 `page` 加一。 |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | 從 `offset=0` 開始，按本頁實際傳回的項目數增加位移。 |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 首頁省略兩個游標欄位，續頁時原樣傳回上一頁的兩個值。 |
+| `GET /api/pixiv/search` | `page` | 從第 1 頁開始，小於 1 會取第 1 頁。 |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 將 `nextCursor` 原樣傳為 `cursor`。外掛版本清單使用 `nextVersionCursor`。 |
+
+下載工作歷史記錄預設每頁 50 項，最多 200 項。只列出已儲存終態，不恢復在途下載。同一呼叫身分在目前程序仍保有冪等記錄時，以相同 `requestId` 重試相同命令可取得原回執。終態結果儲存後，冪等記錄可在任務結束五分鐘後到期，再次提交可能建立新任務。工具歷史與批次結果各有保留規則。
+
 ## 程式權限清單
 
 管理員可呼叫 GET `/api/security/program-keys/permissions` 取得目前安裝的權威目錄。下表列出內建宣告，外部外掛以目前目錄為準。`*` 表示一個路徑段。金鑰只儲存明確權限，不支援外掛或路徑萬用授權。
@@ -156,6 +212,7 @@ GET `/api/download/tasks/history` 預設每頁 50 項、最多 200 項，以傳�
 | `ai:connection.test` | 測試 AI 連線（會呼叫模型） | POST `/api/admin/ai/test` |
 | `ai:models.read` | 查詢可用 AI 模型 | POST `/api/admin/ai/models` |
 | `ai:status.read` | 檢視 AI 設定狀態 | GET `/api/admin/ai/status` |
+| `core:api-reference.read` | 讀取或探測 HTTP 介面目錄 | GET, HEAD `/api/openapi.json` |
 | `core:application.read` | 讀取程式資訊與介面語言資源 | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
 | `core:archives.create` | 建立插畫匯出封存檔 | POST `/api/archive/pack-artworks` |
 | `core:archives.download` | 下載安裝實例的匯出封存檔 | GET `/api/archive/download/*` |

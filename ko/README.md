@@ -20,6 +20,7 @@ PixivDownloader는 Pixiv 일러스트, 만화, 움짤과 소설을 로컬 컴퓨
 | 키워드로 Pixiv를 검색하여 다운로드 | [검색 다운로드](/ko/search) |
 | 소설 저장, EPUB 합본, 읽기, 번역 또는 낭독 | [소설 및 낭독](/ko/novel) |
 | 새 작품을 주기적으로 찾아 자동 다운로드 | [예약 작업](/ko/scheduled-tasks) |
+| 스크립트나 에이전트에서 다운로드를 요청하고 진행 상황 확인 | [OpenAPI와 프로그램 키](/ko/http-api) |
 | Pixiv 웹페이지에서 다운로드 도우미 실행 | [사용자 스크립트](/ko/userscripts) |
 | PixivBatchDownloader로 다운로드한 작품을 갤러리에 등록 | [외부 다운로드 가져오기](/ko/pixiv-batch-downloader-import) |
 | 등록한 작품 탐색, 필터링, 내보내기 및 삭제 | [작품 갤러리](/ko/gallery) |

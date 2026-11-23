@@ -1,12 +1,28 @@
 # HTTP API 및 프로그램 권한
 
-외부 프로그램은 `Authorization: Bearer <프로그램-키>`를 사용할 수 있습니다. 보안 페이지의 '프로그램 액세스 키'에서 이름, 권한, 허용할 출발지 IP를 지정해 키를 만드세요. 전체 키는 한 번만 표시되며 서버에는 다이제스트만 저장됩니다. 기본 만료일은 없으며 권한과 출발지를 수정하거나 키를 폐기할 수 있습니다. 플러그인 전체를 선택해도 앞으로 추가될 권한은 포함되지 않습니다.
+## 스크립트나 에이전트에서 API 사용하기
+
+1. PixivDownloader를 실행 중인 인스턴스의 `/openapi`를 엽니다. 로컬 기본 주소는 `http://localhost:6999/openapi`입니다. 관리자로 로그인하면 사용 가능한 API, 요청 예시, 각 작업에 필요한 권한을 확인할 수 있습니다.
+2. 데스크톱의 **설정 → 접근 제어 → 프로그램 액세스 키**에서 키를 만들고 클라이언트의 출발지 IP와 작업에 필요한 권한을 지정합니다. 스크립트나 에이전트가 API 명세를 직접 읽으려면 `core:api-reference.read`도 선택하세요. 데스크톱이 없는 환경에서는 관리자 세션으로 `/api/security/program-keys`를 호출해 키를 관리할 수 있습니다.
+3. 스크립트에서 `Authorization: Bearer <프로그램 키>`를 붙여 `GET /api/openapi.json`을 요청하면 OpenAPI 명세를 JSON으로 받을 수 있습니다. 에이전트를 쓸 때는 키를 만든 뒤 **프롬프트 복사**를 눌러 인스턴스의 문서 주소를 전달하고 키는 따로 설정하세요. 키에 문서 읽기 권한이 없으면 관리자가 필요한 API 설명을 제공해야 합니다.
+
+`/openapi`의 접근 안내는 누구나 볼 수 있습니다. JSON 명세를 읽으려면 관리자 세션이나 명세 읽기 권한이 있는 프로그램 키가 필요합니다. 같은 인증 정보로 `HEAD /api/openapi.json`을 요청하면 접근 권한을 확인할 수 있습니다.
+
+HTTPS 사용을 권장합니다. 기본적으로 로컬 네트워크 외부에서 HTTP로 보낸 프로그램 키는 거부됩니다. 예외가 필요하면 해당 키의 위험을 검토한 뒤 외부 HTTP 허용을 한 번 더 확인하세요. 권한이나 출발지를 수정하면 HTTPS가 다시 필수가 됩니다. 서버가 요청을 거부해도 이미 평문으로 보낸 키는 유출될 수 있습니다.
+
+전체 키는 만들 때 한 번만 표시되며 서버는 다이제스트만 저장합니다. 기본 만료일은 없습니다. 키의 권한과 허용할 출발지를 변경하거나 키를 폐기할 수 있습니다. 플러그인 전체를 선택하면 현재 나열된 권한만 부여됩니다.
 
 출발지 제한에는 숫자 형식의 IPv4, IPv6 및 CIDR 네트워크를 사용할 수 있습니다. 제한 모드에서는 항목이 하나 이상 필요하며 '모든 출발지'는 직접 선택해야 합니다. 역방향 프록시를 사용하기 전에 신뢰할 프록시를 설정하세요. 키와 관리자 세션, 초대 인증 또는 GUI 인증을 함께 보내지 마세요. 수집용 인증 정보는 별도의 `X-Acquisition-Credential`로 전달합니다.
 
 관리자 세션은 계속 `X-Session-Token`으로 기존 API를 사용할 수 있습니다. 프로그램 키는 권한 카탈로그에 명시된 메서드와 경로에만 접근할 수 있습니다. 나머지 API는 기존의 관리자 직접 조작 또는 로컬 절차를 유지합니다. 키 관리와 관리자 인증 정보 변경에는 관리자 본인의 로그인이 필요합니다. 이 API는 MCP 서버를 제공하지 않습니다.
 
+`programKey`를 선언하지 않은 작업에 유효한 Bearer 키만 보내면 익명 접근을 허용하는 작업도 `403 auth.program.unsupported`를 반환합니다. 키가 유효하지 않거나 다른 인증 정보와 함께 보내면 `401 auth.program.invalid`가 반환될 수 있습니다.
+
 Cookie를 사용하는 쓰기 요청에는 동일 출처 검사가 적용됩니다. 브라우저의 교차 출처 요청은 거부되며 플러그인 관리와 예약 작업 등에는 명시적인 동일 출처 신호도 필요합니다. `/api/gui/**`는 로컬 컴퓨터와 GUI token 제한을 유지합니다. 원격 프로그램은 아래 업무 API를 사용합니다. 플러그인 기능은 해당 플러그인과 종속 기능이 사용 가능한 경우에만 제공됩니다.
+
+`GET /api/security/program-keys/self`는 현재 키의 `id`와 `permissions`를 반환합니다. 권한 목록이 비어 있을 수도 있습니다. Bearer 인증으로 쓰기 요청을 보낼 때도 `x-csrf-origin`을 확인하세요. `POST /api/schedule/tasks`에는 동일 출처 Origin 또는 Referer가 필요합니다. 브라우저 자격 증명이 없는 네이티브 클라이언트는 `POST /api/download/tasks`와 `/api/download/batches`에서 둘 다 생략할 수 있습니다.
+
+키를 교체할 때는 관리자가 데스크톱 보안 페이지나 관리자 세션에서 새 키를 발급합니다. 클라이언트의 키를 바꾸고 `GET /api/security/program-keys/self`로 새 키의 ID와 권한을 확인한 뒤 관리자가 기존 키를 폐기합니다. 기존 키로 제출한 작업은 새 키로 조회할 수 없습니다. 폐기하기 전에 종료 상태까지 확인하거나 관리자 세션으로 추적하세요.
 
 ## 엔드포인트 목록
 
@@ -60,12 +76,14 @@ POST `/api/settings/validate` 또는 `/api/settings`의 본문 예시:
 ## 백그라운드 수동 배치
 
 1. GET `/api/schedule/sources`에서 현재 `sourceType`과 `activationToken`을 가져옵니다. 정의 형식은 원본 플러그인이 해석합니다.
-2. POST `/api/download/batches`로 `name`, `sourceType`, `activationToken`, `definitionJson`과 선택적 `proxy`를 제출합니다. `definitionJson`은 최대 1 MiB UTF-8의 JSON 문자열이고 전체 요청은 최대 8 MiB입니다.
+2. POST `/api/download/batches`로 `name`, `sourceType`, `activationToken`, `definition`과 선택적 `proxy`를 제출합니다. `definition`은 JSON 객체로 보냅니다. UTF-8로 직렬화한 정의는 최대 1 MiB, 전체 요청은 최대 8 MiB입니다.
 3. 반환된 UUID로 GET `/api/download/batches/{id}`와 `/{id}/items?offset=0&limit=100`을 조회합니다. 항목은 배치 UUID와 `workType`, `id`의 조합으로 식별하며 개별 다운로드 실행 UUID와 다릅니다.
 4. POST `/{id}/pause`, `/cancel`, `/resume`, `/retry`는 각각 일시 중지, 취소, 검색 재개, 실패 항목만 재시도합니다. 실제 실행이 끝나야 중지 상태가 종료됩니다. 발견된 실패 항목의 재시도로 미완료 원본 검색까지 수행하지는 않습니다.
 5. 유휴 상태에서 DELETE `/{id}`로 기록을 삭제합니다. 프로세스는 배치 하나만 보관하므로 새 배치를 만들기 전에 기존 배치를 삭제해야 합니다. 프로세스 재시작 후 결과는 복원되지 않습니다.
 
-`explicit-list`는 일러스트와 소설을 함께 받습니다. 다음 객체를 `definitionJson` 문자열로 직렬화하세요. 작품 ID는 양의 정수 십진 문자열이며 같은 유형 안에서 중복될 수 없습니다:
+제출 시 403 응답을 받으면 `programPermission`에서 확인된 누락 권한을 읽을 수 있습니다. `auth.program.unsupported`이면 작업의 `x-program-alternative`를 확인하세요. 202 응답을 받으면 `core:batches.read` 권한으로 `Location`을 조회하세요. 백그라운드 실행에 권한이 부족하면 배치 결과의 `programPermission`에 권한 ID가 표시됩니다.
+
+`explicit-list`는 일러스트와 소설을 함께 받습니다. 다음 객체를 `definition`에 넣으세요. 작품 ID는 양의 정수 십진 문자열이며 같은 유형 안에서 중복될 수 없습니다:
 
 ```json
 {
@@ -110,7 +128,7 @@ POST `/api/tools/backfill/tasks`의 본문 예시:
 ```json
 {
   "delayMs": 0,
-  "limit": 100,
+  "artworkIds": [12345],
   "dryRun": true,
   "alwaysNetwork": false
 }
@@ -120,11 +138,49 @@ POST `/api/tools/backfill/tasks`의 본문 예시:
 
 데이터베이스 이전은 미리보기 token으로 확정합니다. 환경 복원은 미리보기 token, 선택 항목, 경로 매핑, 비밀번호를 받으며 `RESTORE_PENDING` 이후 대체 프로세스가 실행합니다. 내보내기는 서버의 절대 `destination`과 `confirmRestart:true`가 필수이며 `password`, `includeCredentials`, `includeDatabases`, `includeState`, `includeResources`를 선택할 수 있습니다. 리소스에는 데이터베이스도 포함해야 하며 자격 증명·데이터베이스·상태에는 비밀번호가 필요합니다. 기존 대상은 덮어쓰지 않습니다. 백엔드를 중지하고 내보낸 뒤 전체 재시작을 요청하므로 다시 연결하여 조회하세요. 재시작에 실패하면 애플리케이션을 수동으로 시작해야 합니다. 업데이트 설치에는 현재 검증된 패키지의 SHA-256이 필요합니다.
 
+`POST /api/library/artworks/{artworkId}/recover-metadata`는 전달받은 값으로 누락된 필드를 채웁니다. 본문이 없거나 읽을 수 없거나 유효한 값이 없으면 `400`을 반환합니다. 태그와 시리즈를 가져오려면 가져온 작품 ID를 지정해 보충 작업을 시작하세요. [가져온 작품의 메타데이터 보충](/ko/local-import?id=metadata-backfill)
+
+외부 파일을 참조하는 작품은 `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 경로에서 조회할 수 있습니다. MANAGED 파일은 작품을 삭제할 때 함께 삭제됩니다. EXTERNAL_REFERENCE는 현재 기록이 외부 파일을 참조한다는 뜻이며 삭제 후에도 원본이 남습니다. 삭제 후에도 라이브러리에 `deleted=true` 기록이 남아 중복 다운로드를 확인할 수 있습니다.
+
+`/openapi`에서 각 작업의 응답 목록 바로 아래에 있는 **관련 작업**을 누르면 해당 작업으로 이동합니다. 예를 들어 로컬 가져오기 프리셋 목록에서 스캔 미리보기를 열 수 있습니다. 서버는 문서와 링크를 언어별로 캐시합니다. 플러그인이 경로를 추가하는 등 카탈로그가 바뀌면 페이지를 새로 고쳐 변경 사항을 확인하세요.
+
+작업의 `externalDocs`에서 가이드를 열 수 있습니다. 응답의 `links`는 후속 요청과 매개변수를 가져올 위치를 알려 줍니다. `x-related-operations`는 선언된 대체 작업과 응답 링크를 먼저 표시한 뒤 설명에 나온 경로와 리소스 이름이나 그룹이 같은 작업을 표시합니다. 호출 전에 대상의 입력과 권한을 확인하세요. `x-related-guides`는 관련 가이드 목록입니다.
+
+일러스트와 소설의 일괄 필터는 모든 페이지에 적용됩니다. `"mode":"filter"`를 사용하려면 `filter`에 JSON 객체를 전달하세요. ID 배열은 `42`와 같은 양의 JSON 정수만 받습니다. 소수 `42.9`, 문자열 `"42"`, 0 또는 음수를 보내면 HTTP 400을 반환하며, `field`에서 수정할 위치를 확인할 수 있습니다. `"filter":{}`를 명시하거나 `filter`에 페이지 설정만 넣으면 해당 유형의 작품 전체를 선택합니다. 삭제하거나 내보낸 뒤 원본을 삭제할 때는 `"confirmAll":true`로 이 범위를 확인하세요. 프로그램 키에는 해당 갤러리의 삭제 권한도 필요합니다. 내보내기에서 `archiveToken`을 받으면 `core:archives.read`로 `GET /api/archive/status/{token}`을 폴링하세요. 상태가 `ready`이면 `core:archives.download`로 `GET /api/archive/download/{token}`을 호출하세요.
+
 ## 오류와 기록
+
+일러스트나 소설 메타데이터를 조회하거나 `POST /api/download/tasks`로 다운로드를 제출할 때 `404 WORK_NOT_FOUND`가 반환되면, 현재 계정으로 원본 사이트에서 작품을 찾을 수 없다는 뜻입니다. 작품 ID와 공개 범위를 확인하세요. 작업 ID로 조회할 때 `404 DOWNLOAD_TASK_NOT_FOUND`가 반환되면 현재 호출자가 해당 작업을 찾을 수 없다는 뜻입니다.
+
+수동 배치를 폴링할 때는 `state`로 상태를 판단하세요. 사유를 나타내는 `code`는 null일 수 있으며 소스나 계정 정책 플러그인이 고유한 값을 반환할 수도 있습니다. `batch.work-failed`이면 배치의 `items`에서 실패한 항목을 확인하세요. 작성자 배치에서 `schedule.pixiv.discovery-not-found`가 반환되면 작성자 ID를 확인하세요. 알 수 없는 코드도 `state`에 따라 처리하세요.
 
 오류에는 기계용 `code`와 번역된 `error`가 포함됩니다. 400은 잘못된 입력, 401/403은 인증·권한 거부, 404는 식별자 없음, 409는 사용 중·충돌·허용되지 않는 상태, 413은 본문 초과, 503은 기능 사용 불가입니다. 모든 비 2xx 응답을 자동 재시도하지 말고 업무 상태에 따라 처리하세요.
 
-GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반환된 `beforeTime`과 `beforeId`를 함께 보내 다음 페이지를 조회합니다. 저장된 종료 결과만 나열하며 진행 중 다운로드는 복원하지 않습니다. 개별 다운로드 중복 제거는 현재 프로세스의 보관 기간에만 적용됩니다. 알 수 없는 실행을 안전하게 다시 제출할 수 있다는 뜻은 아닙니다. 도구 기록과 배치 결과에는 별도 보관 규칙이 적용됩니다.
+`POST /api/download/tasks`의 202 응답에서 `Location` 주소로 진행 상황을 확인하세요. 경로의 `taskId`는 응답의 `task.attempt.attemptId`입니다.
+
+처음에는 2초마다 조회하세요. `revision`이 그대로면 간격을 최대 10초까지 늘리고, 값이 바뀌면 2초로 돌아갑니다. `phase`가 `COMPLETED`, `FAILED`, `CANCELLED` 중 하나이면 조회를 멈춥니다. 응답에 `Retry-After`가 있으면 다음 요청까지 최소한 지정된 시간만큼 기다리세요.
+
+`x-download-submissions`에서 `workType`을 선택하세요. 게시되지 않은 유형은 `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`을 반환합니다. 본문 필드 오류의 `field`는 JSON Pointer입니다. 쿼리, 경로, 헤더, multipart 매개변수의 `field`는 요청에 쓰인 이름입니다. `in`, `field`, `reason`이 있으면 이 값으로 문제의 위치를 확인하세요. 예를 들어 `/options/pages`와 `out_of_range`는 작품 범위 밖의 페이지를 뜻합니다. `explicit-list`에 `/definition/source/acquisitionMode`가 없으면 배치를 만들기 전에 400을 반환합니다.
+
+진행률이 있으면 `progress.unit`, `completed`, `total`을 함께 읽으세요. 이번 시도의 현재 단계에 대한 값입니다. 최종 결과는 `phase`로 판별합니다. `progress`가 null이면 측정값이 없습니다.
+
+| 값 | 읽거나 보내는 형식 |
+| --- | --- |
+| Pixiv 작품 ID | 갤러리 `artworkId`와 내보내기 `ids[]`는 JSON 정수입니다. Pixiv 검색 `id`, 작업 `workId`, 배치 `key.id`는 문자열입니다. 변환할 때 정수 정밀도를 유지하세요. 다른 제공자는 자체 `workId`를 정의합니다. |
+| 다운로드 설정 | 단일 작업 `options`에는 `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`, 배치 `definition.download`에는 `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`를 전달합니다. |
+| 시간과 파일 | 작업 `updatedAt`은 ISO 8601입니다. 배치 `createdTime`, 갤러리 `time`, 예약 `nextRunTime`은 밀리초 단위의 Unix 시간입니다. `outputPath`는 이번 시도의 예정 출력 디렉터리이고 `folder`는 갤러리에 등록된 위치입니다. 작품 ID로 연결하세요. |
+| 응답 형식 | `GET /api/authors`는 배열, `GET /api/authors/paged`는 `content`가 있는 페이지 객체, `GET /api/downloaded/statistics`는 `success`와 개수를 담은 객체를 반환합니다. |
+
+| 엔드포인트 | 페이지 매개변수 | 다음 페이지 조회 |
+| --- | --- | --- |
+| `GET /api/gallery/artworks` | `page`, `size` | 첫 페이지는 `page=0`이며 이후에는 `page`를 1씩 늘립니다. |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | `offset=0`부터 시작하여 실제로 받은 항목 수만큼 오프셋을 늘립니다. |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 첫 요청에서는 두 커서를 모두 생략합니다. 다음 페이지에는 반환된 두 값을 그대로 함께 보냅니다. |
+| `GET /api/pixiv/search` | `page` | 1페이지부터 시작합니다. 1보다 작은 값은 1페이지로 처리합니다. |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 다음 요청의 `cursor`에 `nextCursor`를 전달하세요. 플러그인 버전 목록은 `nextVersionCursor`를 반환합니다. |
+
+다운로드 작업 기록은 페이지당 기본 50개, 최대 200개입니다. 저장된 종료 결과만 나열하며 진행 중 다운로드는 복원하지 않습니다. 프로세스가 중복 확인 기록을 보관하는 동안에는 같은 호출자가 동일한 `requestId`와 내용으로 다시 제출하면 원래 영수증을 받습니다. 최종 결과가 저장되면 작업 종료 5분 후에 중복 확인 기록이 만료될 수 있습니다. 이후 다시 제출하면 새 작업이 시작될 수 있습니다. 도구 기록과 배치 결과에는 별도 보관 규칙이 적용됩니다.
+
 ## 프로그램 권한 목록
 
 관리자는 GET `/api/security/program-keys/permissions`로 현재 설치에서 유효한 카탈로그를 조회할 수 있습니다. 표는 내장 선언이며 외부 플러그인은 현재 카탈로그를 확인하세요. `*`는 경로 한 구간을 뜻합니다. 키에는 명시한 권한만 저장되며 플러그인이나 경로 와일드카드 권한은 지원하지 않습니다.
@@ -156,6 +212,7 @@ GET `/api/download/tasks/history`는 기본 50개, 최대 200개입니다. 반�
 | `ai:connection.test` | AI 연결 테스트(모델 호출) | POST `/api/admin/ai/test` |
 | `ai:models.read` | 사용 가능한 AI 모델 조회 | POST `/api/admin/ai/models` |
 | `ai:status.read` | AI 설정 상태 보기 | GET `/api/admin/ai/status` |
+| `core:api-reference.read` | HTTP API 명세 읽기 및 접근 권한 확인 | GET, HEAD `/api/openapi.json` |
 | `core:application.read` | 앱 정보 및 UI 언어 리소스 읽기 | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
 | `core:archives.create` | 일러스트 내보내기 압축 파일 만들기 | POST `/api/archive/pack-artworks` |
 | `core:archives.download` | 이 설치의 내보내기 압축 파일 다운로드 | GET `/api/archive/download/*` |

@@ -1,12 +1,28 @@
 # HTTP API とプログラムの権限
 
-外部プログラムは `Authorization: Bearer <プログラム用キー>` を使用できます。セキュリティページの「プログラム用アクセスキー」で、名前、権限、許可する接続元 IP を指定してキーを作成します。キー全体は一度だけ表示され、サーバーにはダイジェストのみが保存されます。既定の有効期限はありません。権限や接続元の編集、キーの失効が可能です。プラグイン全体を選択しても、今後追加される権限は含まれません。
+## スクリプトやエージェントから API を使う
+
+1. PixivDownloader を実行しているインスタンスの `/openapi` を開きます。ローカルの既定の URL は `http://localhost:6999/openapi` です。管理者としてログインすると、利用できる API、リクエスト例、操作ごとに必要な権限を確認できます。
+2. デスクトップの「設定 → アクセス制御 → プログラム用アクセスキー」でキーを作成し、接続元 IP と必要な操作の権限を指定します。スクリプトやエージェントが API 仕様を取得する場合は `core:api-reference.read` も許可します。デスクトップがない環境では、管理者セッションで `/api/security/program-keys` を呼び出してキーを管理できます。
+3. スクリプトは `Authorization: Bearer <プログラムキー>` を付けて `GET /api/openapi.json` を呼び出すと、OpenAPI 仕様を JSON で取得できます。エージェントには、キー作成後に「プロンプトをコピー」でインスタンスのドキュメント URL を渡し、キーは別途設定してください。キーに閲覧権限がない場合は、必要な操作の説明を管理者が提供します。
+
+`/openapi` のアクセス方法はログインせずに読めます。JSON の取得には、管理者セッションまたは仕様の閲覧権限を持つプログラムキーが必要です。同じ認証情報で `HEAD /api/openapi.json` を呼び出すと閲覧権限を確認できます。
+
+HTTPS を推奨します。ローカルネットワーク外からの HTTP 接続では、既定でプログラムキーが拒否されます。例外が必要な場合は対象のキーでリスクを確認し、続けて外部 HTTP 接続を許可してください。権限や接続元を編集すると HTTPS が再び必須になります。サーバーが拒否しても、平文で送ったキーは傍受される可能性があります。
+
+キーの全体が表示されるのは作成時の一度だけです。サーバーにはダイジェストが保存されます。既定の有効期限はなく、権限や接続元の変更、キーの失効が可能です。プラグイン全体を選択した場合に付与されるのは、その時点で一覧にある権限のみです。
 
 接続元には数値の IPv4、IPv6、CIDR ネットワークを指定できます。制限する場合は1件以上が必要で、「すべての接続元」は明示的に選択します。リバースプロキシを使用する前に、信頼するプロキシを設定してください。キーと管理者セッション、招待認証、GUI 認証を併用しないでください。取得用の認証情報は別の `X-Acquisition-Credential` で送信します。
 
 管理者セッションは引き続き `X-Session-Token` で既存の API を使用できます。プログラム用キーで利用できるのは、権限カタログに明示されたメソッドとパスのみです。その他の API は管理者本人またはローカルの操作手順を維持します。キーの管理と管理者認証情報の変更には、管理者本人のログインが必要です。この API は MCP サーバーを提供しません。
 
+`programKey` の指定がない操作に有効な Bearer キーだけを送ると、匿名アクセスが可能な操作でも `403 auth.program.unsupported` が返ります。無効なキーや認証情報の併用では `401 auth.program.invalid` が返る場合があります。
+
 Cookie を使う書き込みは同一オリジンの検証が必要です。ブラウザーのクロスオリジン要求は拒否され、プラグイン管理や定期タスクなどでは明示的な同一オリジン情報も必要です。`/api/gui/**` はローカル端末と GUI token の制約を維持します。リモートプログラムは以下の業務 API を使います。プラグイン機能には活動中のプラグインと利用可能な依存機能が必要です。
+
+`GET /api/security/program-keys/self` は現在のキーの `id` と `permissions` を返します。権限の配列は空の場合もあります。Bearer 認証で書き込むときも `x-csrf-origin` を確認してください。`POST /api/schedule/tasks` には同一オリジンの Origin または Referer が必要です。ブラウザーの認証情報を伴わないネイティブクライアントでは、`POST /api/download/tasks` と `/api/download/batches` で両方を省略できます。
+
+キーを切り替えるときは、管理者がデスクトップのセキュリティ画面か管理者セッションで新しいキーを発行します。クライアントを切り替え、`GET /api/security/program-keys/self` で新しいキーの ID と権限を確認してから、管理者が旧キーを失効させます。旧キーで送信したタスクは新しいキーからは参照できません。失効前に終了まで追跡するか、管理者セッションで確認してください。
 
 ## エンドポイント一覧
 
@@ -60,12 +76,14 @@ POST `/api/settings/validate` または `/api/settings` の本文例：
 ## バックグラウンド手動バッチ
 
 1. GET `/api/schedule/sources` で現在の `sourceType` と `activationToken` を取得します。定義形式は取得元プラグインが解釈します。
-2. POST `/api/download/batches` に `name`、`sourceType`、`activationToken`、`definitionJson`、任意の `proxy` を送ります。`definitionJson` は最大 1 MiB UTF-8 の JSON 文字列で、要求全体は最大 8 MiB です。
+2. POST `/api/download/batches` に `name`、`sourceType`、`activationToken`、`definition`、任意の `proxy` を送ります。 `definition` は JSON オブジェクトとして送信します。UTF-8 にシリアライズした定義は最大 1 MiB、要求全体は最大 8 MiB です。
 3. 返された UUID を使い、GET `/api/download/batches/{id}` と `/{id}/items?offset=0&limit=100` を取得します。項目の識別子はバッチ UUID、`workType`、`id` の組み合わせで、個別ダウンロードの実行 UUID ではありません。
 4. POST `/{id}/pause`、`/cancel`、`/resume`、`/retry` は一時停止、キャンセル、走査再開、失敗項目のみの再試行です。実行が実際に終了するまで停止中の状態は終端になりません。既に発見した失敗項目の再試行では未完了の取得元走査は続行されません。
 5. 待機中に DELETE `/{id}` で記録を削除します。保持するバッチはプロセスごとに 1 件で、新規作成前に旧バッチを削除します。プロセス再起動後に結果は復元されません。
 
-`explicit-list` はイラストと小説の混在を受け付けます。次のオブジェクトを `definitionJson` にシリアライズします。作品 ID は正の整数の十進文字列で、同じ種類内で重複できません：
+送信時の 403 応答では、特定できた不足権限を `programPermission` で確認できます。`auth.program.unsupported` の場合は操作の `x-program-alternative` を確認してください。202 応答を受け取ったら `core:batches.read` で `Location` を取得します。実行時に権限が不足した場合はバッチ結果の `programPermission` に権限 ID が入ります。
+
+`explicit-list` はイラストと小説の混在を受け付けます。次のオブジェクトを `definition` に指定します。作品 ID は正の整数の十進文字列で、同じ種類内で重複できません：
 
 ```json
 {
@@ -110,7 +128,7 @@ POST `/api/tools/backfill/tasks` の本文例:
 ```json
 {
   "delayMs": 0,
-  "limit": 100,
+  "artworkIds": [12345],
   "dryRun": true,
   "alwaysNetwork": false
 }
@@ -120,11 +138,49 @@ POST `/api/tools/backfill/tasks` の本文例:
 
 データベース移行はプレビュー token で確定します。環境復元にはプレビュー token、選択項目、パスマッピング、パスワードを送り、`RESTORE_PENDING` の後に代替プロセスが実行します。エクスポートはサーバーの絶対 `destination` と `confirmRestart:true` が必須で、`password`、`includeCredentials`、`includeDatabases`、`includeState`、`includeResources` は任意です。リソースにはデータベースが必要で、認証情報・データベース・状態にはパスワードが必要です。既存の出力先は上書きしません。バックエンド停止、エクスポート、完全再起動の要求の順に進み、クライアントは再接続して照会します。再起動に失敗した場合は手動で起動してください。更新のインストールには検証済みパッケージの現在の SHA-256 が必要です。
 
+`POST /api/library/artworks/{artworkId}/recover-metadata` は指定した値で未設定項目を補完します。本文がない、読み取れない、または有効な値がない場合は `400` です。タグやシリーズを取得するには、登録した作品 ID を指定して補完を実行してください。 [インポート後のメタデータ補完](/ja/local-import?id=metadata-backfill)
+
+外部ファイルを参照する作品は `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` で取得できます。`MANAGED` のファイルは作品の削除時に削除されます。EXTERNAL_REFERENCE は現在の登録が外部ファイルを参照していることを示し、削除時も元ファイルが残ります。 削除後も重複判定に使う `deleted=true` の記録が残ります。
+
+`/openapi` では、各操作のレスポンス一覧のすぐ下にある「関連する操作」から移動できます。たとえば、ローカルインポートのプリセット一覧からスキャンのプレビューを開けます。サーバーは文書とリンクを言語別にキャッシュします。プラグインのルート追加などでカタログが変わったら、ページを再読み込みしてください。
+
+操作の `externalDocs` はガイドへのリンクです。レスポンスの `links` は、次のリクエストとそのパラメーターの取得元を示します。`x-related-operations` は宣言済みの代替操作とレスポンスリンクを優先し、続いて説明に含まれるルートと、リソース名またはグループを共有する操作を挙げます。実行前に対象のパラメーターと権限を確認してください。`x-related-guides` は関連ガイドの一覧です。
+
+イラストと小説の一括フィルターは全ページを対象とします。`"mode":"filter"` を指定するときは、`filter` に JSON オブジェクトを渡します。ID 配列に指定できるのは `42` のような正の JSON 整数です。小数の `42.9`、文字列の `"42"`、ゼロ、負数を渡すと HTTP 400 が返り、`field` で修正箇所を確認できます。`"filter":{}` を明示した場合や `filter` がページ指定だけの場合は、その種類の全作品を選択します。削除またはエクスポート後の元作品の削除には `"confirmAll":true` でこの範囲を確認します。プログラムキーには該当ギャラリーの削除権限も必要です。エクスポートで `archiveToken` が返ったら `core:archives.read` で `GET /api/archive/status/{token}` をポーリングします。`ready` になったら `core:archives.download` で `GET /api/archive/download/{token}` を呼び出します。
+
 ## エラーと履歴
+
+イラストや小説のメタデータを取得したとき、または `POST /api/download/tasks` でダウンロードを依頼したときの `404 WORK_NOT_FOUND` は、現在のアカウントでは取得元で作品が見つからなかったことを示します。作品 ID と公開範囲を確認してください。タスク ID で照会したときの `404 DOWNLOAD_TASK_NOT_FOUND` は、呼び出し元がそのタスクを参照できないことを示します。
+
+手動バッチをポーリングするときは `state` で状態を判定します。理由を示す `code` は null の場合があり、取得元やアカウントポリシーのプラグインが独自の値を返すこともあります。`batch.work-failed` ではバッチの `items` で失敗した項目を、作者バッチの `schedule.pixiv.discovery-not-found` では作者 ID を確認してください。未知のコードを受け取った場合も `state` に従います。
 
 エラーには機械用 `code` と翻訳された `error` があります。400 は不正入力、401/403 は認証・権限拒否、404 は識別子不明、409 は使用中・競合・操作不可状態、413 は本文超過、503 は機能利用不可です。すべての非 2xx 応答を自動再試行せず、業務状態に応じて処理してください。
 
-GET `/api/download/tasks/history` は既定 50 件、最大 200 件です。返された `beforeTime` と `beforeId` を両方指定して次ページを取得します。保存済み終端結果のみを列挙し、実行中のダウンロードは復元しません。個別ダウンロードの重複排除は現在のプロセスの保持期間内だけです。不明な実行を安全に再送できるとは限りません。ツール履歴とバッチ結果は別々の保持規則を使います。
+`POST /api/download/tasks` が 202 を返したら、`Location` で進捗を確認します。パスの `taskId` は応答の `task.attempt.attemptId` です。
+
+最初は 2 秒間隔で問い合わせます。`revision` が変わらない間は間隔を徐々に 10 秒まで延ばし、更新されたら 2 秒に戻します。`phase` が `COMPLETED`、`FAILED`、`CANCELLED` のいずれかになったら終了します。`Retry-After` が返った場合は、指定された時間を空けてください。
+
+`workType` は `x-download-submissions` から選びます。未公開の型には `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE` が返ります。本文のエラーでは `field` は JSON Pointer、クエリ、パス、ヘッダー、multipart のエラーではパラメーター名またはパート名です。`in`、`field`、`reason` があれば、どの入力を修正するか判断できます。たとえば `/options/pages` と `out_of_range` は作品の範囲外のページを示します。`explicit-list` に `/definition/source/acquisitionMode` がない場合、バッチ作成前に 400 が返ります。
+
+進捗がある場合は `progress.unit`、`completed`、`total` を組にして読みます。値は今回の試行の現在の工程を表します。最終結果には `phase` を使います。`progress` が null の場合は測定値がありません。
+
+| 値 | 取得・送信時の形式 |
+| --- | --- |
+| Pixiv の作品 ID | ギャラリーの `artworkId` とエクスポートの `ids[]` は JSON 整数です。Pixiv 検索の `id`、タスクの `workId`、バッチの `key.id` は文字列です。変換時は整数の精度を保ってください。他のプロバイダーの `workId` は各実装が定義します。 |
+| ダウンロード設定 | 単一タスクの `options` には `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`、バッチの `definition.download` には `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}` を渡します。 |
+| 時刻とファイル | タスクの `updatedAt` は ISO 8601 です。バッチの `createdTime`、ギャラリーの `time`、スケジュールの `nextRunTime` は Unix 時刻のミリ秒です。`outputPath` は今回の試行の出力予定ディレクトリ、`folder` はギャラリーの登録先です。作品 ID で照合してください。 |
+| レスポンスの形 | `GET /api/authors` は配列、`GET /api/authors/paged` は `content` を含むページ、`GET /api/downloaded/statistics` は `success` と件数を含むオブジェクトを返します。 |
+
+| エンドポイント | ページ指定 | 次のページの取得方法 |
+| --- | --- | --- |
+| `GET /api/gallery/artworks` | `page`, `size` | 最初は `page=0` を指定し、次のページでは `page` を 1 増やします。 |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | `offset=0` から始め、取得した件数だけオフセットを増やします。 |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 最初は両方のカーソルを省略します。次のページには返された値を組にしてそのまま渡します。 |
+| `GET /api/pixiv/search` | `page` | 最初のページは 1 です。1 未満の値は 1 として扱います。 |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 次回の `cursor` には `nextCursor` を渡します。プラグインのバージョン一覧では `nextVersionCursor` を使います。 |
+
+ダウンロードタスクの履歴は既定で 1 ページ 50 件、最大 200 件です。保存済み終端結果のみを列挙し、実行中のダウンロードは復元しません。同じ呼び出し元が同じ `requestId` と同じ内容で再送すると、プロセス内に重複判定用の記録がある間は元の受付結果が返ります。終了結果が保存されると、その記録はタスクの終了から 5 分後に失効する場合があります。それ以降の再送で新しいタスクが作成されることがあります。ツール履歴とバッチ結果は別々の保持規則を使います。
+
 ## プログラムの権限一覧
 
 現在のインストールで有効なカタログは、管理者が GET `/api/security/program-keys/permissions` で取得できます。表は組み込みの宣言です。外部プラグインは現在のカタログを参照してください。`*` はパスの1区間を表します。キーは明示した権限のみを保存し、プラグインやパスのワイルドカード認可は行いません。
@@ -156,6 +212,7 @@ GET `/api/download/tasks/history` は既定 50 件、最大 200 件です。返�
 | `ai:connection.test` | AI 接続をテスト（モデルを呼び出します） | POST `/api/admin/ai/test` |
 | `ai:models.read` | 利用可能な AI モデルを取得 | POST `/api/admin/ai/models` |
 | `ai:status.read` | AI 設定状況を表示 | GET `/api/admin/ai/status` |
+| `core:api-reference.read` | HTTP API リファレンスの取得と閲覧権限の確認 | GET, HEAD `/api/openapi.json` |
 | `core:application.read` | アプリ情報と UI 言語リソースを読む | GET `/api/app/info`; GET `/api/i18n/messages/*`; GET `/api/i18n/meta` |
 | `core:archives.create` | イラストのエクスポート用アーカイブを作成 | POST `/api/archive/pack-artworks` |
 | `core:archives.download` | このインストールのエクスポート用アーカイブをダウンロード | GET `/api/archive/download/*` |

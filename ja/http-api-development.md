@@ -1,6 +1,30 @@
 # HTTP API と権限宣言の作成
 
+メソッド、パス、パラメーターは Spring MVC から取得します。説明にはコンパイル時に保存した Javadoc を使えます。例や手動解析する JSON、応答の詳細は `@Operation`、`@Schema`、OpenAPI のリクエスト本文のアノテーションで補います。権限は有効なルート宣言から取得します。新しい操作は `/openapi` で入力、成功ステータス、対象プラグインの制限、主なエラーを確認してください。非同期処理には結果の取得方法も記載します。
+
 Web、Swing、Compose、CLI の業務機能を追加・変更するときは、同じ変更で HTTP API の対応範囲も確認します。呼び出し方法と一覧は [HTTP API](/ja/http-api)、プラグイン契約は [サードパーティープラグイン SDK](/ja/plugin-development) を参照してください。
+
+コントローラーの HTTP 言語リソースで `guide` にグループ共通のガイド URL を指定します。操作固有のページや節は `<Controller>.<method>.<VERB>.guide` で指定します。直接のガイドは `externalDocs`、関連操作が参照するガイドは重複を除いて `x-related-guides` に出力されます。応答から次のリクエストの引数を渡せる場合は、その `@ApiResponse` に `links` を宣言します。
+
+ルートの権限は `x-program-permission` で確認できます。追加の確認がある操作では `x-program-permissions.route` も同じ値です。`discovery` は取得元トークンを取得する操作、`submit` 配列は送信時の固定権限、ヘッダーに必要な権限、またはカタログの参照方法を示します。`x-schedule-sources` では、スケジュール管理には `schedulePermission`、バッチ送信には `batchSubmitPermission` を使います。固定の取得元に手動バッチを送信するプラグインは、取得元の型を `x-manual-batch-source` に指定します。この操作では呼び出し側によるトークン取得は不要です。 インスタンスが出力する OpenAPI 文書のトップレベルにある `x-program-permission-conditions` に、各段階、フィールド、`request#`、`task#`、`batch#`、`item#` の読み方が記載されています。
+
+条件付きの権限では、`when.keyFrom` が指す JSON の値を `when.value` のリテラルと比較します。たとえばギャラリーのエクスポートには、`request#/deleteAfter` がブール値 `true` のとき削除権限も必要です。
+
+`execution` の `executePermissionsByWorkType` を参照し、実行計画が使う作品の種類に応じて権限を付与します。実行時には取得元の権限も再確認します。不足している権限 ID の位置は `reportedIn.pointer` の JSON Pointer で指定されます。送信時は HTTP 403 の本文、受理後は `core:batches.read` で 202 応答の `Location` を取得し、バッチ結果を確認します。ダウンロード例外からは `DownloadTaskException.programPermission()` で既知の不足権限を取得できます。`auth.program.unsupported` の場合は `x-program-alternative` で代替操作を確認してください。
+
+`x-csrf-origin` が `origin-or-referer` の場合、ネイティブクライアントも同一オリジンの Origin または Referer を送信します。`origin-required` の制約は Origin パラメーターを、`conditional` のブラウザーや Cookie に関する条件はヘッダーの説明を参照してください。
+
+名前付きの JSON SSE イベントでは `text/event-stream` の content にイベント DTO の schema を指定し、content の拡張 `x-sse-data-event` にイベント名を設定します。生成されるメディア型は文字列のままで、`x-sse-events` からイベント名で DTO の schema を参照できます。ブラウザー用操作からプログラムキー用の入口を案内するには、操作の `x-program-alternative` に `POST /api/download/tasks` のようにメソッドとパスを指定します。
+
+## 操作の説明と任意の「詳細情報」を書く
+
+コントローラーの `@HttpApiGroup("core-batch")` は、そのモジュールの `src/main/resources/i18n/http/core-batch.properties` を指定します。説明はこのファイルに、訳文は `core-batch_en.properties` など同じディレクトリの言語別ファイルに記入します。ホストは OpenAPI の生成時に文書の言語に応じて読み込みます。
+
+キーの先頭にはコントローラーのクラス名（パッケージ名を除く）、Java のメソッド名、大文字の HTTP メソッドを順に指定します。マッピングで HTTP メソッドを一つに限定していない場合は `ANY` を使います。たとえば `POST /api/download/batches` のタイトルは `ManualBatchController.create.POST.summary`、概要は `.description`、任意の Markdown 本文は `ManualBatchController.create.POST.details` に記入します。
+
+ホストが本文を OpenAPI 操作の `description` に追記すると、`/openapi` には「詳細情報」が折りたたまれて表示されます。見出しを選ぶと全文が開きます。`POST /api/download/tasks` では、有効なダウンロードプロバイダーも `schema.DownloadSubmission.<workType>.description` で種類ごとの説明を追加できます。操作にもプロバイダーにも本文がない場合、この節は表示されません。
+
+執筆前に HTTP の入口から到達可能な処理を最後までたどり、該当する認可、入力検証、プロバイダーの呼び出し、非同期処理、ファイルの書き込み、結果の取得、失敗時の復旧を確認してください。受付時に分かる結果とタスク終了後に分かる結果を明記します。各言語の `/api/openapi.json` を確認し、`/openapi` で該当するメソッドとパスを開いて「詳細情報」が最初は閉じていることを確認し、キーボードで開いて本文を確認してください。
 
 ## API が必要な機能
 
@@ -42,6 +66,10 @@ owner はホストの登録情報で決まります。`example` の場合、完�
 メソッド、パス、権限、対象範囲、入力フィールドと上限、非同期状態、主なエラーを記載します。信頼境界でパス、資格情報、JSON を検証します。キーは `Authorization: Bearer` のみで送り、URL、ログ、ブラウザーの永続ストレージに保存しません。送信元 IP は信頼済みプロキシ処理後のクライアントアドレスを使い、生の転送ヘッダーを信用しません。既存の CSRF、復旧モード、プラグインリースは引き続き適用します。
 
 エラーには安定した `code` とローカライズされた `error` を含めます。不正入力、拒否、対象なし、リビジョン競合、上限超過、能力利用不可、結果不明を区別します。通信中断後は結果を確認し、書き込みを自動再送しません。
+
+プラグインが HTTP の入力を自分で検証する場合は、SDK の `top.sywyar.pixivdownload.core.web.HttpParameterException` を使用できます。このクラスは JDK のみに依存する `pixivdownload-core-api` に含まれます。たとえばクエリの `order` が許可された値に該当しない場合は `new HttpParameterException("query", "order", "invalid_value")` をスローします。ホストは HTTP 400 とともに `code=error.request.param.invalid`、リクエストの言語に応じた `error`、`in`、`field`、`reason` を返します。既存のプラグインは従来のエラーレスポンスも引き続き使用できます。 このエラーと各フィールドをインスタンスの OpenAPI に掲載するには、対象の操作に `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")` を付けます。
+
+`in` には `query`、`path`、`header`、`part`、`body` のいずれかを指定します。最初の四つの場合、`field` はリクエストに使うパラメーター名またはパート名です。JSON 本文では `/options/pages` などの JSON Pointer を使います。`reason` には `required`、`type`、`invalid_value` などの機械処理用の値を指定します。これらの三つのフィールドにリクエストの入力値を含めないでください。Spring がバインド時に検出したパラメーターの不足や型変換エラーはホストで位置を特定します。
 
 実際のフィルターまたは HTTP 入口で、権限不足時に業務処理が実行されないことをテストします。メソッド、対象プラグイン、送信元ネットワーク、失効、交代、保存失敗を確認します。API と同時に権限カタログ、呼び出し元、五言語の文書、関連回帰を更新します。宣言やコンパイルだけでは操作・実行の検証になりません。
 
