@@ -104,19 +104,16 @@
     stage.style.setProperty('--chrome', state.chrome.toFixed(3));
     stage.style.setProperty('--caption', state.caption.toFixed(3));
     copy.classList.toggle('is-live', state.copy > 0.6);
-    let loose = 0;
     for (const tile of tiles) {
-      const value = model.looseness(progress, Number(tile.dataset.order || 0));
-      tile.style.setProperty('--l', value.toFixed(4));
-      loose += value;
+      tile.style.setProperty('--l', model.looseness(progress, Number(tile.dataset.order || 0)).toFixed(4));
     }
-    // 全部归位后停掉浮动动画。
-    stage.classList.toggle('is-settled', loose === 0);
+    // 浮动动画只在首屏起始位置播放；其关键帧依赖 --l，滚动期间播放会让每一帧都重新计算全部瓦片。
+    stage.classList.toggle('is-floating', progress === 0);
   }
 
   function resetScene() {
     for (const name of ['--copy', '--chrome', '--caption', '--mx', '--my']) stage.style.removeProperty(name);
-    stage.classList.remove('is-settled');
+    stage.classList.remove('is-floating');
     paintedProgress = -1;
     for (const tile of tiles) {
       for (const name of ['--l', '--dx', '--dy', '--ds', '--rot', '--depth', '--bob-delay', '--in-delay']) {
@@ -178,8 +175,191 @@
     targets.filter((target) => !target.classList.contains('is-in')).forEach((target) => revealObserver.observe(target));
   }
 
+  // ---------- 吸附翻页 ----------
+  // 停靠点：首屏起止两种完整状态、各章节（分屏章节按每一屏）顶部与页尾；高于视口时，内部按原生方式自由滚动。
+  // 滚轮与翻页键由这里接管并以统一的缓动翻页；触摸、拖动滚动条等原生滚动停下后再归位到停靠点。
+  const snapRegions = all('main > .chapter:not(.chapter--paged), main > .chapter--paged > .chapter__page, main > .finale');
+  const WHEEL_GESTURE_GAP = 180;
+  const SETTLE_DELAY = 140;
+  const SETTLE_COMMIT = 0.12;
+  const userScrollWindow = 1000;
+  let snapAnimation = null;
+  let wheelMode = null;
+  let lastWheel = -Infinity;
+  let lastUserScroll = -Infinity;
+  let lastScrollY = window.scrollY;
+  let scrollDirection = 0;
+  let touching = false;
+  let settleTimer = 0;
+
+  const maxScroll = () => Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  const documentTop = (element) => element.getBoundingClientRect().top + window.scrollY;
+
+  function snapLayout() {
+    const viewport = window.innerHeight;
+    const sceneTop = documentTop(scene);
+    const regions = [
+      { top: sceneTop, height: 0 },
+      { top: sceneTop + scene.offsetHeight - viewport, height: 0 }
+    ];
+    for (const region of snapRegions) {
+      regions.push({ top: documentTop(region), height: region.offsetHeight, free: true });
+    }
+    return model.snapLayout(regions, viewport, maxScroll());
+  }
+
+  function stepSnapAnimation(now) {
+    const animation = snapAnimation;
+    if (!animation) return;
+    const t = Math.min(1, (now - animation.start) / animation.duration);
+    window.scrollTo({ top: animation.from + (animation.to - animation.from) * model.snapEase(t), behavior: 'instant' });
+    // 同一帧内同步首屏，避免滚动事件晚一帧才更新画面。
+    if (sceneActive) paintScene();
+    if (t < 1) {
+      animation.frame = requestAnimationFrame(stepSnapAnimation);
+    } else {
+      snapAnimation = null;
+    }
+  }
+
+  function snapTo(target) {
+    const to = Math.round(Math.min(Math.max(target, 0), maxScroll()));
+    const from = window.scrollY;
+    cancelSnap();
+    if (Math.abs(to - from) < 1) return;
+    snapAnimation = { from, to, start: performance.now(), duration: model.snapDuration(to - from, window.innerHeight) };
+    snapAnimation.frame = requestAnimationFrame(stepSnapAnimation);
+  }
+
+  function cancelSnap() {
+    if (snapAnimation) cancelAnimationFrame(snapAnimation.frame);
+    snapAnimation = null;
+  }
+
+  // 正在翻页时，后续操作以动画终点为起点，连按可以连续翻过多页。
+  const snapOrigin = () => (snapAnimation ? snapAnimation.to : window.scrollY);
+
+  function step(direction) {
+    const target = model.nextStop(snapLayout(), snapOrigin(), direction);
+    if (target !== null) snapTo(target);
+  }
+
+  window.addEventListener('wheel', (event) => {
+    if (!sceneActive || event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    const now = performance.now();
+    // 同一次手势（含触控板惯性）的事件间隔很短；间隔拉开后才算新的手势。
+    if (now - lastWheel > WHEEL_GESTURE_GAP && !snapAnimation) wheelMode = null;
+    lastWheel = now;
+    if (wheelMode === 'snapped') {
+      event.preventDefault();
+      return;
+    }
+    const direction = Math.sign(event.deltaY);
+    const layout = snapLayout();
+    const range = model.freeRange(layout, window.scrollY);
+    if (range && model.hasRoom(range, window.scrollY, direction)) {
+      // 长章节内部交给原生滚动；滚到边缘时停住，下一次手势再翻页。
+      wheelMode = 'native';
+      lastUserScroll = now;
+      return;
+    }
+    event.preventDefault();
+    if (wheelMode === 'native') return;
+    wheelMode = 'snapped';
+    step(direction);
+  }, { passive: false });
+
+  const PAGE_KEYS = { PageDown: 1, PageUp: -1, ' ': 1 };
+  const ARROW_KEYS = { ArrowDown: 1, ArrowUp: -1 };
+
+  const isElementWithin = (target, selector) => target instanceof Element && Boolean(target.closest(selector));
+  const FIELDS = 'input, textarea, select, [contenteditable]';
+  // 空格在按钮、链接等控件上用于激活。
+  const ACTIVATES_ON_SPACE = `${FIELDS}, button, a[href], summary, [role="tab"]`;
+
+  window.addEventListener('keydown', (event) => {
+    if (!sceneActive || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const key = event.key;
+    if (isElementWithin(event.target, key === ' ' ? ACTIVATES_ON_SPACE : FIELDS)) return;
+    if (key === 'Home' || key === 'End') {
+      event.preventDefault();
+      snapTo(key === 'Home' ? 0 : maxScroll());
+      return;
+    }
+    const page = PAGE_KEYS[key];
+    const arrow = ARROW_KEYS[key];
+    if (!page && !arrow) return;
+    const direction = page ? (key === ' ' && event.shiftKey ? -1 : page) : arrow;
+    const origin = snapOrigin();
+    const layout = snapLayout();
+    const range = model.freeRange(layout, origin);
+    if (range && model.hasRoom(range, origin, direction)) {
+      if (arrow && !snapAnimation) {
+        lastUserScroll = performance.now();
+        return;
+      }
+      // 长章节内部按一屏的大部分翻动，不越过章节边缘。
+      event.preventDefault();
+      const next = origin + direction * window.innerHeight * 0.85;
+      snapTo(direction > 0 ? Math.min(next, range[1]) : Math.max(next, range[0]));
+      return;
+    }
+    event.preventDefault();
+    step(direction);
+  });
+
+  // 页内导航以同样的方式翻到对应章节；跳到正文等其它锚点保持原生行为。
+  document.addEventListener('click', (event) => {
+    if (!sceneActive || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('a[href^="#"]');
+    const target = link && document.getElementById(link.getAttribute('href').slice(1));
+    if (!target || (target !== scene && !target.matches('main > section'))) return;
+    event.preventDefault();
+    snapTo(documentTop(target));
+    if (location.hash !== link.getAttribute('href')) history.pushState(null, '', link.getAttribute('href'));
+  });
+
+  // 原生滚动（触摸、拖动滚动条、方向键、长章节越过边缘）停下后，归位到停靠点。
+  function settle() {
+    settleTimer = 0;
+    if (!sceneActive || snapAnimation || touching || performance.now() - lastUserScroll > userScrollWindow) return;
+    const target = model.settleStop(snapLayout(), window.scrollY, scrollDirection, SETTLE_COMMIT);
+    if (target !== null) snapTo(target);
+  }
+
+  function trackScroll() {
+    const y = window.scrollY;
+    if (y !== lastScrollY) scrollDirection = Math.sign(y - lastScrollY);
+    lastScrollY = y;
+    if (snapAnimation) return;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, SETTLE_DELAY);
+  }
+
+  window.addEventListener('touchstart', () => {
+    touching = true;
+    cancelSnap();
+  }, { passive: true });
+  for (const type of ['touchend', 'touchcancel']) {
+    window.addEventListener(type, (event) => {
+      touching = event.touches.length > 0;
+      lastUserScroll = performance.now();
+      if (!touching && !settleTimer) settleTimer = setTimeout(settle, SETTLE_DELAY);
+    }, { passive: true });
+  }
+  // 按下鼠标（例如拖动滚动条）会打断正在进行的翻页，松开后再归位。
+  window.addEventListener('pointerdown', (event) => {
+    if (event.pointerType !== 'mouse') return;
+    cancelSnap();
+    lastUserScroll = performance.now();
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (event.pointerType === 'mouse') lastUserScroll = performance.now();
+  });
+
   function applyMotionPreference() {
     sceneActive = !reducedMotion.matches;
+    if (!sceneActive) cancelSnap();
     root.classList.toggle('motion', sceneActive);
     if (sceneActive) {
       layoutScene();
@@ -338,8 +518,17 @@
   window.addEventListener('scroll', () => {
     syncNav();
     repaintScene();
+    trackScroll();
   }, { passive: true });
-  window.addEventListener('resize', refreshScene);
+  window.addEventListener('resize', () => {
+    refreshScene();
+    // 视口变化后停靠点随之移动，不在自由区间内时直接对齐最近的停靠点。
+    if (!sceneActive || snapAnimation) return;
+    requestAnimationFrame(() => {
+      const target = model.settleStop(snapLayout(), window.scrollY, 0, SETTLE_COMMIT);
+      if (target !== null) window.scrollTo({ top: target, behavior: 'instant' });
+    });
+  });
   window.addEventListener('load', refreshScene);
   reducedMotion.addEventListener('change', applyMotionPreference);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshScene);

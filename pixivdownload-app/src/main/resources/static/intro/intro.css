@@ -28,6 +28,9 @@
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --nav-h: 56px;
   --wrap: 1180px;
+  /* 纵向间距按视口高度缩放，宽而矮的屏幕不再被固定留白撑出滚动。 */
+  --pad-y: clamp(20px, 5svh, 88px);
+  --gap-y: clamp(24px, min(6vw, 5svh), 80px);
   --gutter: clamp(20px, 4vw, 40px);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -161,7 +164,7 @@ code { font-family: var(--mono); }
 }
 
 .headline {
-  font-size: clamp(32px, 4.8vw, 64px);
+  font-size: clamp(32px, min(4.8vw, 6.2svh), 64px);
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: -0.03em;
@@ -485,8 +488,13 @@ code { font-family: var(--mono); }
   margin-inline: auto;
   z-index: 2;
 }
+/* 吸附翻页由脚本驱动；章节顶部直接对齐视口顶部。 */
+.motion { scroll-padding-top: 0; }
 .motion .tile__face { animation: tile-bob 7s ease-in-out infinite alternate, tile-in 1s var(--ease-out) both; animation-delay: var(--bob-delay, 0s), var(--in-delay, 0s); }
-.motion .is-settled .tile__face { animation-play-state: paused, running; }
+.motion .scene__sticky:not(.is-floating) .tile__face { animation-play-state: paused, running; }
+/* 阴影与窗口底板随滚动淡入淡出；放在独立图层上只改透明度，不必每帧重绘大范围模糊阴影。 */
+.motion .tile__in::after,
+.motion .window::before { will-change: opacity; }
 .motion .scene__copy > * { animation: rise 1s var(--ease-out) both; }
 .motion .scene__copy > :nth-child(2) { animation-delay: 0.08s; }
 .motion .scene__copy > :nth-child(3) { animation-delay: 0.16s; }
@@ -507,9 +515,19 @@ code { font-family: var(--mono); }
 
 /* ---------- 章节 ---------- */
 
-.chapter { padding-block: clamp(96px, 13vw, 176px); }
+.chapter,
+.chapter__page { padding-block: calc(var(--nav-h) + var(--pad-y)) var(--pad-y); }
+/* 内容放不进一屏的章节分成几屏（chapter__page），章节本身不再加内边距。
+   不分屏滚动时，后一屏紧接前一屏，只保留普通段落间距。 */
+.chapter--paged { padding-block: 0; }
+.chapter__page + .chapter__page { padding-top: 0; }
+/* 吸附翻页时每章（或分屏章节的每一屏）占满一屏，内容在导航栏以下的区域内垂直居中；内容更高时按实际高度延伸。
+   内容很少的收尾章节不占满一屏，与结尾面板共用最后一屏，避免出现大片空白。 */
+.motion .chapter:not(.chapter--closing, .chapter--paged),
+.motion .chapter__page { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; min-height: 100svh; }
+.motion .chapter__page + .chapter__page { padding-top: calc(var(--nav-h) + var(--pad-y)); }
 .chapter--soft { background: var(--bg-soft); }
-.intro-block { display: flex; flex-direction: column; align-items: center; gap: 18px; margin-bottom: clamp(48px, 6vw, 80px); text-align: center; }
+.intro-block { display: flex; flex-direction: column; align-items: center; gap: clamp(12px, 2svh, 18px); margin-bottom: var(--gap-y); text-align: center; }
 
 .motion [data-reveal] {
   opacity: 0;
@@ -551,18 +569,18 @@ code { font-family: var(--mono); }
 /* ---------- 获取 ---------- */
 
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(40px, 7vw, 104px); align-items: center; }
-.split__text { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
-.split .headline { font-size: clamp(30px, 4.1vw, 56px); }
+.split__text { display: flex; flex-direction: column; align-items: flex-start; gap: clamp(12px, 2svh, 18px); }
+.split .headline { font-size: clamp(30px, min(4.1vw, 5.2svh), 56px); }
 .split__visual { min-width: 0; }
 
-.sources { display: grid; width: 100%; margin-top: 16px; border-top: 1px solid var(--line); }
+.sources { display: grid; width: 100%; margin-top: clamp(4px, 1.6svh, 16px); border-top: 1px solid var(--line); }
 .source {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: 14px;
   width: 100%;
-  padding: 16px 4px;
+  padding: clamp(8px, 1.3svh, 16px) 4px;
   border: 0;
   border-bottom: 1px solid var(--line);
   background: none;
@@ -701,8 +719,12 @@ code { font-family: var(--mono); }
 /* ---------- 格式 ---------- */
 
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.card--format { padding: 0 28px 28px; }
-.card__visual { display: grid; place-items: center; height: 260px; margin-inline: -28px; margin-bottom: 4px; }
+.card--format { padding: 0 28px clamp(20px, 3svh, 28px); }
+.card__visual { display: grid; place-content: center; place-items: center; height: clamp(150px, 22svh, 260px); margin-inline: -28px; margin-bottom: 4px; }
+/* 示意图本身约 210px 高，展示区随视口变矮时按档缩小，不压到下方标题。 */
+@media (max-height: 960px) { .card__visual > * { scale: 0.86; } }
+@media (max-height: 860px) { .card__visual > * { scale: 0.76; } }
+@media (max-height: 760px) { .card__visual > * { scale: 0.72; } }
 
 .fan { position: relative; width: 132px; height: 168px; }
 .fan__sheet { position: absolute; inset: 0; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-tile); transition: transform 0.7s var(--ease-out); }
@@ -749,6 +771,11 @@ code { font-family: var(--mono); }
 /* ---------- 画廊 ---------- */
 
 .demo { padding: clamp(18px, 2.4vw, 28px); border-radius: 28px; background: var(--bg-soft); }
+/* 演示独占一屏：宽屏上作品按 4:5 排两行，总高约为宽度的 0.42 倍再加约 120px；
+   视口较矮时收窄演示区，使其不超过一屏可用高度（视口减去导航栏与上下留白）。 */
+@media (min-width: 641px) {
+  .demo { max-width: calc(205svh - 420px); margin-inline: auto; }
+}
 .demo__bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; }
 .demo__tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag {
@@ -789,7 +816,7 @@ code { font-family: var(--mono); }
 .piece.is-out { opacity: 0.12; transform: scale(0.92); filter: grayscale(1); }
 .demo__hint { margin-top: 16px; color: var(--faint); font-size: 14px; text-align: center; }
 
-.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(24px, 4vw, 56px); margin-top: clamp(48px, 6vw, 80px); }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(24px, 4vw, 56px); }
 .fact { display: grid; gap: 8px; align-content: start; }
 .fact .icon { margin-bottom: 6px; color: var(--ink); }
 .fact__title { font-size: 19px; font-weight: 600; line-height: 1.35; letter-spacing: -0.015em; }
@@ -798,7 +825,7 @@ code { font-family: var(--mono); }
 /* ---------- 更多 ---------- */
 
 .bento { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px; }
-.bento > .card { grid-column: span 2; min-height: 288px; padding: 32px; justify-content: flex-end; }
+.bento > .card { grid-column: span 2; min-height: clamp(200px, 23svh, 288px); padding: 32px; justify-content: flex-end; }
 .bento > .bento__wide { grid-column: span 4; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 32px; }
 .bento > .bento__half { grid-column: span 3; }
 .bento .card > :first-child:not(.card__copy) { margin-bottom: auto; }
@@ -917,7 +944,7 @@ code { font-family: var(--mono); }
   .nav__tools { margin-inline-start: auto; }
   .split { grid-template-columns: minmax(0, 1fr); }
   .trio { grid-template-columns: minmax(0, 1fr); }
-  .card__visual { height: 240px; }
+  .card__visual { height: clamp(150px, 22svh, 240px); }
   .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bento > .card,
   .bento > .bento__half { grid-column: span 1; }

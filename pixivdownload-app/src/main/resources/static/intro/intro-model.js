@@ -1,4 +1,4 @@
-// 介绍页的纯计算部分：滚动进度、散落位置分配、三态标签筛选。不访问 DOM。
+// 介绍页的纯计算部分：滚动进度、散落位置分配、吸附翻页、三态标签筛选。不访问 DOM。
 (function (global) {
   'use strict';
 
@@ -98,6 +98,88 @@
     });
   }
 
+  // 吸附翻页中视为同一位置的距离（像素）。
+  var SNAP_EPSILON = 2;
+
+  // 吸附翻页的停靠点。regions 为文档坐标中的区域 {top, height, free}：每个区域顶部是一个停靠点；
+  // free 区域高于视口时，底部对齐视口的位置也是停靠点，两者之间可以自由滚动。页面两端总是停靠点。
+  // 超出视口不足 3% 的部分只是区域底部的留白（留白不小于视口高度的 5%），不单独停靠，免得一次滚动只挪动几个像素。
+  function snapLayout(regions, viewport, max) {
+    var points = [0, max];
+    var free = [];
+    var minOverflow = Math.max(SNAP_EPSILON, viewport * 0.03);
+    regions.forEach(function (region) {
+      var top = Math.max(0, Math.min(region.top, max));
+      points.push(top);
+      if (!region.free) return;
+      var bottom = Math.min(region.top + region.height - viewport, max);
+      if (bottom - top > minOverflow) {
+        points.push(bottom);
+        free.push([top, bottom]);
+      }
+    });
+    // 相距不足一小段视口的停靠点合并，避免多按一次只挪动几个像素；页面两端优先保留。
+    var gap = Math.max(SNAP_EPSILON, viewport * 0.1);
+    points.sort(function (a, b) { return a - b; });
+    var stops = [];
+    points.forEach(function (point) {
+      var last = stops.length - 1;
+      if (last < 0 || point - stops[last] > gap) stops.push(point);
+      else if (point === max && stops[last] !== 0) stops[last] = max;
+    });
+    return { stops: stops, free: free };
+  }
+
+  // 包含 y 的自由滚动区间；不在任何区间内时返回 null。
+  function freeRange(layout, y) {
+    for (var i = 0; i < layout.free.length; i += 1) {
+      var range = layout.free[i];
+      if (y >= range[0] - SNAP_EPSILON && y <= range[1] + SNAP_EPSILON) return range;
+    }
+    return null;
+  }
+
+  // 自由区间内沿 direction 是否还有可滚动的余量。
+  function hasRoom(range, y, direction) {
+    return direction > 0 ? y < range[1] - SNAP_EPSILON : y > range[0] + SNAP_EPSILON;
+  }
+
+  // 从 y 出发、沿 direction（1 向下，-1 向上）的下一个停靠点；已到尽头时返回 null。
+  function nextStop(layout, y, direction) {
+    var stops = layout.stops;
+    if (direction > 0) {
+      for (var i = 0; i < stops.length; i += 1) if (stops[i] > y + SNAP_EPSILON) return stops[i];
+    } else {
+      for (var j = stops.length - 1; j >= 0; j -= 1) if (stops[j] < y - SNAP_EPSILON) return stops[j];
+    }
+    return null;
+  }
+
+  // 自行滚动（触摸、拖动滚动条等）停下后应回到的停靠点；位于停靠点或自由区间内时返回 null。
+  // 从出发的停靠点沿 direction 走过两点间距的 commit 比例以上，就翻到前方的停靠点，否则退回。
+  function settleStop(layout, y, direction, commit) {
+    if (freeRange(layout, y)) return null;
+    var before = nextStop(layout, y + SNAP_EPSILON + 1, -1);
+    var after = nextStop(layout, y - SNAP_EPSILON - 1, 1);
+    if (before === null || after === null) return before === null ? after : before;
+    if (y - before <= SNAP_EPSILON || after - y <= SNAP_EPSILON) return null;
+    if (!direction) return y - before <= after - y ? before : after;
+    var origin = direction > 0 ? before : after;
+    var ahead = direction > 0 ? after : before;
+    return Math.abs(y - origin) / Math.abs(ahead - origin) > commit ? ahead : origin;
+  }
+
+  // 翻页动画时长（毫秒）：距离越远略长，但限制在可感知又不拖沓的范围内。
+  function snapDuration(distance, viewport) {
+    var screens = viewport > 0 ? Math.abs(distance) / viewport : 1;
+    return Math.round(Math.min(1300, Math.max(800, 700 + 300 * Math.sqrt(screens))));
+  }
+
+  // 翻页缓动：前段平缓加速、后段长尾减速。
+  function snapEase(t) {
+    return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+  }
+
   function nextTagState(state) {
     return TAG_STATES[(TAG_STATES.indexOf(state) + 1) % TAG_STATES.length];
   }
@@ -117,10 +199,17 @@
     NARROW_SLOTS: NARROW_SLOTS,
     assignSlots: assignSlots,
     clearOf: clearOf,
+    freeRange: freeRange,
+    hasRoom: hasRoom,
     looseness: looseness,
     matchesTags: matchesTags,
+    nextStop: nextStop,
     nextTagState: nextTagState,
     sceneState: sceneState,
-    scrollProgress: scrollProgress
+    scrollProgress: scrollProgress,
+    settleStop: settleStop,
+    snapDuration: snapDuration,
+    snapEase: snapEase,
+    snapLayout: snapLayout
   };
 })(typeof window !== 'undefined' ? window : globalThis);

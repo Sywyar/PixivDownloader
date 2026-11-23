@@ -76,6 +76,72 @@ test('标签按 未筛选 → 包含 → 排除 循环，筛选要求包含全�
     assert.equal(model.matchesTags(tags, {sea: 'exclude'}), true);
 });
 
+// 视口 900、页面可滚动到 5000：首屏起止 0 与 1620，章节 A 高于视口，章节 B 不足一屏，
+// 末尾章节只比视口高 10 像素（只是底部留白），其顶部贴近页尾。
+const plain = value => JSON.parse(JSON.stringify(value));
+function sampleLayout(model) {
+    return model.snapLayout([
+        {top: 0, height: 0},
+        {top: 1620, height: 0},
+        {top: 2520, height: 1500, free: true},
+        {top: 4020, height: 700, free: true},
+        {top: 4990, height: 910, free: true}
+    ], 900, 5000);
+}
+
+test('吸附停靠点包含首屏起止、章节顶部和长章节底部，长章节内部可自由滚动', () => {
+    const model = loadModel();
+    const layout = sampleLayout(model);
+    assert.deepEqual(plain(layout.stops), [0, 1620, 2520, 3120, 4020, 5000]);
+    assert.deepEqual(plain(layout.free), [[2520, 3120]]);
+    assert.deepEqual(plain(model.freeRange(layout, 2800)), [2520, 3120]);
+    assert.equal(model.freeRange(layout, 1000), null);
+    assert.equal(model.hasRoom([2520, 3120], 2800, 1), true);
+    assert.equal(model.hasRoom([2520, 3120], 3120, 1), false);
+    assert.equal(model.hasRoom([2520, 3120], 2520, -1), false);
+});
+
+test('翻页逐个经过停靠点，不会越过汇合后的首屏', () => {
+    const model = loadModel();
+    const layout = sampleLayout(model);
+    assert.equal(model.nextStop(layout, 0, 1), 1620);
+    assert.equal(model.nextStop(layout, 1620, 1), 2520);
+    assert.equal(model.nextStop(layout, 2800, 1), 3120);
+    assert.equal(model.nextStop(layout, 2520, -1), 1620);
+    assert.equal(model.nextStop(layout, 5000, 1), null);
+    assert.equal(model.nextStop(layout, 0, -1), null);
+});
+
+test('原生滚动停下后按方向与行程归位，自由区间和停靠点上保持不动', () => {
+    const model = loadModel();
+    const layout = sampleLayout(model);
+    assert.equal(model.settleStop(layout, 100, 1, 0.12), 0);
+    assert.equal(model.settleStop(layout, 400, 1, 0.12), 1620);
+    assert.equal(model.settleStop(layout, 1400, -1, 0.12), 0);
+    assert.equal(model.settleStop(layout, 1550, -1, 0.12), 1620);
+    assert.equal(model.settleStop(layout, 400, 0, 0.12), 0);
+    assert.equal(model.settleStop(layout, 2800, 1, 0.12), null);
+    assert.equal(model.settleStop(layout, 1620, 1, 0.12), null);
+});
+
+test('翻页时长随距离增加并受上下限约束，缓动从 0 平滑走到 1', () => {
+    const model = loadModel();
+    const screen = model.snapDuration(900, 900);
+    assert.ok(model.snapDuration(10, 900) <= screen);
+    assert.ok(screen < model.snapDuration(1620, 900));
+    assert.ok(model.snapDuration(1e6, 900) >= model.snapDuration(9000, 900));
+    assert.equal(model.snapDuration(-900, 900), screen);
+    assert.equal(model.snapEase(0), 0);
+    assert.equal(model.snapEase(0.5), 0.5);
+    assert.equal(model.snapEase(1), 1);
+    let previous = 0;
+    for (let t = 0.05; t <= 1; t += 0.05) {
+        const value = model.snapEase(t);
+        assert.ok(value >= previous);
+        previous = value;
+    }
+});
+
 // 文案键 lint：页面里写错的键会静默回退到内置中文，资源里多余的键会白白占用翻译。
 function referencedKeys(html, script) {
     const keys = new Set();

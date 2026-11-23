@@ -362,125 +362,141 @@
   </section>
 
   <!-- 画廊 -->
-  <section class="chapter" id="gallery">
-    <div class="wrap">
-      <div class="intro-block">
-        <p class="eyebrow" data-reveal data-i18n="gallery.eyebrow">画廊</p>
-        <h2 class="headline" data-reveal data-i18n-html="gallery.title">找得到，<br>才算收藏。</h2>
-        <p class="lede" data-reveal data-i18n="gallery.lead">每件作品的作者、标签和分级都记在本地数据库里。标签可以设为包含或排除，组合出你想看的范围。</p>
-      </div>
-
-      <div class="demo" id="demo" data-reveal>
-        <div class="demo__bar">
-          <div class="demo__tags" role="group" aria-label="标签筛选" data-i18n-aria-label="gallery.demo.label">
-            <button class="tag" type="button" data-tag="landscape"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.landscape">风景</span></button>
-            <button class="tag" type="button" data-tag="people"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.people">人物</span></button>
-            <button class="tag" type="button" data-tag="night"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.night">夜景</span></button>
-            <button class="tag" type="button" data-tag="flower"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.flower">花</span></button>
-            <button class="tag" type="button" data-tag="sea"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.sea">海</span></button>
+  <section class="chapter chapter--paged" id="gallery">
+    <!-- 第一屏：标题与要点 -->
+    <div class="chapter__page">
+      <div class="wrap">
+        <div class="intro-block">
+          <p class="eyebrow" data-reveal data-i18n="gallery.eyebrow">画廊</p>
+          <h2 class="headline" data-reveal data-i18n-html="gallery.title">找得到，<br>才算收藏。</h2>
+          <p class="lede" data-reveal data-i18n="gallery.lead">每件作品的作者、标签和分级都记在本地数据库里。标签可以设为包含或排除，组合出你想看的范围。</p>
+        </div>
+        <div class="facts">
+          <div class="fact" data-reveal>
+            <svg class="icon icon--lg" aria-hidden="true"><use href="#i-folder"/></svg>
+            <h3 class="fact__title" data-i18n="gallery.f1.title">本地收藏夹</h3>
+            <p class="fact__body" data-i18n="gallery.f1.body">把作品归进自己建的收藏夹，按你的方式分类。</p>
           </div>
-          <p class="demo__count" aria-live="polite"><b id="demoShown">12</b><span> / </span><span id="demoTotal">12</span> <span data-i18n="gallery.demo.unit">件作品</span></p>
+          <div class="fact" data-reveal>
+            <svg class="icon icon--lg" aria-hidden="true"><use href="#i-twins"/></svg>
+            <h3 class="fact__title" data-i18n="gallery.f2.title">疑似重复检测</h3>
+            <p class="fact__body" data-i18n="gallery.f2.body">用感知哈希找出画面相近的作品，清理重复更省事。</p>
+          </div>
+          <div class="fact" data-reveal>
+            <svg class="icon icon--lg" aria-hidden="true"><use href="#i-box"/></svg>
+            <h3 class="fact__title" data-i18n="gallery.f3.title">批量导出</h3>
+            <p class="fact__body" data-i18n="gallery.f3.body">选中的作品可以打包成 ZIP 带走。</p>
+          </div>
         </div>
-        <div class="demo__grid" aria-hidden="true">
-          <span class="piece pal-1" data-tags="landscape"><svg class="art"><use href="#art-dunes" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-2" data-tags="night sea"><svg class="art"><use href="#art-moon" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-5" data-tags="flower"><svg class="art"><use href="#art-bloom" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-4" data-tags="people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-7" data-tags="night"><svg class="art"><use href="#art-city" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-8" data-tags="landscape"><svg class="art"><use href="#art-peaks" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-3" data-tags="sea"><svg class="art"><use href="#art-wave" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-7" data-tags="landscape night"><svg class="art"><use href="#art-dunes" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-1" data-tags="people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-3" data-tags="flower"><svg class="art"><use href="#art-bloom" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-8" data-tags="sea landscape"><svg class="art"><use href="#art-wave" width="100%" height="100%"/></svg></span>
-          <span class="piece pal-2" data-tags="night people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
-        </div>
-        <p class="demo__hint" data-i18n="gallery.demo.hint">点一下标签试试：包含、排除，再点一次恢复。</p>
       </div>
-
-      <div class="facts">
-        <div class="fact" data-reveal>
-          <svg class="icon icon--lg" aria-hidden="true"><use href="#i-folder"/></svg>
-          <h3 class="fact__title" data-i18n="gallery.f1.title">本地收藏夹</h3>
-          <p class="fact__body" data-i18n="gallery.f1.body">把作品归进自己建的收藏夹，按你的方式分类。</p>
-        </div>
-        <div class="fact" data-reveal>
-          <svg class="icon icon--lg" aria-hidden="true"><use href="#i-twins"/></svg>
-          <h3 class="fact__title" data-i18n="gallery.f2.title">疑似重复检测</h3>
-          <p class="fact__body" data-i18n="gallery.f2.body">用感知哈希找出画面相近的作品，清理重复更省事。</p>
-        </div>
-        <div class="fact" data-reveal>
-          <svg class="icon icon--lg" aria-hidden="true"><use href="#i-box"/></svg>
-          <h3 class="fact__title" data-i18n="gallery.f3.title">批量导出</h3>
-          <p class="fact__body" data-i18n="gallery.f3.body">选中的作品可以打包成 ZIP 带走。</p>
+    </div>
+    <!-- 第二屏：标签筛选演示 -->
+    <div class="chapter__page">
+      <div class="wrap">
+        <div class="demo" id="demo" data-reveal>
+          <div class="demo__bar">
+            <div class="demo__tags" role="group" aria-label="标签筛选" data-i18n-aria-label="gallery.demo.label">
+              <button class="tag" type="button" data-tag="landscape"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.landscape">风景</span></button>
+              <button class="tag" type="button" data-tag="people"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.people">人物</span></button>
+              <button class="tag" type="button" data-tag="night"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.night">夜景</span></button>
+              <button class="tag" type="button" data-tag="flower"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.flower">花</span></button>
+              <button class="tag" type="button" data-tag="sea"><svg class="icon tag__icon" aria-hidden="true"><use class="tag__plus" href="#i-plus"/><use class="tag__minus" href="#i-minus"/></svg><span data-i18n="gallery.tag.sea">海</span></button>
+            </div>
+            <p class="demo__count" aria-live="polite"><b id="demoShown">12</b><span> / </span><span id="demoTotal">12</span> <span data-i18n="gallery.demo.unit">件作品</span></p>
+          </div>
+          <div class="demo__grid" aria-hidden="true">
+            <span class="piece pal-1" data-tags="landscape"><svg class="art"><use href="#art-dunes" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-2" data-tags="night sea"><svg class="art"><use href="#art-moon" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-5" data-tags="flower"><svg class="art"><use href="#art-bloom" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-4" data-tags="people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-7" data-tags="night"><svg class="art"><use href="#art-city" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-8" data-tags="landscape"><svg class="art"><use href="#art-peaks" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-3" data-tags="sea"><svg class="art"><use href="#art-wave" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-7" data-tags="landscape night"><svg class="art"><use href="#art-dunes" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-1" data-tags="people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-3" data-tags="flower"><svg class="art"><use href="#art-bloom" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-8" data-tags="sea landscape"><svg class="art"><use href="#art-wave" width="100%" height="100%"/></svg></span>
+            <span class="piece pal-2" data-tags="night people"><svg class="art"><use href="#art-figure" width="100%" height="100%"/></svg></span>
+          </div>
+          <p class="demo__hint" data-i18n="gallery.demo.hint">点一下标签试试：包含、排除，再点一次恢复。</p>
         </div>
       </div>
     </div>
   </section>
 
   <!-- 更多 -->
-  <section class="chapter chapter--soft" id="more">
-    <div class="wrap">
-      <div class="intro-block">
-        <p class="eyebrow" data-reveal data-i18n="more.eyebrow">更多</p>
-        <h2 class="headline" data-reveal data-i18n-html="more.title">放着不管，<br>它也在工作。</h2>
-      </div>
-      <div class="bento">
-        <article class="card bento__wide" data-reveal>
-          <div class="card__copy">
-            <h3 class="card__title" data-i18n="more.b1.title">计划任务</h3>
-            <p class="card__body" data-i18n="more.b1.body">按固定周期或 Cron 表达式在后台追更，画师的新作品自动入库。</p>
-          </div>
-          <div class="cron" aria-hidden="true">
-            <code class="cron__expr"><span>0</span><span>0</span><span>3</span><span>*</span><span>*</span><span>*</span></code>
-            <span class="cron__week"><i></i><i></i><i></i><i></i><i></i><i></i><i class="is-next"></i></span>
-            <span class="cron__note" data-i18n="more.b1.note">每天 03:00 检查新作品</span>
-          </div>
-        </article>
-        <article class="card" data-reveal>
-          <div class="toasts" aria-hidden="true">
-            <div class="toast toast--back"></div>
-            <div class="toast">
-              <span class="toast__icon"><svg class="icon"><use href="#i-bell"/></svg></span>
-              <span class="toast__text"><b data-i18n="more.b2.toast">登录状态已失效</b><i class="sk sk--b"></i></span>
+  <section class="chapter chapter--soft chapter--paged" id="more">
+    <!-- 第一屏：标题与第一行卡片 -->
+    <div class="chapter__page">
+      <div class="wrap">
+        <div class="intro-block">
+          <p class="eyebrow" data-reveal data-i18n="more.eyebrow">更多</p>
+          <h2 class="headline" data-reveal data-i18n-html="more.title">放着不管，<br>它也在工作。</h2>
+        </div>
+        <div class="bento">
+          <article class="card bento__wide" data-reveal>
+            <div class="card__copy">
+              <h3 class="card__title" data-i18n="more.b1.title">计划任务</h3>
+              <p class="card__body" data-i18n="more.b1.body">按固定周期或 Cron 表达式在后台追更，画师的新作品自动入库。</p>
             </div>
-          </div>
-          <h3 class="card__title" data-i18n="more.b2.title">出问题会告诉你</h3>
-          <p class="card__body" data-i18n="more.b2.body">登录失效、访问受限或连续失败时，通过邮件和推送提醒。</p>
-        </article>
-        <article class="card" data-reveal>
-          <div class="invite" aria-hidden="true">
-            <span class="invite__icon"><svg class="icon"><use href="#i-key"/></svg></span><code>A7K2-9QXD</code>
-          </div>
-          <h3 class="card__title" data-i18n="more.b3.title">只读访客</h3>
-          <p class="card__body" data-i18n="more.b3.body">签发邀请码，让朋友只看到你允许的标签、作者和分级。</p>
-        </article>
-        <article class="card" data-reveal>
-          <div class="voice" aria-hidden="true"><span class="voice__play"></span><span class="voice__wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
-          <h3 class="card__title" data-i18n="more.b4.title">小说不只是保存</h3>
-          <p class="card__body" data-i18n="more.b4.body">正文可以全文检索、翻译，还能让 AI 分角色朗读。</p>
-        </article>
-        <article class="card" data-reveal>
-          <div class="slots" aria-hidden="true"><i class="pal-4"><svg class="icon"><use href="#i-book"/></svg></i><i class="pal-3"><svg class="icon"><use href="#i-bell"/></svg></i><i class="pal-1"><svg class="icon"><use href="#i-chart"/></svg></i><i class="slots__add"><svg class="icon"><use href="#i-plus"/></svg></i></div>
-          <h3 class="card__title" data-i18n="more.b5.title">插件与 SDK</h3>
-          <p class="card__body" data-i18n="more.b5.body">从插件市场按需安装功能，也可以用公开的 SDK 写自己的插件。</p>
-        </article>
-        <article class="card bento__half" data-reveal>
-          <div class="stores" aria-hidden="true"><code>SQLite</code><code>PostgreSQL</code></div>
-          <h3 class="card__title" data-i18n="more.b6.title">桌面界面与数据库</h3>
-          <p class="card__body" data-i18n="more.b6.body">自带桌面界面。作品记录默认存入 SQLite，也可以换成 PostgreSQL。</p>
-        </article>
-        <article class="card bento__half" data-reveal>
-          <div class="langs" id="langs" aria-hidden="true"></div>
-          <h3 class="card__title" data-i18n="more.b7.title">多语言与深色模式</h3>
-          <p class="card__body" data-i18n="more.b7.body">界面语言和明暗主题随时切换，这个页面也一样。</p>
-        </article>
+            <div class="cron" aria-hidden="true">
+              <code class="cron__expr"><span>0</span><span>0</span><span>3</span><span>*</span><span>*</span><span>*</span></code>
+              <span class="cron__week"><i></i><i></i><i></i><i></i><i></i><i></i><i class="is-next"></i></span>
+              <span class="cron__note" data-i18n="more.b1.note">每天 03:00 检查新作品</span>
+            </div>
+          </article>
+          <article class="card" data-reveal>
+            <div class="toasts" aria-hidden="true">
+              <div class="toast toast--back"></div>
+              <div class="toast">
+                <span class="toast__icon"><svg class="icon"><use href="#i-bell"/></svg></span>
+                <span class="toast__text"><b data-i18n="more.b2.toast">登录状态已失效</b><i class="sk sk--b"></i></span>
+              </div>
+            </div>
+            <h3 class="card__title" data-i18n="more.b2.title">出问题会告诉你</h3>
+            <p class="card__body" data-i18n="more.b2.body">登录失效、访问受限或连续失败时，通过邮件和推送提醒。</p>
+          </article>
+        </div>
+      </div>
+    </div>
+    <!-- 第二屏：其余卡片 -->
+    <div class="chapter__page">
+      <div class="wrap">
+        <div class="bento">
+          <article class="card" data-reveal>
+            <div class="invite" aria-hidden="true">
+              <span class="invite__icon"><svg class="icon"><use href="#i-key"/></svg></span><code>A7K2-9QXD</code>
+            </div>
+            <h3 class="card__title" data-i18n="more.b3.title">只读访客</h3>
+            <p class="card__body" data-i18n="more.b3.body">签发邀请码，让朋友只看到你允许的标签、作者和分级。</p>
+          </article>
+          <article class="card" data-reveal>
+            <div class="voice" aria-hidden="true"><span class="voice__play"></span><span class="voice__wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+            <h3 class="card__title" data-i18n="more.b4.title">小说不只是保存</h3>
+            <p class="card__body" data-i18n="more.b4.body">正文可以全文检索、翻译，还能让 AI 分角色朗读。</p>
+          </article>
+          <article class="card" data-reveal>
+            <div class="slots" aria-hidden="true"><i class="pal-4"><svg class="icon"><use href="#i-book"/></svg></i><i class="pal-3"><svg class="icon"><use href="#i-bell"/></svg></i><i class="pal-1"><svg class="icon"><use href="#i-chart"/></svg></i><i class="slots__add"><svg class="icon"><use href="#i-plus"/></svg></i></div>
+            <h3 class="card__title" data-i18n="more.b5.title">插件与 SDK</h3>
+            <p class="card__body" data-i18n="more.b5.body">从插件市场按需安装功能，也可以用公开的 SDK 写自己的插件。</p>
+          </article>
+          <article class="card bento__half" data-reveal>
+            <div class="stores" aria-hidden="true"><code>SQLite</code><code>PostgreSQL</code></div>
+            <h3 class="card__title" data-i18n="more.b6.title">桌面界面与数据库</h3>
+            <p class="card__body" data-i18n="more.b6.body">自带桌面界面。作品记录默认存入 SQLite，也可以换成 PostgreSQL。</p>
+          </article>
+          <article class="card bento__half" data-reveal>
+            <div class="langs" id="langs" aria-hidden="true"></div>
+            <h3 class="card__title" data-i18n="more.b7.title">多语言与深色模式</h3>
+            <p class="card__body" data-i18n="more.b7.body">界面语言和明暗主题随时切换，这个页面也一样。</p>
+          </article>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- 开始 -->
-  <section class="chapter" id="start">
+  <section class="chapter chapter--closing" id="start">
     <div class="wrap">
       <div class="intro-block">
         <p class="eyebrow" data-reveal data-i18n="start.eyebrow">开始使用</p>
