@@ -31,7 +31,7 @@ public record ScheduledWorkResult(
     /** 全部属性允许占用的最大 UTF-8 字节数。 */
     public static final int MAX_ATTRIBUTE_TOTAL_BYTES = 16_384;
 
-    /** JSON Schema pattern for the normalized, provider-defined result code. */
+    /** JSON Schema 用此表达式校验提供方归一化后的结果码。 */
     public static final String RESULT_CODE_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$";
     private static final Pattern MACHINE_CODE = Pattern.compile(RESULT_CODE_PATTERN);
     private static final Pattern ATTRIBUTE_KEY =

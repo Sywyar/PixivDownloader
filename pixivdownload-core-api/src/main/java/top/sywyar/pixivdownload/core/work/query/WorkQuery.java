@@ -471,13 +471,21 @@ public record WorkQuery(
 
     /** 查询筛选项未通过校验，供适配器定位调用方输入。 */
     public static final class InvalidField extends IllegalArgumentException {
+        /** 未通过校验的筛选字段名。 */
         private final String field;
 
+        /**
+         * 记录无效筛选字段及其错误信息。
+         *
+         * @param field 筛选字段名
+         * @param message 错误信息
+         */
         public InvalidField(String field, String message) {
             super(message);
             this.field = field;
         }
 
+        /** {@return 未通过校验的筛选字段名} */
         public String field() {
             return field;
         }
