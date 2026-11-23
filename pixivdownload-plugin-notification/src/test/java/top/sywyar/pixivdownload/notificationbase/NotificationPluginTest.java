@@ -15,12 +15,14 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 @DisplayName("notification 基础插件")
 class NotificationPluginTest {
@@ -152,17 +154,37 @@ class NotificationPluginTest {
     void contributesAdministratorInbox() throws Exception {
         NotificationPf4jPlugin pf4j = new NotificationPf4jPlugin();
 
-        assertThat(plugin.routes()).extracting(route -> route.pathPattern())
+        var routes = plugin.routes();
+        assertThat(routes).extracting(route -> route.pathPattern())
                 .containsExactly(
+                        "/api/admin/notifications/test",
+                        "/api/admin/notifications/test-all",
+                        "/api/notifications/*",
+                        "/api/notifications/*/content",
+                        "/api/notifications/*/read",
+                        "/api/notifications/read-all",
+                        "/api/notifications/*/survey-unavailable",
                         "/pixiv-notifications.html",
                         "/pixiv-notifications/**",
                         "/api/notifications",
                         "/api/notifications/**",
                         "/api/gui/notification-inbox-test",
                         "/api/gui/notification-inbox-test-all");
-        assertThat(plugin.routes()).filteredOn(route -> route.pathPattern().startsWith("/api/gui/"))
+        assertThat(routes).flatExtracting(route -> route.programPermissions().entrySet().stream()
+                        .map(grant -> tuple(route.pathPattern(), grant.getKey(), grant.getValue().id())).toList())
+                .containsExactlyInAnyOrder(
+                        tuple("/api/admin/notifications/test", HttpMethod.POST, "inbox.test"),
+                        tuple("/api/admin/notifications/test-all", HttpMethod.POST, "inbox.templates.test"),
+                        tuple("/api/notifications", HttpMethod.GET, "inbox.read"),
+                        tuple("/api/notifications/*", HttpMethod.GET, "inbox.read"),
+                        tuple("/api/notifications/*", HttpMethod.DELETE, "inbox.delete"),
+                        tuple("/api/notifications/*/content", HttpMethod.GET, "inbox.read"),
+                        tuple("/api/notifications/*/read", HttpMethod.POST, "inbox.update"),
+                        tuple("/api/notifications/read-all", HttpMethod.POST, "inbox.update"),
+                        tuple("/api/notifications/*/survey-unavailable", HttpMethod.POST, "inbox.update"));
+        assertThat(routes).filteredOn(route -> route.pathPattern().startsWith("/api/gui/"))
                 .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.GUI));
-        assertThat(plugin.routes()).filteredOn(route -> !route.pathPattern().startsWith("/api/gui/"))
+        assertThat(routes).filteredOn(route -> !route.pathPattern().startsWith("/api/gui/"))
                 .allSatisfy(route -> assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
         assertThat(plugin.staticResources()).hasSize(2);
         assertThat(plugin.uiSlots()).singleElement().satisfies(slot -> {

@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
@@ -80,6 +81,14 @@ public class PixivProxyController {
     public ResponseEntity<ApiErrorResponse> invalidParameter() {
         return ResponseEntity.badRequest().body(ApiErrorResponse.of("error.request.param.invalid",
                 messages.get("error.request.param.invalid")));
+    }
+
+    @ExceptionHandler(HttpParameterException.class)
+    public ResponseEntity<HttpParameterError> invalidId(HttpParameterException failure) {
+        var error = new HttpParameterError("error.request.param.invalid", messages.get("error.request.field.invalid", failure.field()),
+                failure.in(), failure.field(), failure.reason());
+        log.warn("HTTP input rejected: code={} in={} reason={}", error.code(), error.in(), error.reason());
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON).body(error);
     }
 
     @ExceptionHandler({IllegalArgumentException.class, SecurityException.class})
