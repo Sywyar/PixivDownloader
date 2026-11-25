@@ -631,6 +631,12 @@ exit 0
             @{id=$id; file=$file}
         }
         $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'plugins-manifest.json') -Encoding UTF8
+        $official = @($manifest | Where-Object { $_.id -ne 'backend' })
+        $skipped = @(Get-HeadlessSkippedPluginIds -PluginDirectory $plugins.FullName -Manifest $official `
+            -AdditionalArtifacts @{backend=(Join-Path $plugins.FullName 'backend.jar')})
+        if ($skipped.Count -ne 1 -or $skipped[0] -ne 'other-desktop') {
+            throw "SDK candidate must retain its mandatory desktop chain; skipped=$($skipped -join ',')"
+        }
         $script:status.plugins += [pscustomobject]@{id='bridge'; status='STARTED'; runtimePhase='STARTED'}
         $ScenarioGroup = 'startup'
         $checked = [Collections.Generic.List[string]]::new()

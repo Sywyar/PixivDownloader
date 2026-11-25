@@ -9,8 +9,11 @@ import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.web.page.PageCatalog;
+import top.sywyar.pixivdownload.plugin.lifecycle.ClassifiedPluginLifecycleException;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.*;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.*;
@@ -158,11 +161,20 @@ public final class PageEditorAcceptance {
             Process officialSlots = startBrowser(Path.of(args[1]).resolveSibling("official-slot-browser.mjs").toString(),
                     origin, cookie, "official", fixed);
             awaitFile(fixed.resolve("official-slots-loading"), officialSlots);
-            coordinator.stop("translation");
-            coordinator.stop("tts");
+            var processRestartProviders = List.of("translation", "tts");
+            for (String id : processRestartProviders) {
+                try {
+                    coordinator.stop(id);
+                    throw new AssertionError("Hot stop accepted for " + id);
+                } catch (ClassifiedPluginLifecycleException refused) {
+                    check(refused.code() == PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN, "process restart required for " + id);
+                }
+            }
+            // 保持浏览器会话，直接模拟宿主撤回并恢复服务贡献。
+            var services = context.getBean(PluginLifecycleService.class);
+            processRestartProviders.forEach(services::stop);
             awaitFile(fixed.resolve("official-slots-withdrawn"), officialSlots);
-            coordinator.start("translation");
-            coordinator.start("tts");
+            processRestartProviders.forEach(services::start);
             check(officialSlots.waitFor() == 0, "real translation and TTS browser lifecycle");
             String oldPublication = fixtureComponents(catalog).get(0).publication();
             browser(args[1], origin, cookie, "active", fixed);

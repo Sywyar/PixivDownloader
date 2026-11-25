@@ -119,30 +119,10 @@ function Read-ExpectedPluginIds {
     return $ids
 }
 
-function Get-HeadlessSkippedPluginIds {
+function Get-ReleaseHeadlessSkippedPluginIds {
     param([string]$Root)
     $manifest = Get-Content -LiteralPath (Get-ManifestPath $Root) -Raw -Encoding UTF8 | ConvertFrom-Json
-    $descriptors = @{}
-    $pending = [Collections.Generic.Queue[string]]::new()
-    foreach ($entry in $manifest) {
-        $jar = Join-Path $Root ("plugins/" + [IO.Path]::GetFileName($entry.file))
-        $descriptor = Read-PluginDescriptor $jar
-        if (!$descriptor -or $descriptor['plugin.id'] -cne $entry.id) { throw "Plugin ID mismatch in $jar" }
-        $descriptors.Add($entry.id, $descriptor)
-        if ($descriptor['pixiv.desktop-only'] -ne 'true') { $pending.Enqueue($entry.id) }
-    }
-    $required = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    while ($pending.Count) {
-        $id = $pending.Dequeue()
-        if (!$required.Add($id)) { continue }
-        foreach ($edge in ([string]$descriptors[$id]['plugin.dependencies'] -split ',')) {
-            $dependency = ($edge.Trim() -split '@', 2)[0].Trim()
-            if (!$dependency -or $dependency.EndsWith('?')) { continue }
-            if (!$descriptors.ContainsKey($dependency)) { throw "Missing required dependency $dependency for $id" }
-            $pending.Enqueue($dependency)
-        }
-    }
-    $manifest | ForEach-Object { if (!$required.Contains($_.id)) { $_.id } }
+    Get-HeadlessSkippedPluginIds -PluginDirectory (Join-Path $Root 'plugins') -Manifest $manifest
 }
 
 function Set-IsolatedRuntimeEnvironment {
@@ -293,7 +273,7 @@ function Test-ApplicationLayout {
     }
     if ($ScenarioGroup -in @('all', 'startup')) {
         Test-ApplicationScenario -Label "$Label-headless" -Root $Root -Launcher $Launcher `
-            -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless -SkippedIds @(Get-HeadlessSkippedPluginIds $Root)
+            -RuntimeRoot "$RuntimeRoot-headless" -LogRoot "$LogRoot-headless" -Headless -SkippedIds @(Get-ReleaseHeadlessSkippedPluginIds $Root)
         foreach ($provider in @('gui-compose', 'gui-swing')) {
             # Empty preference exercises the shipped default; Swing exercises explicit selection.
             $configured = if ($provider -eq 'gui-compose') { '' } else { $provider }

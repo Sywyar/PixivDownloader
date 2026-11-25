@@ -10,6 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot '../plugin-distribution-common.ps1')
 . (Join-Path $PSScriptRoot '../release-e2e/runtime.ps1')
 $BuiltProject = [IO.Path]::GetFullPath($BuiltProject)
 $WorkDirectory = [IO.Path]::GetFullPath($WorkDirectory)
@@ -131,8 +132,10 @@ try {
             $receipt = $receiptLine.Substring('PIXIV_SDK_INSTALL_RESULT='.Length) | ConvertFrom-Json
             $pluginId = $receipt.pluginId
         }
+        $skipped = @(Get-HeadlessSkippedPluginIds -PluginDirectory (Join-Path $run 'plugins') -Manifest $official `
+            -AdditionalArtifacts @{$pluginId = $artifacts[0].FullName})
         $login = New-ReleaseLogin $session.port
-        $status = Assert-ReleaseStatus -Port $session.port -Session $login -ExpectedIds (@($official.id) + @($pluginId)) `
+        $status = Assert-ReleaseStatus -Port $session.port -Session $login -ExpectedIds (@($official.id) + @($pluginId)) -SkippedIds $skipped `
             -EvidencePath (Join-Path $WorkDirectory "$($example.Name)-status.json")
         if ($Development) {
             $plugin = @($status.plugins | Where-Object { $_.id -eq $pluginId })[0]
@@ -175,7 +178,7 @@ try {
         $remaining = [int][Math]::Max(0, 60000 - $shutdown.ElapsedMilliseconds)
         if (-not $session.Host.WaitForExit($remaining)) { throw 'SDK left a running host behind.' }
     }
-    Write-Host "PASS: SDK examples load with all official plugins, independent state, shared cache and normal stop (development=$Development)."
+    Write-Host "PASS: SDK examples use the expected official plugin states, independent state, shared cache and normal stop (development=$Development)."
 } finally {
     foreach ($process in $processes) {
         if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }

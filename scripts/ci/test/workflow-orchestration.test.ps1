@@ -357,7 +357,7 @@ if (-not $IncludeOptional -or -not $RequireProguard -or -not $IncludeInstallerAr
         function Assert-DistributionPluginVariants($Root, $ForSetup) {
             Assert-Equal $ForSetup ((Split-Path -Leaf $Root) -eq 'installed')
         }
-        function Get-HeadlessSkippedPluginIds($Root) {
+        function Get-ReleaseHeadlessSkippedPluginIds($Root) {
             Assert-Equal (Test-Path -LiteralPath $Root -PathType Container) $true
             return 'desktop-' + (Split-Path -Leaf $Root)
         }

@@ -558,6 +558,37 @@ function Read-PluginDescriptor {
     return Read-ZipProperties -JarPath $JarPath -EntryName "plugin.properties"
 }
 
+function Get-HeadlessSkippedPluginIds {
+    param([string]$PluginDirectory, [object[]]$Manifest, [hashtable]$AdditionalArtifacts = @{})
+    $artifacts = [Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+    foreach ($entry in $Manifest) {
+        $artifacts.Add($entry.id, (Join-Path $PluginDirectory ([IO.Path]::GetFileName($entry.file))))
+    }
+    foreach ($entry in $AdditionalArtifacts.GetEnumerator()) {
+        $artifacts.Add($entry.Key, $entry.Value)
+    }
+    $descriptors = [Collections.Generic.Dictionary[string,object]]::new([StringComparer]::Ordinal)
+    $pending = [Collections.Generic.Queue[string]]::new()
+    foreach ($entry in $artifacts.GetEnumerator()) {
+        $descriptor = Read-PluginDescriptor $entry.Value
+        if (!$descriptor -or $descriptor['plugin.id'] -cne $entry.Key) { throw "Plugin ID mismatch in $($entry.Value)" }
+        $descriptors.Add($entry.Key, $descriptor)
+        if ($descriptor['pixiv.desktop-only'] -ne 'true') { $pending.Enqueue($entry.Key) }
+    }
+    $required = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    while ($pending.Count) {
+        $id = $pending.Dequeue()
+        if (!$required.Add($id)) { continue }
+        foreach ($edge in ([string]$descriptors[$id]['plugin.dependencies'] -split ',')) {
+            $dependency = ($edge.Trim() -split '@', 2)[0].Trim()
+            if (!$dependency -or $dependency.EndsWith('?')) { continue }
+            if (!$descriptors.ContainsKey($dependency)) { throw "Missing required dependency $dependency for $id" }
+            $pending.Enqueue($dependency)
+        }
+    }
+    $descriptors.Keys | Where-Object { !$required.Contains($_) } | Sort-Object
+}
+
 function Assert-ProguardProcessedArtifact {
     param([Parameter(Mandatory = $true)][string]$JarPath)
     $metadata = Read-ZipProperties -JarPath $JarPath -EntryName "META-INF/pixivdownload-proguard.properties"
