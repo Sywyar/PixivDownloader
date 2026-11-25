@@ -2,7 +2,9 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
+import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.tools.FolderChecker;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
@@ -12,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText;
 
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import java.nio.file.Path;
 import java.util.List;
@@ -26,9 +29,19 @@ class DesktopExclusiveToolStopTest {
     private record Request(Runnable stopped, Consumer<Throwable> failed) {}
 
     @ParameterizedTest
-    @CsvSource({"false,false,false", "false,true,false", "true,false,false", "true,true,false",
-            "true,false,true", "true,true,true"})
-    void swingToolsWaitForTheirOwnStopResult(boolean migration, boolean initiallyRunning, boolean preparationFails) throws Exception {
+    @CsvSource(textBlock = """
+            false,false,false,0,0,0,,,0
+            false,true,false,0,0,0,,,0
+            true,false,true,0,0,0,,,0
+            true,true,true,0,0,0,,,0
+            true,false,false,2,0,0,SUCCEEDED,completed,1
+            true,true,false,2,0,1,PARTIALLY_FAILED,partial,2
+            true,true,false,0,2,1,PARTIALLY_FAILED,partial,2
+            true,false,false,0,0,1,FAILED,failed,0
+            """)
+    void swingToolsWaitForTheirOwnStopResult(boolean migration, boolean initiallyRunning, boolean preparationFails,
+            int migrated, int skipped, int failed, DesktopUiHost.ToolOutcome outcome, String result, int messageType)
+            throws Exception {
         var config = Path.of("test-config.yaml");
         var previous = SwingHost.installed() ? SwingHost.context() : null;
         var host = mock(DesktopUiHost.class);
@@ -51,8 +64,14 @@ class DesktopExclusiveToolStopTest {
         });
         when(host.openToolLog(anyString())).thenReturn(mock(DesktopUiHost.ToolLogSession.class));
         when(host.startBackend(any())).thenReturn(true);
-        if (preparationFails) when(host.countMigrationCandidates(any())).thenThrow(new IllegalStateException("count failed"));
-        var errorDialog = new AtomicReference<org.mockito.MockedStatic<GuiErrorDialog>>();
+        var summary = new DesktopUiHost.MigrationSummary(migrated + skipped + failed, migrated, skipped, false, "", failed);
+        when(host.countMigrationCandidates(any())).thenAnswer(call -> {
+            if (preparationFails) throw new IllegalStateException("count failed");
+            return summary.totalCandidates();
+        });
+        when(host.runMigration(any(), any())).thenReturn(summary);
+        var errorDialog = new AtomicReference<MockedStatic<GuiErrorDialog>>();
+        var resultDialog = new AtomicReference<MockedStatic<JOptionPane>>();
         SwingHost.install(new DesktopUiContext(false, 8080, ".", config, "gui-swing", host, List.of(), List::of,
                 DesktopUiText::fallback, () -> "system"));
         var panel = new AtomicReference<ToolsPanel>();
@@ -79,6 +98,7 @@ class DesktopExclusiveToolStopTest {
                 state.set(initiallyRunning ? running : new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null));
                 notify.get().accept(state.get());
                 errorDialog.set(mockStatic(GuiErrorDialog.class));
+                if (result != null) resultDialog.set(mockStatic(JOptionPane.class));
                 button.doClick();
                 notify.get().accept(new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.FAILED, null));
                 assertThat(button.isEnabled()).isFalse();
@@ -97,9 +117,21 @@ class DesktopExclusiveToolStopTest {
                 org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
                         SwingUtilities.invokeAndWait(() -> assertThat(ReflectionTestUtils.getField(panel.get(), "migrationRunning")).isEqualTo(false)));
                 verify(host, times(preparationFails ? 0 : 1)).runMigration(any(), any());
+                if (!preparationFails) {
+                    verify(host).recordToolHistory(eq(DesktopUiHost.ToolId.JSON_TO_SQLITE_MIGRATION), eq(outcome), anyLong(),
+                            eq(summary.totalCandidates()), eq(migrated), eq(failed), isNull());
+                    SwingUtilities.invokeAndWait(() -> {
+                        String expectedStatus = GuiMessages.get("gui.tools.migration.result." + result);
+                        String details = GuiMessages.get("gui.tools.dialog.migration.completed.message", expectedStatus,
+                                migrated, skipped, summary.totalCandidates(), failed);
+                        assertThat(status.getText()).contains(expectedStatus);
+                        resultDialog.get().verify(() -> JOptionPane.showMessageDialog(panel.get(), details, expectedStatus, messageType));
+                    });
+                }
             }
             verify(host, times(initiallyRunning ? 1 : 0)).startBackend(any());
         } finally {
+            if (resultDialog.get() != null) SwingUtilities.invokeAndWait(resultDialog.get()::close);
             if (errorDialog.get() != null) SwingUtilities.invokeAndWait(errorDialog.get()::close);
             if (panel.get() != null) SwingUtilities.invokeAndWait(panel.get()::dispose);
             ReflectionTestUtils.setField(SwingHost.class, "context", previous);
