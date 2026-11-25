@@ -92,7 +92,7 @@ class RecoveryModeGateTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
     }
 
     private static PluginInventory startedDownloadWorkbenchInventory() {

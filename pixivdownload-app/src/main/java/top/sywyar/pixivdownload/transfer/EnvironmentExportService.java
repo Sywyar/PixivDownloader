@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 
@@ -124,7 +125,12 @@ public final class EnvironmentExportService {
             if (!result.isContextConfirmedClosed()) throw new IOException("transfer.backend-not-stopped");
         } else {
             if (BackendLifecycleManager.state() != BackendLifecycleManager.State.STOPPED) throw new IOException("transfer.busy");
-            context.close();
+            try {
+                ExternalPluginLifecycleCoordinator.stopBeforeContextClose(context);
+                context.close();
+            } catch (RuntimeException failure) {
+                throw new IOException("transfer.backend-not-stopped", failure);
+            }
             if (context.isActive()) throw new IOException("transfer.backend-not-stopped");
         }
     }

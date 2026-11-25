@@ -49,10 +49,10 @@ public class PluginRuntimeTaskRegistry {
         synchronized (slot) {
             GenerationState generation = slot.current;
             synchronized (generation) {
-                if (!generation.accepting) throw new PluginRuntimeTaskRejectedException();
                 if (generation.resources == null) {
                     generation.resources = new PluginRuntimeResources(slot.ownerPluginId, generation.generation,
                             delegate -> register(generation, delegate, TaskKind.ONE_SHOT));
+                    if (!generation.accepting) generation.resources.quiesce();
                 }
                 return generation.resources;
             }
@@ -121,6 +121,11 @@ public class PluginRuntimeTaskRegistry {
      * 当前代际完全归零后重新开放 owner admission，并建立新的正代际。尚有活动或取消失败残留时 fail-closed。
      */
     public void resume(String pluginId) {
+        beginGeneration(pluginId, true);
+    }
+
+    /** 静默回滚建立子 context 时，新代际从创建起就关闭准入。 */
+    public void beginGeneration(String pluginId, boolean acceptNewTasks) {
         OwnerSlot slot = ownerSlot(pluginId);
         synchronized (slot) {
             GenerationState current = slot.current;
@@ -132,14 +137,14 @@ public class PluginRuntimeTaskRegistry {
                 if (current.resources != null && !current.resources.isReleased()) {
                     throw new IllegalStateException("plugin resources remain pending: " + slot.ownerPluginId);
                 }
-                if (current.accepting) {
-                    return;
+                if (!current.accepting) {
+                    if (current.generation == Long.MAX_VALUE) {
+                        throw new IllegalStateException("plugin runtime task generation exhausted: "
+                                + slot.ownerPluginId);
+                    }
+                    slot.current = new GenerationState(slot.ownerPluginId, current.generation + 1L);
                 }
-                if (current.generation == Long.MAX_VALUE) {
-                    throw new IllegalStateException("plugin runtime task generation exhausted: "
-                            + slot.ownerPluginId);
-                }
-                slot.current = new GenerationState(slot.ownerPluginId, current.generation + 1L);
+                if (!acceptNewTasks) prepareQuiesce(pluginId);
             }
         }
     }

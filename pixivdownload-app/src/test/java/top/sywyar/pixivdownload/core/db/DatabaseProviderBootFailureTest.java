@@ -236,7 +236,7 @@ class DatabaseProviderBootFailureTest {
 
     private static RecoveryModeService recovery(javax.sql.DataSource source, PluginRegistry registry) {
         return new RecoveryModeService(new PluginStatusService(registry, PluginInventory.empty(), RequiredPluginPolicy.empty()),
-                RequiredPluginPolicy.empty(), source);
+                RequiredPluginPolicy.empty(), source, owner -> true);
     }
 
     private static DatabaseConfig config() {

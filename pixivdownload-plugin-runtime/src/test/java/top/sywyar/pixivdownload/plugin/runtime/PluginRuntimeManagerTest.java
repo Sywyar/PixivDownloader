@@ -1653,6 +1653,27 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    void hotLoadRejectsCycleThroughAnAlreadyResidentOptionalDependency() throws IOException {
+        var plugins = tempDir.resolve("resident-optional");
+        var first = plugins.resolve("first.jar");
+        var second = plugins.resolve("second.jar");
+        writeDependencyOrderProbeJar(first, "first", List.of(new PluginDependencyRef("second", PROBE_VERSION, true)));
+        writeDependencyOrderProbeJar(second, "second", List.of(new PluginDependencyRef("first", PROBE_VERSION, false)));
+        writeConfirmedLocalProvenance(plugins, first);
+        writeConfirmedLocalProvenance(plugins, second);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            manager.loadPlugin(first);
+            manager.startPlugin("first");
+            assertThatThrownBy(() -> manager.loadPlugin(second)).rootCause().hasMessageContaining("cyclic");
+            assertThat(manager.packagePhases()).containsEntry("first", PluginRuntimePackagePhase.STARTED)
+                    .doesNotContainKey("second");
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("启动扫描：缺少必需依赖时跳过依赖方，不把半加载包交给 PF4J")
     void startupSkipsPluginWithMissingRequiredDependencyBeforePf4jLoad() throws IOException {
         Path plugins = tempDir.resolve("missing-required-dependency");

@@ -683,7 +683,7 @@ class PluginRegistryTest {
     }
 
     @Test
-    @DisplayName("外置贡献初始化错误保留诊断并重放提示，仍启动其它插件")
+    @DisplayName("外置贡献初始化错误重放一次；其它外置插件的回调由服务装配启动")
     void bootContributionFailureIsIsolatedAndReplayed() {
         List<String> lifecycle = new ArrayList<>();
         TestPlugin broken = new TestPlugin("broken", lifecycle, false) {
@@ -707,7 +707,13 @@ class PluginRegistryTest {
         registry.start();
         assertThat(registry.lifecycleFailuresById()).containsKey("broken");
         assertThat(notifications).containsExactly("broken");
+        assertThat(lifecycle).isEmpty();
+        var healthy = registry.registeredPlugins().stream().filter(p -> p.id().equals("healthy")).findFirst().orElseThrow();
+        assertThat(registry.startFeature(healthy)).isTrue();
+        registry.stop();
         assertThat(lifecycle).containsExactly("start:healthy");
+        assertThat(registry.stopFeature(healthy)).isTrue();
+        assertThat(lifecycle).containsExactly("start:healthy", "stop:healthy");
     }
 
     private static final class RetryStopPlugin implements PixivFeaturePlugin {

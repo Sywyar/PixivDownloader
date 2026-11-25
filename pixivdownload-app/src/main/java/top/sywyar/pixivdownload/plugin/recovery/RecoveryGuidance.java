@@ -32,6 +32,13 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
             boolean databaseUnavailable,
             List<top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure> runtimeFailures
     ) {
+        return from(gate, desktopFailure, plugins, failures, databaseUnavailable, runtimeFailures, java.util.Map.of());
+    }
+
+    static RecoveryGuidance from(PluginRecoveryGateSnapshot gate, DesktopUiFailure desktopFailure, PluginStatusReport plugins,
+            List<String> failures, boolean databaseUnavailable,
+            List<top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure> runtimeFailures,
+            java.util.Map<String, String> serviceAdvice) {
         boolean desktopUnavailable = desktopFailure != null;
         var advice = new LinkedHashSet<String>();
         var diagnostics = plugins.diagnostics().stream()
@@ -64,6 +71,7 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
                     .filter(plugin -> plugin.descriptor() != null || plugin.status() != PluginStatus.MISSING_REQUIRED)
                     .map(PluginDiagnostic::id).collect(java.util.stream.Collectors.toSet());
             diagnostics.forEach(plugin -> {
+                if (serviceAdvice.containsKey(plugin.id())) return;
                 String key = switch (plugin.status()) {
                     case STARTED -> null;
                     case DISABLED -> plugin.requiredByPolicy() || desktopUnavailable ? "recovery.advice.disabled" : null;
@@ -78,7 +86,7 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
                 if (key != null) advice.add(key);
             });
             if (desktopUnavailable) advice.add(desktopFailure.reason().adviceKey());
-            if (advice.isEmpty()) advice.add("recovery.advice.unknown");
+            if (advice.isEmpty() && serviceAdvice.isEmpty()) advice.add("recovery.advice.unknown");
         }
         Stream<String> transactionErrors = gate.report().failures().stream()
                 .map(failure -> failure.kind() + ": " + failure.detail());
@@ -88,8 +96,9 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
                 : Stream.empty();
         Stream<String> desktopErrors = gate.safeToScan() && desktopUnavailable
                 ? Stream.of(desktopFailure.detail()) : Stream.empty();
+        var serviceErrors = serviceAdvice.entrySet().stream().map(entry -> entry.getKey() + ": " + entry.getValue());
         return new RecoveryGuidance(List.copyOf(advice),
-                Stream.concat(transactionErrors, Stream.concat(desktopErrors, Stream.concat(pluginErrors, failures.stream())))
+                Stream.of(transactionErrors, desktopErrors, serviceErrors, pluginErrors, failures.stream()).flatMap(stream -> stream)
                 .filter(value -> value != null && !value.isBlank())
                 .map(RecoveryGuidance::summary).distinct().limit(MAX_ERRORS).toList(),
                 gate.safeToScan() && desktopUnavailable ? desktopFailure.reason().summaryKey() : null);

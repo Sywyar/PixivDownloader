@@ -151,9 +151,8 @@ public class PluginCatalogAcquisitionService {
             List<PluginDependencyInstallResult> completed = new ArrayList<>();
             try {
                 for (var selected : plan.packages()) {
-                    String id = selected.entry().pluginId();
-                    var report = downloadAndInstall(selected.repository(), id, selected.pkg().version(),
-                            confirmedTrustSha256, selected, progress, downloads);
+                    String id = selected.source().entry().pluginId();
+                    var report = downloadAndInstall(selected, confirmedTrustSha256, true, progress, downloads);
                     progress.accept(new ExternalPluginOperationSnapshot(id, report.operation(), report.transactionId(), null));
                     if (id.equals(pluginId) || !report.accepted() || report.recoveryBlocked()) {
                         return report.withDependencyInstallResults(completed);
@@ -208,18 +207,26 @@ public class PluginCatalogAcquisitionService {
         }
         PluginCatalogService.ResolvedPackage selected = catalogService.resolvePackage(
                 repository.repositoryId(), pluginId, version);
-        PluginCatalogPackage pkg = selected.pkg();
         repository = selected.repository();
+        var installedArtifact = dependencyResolver.installedArtifactForVersion(pluginId, version).orElse(null);
+        String installedVersion = installedArtifact == null ? null : installedArtifact.plugin().version();
+        String installedHash = installedArtifact == null ? null : installedArtifact.artifactSha256();
+        PluginCatalogPackage pkg = selected.pkg().forInstalledArtifact(repository, pluginId, installedVersion, installedHash);
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
         if (!VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk()) {
             return new PluginInstallReport(PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false,
                     pluginId, version, null, List.of(), List.of(),
                     List.of("catalog package requires an incompatible SDK: " + pkg.requiredSdk()));
         }
+        if (pkg.conflictsWithInstalledArtifact(installedVersion, installedHash)) {
+            return new PluginInstallReport(PluginInstallOutcome.REJECTED_INTEGRITY, false, false,
+                    pluginId, version, null, List.of(), List.of(),
+                    List.of("same plugin version has different artifact bytes: " + installedHash + ", " + pkg.sha256()));
+        }
 
         stack.addLast(pluginId);
         try {
-            List<PluginDependencyRef> declared = catalogDependencies(pkg);
+            List<PluginDependencyRef> declared = pkg.dependencyRefs();
             PluginInstallReport planned = installRequiredDependencies(repository, manifest,
                     pluginId, version, declared, stack, dependencyInstallResults,
                     confirmedTrustSha256, false);
@@ -229,8 +236,8 @@ public class PluginCatalogAcquisitionService {
 
             Set<String> descriptorAttempts = new HashSet<>();
             while (true) {
-                PluginInstallReport installed = downloadAndInstall(
-                        repository, pluginId, version, confirmedTrustSha256);
+                PluginInstallReport installed = downloadAndInstall(new PluginCatalogInstallPreview.Selection(selected, pkg),
+                        confirmedTrustSha256, false, ignored -> { }, null);
                 if (installed.outcome() != PluginInstallOutcome.REJECTED_DEPENDENCY
                         || installed.dependencyProblems().isEmpty()) {
                     return installed;
@@ -331,25 +338,21 @@ public class PluginCatalogAcquisitionService {
         return dependencyRejected(pluginId, version, dependencies, problems, diagnostics);
     }
 
-    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
-                                                   String confirmedTrustSha256) {
-        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, null, ignored -> { }, null);
-    }
-
-    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
-            String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected,
+    private PluginInstallReport downloadAndInstall(PluginCatalogInstallPreview.Selection selection,
+            String confirmedTrustSha256, boolean previewed,
             Consumer<ExternalPluginOperationSnapshot> progress, PluginCatalogDownloadSession downloads) {
 
         // 执行计划刚完成选包与指纹复核；复用该已验证选择，下载后仍重新读取目录。
-        var resolved = expected != null ? expected
-                : catalogService.resolvePackage(repository.repositoryId(), pluginId, version);
-        if (expected != null && !expected.repository().equals(
-                catalogService.resolveRepository(expected.repository().repositoryId()))) {
+        var resolved = selection.source();
+        var repository = resolved.repository();
+        String pluginId = resolved.entry().pluginId();
+        var pkg = selection.pkg();
+        String version = pkg.version();
+        if (!previewed) requireSameSelection(resolved);
+        if (previewed && !repository.equals(catalogService.resolveRepository(repository.repositoryId()))) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED,
                     pluginId, version, "catalog repository changed after preview");
         }
-        repository = resolved.repository();
-        PluginCatalogPackage pkg = resolved.pkg();
         if (revocations != null) revocations.requireInstallAllowed(repository, pluginId, pkg);
 
         // throws PROXY_POLICY_UNSUPPORTED / INSECURE_URL / BLOCKED_ADDRESS / TOO_LARGE / FAILED / INVALID
@@ -361,12 +364,12 @@ public class PluginCatalogAcquisitionService {
         boolean retained = false;
         try {
             progress.accept(new ExternalPluginOperationSnapshot(pluginId, ExternalPluginOperation.PREPARING, null, null));
-            if (expected != null) requireSameSelection(expected);
+            if (previewed) requireSameSelection(resolved);
             PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
                     repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
                     pkg.signature(), pluginId, version,
-                    repository.pagedCatalog() || expected != null ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
-                    repository.pagedCatalog() || expected != null ? pkg.dependencies() : null,
+                    repository.pagedCatalog() || previewed ? (pkg.requiredSdk() != null ? pkg.requiredSdk() : "*") : null,
+                    repository.pagedCatalog() || previewed ? pkg.dependencies() : null,
                     pkg.identityMigrationSignatures(), confirmedTrustSha256);
             if (repository.community()) {
                 if (communityPackages == null) throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
@@ -405,17 +408,6 @@ public class PluginCatalogAcquisitionService {
                 .filter(pkg -> VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk())
                 .filter(pkg -> PluginCatalogInstallPreview.satisfies(dependency, pkg.version()))
                 .max(Comparator.comparing(pkg -> PluginPackageVersion.parse(pkg.version())));
-    }
-
-    private static List<PluginDependencyRef> catalogDependencies(PluginCatalogPackage pkg) {
-        if (pkg.dependencies().isEmpty()) {
-            return List.of();
-        }
-        List<PluginDependencyRef> result = new ArrayList<>();
-        for (String dependency : pkg.dependencies()) {
-            result.addAll(PluginDependencyRef.parseList(dependency));
-        }
-        return List.copyOf(result);
     }
 
     private static PluginInstallReport dependencyRejected(String pluginId, String version,

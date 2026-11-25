@@ -37,6 +37,26 @@ class PluginArtifactLoadPlanTest {
         assertThat(plan.orderedEntries()).containsExactlyInAnyOrder(base, adapter, backend, optional, unused);
     }
 
+    @Test
+    void physicalCyclesAreCheckedAfterHeadlessSelectionInEitherOrder() throws IOException {
+        var backend = entry("backend", false, "desktop");
+        var desktop = entry("desktop", true, "backend?");
+        var healthy = entry("healthy", false, "");
+        for (var scanned : List.of(List.of(desktop, backend, healthy), List.of(backend, desktop, healthy))) {
+            var plan = PluginArtifactLoadPlan.createInspected(scanned);
+            assertThat(plan.headlessEntries()).containsSubsequence(desktop, backend);
+            var startup = plan.forStartup(true, id -> true);
+            assertThat(startup.orderedEntries()).containsExactly(healthy);
+            assertThat(startup.failures()).hasSize(2).allSatisfy(f -> assertThat(f.reason()).contains("cyclic", "backend", "desktop"));
+        }
+        var required = entry("desktop", true, "backend");
+        assertThat(PluginArtifactLoadPlan.createInspected(List.of(required, backend)).failures())
+                .hasSize(2).allSatisfy(f -> assertThat(f.reason()).contains("cyclic"));
+        var optional = entry("backend", false, "desktop?");
+        assertThat(PluginArtifactLoadPlan.createInspected(List.of(optional, required)).forStartup(true, id -> true).orderedEntries())
+                .containsExactly(optional);
+    }
+
     private PluginArtifactLoadPlan.Entry entry(String id, boolean desktopOnly, String dependencies) throws IOException {
         Path file = tempDir.resolve(id + ".properties");
         Files.writeString(file, "plugin.id=" + id + "\nplugin.version=1.0.0\nplugin.class=example.Plugin\n"

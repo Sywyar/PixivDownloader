@@ -12,6 +12,7 @@ import java.util.Objects;
  * @param status      评估状态
  * @param descriptor  插件描述符（必选策略要求一个未安装的 pluginId 时为 {@code null}——此时只有要求、没有描述符）
  * @param requiredByPolicy 该 id 是否被 {@link RequiredPluginPolicy} 声明为必选
+ * @param missingDependencyId 依赖评估确认缺包的直接或间接必需依赖 ID，否则为空
  * @param messages    诊断说明（如「requires 1.1，核心仅 1.0」「缺少依赖 download-workbench」），按发生顺序
  */
 public record PluginDiagnostic(
@@ -19,7 +20,13 @@ public record PluginDiagnostic(
         PluginStatus status,
         PluginDescriptor descriptor,
         boolean requiredByPolicy,
-        List<String> messages) {
+        List<String> messages,
+        @top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable String missingDependencyId) {
+
+    public PluginDiagnostic(String id, PluginStatus status, PluginDescriptor descriptor, boolean requiredByPolicy,
+                            List<String> messages) {
+        this(id, status, descriptor, requiredByPolicy, messages, null);
+    }
 
     public PluginDiagnostic {
         Objects.requireNonNull(id, "id");

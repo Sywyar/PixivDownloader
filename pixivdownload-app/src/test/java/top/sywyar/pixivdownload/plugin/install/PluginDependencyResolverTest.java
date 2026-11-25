@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -30,9 +29,8 @@ class PluginDependencyResolverTest {
     @DisplayName("无必需依赖时不清点安装目录或查询生命周期")
     void absentAndOptionalDependenciesDoNotScanInstalledArtifacts() {
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
-        PluginRegistry registry = mock(PluginRegistry.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
-        PluginDependencyResolver resolver = new PluginDependencyResolver(installer, registry, lifecycle);
+        PluginDependencyResolver resolver = new PluginDependencyResolver(installer, lifecycle);
         PluginDependencyRef optional = new PluginDependencyRef("optional", "1.0", true);
         assertThat(resolver.installedProblems(null)).isEmpty();
         assertThat(resolver.activationProblems(null)).isEmpty();
@@ -44,7 +42,7 @@ class PluginDependencyResolverTest {
         assertThat(resolver.installedDependencySatisfied(optional)).isTrue();
         assertThatThrownBy(() -> resolver.installedDependencySatisfied(null))
                 .isInstanceOf(NullPointerException.class);
-        verifyNoInteractions(installer, registry, lifecycle);
+        verifyNoInteractions(installer, lifecycle);
     }
 
     @Test
@@ -55,17 +53,15 @@ class PluginDependencyResolverTest {
                 List.of(new PluginDependencyRef("dev-dependency", "1.0", false)));
         PluginDescriptor staleInstalledTarget = descriptor("dev-target", List.of());
         ExternalPluginInstaller installer = mock(ExternalPluginInstaller.class);
-        PluginRegistry registry = mock(PluginRegistry.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
         when(installer.listInstalled()).thenReturn(List.of(
                 new InstalledPlugin(staleInstalledTarget, Path.of("plugins", "dev-target.jar"))));
-        when(registry.registeredPlugins()).thenReturn(List.of());
         when(lifecycle.managedPluginIds()).thenReturn(Set.of("dev-dependency", "dev-target"));
         when(lifecycle.descriptor("dev-dependency")).thenReturn(Optional.of(dependency));
         when(lifecycle.descriptor("dev-target")).thenReturn(Optional.of(target));
         when(lifecycle.phase("dev-dependency")).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         when(lifecycle.phase("dev-target")).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
-        PluginDependencyResolver resolver = new PluginDependencyResolver(installer, registry, lifecycle);
+        PluginDependencyResolver resolver = new PluginDependencyResolver(installer, lifecycle);
 
         var descriptor = resolver.activationDescriptor("dev-target").orElseThrow();
 

@@ -8,6 +8,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar.PreparedWebContribution;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionHandle;
 
@@ -56,6 +58,13 @@ class PluginLifecycleBringUpTest extends PluginLifecycleServiceTestSupport {
                 assertThat(h.service.contextFor(h.plugin.id()).orElseThrow().isActive()).isTrue();
                 assertThat(h.webRegistrar.currentHandle(h.registered)).isPresent();
                 assertThat(h.registry.lifecycleFailuresById()).containsKey(h.plugin.id());
+                var consumer = mock(PluginDescriptor.class);
+                when(consumer.dependencies()).thenReturn(PluginDependencyRef.parseList(h.plugin.id()));
+                when(h.runtime.loadedDescriptor("consumer")).thenReturn(Optional.of(consumer));
+                assertThatThrownBy(() -> h.service.requireServingDependencies("consumer", PluginRuntimePhase.QUIESCED))
+                        .isInstanceOf(ClassifiedPluginLifecycleException.class).hasMessageContaining(h.plugin.id());
+                assertThatThrownBy(() -> h.service.restoreNonServingPhase(h.plugin.id(), PluginRuntimePhase.QUIESCED))
+                        .isInstanceOf(PluginLifecycleException.class).hasMessageContaining(h.plugin.id());
             } finally {
                 h.routes.failBeforeUnregister = false;
             }
@@ -65,12 +74,12 @@ class PluginLifecycleBringUpTest extends PluginLifecycleServiceTestSupport {
     }
 
     @Test
-    @DisplayName("boot startAll 不重复调用插件 start()：启动期 start 归 PluginRegistry，本服务只建立服务足迹")
-    void bootStartAllDoesNotInvokePluginStart() {
+    @DisplayName("boot startAll 复用已经启动的精确身份，避免重复执行 feature 回调")
+    void bootStartAllReusesStartedFeatureIdentity() {
         try (ContextHarness h = new ContextHarness()) {
             h.service.startAll();
 
-            assertThat(h.plugin.startCount).isZero(); // 启动期不由本服务调 start()（PluginRegistry SmartLifecycle 负责）
+            assertThat(h.plugin.startCount).isZero(); // 夹具的同一身份已经启动
             assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
             assertThat(h.service.contextCount()).isEqualTo(1);
         }

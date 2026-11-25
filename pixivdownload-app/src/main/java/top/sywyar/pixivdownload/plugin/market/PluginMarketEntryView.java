@@ -174,7 +174,7 @@ public record PluginMarketEntryView(
 
     PluginMarketEntryView withInstallation(PluginMarketInstallationView local) {
         return new PluginMarketEntryView(pluginId, displayNamespace, displayNameKey, descriptionKey,
-                latestVersion, market, packages.stream().map(pkg -> pkg.withInstallation(local)).toList(),
+                latestVersion, market, packages,
                 installStatus, installedVersion, updateAvailable, compatible, compatibilityReason, assuranceLevel,
                 versionsGeneration, nextVersionCursor, totalVersionsApproximate, versionsStale,
                 recommendedVersion, compatibilitySearchIncomplete, local);

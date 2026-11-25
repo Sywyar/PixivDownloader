@@ -391,7 +391,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return () -> BackendLifecycleManager.removeListener(listener);
     }
     @Override public boolean startBackend(Runnable afterStart) { return BackendLifecycleManager.startAsync(afterStart); }
-    @Override public boolean stopBackend(Runnable afterStop) { return BackendLifecycleManager.stopAsync(afterStop); }
+    @Override public boolean stopBackend(Runnable afterStop, Consumer<Throwable> onFailure) {
+        return BackendLifecycleManager.stopAsync(afterStop, onFailure);
+    }
     @Override public boolean restartBackend(Runnable afterRestart) { return BackendLifecycleManager.restartAsync(afterRestart); }
     @Override public void requestApplicationExit() {
         GuiLauncher.requestApplicationExit();

@@ -6,6 +6,24 @@ const path = require('node:path');
 const vm = require('node:vm');
 const staticRoot = path.join(__dirname, '../../main/resources/static');
 
+test('必选插件待启动时显示接口的操作建议、错误与目标，恢复后收起', async () => {
+    const f = fixture();
+    const advice = '必选插件已安装，但尚未提供服务。请先启动其必需依赖，再启动该插件。';
+    const id = 'recovery-sentinel';
+    const detail = id + ': ' + advice;
+    f.setReport({active: true, advice, errors: [detail], focus: {plugins: {[id]: 'required'}, categories: []}});
+    await f.market.recovery.refresh();
+    const texts = node => [node.textContent, ...node.children.flatMap(texts)];
+    assert.ok(texts(f.root).includes(advice));
+    assert.ok(texts(f.root).includes(detail));
+    assert.ok(!texts(f.root).includes('recovery.explanation'));
+    assert.equal(f.market.data.cardModel({pluginId: id}).focusReason, 'required');
+    f.setReport({active: false});
+    await f.market.recovery.refresh();
+    assert.equal(f.root.hidden, true);
+    assert.equal(f.root.children.length, 0);
+});
+
 test('恢复候选按 ID 和 GUI 分类置顶，默认隐藏不遮挡，退出恢复模式后撤销候选', async () => {
     const f = fixture();
     f.setReport({active: true, focus: {plugins: {required: 'required', dependency: 'dependency'}, categories: ['ui']}});
@@ -35,6 +53,13 @@ test('内容差异只消费后端投影，并与开发加载及运行状态分�
         installation: {state: 'PRESENT', version: '2.0', sha256: 'b'.repeat(64), runtimeStatus: 'STARTED', installedArtifactsEnabled: true}};
     assert.equal(f.market.data.cardModel(entry).artifactMismatch, true);
     assert.equal(f.market.data.installationState(entry, pkg), 'mismatch');
+    entry.market = {defaultInstalled: true};
+    const hidden = {hideDefaultInstalled: true};
+    assert.equal(f.market.data.filterAndSort([entry], hidden).length, 1);
+    pkg.installationMatch = 'OFFICIAL_INSTALLER_VARIANT';
+    assert.equal(f.market.data.selectedInstallStatus(entry, pkg), 'INSTALLED');
+    assert.equal(f.market.data.filterAndSort([entry], hidden).length, 0);
+    pkg.installationMatch = 'DIFFERENT_ARTIFACT';
     entry.installation.sha256 = 'A'.repeat(64);
     assert.equal(f.market.data.artifactMismatch(entry, pkg), true, '展示摘要不能覆盖后端比较结论');
     entry.installation.sha256 = 'unknown';
@@ -308,6 +333,10 @@ test('明确失败插件优先排序且不被默认隐藏，未知安装态不�
     assert.equal(f.market.data.cardModel(unknown).suspectedProblem, false);
     const pkg = {compatible: true, installable: true, installationMatch: 'SAME_ARTIFACT'};
     assert.equal(f.market.data.selectedInstallStatus(failed, pkg), 'REINSTALL');
+    const variant = {...pkg, installationMatch: 'OFFICIAL_INSTALLER_VARIANT'};
+    for (const runtimeStatus of ['FAILED', 'CRASHED']) {
+        assert.equal(f.market.data.selectedInstallStatus({...failed, installation: {...failed.installation, runtimeStatus}}, variant), 'REINSTALL');
+    }
     assert.equal(f.market.data.installResultStatus({accepted: true, effectiveAfterRestart: true}, 'REINSTALL'), 'PENDING_RESTART');
     f.setReport({active: true, actionsAllowed: true, installationBlocked: true});
     await f.market.recovery.refresh();

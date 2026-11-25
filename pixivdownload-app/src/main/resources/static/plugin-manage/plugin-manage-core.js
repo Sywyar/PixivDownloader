@@ -274,9 +274,16 @@
         }
         // 开关可用性以后端稳定字段为权威；热重载还要求当前确由运行期管理，避免损坏 / 不兼容插件得到必然失败的开关。
         // PROCESS_RESTART 插件可以不受热生命周期管理但仍允许持久化启停。
+        var stopHint = entry.operationDiagnostic === 'BACKEND_STOP_FAILED' ? 'state.backend-stop-failed'
+            : entry.operationDiagnostic === 'BACKEND_STOP_INCOMPLETE' ? 'state.backend-stop-incomplete' : null;
         var toggleable = entry.toggleable === true
             && (lifecyclePolicy !== 'HOT_RELOAD' || entry.managed === true);
 
+        var pendingToggleLabel = toggleable && lifecyclePolicy !== 'HOT_RELOAD'
+            && configuredEnabled !== running && meta.tone !== 'bad'
+            && (status !== 'INSTALLED' || phase || entry.effectiveAfterRestart === true)
+            && Object.prototype.hasOwnProperty.call(STATUS_META, status) && phase !== 'QUIESCED'
+            ? t(configuredEnabled ? 'state.pending-enable' : 'state.pending-disable') : null;
         return {
             id: entry.id,
             entry: entry,
@@ -290,10 +297,7 @@
             running: running,
             enabled: enabled,
             configuredEnabled: configuredEnabled,
-            pendingToggleLabel: toggleable && lifecyclePolicy !== 'HOT_RELOAD'
-                && configuredEnabled !== running && meta.tone !== 'bad'
-                && Object.prototype.hasOwnProperty.call(STATUS_META, status) && phase !== 'QUIESCED'
-                ? t(configuredEnabled ? 'state.pending-enable' : 'state.pending-disable') : null,
+            pendingToggleLabel: pendingToggleLabel,
             executionMode: executionMode,
             trustFacts: verification,
             trustSections: global.PixivPluginPresentationTokens.trustSections(verification, i18n.client, running || !!entry.loadedVersion || phase === 'QUIESCED'),
@@ -327,10 +331,10 @@
             tags: tags,
             sdk: entry.sdkRequirement || null,
             deps: entry.dependencies || [],
-            messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : [])
-                .concat(entry.effectiveAfterRestart ? [t('state.pending-restart',
-                    '安装状态已更改；当前进程仍载入版本 {version}。完整退出并重新启动软件后生效。',
-                    { version: loadedVersionLabel(entry) })] : []),
+            messages: (entry.messages || []).concat(stopHint ? [t(stopHint)] : entry.operationDiagnostic ? [entry.operationDiagnostic] : [])
+                .concat(entry.effectiveAfterRestart && (entry.loadedVersion || !pendingToggleLabel) ? [entry.loadedVersion
+                    ? t('state.pending-restart', '', { version: entry.loadedVersion })
+                    : t('state.pending-enable')] : []),
             // 非热重载策略只展示后端明确允许的安装包移除。
             availableActions: (entry.availableActions || []).filter(function (action) {
                 return lifecyclePolicy === 'HOT_RELOAD' || action === 'remove';
@@ -345,6 +349,13 @@
     }
 
     function info(key) { return t('common:plugin-info.' + key); }
+
+    function dependencyList(dependencies) {
+        return dependencies.length ? dependencies.map(function (dep) {
+            return pluginLabel(dep.pluginId) + (dep.versionSupport ? ' · ' + dep.versionSupport : '')
+                + (dep.optional ? ' · ' + t('deps.optional') : '');
+        }).join('\n') : t('common:plugin-info.no-dependencies');
+    }
 
     function loadedVersionLabel(entry) {
         if (entry.loadedVersion) return entry.loadedVersion;
@@ -618,6 +629,7 @@
         lifecyclePolicyOf: lifecyclePolicyOf,
         lifecyclePolicyMeta: lifecyclePolicyMeta,
         buildViewModel: buildViewModel,
+        dependencyList: dependencyList,
         loadedVersionLabel: loadedVersionLabel,
         detailFields: detailFields,
         applyReport: applyReport,

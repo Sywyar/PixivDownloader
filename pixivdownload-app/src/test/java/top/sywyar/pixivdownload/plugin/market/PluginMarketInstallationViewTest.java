@@ -9,7 +9,14 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPlugi
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
 
+import top.sywyar.pixivdownload.plugin.PluginTestProvenance;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import tools.jackson.databind.json.JsonMapper;
+
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -33,6 +40,37 @@ class PluginMarketInstallationViewTest {
         assertThat(PluginMarketInstallationView.unknown("7.0.0").comparison("7.0.0", HASH)).isEqualTo("UNKNOWN");
         assertThat(PluginMarketInstallationView.from(null, "7.0.0", "STARTED", false)
                 .comparison("7.0.0", HASH)).isEqualTo("NOT_INSTALLED");
+    }
+
+    @Test
+    void installerVariantRequiresMatchingBytesAndItsOwnOfficialSignature() {
+        var local = PluginMarketInstallationView.from(snapshot(null), null, null, true);
+        var repo = mock(PluginRepository.class);
+        when(repo.official()).thenReturn(true);
+        String universalHash = "b".repeat(64);
+        var universalSignature = PluginTestProvenance.signArtifact("sample", local.version(), 200, universalHash);
+        var installerSignature = PluginTestProvenance.signArtifact("sample", local.version(), 100, HASH);
+        var mapper = JsonMapper.builder().build();
+        var json = mapper.valueToTree(Map.of("version", local.version(), "deprecated", false, "expectedSizeBytes", 200, "sha256", universalHash,
+                "signature", universalSignature, "installerArtifacts", Map.of("windows-x64", Map.of(
+                        "expectedSizeBytes", 100, "sha256", HASH, "signature", installerSignature))));
+        var pkg = mapper.treeToValue(json, PluginCatalogPackage.class);
+        assertThat(pkg.signature()).isEqualTo(universalSignature);
+        assertThat(pkg.installerArtifacts().get("windows-x64").signature()).isEqualTo(installerSignature);
+        try (var trust = org.mockito.Mockito.mockStatic(PluginCatalogTrustStores.class)) {
+            trust.when(() -> PluginCatalogTrustStores.verifierForRepository(repo)).thenReturn(PluginTestProvenance.verifier());
+            assertThat(local.selectArtifact(repo, "sample", pkg)).extracting(PluginCatalogPackage::sha256, PluginCatalogPackage::expectedSizeBytes).containsExactly(HASH, 100L);
+            assertThat(local.selectArtifact(repo, "other-id", pkg)).isSameAs(pkg);
+            var unknown = new PluginMarketInstallationView("PRESENT", local.version(), "c".repeat(64), "unknown",
+                    null, null, null, true);
+            assertThat(unknown.selectArtifact(repo, "sample", pkg)).isSameAs(pkg);
+            var variant = (tools.jackson.databind.node.ObjectNode) json.at("/installerArtifacts/windows-x64");
+            variant.set("signature", json.get("signature"));
+            var tampered = mapper.treeToValue(json, PluginCatalogPackage.class);
+            assertThat(local.selectArtifact(repo, "sample", tampered)).isSameAs(tampered);
+            when(repo.official()).thenReturn(false);
+            assertThat(local.selectArtifact(repo, "sample", pkg)).isSameAs(pkg);
+        }
     }
 
     @Test

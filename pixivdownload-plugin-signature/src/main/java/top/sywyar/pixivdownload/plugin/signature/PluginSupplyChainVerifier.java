@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.signature.community.CommunityOperationVer
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -32,22 +33,31 @@ public final class PluginSupplyChainVerifier {
         this.trustStore = Objects.requireNonNull(trustStore, "trustStore");
     }
 
+    /** 从工件字节计算的实际摘要，独立于来源记录中的预期摘要。 */
+    public record MeasuredArtifact(long size, String sha256) {
+        public MeasuredArtifact {
+            if (size < 0 || !lowercaseSha256(sha256)) throw new IllegalArgumentException("invalid measured artifact identity");
+        }
+    }
+
     public VerificationResult verifyArtifact(ArtifactVerificationRequest request) {
+        return verifyArtifact(request, null);
+    }
+
+    public VerificationResult verifyArtifact(ArtifactVerificationRequest request, MeasuredArtifact measured) {
         Objects.requireNonNull(request, "request");
-        VerificationPolicy policy = policy(request.policy());
-        long size;
-        byte[] sha256Bytes;
-        String sha256Hex;
-        try {
+        if (measured == null) {
             if (request.artifactPath() == null || !Files.isRegularFile(request.artifactPath())) {
                 return fail(VerificationStatus.IO_ERROR, request, null, 0L, null, "ARTIFACT_NOT_FOUND");
             }
-            size = Files.size(request.artifactPath());
-            sha256Bytes = Hashing.sha256(request.artifactPath());
-            sha256Hex = Hashing.hex(sha256Bytes);
-        } catch (IOException e) {
-            return fail(VerificationStatus.IO_ERROR, request, null, 0L, null, "ARTIFACT_IO_ERROR");
+            try {
+                measured = measure(request.artifactPath());
+            } catch (IOException e) {
+                return fail(VerificationStatus.IO_ERROR, request, null, 0L, null, "ARTIFACT_IO_ERROR");
+            }
         }
+        long size = measured.size();
+        String sha256Hex = measured.sha256();
 
         if (request.expectedSizeBytes() != null && size != request.expectedSizeBytes()) {
             return fail(VerificationStatus.HASH_MISMATCH, request, null, size, sha256Hex, "SIZE_MISMATCH");
@@ -59,7 +69,21 @@ public final class PluginSupplyChainVerifier {
         if (!hasText(request.pluginId()) || !hasText(request.version())) {
             return fail(VerificationStatus.IDENTITY_MISMATCH, request, null, size, sha256Hex, "IDENTITY_MISSING");
         }
-        return verifySignedEnvelope(request.signature(), policy, request.pluginId(), request.version(), size,
+        return verifyArtifactEnvelope(request, size, sha256Hex, HexFormat.of().parseHex(sha256Hex));
+    }
+
+    /** 校验目录中的制品身份签名；本机字节摘要由已完成的安装清点独立提供。 */
+    public boolean verifiesOfficialArtifactIdentity(String pluginId, String version, long size,
+                                                   String sha256, SignatureMetadata signature) {
+        if (signature == null || size <= 0 || sha256 == null || !sha256.matches("(?i)[0-9a-f]{64}")) return false;
+        var request = new ArtifactVerificationRequest(null, pluginId, version, size, sha256, signature,
+                VerificationPolicy.officialRepository());
+        return verifyArtifactEnvelope(request, size, sha256, HexFormat.of().parseHex(sha256)).accepted();
+    }
+
+    private VerificationResult verifyArtifactEnvelope(ArtifactVerificationRequest request, long size,
+                                                      String sha256Hex, byte[] sha256Bytes) {
+        return verifySignedEnvelope(request.signature(), policy(request.policy()), request.pluginId(), request.version(), size,
                 sha256Hex, () -> EnvelopeV1Codec.artifactMessage(
                         request.signature().algorithm(),
                         request.signature().keyId(),
@@ -100,8 +124,16 @@ public final class PluginSupplyChainVerifier {
                 request.signature(), request.policy(), false);
     }
 
+    private static MeasuredArtifact measure(Path path) throws IOException {
+        return new MeasuredArtifact(Files.size(path), Hashing.hex(Hashing.sha256(path)));
+    }
+
     /** 验证社区签名与实际包；不替代发布者原签、审核关联和来源连续性。 */
     public VerificationResult verifyCommunityPackage(CommunityPackageVerificationRequest request) {
+        return verifyCommunityPackage(request, null);
+    }
+
+    public VerificationResult verifyCommunityPackage(CommunityPackageVerificationRequest request, MeasuredArtifact measured) {
         Objects.requireNonNull(request, "request");
         ArtifactVerificationRequest artifact = new ArtifactVerificationRequest(request.artifactPath(),
                 request.pluginId(), request.version(), request.expectedSizeBytes(), request.expectedSha256(),
@@ -113,18 +145,19 @@ public final class PluginSupplyChainVerifier {
             return fail(VerificationStatus.IDENTITY_MISMATCH, artifact, request.signature(), 0, null,
                     "COMMUNITY_PACKAGE_IDENTITY_INVALID");
         }
-        long size;
-        byte[] hash;
-        try {
+        if (measured == null) {
             if (request.artifactPath() == null || !Files.isRegularFile(request.artifactPath())) {
                 return fail(VerificationStatus.IO_ERROR, artifact, request.signature(), 0, null, "ARTIFACT_NOT_FOUND");
             }
-            size = Files.size(request.artifactPath());
-            hash = Hashing.sha256(request.artifactPath());
-        } catch (IOException e) {
-            return fail(VerificationStatus.IO_ERROR, artifact, request.signature(), 0, null, "ARTIFACT_IO_ERROR");
+            try {
+                measured = measure(request.artifactPath());
+            } catch (IOException e) {
+                return fail(VerificationStatus.IO_ERROR, artifact, request.signature(), 0, null, "ARTIFACT_IO_ERROR");
+            }
         }
-        String hex = Hashing.hex(hash);
+        long size = measured.size();
+        String hex = measured.sha256();
+        byte[] hash = HexFormat.of().parseHex(hex);
         if (size != request.expectedSizeBytes() || !hex.equals(request.expectedSha256())) {
             return fail(VerificationStatus.HASH_MISMATCH, artifact, request.signature(), size, hex,
                     size != request.expectedSizeBytes() ? "SIZE_MISMATCH" : "SHA256_MISMATCH");

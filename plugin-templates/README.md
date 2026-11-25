@@ -61,4 +61,6 @@ node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-la
 
 - **执行模式与装配**：`plugin.properties` 中的 `pixiv.execution-mode`、`pixiv.lifecycle-policy` 与可选 `pixiv.configuration-classes` 为运行期权威声明。`host-process-full-trust` 插件必须通过配置类 `@Bean` 显式注册 Bean，禁止依赖宿主根包扫描。
 - 只提供桌面功能的插件可在 `plugin.properties` 中声明 `pixiv.desktop-only=true`。无图形启动仍会验证并列出已安装的包，仅当其他启动插件直接或间接将其列为必需依赖时才加载。未声明或设为 `false` 的插件按原方式启动。
+
+- `plugin.dependencies` 声明外置 PF4J 包之间的依赖。将 `core` 等宿主内置组件列为必需依赖会在写入安装目录前被拒绝。宿主 SDK 版本要求通过 `plugin.requires` 声明。
 - **架构禁区**：严禁依赖 `pixivdownload-app`、宿主内部实现、`plugin-runtime`/installer/signature 内部类、宿主 mapper 或官方插件私有类。私有持久化使用 owner-bound `PluginDatabase`；参与主库协作仅使用 `PluginMainDatabase`。默认产物为不含 `BOOT-INF/` 与宿主共享类的 thin JAR。

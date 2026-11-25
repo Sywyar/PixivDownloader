@@ -243,6 +243,8 @@ class PluginManagementControllerTest {
     @Test
     @DisplayName("PUT /api/plugins/{id}/enabled 持久化期望启用态并返回生命周期策略")
     void enabledToggleDelegatesToConfigurationService() throws Exception {
+        when(service.reserveMutation(eq("demo-ext"), eq("update-enabled"), any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(2)).get());
         when(enabledConfigurationService.update("demo-ext", false)).thenReturn(
                 new PluginEnabledConfigurationService.PluginEnabledState(
                         "demo-ext", false, PluginLifecyclePolicy.BACKEND_RESTART));

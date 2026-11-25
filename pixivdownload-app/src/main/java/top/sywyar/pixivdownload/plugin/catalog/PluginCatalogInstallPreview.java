@@ -1,17 +1,18 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
-import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
-
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver.PlannedPackage;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
-import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginInventorySnapshot;
@@ -37,19 +38,19 @@ public class PluginCatalogInstallPreview {
     static final int MAX_DEPTH = 32;
     private final PluginCatalogService catalog;
     private final PluginCatalogRevocationService revocations;
-    private final PluginDependencyResolver dependencies;
     private final ExternalPluginInstaller installer;
     private final PluginRuntimeManager runtime;
+    private final PluginDependencyResolver dependencies;
     private final ExternalPluginLifecycleCoordinator coordinator;
 
     public PluginCatalogInstallPreview(PluginCatalogService catalog, PluginCatalogRevocationService revocations,
-            PluginDependencyResolver dependencies, ExternalPluginInstaller installer,
-            PluginRuntimeManager runtime, ExternalPluginLifecycleCoordinator coordinator) {
+            ExternalPluginInstaller installer,
+            PluginRuntimeManager runtime, ExternalPluginLifecycleCoordinator coordinator, PluginDependencyResolver dependencies) {
         this.catalog = catalog;
         this.revocations = revocations;
-        this.dependencies = dependencies;
         this.installer = installer;
         this.runtime = runtime;
+        this.dependencies = dependencies;
         this.coordinator = coordinator;
     }
 
@@ -87,20 +88,16 @@ public class PluginCatalogInstallPreview {
                 conflicts.add(new Conflict("AMBIGUOUS_INSTALLATION", item.plugin().id(), List.of()));
             }
         }
-        Map<String, PluginCatalogService.ResolvedPackage> selected = new LinkedHashMap<>();
+        Map<String, Selection> selected = new LinkedHashMap<>();
         Map<String, Item> items = new LinkedHashMap<>();
-        var descriptors = dependencies.installedDescriptors(inventory.entries().stream()
-                .map(InstalledPluginSnapshot::plugin).toList());
-        visit(catalog.resolvePackage(repositoryId, pluginId, version), installed, descriptors, selected, items,
+        visit(catalog.resolvePackage(repositoryId, pluginId, version), installed, selected, items,
                 conflicts, new ArrayList<>());
         for (var value : selected.values()) {
-            for (String declaration : value.pkg().dependencies()) {
-                for (var dependency : PluginDependencyRef.parseList(declaration)) {
-                    var target = selected.get(dependency.pluginId());
-                    if (!dependency.optional() && target != null && !satisfies(dependency, target.pkg().version())) {
-                        conflicts.add(new Conflict("VERSION_CONFLICT", dependency.pluginId(),
-                                List.of(value.entry().pluginId(), dependency.versionSupport())));
-                    }
+            for (var dependency : value.pkg().dependencyRefs()) {
+                var target = selected.get(dependency.pluginId());
+                if (!dependency.optional() && target != null && !satisfies(dependency, target.pkg().version())) {
+                    conflicts.add(new Conflict("VERSION_CONFLICT", dependency.pluginId(),
+                            List.of(value.source().entry().pluginId(), dependency.versionSupport())));
                 }
             }
         }
@@ -114,6 +111,18 @@ public class PluginCatalogInstallPreview {
                 }
             }
         }
+        if (conflicts.isEmpty()) {
+            var packages = selected.values().stream().map(selection -> new PlannedPackage(
+                    selection.source().entry().pluginId(), selection.pkg().version(),
+                    selection.pkg().dependencyRefs())).toList();
+            var blocked = dependencies.previewProblems(packages, installed.values().stream().map(InstalledPluginSnapshot::plugin).toList());
+            blocked.forEach((id, problems) -> {
+                if (!selected.containsKey(id) && installed.containsKey(id)) items.put(id, installedItem(installed.get(id), "BLOCKED"));
+            });
+            blocked.values().stream().flatMap(List::stream).distinct().forEach(problem ->
+                    conflicts.add(new Conflict("DEPENDENCY_UNAVAILABLE", problem.pluginId(),
+                            List.of(Objects.toString(problem.status(), problem.reason().name()), Objects.toString(problem.versionSupport(), "*")))));
+        }
         // 只取原始事实；来源快照、加载代次和启停 epoch 的变化都会使旧确认失效。
         String facts = selected.values().toString() + inventory.entries().stream()
                 .sorted(Comparator.comparing(item -> item.plugin().id())).toList()
@@ -121,7 +130,7 @@ public class PluginCatalogInstallPreview {
                 + runtime.packagePhases().entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()
                 + runtime.loadedDescriptors().keySet().stream().sorted()
                         .map(id -> id + ":" + runtime.generation(id)).toList()
-                + coordinator.lifecycleMutationEpoch();
+                + coordinator.lifecycleMutationEpoch() + conflicts;
         return new Plan(new View(digest(facts), List.copyOf(items.values()), List.copyOf(conflicts)),
                 List.copyOf(selected.values()));
     }
@@ -130,6 +139,8 @@ public class PluginCatalogInstallPreview {
         try {
             return coordinator.withMutationReservation(action);
         } catch (top.sywyar.pixivdownload.plugin.lifecycle.ClassifiedPluginLifecycleException failure) {
+            if (failure.code() == top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode.BACKEND_STOP_FAILED)
+                throw new PluginCatalogException(PluginCatalogErrorCode.BACKEND_STOP_FAILED, failure.getMessage());
             if (failure.code() != top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode.OPERATION_IN_PROGRESS) {
                 throw failure;
             }
@@ -139,8 +150,7 @@ public class PluginCatalogInstallPreview {
 
     private void visit(PluginCatalogService.ResolvedPackage resolved,
             Map<String, InstalledPluginSnapshot> installed,
-            Map<String, PluginDescriptor> descriptors,
-            Map<String, PluginCatalogService.ResolvedPackage> selected, Map<String, Item> items,
+            Map<String, Selection> selected, Map<String, Item> items,
             List<Conflict> conflicts, List<String> stack) {
         String id = resolved.entry().pluginId();
         if (stack.contains(id)) {
@@ -152,58 +162,60 @@ public class PluginCatalogInstallPreview {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_BLOCKED,
                     "dependency preview exceeds its package or depth limit");
         }
-        var pkg = resolved.pkg();
+        var previous = installed.get(id);
+        var pkg = previous == null ? resolved.pkg() : resolved.pkg().forInstalledArtifact(resolved.repository(), id,
+                previous.plugin().version(), previous.artifactSha256());
+        if (previous != null && pkg.conflictsWithInstalledArtifact(previous.plugin().version(), previous.artifactSha256())) {
+            conflicts.add(new Conflict("SAME_VERSION_DIFFERENT_ARTIFACT", id, List.of(previous.artifactSha256(), pkg.sha256())));
+        }
         if (!VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk()) {
             conflicts.add(new Conflict("INCOMPATIBLE_SDK", id, List.of(Objects.toString(pkg.requiredSdk(), "*"))));
         }
         if (revocations != null) revocations.requireInstallAllowed(resolved.repository(), id, pkg);
         stack.add(id);
-        for (String declaration : pkg.dependencies()) {
-            for (var dependency : PluginDependencyRef.parseList(declaration)) {
-                if (dependency.optional()) continue;
-                var planned = selected.get(dependency.pluginId());
-                if (planned != null) {
-                    if (!satisfies(dependency, planned.pkg().version())) {
-                        conflicts.add(new Conflict("VERSION_CONFLICT", dependency.pluginId(), List.of(id, dependency.versionSupport())));
-                    }
-                    continue;
+        for (var dependency : pkg.dependencyRefs()) {
+            if (dependency.optional()) continue;
+            if (BuiltInPlugins.isBuiltIn(dependency.pluginId())) {
+                conflicts.add(new Conflict("MISSING_DEPENDENCY", dependency.pluginId(), List.of(id, dependency.versionSupport())));
+                continue;
+            }
+            var planned = selected.get(dependency.pluginId());
+            if (planned != null) {
+                if (!satisfies(dependency, planned.pkg().version())) {
+                    conflicts.add(new Conflict("VERSION_CONFLICT", dependency.pluginId(), List.of(id, dependency.versionSupport())));
                 }
-                var present = descriptors.get(dependency.pluginId());
-                if (present != null && satisfies(dependency, present.version())) {
-                    if (!items.containsKey(present.id()) && items.size() + stack.size() >= MAX_PACKAGES) {
-                        throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_BLOCKED,
-                                "dependency preview exceeds its package limit");
-                    }
-                    var existing = installed.get(dependency.pluginId());
-                    items.putIfAbsent(dependency.pluginId(), existing == null
-                            ? new Item(present.id(), present.version(), "BUILT_IN", null, null,
-                                    present.version(), "BUILT_IN", "REUSE", List.of(), List.of(),
-                                    present.lifecyclePolicy().name()) : reused(existing));
-                    continue;
+                continue;
+            }
+            var present = installed.get(dependency.pluginId());
+            if (present != null && satisfies(dependency, present.plugin().version())) {
+                if (!items.containsKey(dependency.pluginId()) && items.size() + stack.size() >= MAX_PACKAGES) {
+                    throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_BLOCKED,
+                            "dependency preview exceeds its package limit");
                 }
-                try {
-                    var entry = catalog.loadEntry(resolved.repository().repositoryId(), dependency.pluginId());
-                    var snapshot = revocations == null ? null : revocations.requireCurrent(resolved.repository());
-                    var candidate = entry.packages().stream()
-                            .filter(value -> satisfies(dependency, value.version()))
-                            .filter(value -> VersionRequirement.parseSdk(value.requiredSdk()).isSatisfiedByCurrentSdk())
-                            .filter(value -> revocations == null || revocations.allowsInstall(
-                                    resolved.repository(), entry.pluginId(), value, snapshot))
-                            .max(Comparator.comparing(value -> PluginPackageVersion.parse(value.version())));
-                    if (candidate.isEmpty()) {
-                        conflicts.add(new Conflict("MISSING_DEPENDENCY", dependency.pluginId(), List.of(id, dependency.versionSupport())));
-                    } else {
-                        visit(catalog.resolvePackage(resolved.repository().repositoryId(), dependency.pluginId(),
-                                candidate.get().version()), installed, descriptors, selected, items, conflicts, stack);
-                    }
-                } catch (PluginCatalogException failure) {
-                    if (failure.code() != PluginCatalogErrorCode.UNKNOWN_PLUGIN) throw failure;
+                items.putIfAbsent(dependency.pluginId(), installedItem(present, "REUSE"));
+                continue;
+            }
+            try {
+                var entry = catalog.loadEntry(resolved.repository().repositoryId(), dependency.pluginId());
+                var snapshot = revocations == null ? null : revocations.requireCurrent(resolved.repository());
+                var candidate = entry.packages().stream()
+                        .filter(value -> satisfies(dependency, value.version()))
+                        .filter(value -> VersionRequirement.parseSdk(value.requiredSdk()).isSatisfiedByCurrentSdk())
+                        .filter(value -> revocations == null || revocations.allowsInstall(
+                                resolved.repository(), entry.pluginId(), value, snapshot))
+                        .max(Comparator.comparing(value -> PluginPackageVersion.parse(value.version())));
+                if (candidate.isEmpty()) {
                     conflicts.add(new Conflict("MISSING_DEPENDENCY", dependency.pluginId(), List.of(id, dependency.versionSupport())));
+                } else {
+                    visit(catalog.resolvePackage(resolved.repository().repositoryId(), dependency.pluginId(),
+                            candidate.get().version()), installed, selected, items, conflicts, stack);
                 }
+            } catch (PluginCatalogException failure) {
+                if (failure.code() != PluginCatalogErrorCode.UNKNOWN_PLUGIN) throw failure;
+                conflicts.add(new Conflict("MISSING_DEPENDENCY", dependency.pluginId(), List.of(id, dependency.versionSupport())));
             }
         }
         stack.remove(stack.size() - 1);
-        var previous = installed.get(id);
         String previousSource = source(previous);
         if (previous != null && previousSource != null && !previousSource.equals(resolved.repository().repositoryId())) {
             conflicts.add(new Conflict("SOURCE_CONFLICT", id, List.of(previousSource, resolved.repository().repositoryId())));
@@ -216,17 +228,17 @@ public class PluginCatalogInstallPreview {
                         .anyMatch(dep -> !dep.optional() && dep.pluginId().equals(id)))
                 .map(item -> item.plugin().id()).sorted().toList();
         items.put(id, new Item(id, pkg.version(), resolved.repository().repositoryId(),
-                resolved.repository().publisherDisplayName(), pkg.sha256(),
+                resolved.repository().publisherDisplayName(), pkg.sha256(), pkg.expectedSizeBytes(),
                 previous == null ? null : previous.plugin().version(), previousSource,
                 previous == null ? "INSTALL" : "UPDATE", consumers, runtime.activeDependents(id),
                 "PACKAGE_DECIDES"));
-        selected.put(id, resolved);
+        selected.put(id, new Selection(resolved, pkg));
     }
 
-    private static Item reused(InstalledPluginSnapshot item) {
+    private static Item installedItem(InstalledPluginSnapshot item, String action) {
         return new Item(item.plugin().id(), item.plugin().version(), source(item),
-                item.provenance() == null ? null : item.provenance().publisher(), item.artifactSha256(),
-                item.plugin().version(), source(item), "REUSE", List.of(), List.of(),
+                item.provenance() == null ? null : item.provenance().publisher(), item.artifactSha256(), item.artifactSizeBytes(),
+                item.plugin().version(), source(item), action, List.of(), List.of(),
                 item.plugin().descriptor().lifecyclePolicy().name());
     }
 
@@ -249,10 +261,12 @@ public class PluginCatalogInstallPreview {
 
     public record View(String fingerprint, List<Item> packages, List<Conflict> conflicts) { }
     public record Item(String pluginId, String version, String repositoryId, @HttpApiNullable String publisher,
-            @HttpApiNullable String sha256,
-            @HttpApiNullable String installedVersion, @HttpApiNullable String installedRepositoryId, String action,
+            @HttpApiNullable String sha256, @HttpApiNullable Long expectedSizeBytes,
+            @HttpApiNullable String installedVersion, @HttpApiNullable String installedRepositoryId,
+            @Schema(allowableValues = {"INSTALL", "UPDATE", "REUSE", "BLOCKED"}) String action,
             List<String> consumers,
             List<String> activeConsumers, String restartImpact) { }
     public record Conflict(String code, String pluginId, List<String> arguments) { }
-    public record Plan(View view, List<PluginCatalogService.ResolvedPackage> packages) { }
+    public record Selection(PluginCatalogService.ResolvedPackage source, PluginCatalogPackage pkg) { }
+    public record Plan(View view, List<Selection> packages) { }
 }

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
@@ -58,6 +59,7 @@ public class PluginStatusService {
     private final Supplier<Map<String, String>> runtimeFailures;
     private Supplier<List<PluginLoadFailure>> runtimeLoadFailures = List::of;
     private final Supplier<Map<String, PluginRuntimePackagePhase>> runtimePhases;
+    private java.util.function.Predicate<String> configuredEnabled = id -> true;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
@@ -115,9 +117,16 @@ public class PluginStatusService {
     @Autowired
     public PluginStatusService(PluginRegistry pluginRegistry, PluginRuntimeManager runtimeManager,
                                ExternalPluginInstaller installer,
-                               RequiredPluginPolicy requiredPluginPolicy) {
+                               RequiredPluginPolicy requiredPluginPolicy, PluginToggleProperties toggles) {
+        this(pluginRegistry, runtimeManager, installer, requiredPluginPolicy);
+        this.configuredEnabled = id -> !runtimeManager.headlessStartup() || toggles.isEnabled(id);
+    }
+
+    public PluginStatusService(PluginRegistry pluginRegistry, PluginRuntimeManager runtimeManager,
+                               ExternalPluginInstaller installer, RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = runtimeManager::inspectPlugins;
+        this.configuredEnabled = id -> !runtimeManager.skippedDisabledAtStartup(id);
         this.installedArtifacts = installer::listInstalled;
         this.loadedDescriptors = runtimeManager::loadedDescriptors;
         this.runtimeLoadFailures = () -> runtimeManager.status().map(PluginRuntimeStatus::failures).orElseGet(List::of);
@@ -193,7 +202,8 @@ public class PluginStatusService {
         for (InstalledPlugin installed : installedArtifacts.get()) {
             if (observedExternalPackages.add(installed.id())) {
                 observed.add(new ObservedPlugin(installed.descriptor(),
-                        crashedIds.contains(installed.id()) ? PluginStatus.CRASHED : PluginStatus.INSTALLED));
+                        crashedIds.contains(installed.id()) ? PluginStatus.CRASHED :
+                                configuredEnabled.test(installed.id()) ? PluginStatus.INSTALLED : PluginStatus.DISABLED));
             }
         }
 

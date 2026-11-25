@@ -135,7 +135,8 @@
                 });
                 var artifactSections = (preview.packages || []).map(function (item) {
                     return {title: pluginLabel(item.pluginId) + ' · SHA-256', collapsed: true,
-                        fields: [{label: 'SHA-256', value: item.sha256 || PMK.t('common:plugin-info.unknown'), mono: true}]};
+                        fields: [{label: PMK.t('detail.size'), value: PMK.formatSize(item.expectedSizeBytes, true) || PMK.t('common:plugin-info.unknown')},
+                            {label: 'SHA-256', value: item.sha256 || PMK.t('common:plugin-info.unknown'), mono: true}]};
                 });
                 var lines = PMK.data.previewConflictMessages(preview.conflicts);
                 if ((preview.conflicts || []).length) {
@@ -275,7 +276,7 @@
         INSTALL_DISTRIBUTION: { labelKey: 'install.action.distribution', icon: 'cloud-arrow-down', variant: 'primary' },
         INSTALLED:       { labelKey: 'install.state.installed', icon: 'circle-check',      variant: 'success-outline', disabled: true },
         INSTALLED_SAME: { labelKey: 'install.state.same-artifact', icon: 'circle-check', variant: 'success-outline', disabled: true },
-        INSTALL_DIFFERENT: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
+        ARTIFACT_CONFLICT: { labelKey: 'installation.state.mismatch', icon: 'triangle-exclamation', variant: 'amber', disabled: true },
         INSTALL_UNVERIFIED: { labelKey: 'install.action.selected-package', icon: 'cloud-arrow-down', variant: 'amber' },
         NO_RECOMMENDATION: { labelKey: 'install.state.no-recommendation', icon: 'circle-info', variant: 'gray', disabled: true },
         STORED_DEVELOPMENT: { labelKey: 'install.state.stored-development', icon: 'box-archive', variant: 'gray', disabled: true },
@@ -318,11 +319,12 @@
         return String(Math.round(v));
     };
 
-    PMK.formatSize = function (bytes) {
+    PMK.formatSize = function (bytes, exact) {
         var v = Number(bytes);
         if (!v || v <= 0 || isNaN(v)) return null;
-        if (v >= 1048576) return (v / 1048576).toFixed(1).replace(/\.0$/, '') + ' MB';
-        if (v >= 1024) return Math.round(v / 1024) + ' KB';
+        var suffix = exact ? ' (' + v + ' B)' : '';
+        if (v >= 1048576) return (v / 1048576).toFixed(1).replace(/\.0$/, '') + ' MB' + suffix;
+        if (v >= 1024) return Math.round(v / 1024) + ' KB' + suffix;
         return Math.round(v) + ' B';
     };
 

@@ -44,7 +44,10 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -127,7 +130,32 @@ public class PluginRuntimeManager {
     static final long MAX_STARTUP_PROVENANCE_BYTES = 64L * 1024L * 1024L;
     private static final int MAX_RUNTIME_FAILURES = 64;
 
+    private Set<String> disabledAtStartup = Set.of();
+
+    public synchronized void useDisabledAtStartup(Set<String> disabled) {
+        disabledAtStartup = Set.copyOf(disabled);
+    }
+
+    public synchronized boolean skippedDisabledAtStartup(String id) {
+        return headlessStartup() && disabledAtStartup.contains(id);
+    }
+
     private final Path pluginsRoot;
+    private final Map<String, DeferredArtifact> deferredArtifacts = new LinkedHashMap<>();
+    // 这些原始代次驻留期间，替换包仍可升级或移除。
+    private final Map<String, Set<String>> replacementResidents = new LinkedHashMap<>();
+
+    private record DeferredArtifact(InstalledPlugin installed, String sha256, boolean pendingInstall, long loadedGeneration,
+                                    boolean initializationFailed, boolean startFailed) {
+        DeferredArtifact(InstalledPlugin installed, String sha256, boolean pendingInstall) {
+            this(installed, sha256, pendingInstall, 0L, false, false);
+        }
+
+        boolean at(Path path) {
+            return installed.path().toAbsolutePath().normalize().equals(path.toAbsolutePath().normalize());
+        }
+    }
+
     private final PluginRuntimeLayout layout;
     private final PluginArtifactWorkspaceOwner workspaceOwner;
     private final PluginArtifactMaterializer materializer;
@@ -268,7 +296,7 @@ public class PluginRuntimeManager {
         this.admissionPolicy = Objects.requireNonNull(admissionPolicy, "admissionPolicy");
     }
 
-    protected boolean headlessStartup() {
+    public boolean headlessStartup() {
         return false;
     }
 
@@ -386,19 +414,28 @@ public class PluginRuntimeManager {
                 return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
                         List.of(), List.of(), failures, verifications));
             }
-            failures.addAll(loadPlan.failures());
-            for (PluginLoadFailure failure : loadPlan.failures()) {
+            var startupPlan = loadPlan.forStartup(headlessStartup(), id -> !disabledAtStartup.contains(id));
+            failures.addAll(startupPlan.failures());
+            for (PluginLoadFailure failure : startupPlan.failures()) {
                 log.error("Failed to prepare plugin package {}: {}", failure.source(), failure.reason());
             }
             Map<Path, PreparedPluginArtifact> preparedByPath = new LinkedHashMap<>();
             for (PreparedPluginArtifact prepared : preparedCandidates) {
                 preparedByPath.put(prepared.originalArtifact(), prepared);
             }
-            Set<String> failedPluginIds = new LinkedHashSet<>(loadPlan.skippedPluginIds());
-            List<PluginArtifactLoadPlan.Entry> startupEntries =
-                    headlessStartup() ? loadPlan.headlessEntries() : loadPlan.orderedEntries();
+            Set<String> failedPluginIds = new LinkedHashSet<>(startupPlan.skippedPluginIds());
+            List<PluginArtifactLoadPlan.Entry> startupEntries = startupPlan.orderedEntries();
             if (startupEntries.size() < loadPlan.orderedEntries().size()) {
-                log.info("Skipping {} desktop-only plugin package(s) during headless startup",
+                var selected = Set.copyOf(startupEntries);
+                for (var entry : loadPlan.orderedEntries()) {
+                    var artifact = preparedByPath.get(entry.artifactPath());
+                    if (!selected.contains(entry) && artifact != null && !failedPluginIds.contains(entry.pluginId())
+                            && !disabledAtStartup.contains(entry.pluginId())) {
+                        deferredArtifacts.put(entry.pluginId(), new DeferredArtifact(
+                                new InstalledPlugin(entry.descriptor(), entry.artifactPath()), artifact.verifiedSha256(), false));
+                    }
+                }
+                log.info("Skipping {} plugin package(s) outside the executable dependency graph",
                         loadPlan.orderedEntries().size() - startupEntries.size());
             }
             for (PluginArtifactLoadPlan.Entry candidate : startupEntries) {
@@ -480,10 +517,17 @@ public class PluginRuntimeManager {
         }
         PreparedPluginArtifact prepared = prepareProductionArtifact(artifactPath);
         try {
+            String id = prepared.inspection().descriptor().id();
             if (prepared.inspection().descriptor().contract() != null) {
                 throw new PluginRuntimeOperationException("contract installation takes effect after process restart");
             }
-            return loadPreparedProductionArtifact(prepared);
+            var loaded = loadPreparedProductionArtifact(prepared);
+            var deferred = deferredArtifacts.get(id);
+            if (deferred != null && deferred.at(artifactPath) && deferred.sha256().equals(prepared.verifiedSha256())) {
+                deferredArtifacts.put(id, new DeferredArtifact(deferred.installed(), deferred.sha256(),
+                        deferred.pendingInstall(), loaded.generation(), deferred.initializationFailed(), deferred.startFailed()));
+            }
+            return loaded;
         } finally {
             prepared.close();
         }
@@ -595,6 +639,18 @@ public class PluginRuntimeManager {
         try {
             if (productionSnapshot != null) {
                 productionSnapshot.verifyLoadPath(pf4jLoadPath);
+            }
+            if (!packageDescriptor.dependencies().isEmpty() && !wrappersBeforeLoad.isEmpty()) {
+                String incomingId = packageDescriptor.id();
+                var resident = packageIndex.entries();
+                if (resident.stream().anyMatch(item -> item.descriptor().dependencies().stream()
+                        .anyMatch(edge -> edge.pluginId().equals(incomingId)))) {
+                    var graph = new ArrayList<PluginArtifactLoadPlan.Entry>();
+                    resident.forEach(item -> graph.add(new PluginArtifactLoadPlan.Entry(item.artifactPath(), item.descriptor())));
+                    graph.add(new PluginArtifactLoadPlan.Entry(artifactPath, packageDescriptor));
+                    var cycle = PluginArtifactLoadPlan.pf4jCycleIds(graph);
+                    if (!cycle.isEmpty()) throw new PluginRuntimeOperationException("cyclic plugin dependency involving: " + cycle);
+                }
             }
             packageId = pluginManager.loadPlugin(pf4jLoadPath);
         } catch (Throwable failure) {
@@ -1107,6 +1163,8 @@ public class PluginRuntimeManager {
      * 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
      */
     public synchronized void shutdown() {
+        deferredArtifacts.clear();
+        replacementResidents.clear();
         classSpaces.clear();
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
@@ -1127,6 +1185,168 @@ public class PluginRuntimeManager {
         released &= previous == null || bestEffortStopAndUnload(previous, "shutdown");
         workspaceOwner.closeAll(productionSnapshots(previousEntries), released, "shutdown");
         closeDevelopmentCacheSession(previousDevelopmentSession, released, "shutdown");
+    }
+
+    public synchronized PluginProvenanceRecord provenanceBeforeDisplacement(String id) throws IOException {
+        var entry = packageIndex.get(id);
+        // 进程重启包始终保留原实例，进程内不会卸载它来热切换。
+        if (entry == null || entry.productionSnapshot() == null
+                || entry.retainedForReplacement() || entry.descriptor().lifecyclePolicy().requiresProcessRestart()) return null;
+        return entry.displacedProvenance() != null ? entry.displacedProvenance()
+                : provenanceStore.readRequiredForRecovery(entry.artifactPath());
+    }
+
+    public synchronized void recordDeferredInstall(InstalledPlugin installed, String verifiedSha256,
+                                                   PluginProvenanceRecord previous, Set<String> retained, boolean pendingRestart) {
+        for (String id : retained) {
+            var resident = packageIndex.get(id);
+            if (resident != null) {
+                resident.retainForReplacement();
+                replacementResidents.computeIfAbsent(installed.id(), ignored -> new LinkedHashSet<>()).add(id);
+            }
+        }
+        for (String id : installed.descriptor().replaces()) {
+            // 旧代次仍驻留时，已移除的插件 ID 可以重新安装。
+            var inherited = replacementResidents.get(id);
+            if (inherited != null) {
+                replacementResidents.computeIfAbsent(installed.id(), ignored -> new LinkedHashSet<>()).addAll(inherited);
+            }
+        }
+        var existing = deferredArtifacts.get(installed.id());
+        boolean sameArtifact = existing != null && existing.at(installed.path()) && verifiedSha256.equals(existing.sha256());
+        deferredArtifacts.put(installed.id(), new DeferredArtifact(installed, verifiedSha256, pendingRestart,
+                sameArtifact ? existing.loadedGeneration() : 0L, sameArtifact && existing.initializationFailed(),
+                sameArtifact && existing.startFailed()));
+        var entry = packageIndex.get(installed.id());
+        if (entry != null) entry.retainProvenance(previous);
+    }
+
+    public synchronized boolean waitsForReplacementRestart(PluginDescriptor descriptor) {
+        return hasReplacementResident(descriptor.id()) || descriptor.replaces().stream().anyMatch(this::hasReplacementResident);
+    }
+
+    private boolean hasReplacementResident(String id) {
+        var residents = replacementResidents.get(id);
+        return retainedForReplacement(id) || residents != null && residents.stream().anyMatch(this::retainedForReplacement);
+    }
+
+    public synchronized boolean retainedForReplacement(String id) {
+        var entry = packageIndex.get(id);
+        return entry != null && entry.retainedForReplacement();
+    }
+
+    public synchronized void forgetDeferredArtifact(String id) {
+        deferredArtifacts.remove(id);
+    }
+
+    /** 物理启动与应用服务都成功后，只消耗刚启动的那一代匹配的延期记录。 */
+    public synchronized void confirmDeferredStart(String id) {
+        var deferred = deferredArtifacts.get(id);
+        var entry = packageIndex.get(id);
+        if (deferred != null && entry != null && entry.phase() == PluginRuntimePackagePhase.STARTED
+                && deferred.loadedGeneration() == entry.generation()) {
+            forgetDeferredArtifact(id);
+        }
+    }
+
+    public synchronized void recordDeferredStartFailure(String id) {
+        var deferred = deferredArtifacts.get(id);
+        var entry = packageIndex.get(id);
+        if (deferred != null && entry != null && deferred.loadedGeneration() == entry.generation()) {
+            deferredArtifacts.put(id, new DeferredArtifact(deferred.installed(), deferred.sha256(),
+                    deferred.pendingInstall(), entry.generation(), deferred.initializationFailed(), true));
+        }
+    }
+
+    /** 初始化结果仅适用于已验摘要绑定的本次加载，不覆盖尚未重试成功的启动失败。 */
+    public synchronized void recordDeferredInitialization(String id, long generation, boolean initialized) {
+        var deferred = deferredArtifacts.get(id);
+        var entry = packageIndex.get(id);
+        if (deferred != null && entry != null && entry.generation() == generation
+                && deferred.loadedGeneration() == generation) {
+            deferredArtifacts.put(id, new DeferredArtifact(deferred.installed(), deferred.sha256(),
+                    deferred.pendingInstall(), generation, !initialized, deferred.startFailed()));
+        }
+    }
+
+    public synchronized boolean hasPendingInstall(String id) {
+        var artifact = deferredArtifacts.get(id);
+        return artifact != null && artifact.pendingInstall();
+    }
+
+    public synchronized boolean hasDisplacedGeneration(String id) {
+        var deferred = deferredArtifacts.get(id);
+        var loaded = packageIndex.get(id);
+        return deferred != null && loaded != null && deferred.loadedGeneration() != loaded.generation();
+    }
+
+    public synchronized boolean matchesDeferredInstall(InstalledPlugin installed) {
+        var artifact = deferredArtifacts.get(installed.id());
+        if (artifact == null || !artifact.at(installed.path())) return false;
+        try {
+            return artifact.sha256().equals(PluginPackageIntegrity.sha256Hex(installed.path()));
+        } catch (IOException unreadable) {
+            return false;
+        }
+    }
+
+    public synchronized boolean matchesDeferredInstall(String id, Path path, String sha256) {
+        var artifact = deferredArtifacts.get(id);
+        return artifact != null && artifact.at(path) && artifact.sha256().equals(sha256);
+    }
+
+    public enum DeferredStartStatus { UNAVAILABLE, AVAILABLE, INITIALIZATION_FAILED, START_FAILED }
+
+    public synchronized DeferredStartStatus deferredStartStatus(InstalledPlugin installed) {
+        if (!verifiedDeferredArtifact(installed)) return DeferredStartStatus.UNAVAILABLE;
+        var deferred = deferredArtifacts.get(installed.id());
+        if (deferred.initializationFailed()) return DeferredStartStatus.INITIALIZATION_FAILED;
+        return deferred.startFailed() ? DeferredStartStatus.START_FAILED : DeferredStartStatus.AVAILABLE;
+    }
+
+    public boolean availableAfterRestart(InstalledPlugin installed) {
+        return deferredStartStatus(installed) == DeferredStartStatus.AVAILABLE;
+    }
+
+    /** 回滚与显式重试仍重验来源，历史启动结果只影响消费方准入。 */
+    public synchronized boolean verifiedDeferredArtifact(InstalledPlugin installed) {
+        Path path = installed.path().toAbsolutePath().normalize();
+        var artifact = deferredArtifacts.get(installed.id());
+        return artifact != null && artifact.at(path) && admitsInstalledArtifact(installed, artifact.sha256());
+    }
+
+    /** 按当前来源、仓库策略与执行信任判断磁盘包下次启动的准入。 */
+    public synchronized boolean admitsInventoryEntry(InstalledPluginSnapshot snapshot) {
+        if (snapshot.provenance() == null) return false;
+        try {
+            return admitsVerifiedArtifact(snapshot.plugin().descriptor(), snapshot.provenance(),
+                    verificationService.verifyInventoryEntry(snapshot));
+        } catch (PluginRuntimeOperationException denied) {
+            return false;
+        }
+    }
+
+    public synchronized boolean admitsInstalledArtifact(InstalledPlugin installed) {
+        return admitsInstalledArtifact(installed, null);
+    }
+
+    private boolean admitsInstalledArtifact(InstalledPlugin installed, String expectedSha256) {
+        Path path = installed.path().toAbsolutePath().normalize();
+        try {
+            var provenance = provenanceStore.readRequiredForRecovery(path);
+            var result = verificationService.verifyInstalled(path, installed.descriptor(), provenance);
+            return (expectedSha256 == null || expectedSha256.equals(result.sha256()))
+                    && admitsVerifiedArtifact(installed.descriptor(), provenance, result);
+        } catch (IOException | PluginRuntimeOperationException failure) {
+            return false;
+        }
+    }
+
+    private boolean admitsVerifiedArtifact(PluginDescriptor descriptor, PluginProvenanceRecord provenance, VerificationResult result) {
+        if (!result.accepted()) return false;
+        requireRepositoryAdmission(descriptor, provenance, result);
+        requireExecutionAdmission(descriptor, provenance, result);
+        return true;
     }
 
     public Path pluginsRoot() {
@@ -1202,6 +1422,12 @@ public class PluginRuntimeManager {
         if (pluginManager == null) {
             pluginManager = new DefaultPluginManager(root) {
                 @Override
+                public PluginState stopPlugin(String pluginId) {
+                    // 依赖方的服务生命周期由协调器管理。重启此包时只停止它自己的 wrapper。
+                    return super.stopPlugin(pluginId, false);
+                }
+
+                @Override
                 protected PluginDescriptorFinder createPluginDescriptorFinder() {
                     return new CompoundPluginDescriptorFinder()
                             .add(new PropertiesPluginDescriptorFinder() {
@@ -1260,12 +1486,17 @@ public class PluginRuntimeManager {
             Path artifactPath,
             Optional<PluginProvenanceRecord> preReadProvenance,
             PluginStartupResourceBudget startupBudget,
-            List<PluginRuntimeVerificationSnapshot> startupVerifications) {
-        PluginPackageLimits verificationLimits = startupBudget == null
-                ? PRODUCTION_PACKAGE_LIMITS
-                : startupBudget.remainingVerificationLimits(PRODUCTION_PACKAGE_LIMITS);
-        PluginArtifactSnapshot snapshot = PluginArtifactSnapshot.create(
-                layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes(), preparationCache);
+            List<PluginRuntimeVerificationSnapshot> installedVerifications) {
+        var verificationLimits = startupBudget == null
+                ? PRODUCTION_PACKAGE_LIMITS : startupBudget.remainingVerificationLimits(PRODUCTION_PACKAGE_LIMITS);
+        var snapshot = PluginArtifactSnapshot.create(layout, artifactPath, PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes(), preparationCache);
+        return prepareProductionSnapshot(snapshot, preReadProvenance, verificationLimits, startupBudget, installedVerifications);
+    }
+
+    private PreparedPluginArtifact prepareProductionSnapshot(
+            PluginArtifactSnapshot snapshot, Optional<PluginProvenanceRecord> preReadProvenance,
+            PluginPackageLimits verificationLimits, PluginStartupResourceBudget startupBudget,
+            List<PluginRuntimeVerificationSnapshot> installedVerifications) {
         try {
             Path frozenArtifact = snapshot.snapshotArtifact();
             PluginPackageVerifier.VerificationUsage verificationUsage;
@@ -1291,8 +1522,8 @@ public class PluginRuntimeManager {
                     preReadProvenance, "preReadProvenance").orElse(null);
             VerificationResult result = verificationService.verifyInstalled(
                     frozenArtifact, inspection.descriptor(), provenance);
-            if (startupVerifications != null) {
-                startupVerifications.add(new PluginRuntimeVerificationSnapshot(
+            if (installedVerifications != null) {
+                installedVerifications.add(new PluginRuntimeVerificationSnapshot(
                         snapshot.originalArtifact(),
                         inspection.descriptor().id(),
                         inspection.descriptor().version(),
@@ -1306,7 +1537,10 @@ public class PluginRuntimeManager {
                 if (provenance != null) {
                     admissionProvenance = provenance.withOfflineResult(
                             result, inspection.descriptor().id(), inspection.descriptor().version());
-                    persistOfflineVerification(snapshot.originalArtifact(), admissionProvenance);
+                    // 回滚副本不属于安装目录，不能写入安装来源记录。
+                    if (installedVerifications != null) {
+                        persistOfflineVerification(snapshot.originalArtifact(), admissionProvenance);
+                    }
                 }
             } catch (IOException e) {
                 log.warn("Failed to persist plugin verification provenance for {}: {}",
@@ -1366,7 +1600,12 @@ public class PluginRuntimeManager {
         }
         PluginProvenanceRecord provenance;
         try {
-            provenance = provenanceStore.readRequiredForRecovery(entry.artifactPath());
+            provenance = entry.displacedProvenance();
+            if (provenance == null) {
+                provenance = provenanceStore.readRequiredForRecovery(entry.artifactPath());
+            } else {
+                requirePendingAdmission(entry.packageId());
+            }
         } catch (IOException e) {
             throw new PluginRuntimeOperationException(
                     "failed to read plugin execution trust before running " + entry.packageId(), e);
@@ -1379,6 +1618,13 @@ public class PluginRuntimeManager {
         }
         requireRepositoryAdmission(entry.descriptor(), provenance, result);
         requireExecutionAdmission(entry.descriptor(), provenance, result);
+    }
+
+    private void requirePendingAdmission(String id) {
+        var pending = deferredArtifacts.get(id);
+        if (pending == null || !verifiedDeferredArtifact(pending.installed())) {
+            throw new PluginRuntimeOperationException("pending installation lost admission: " + id);
+        }
     }
 
     /** 每次加载、初始化和重新启动都复核同一代的仓库策略；不强制停止已运行实例。 */
@@ -1440,7 +1686,50 @@ public class PluginRuntimeManager {
         return scanCache.verifyArchive(frozenArtifact, limits);
     }
 
+    /** 安装事务持有的运行版本副本；恢复时仍使用原安装身份，副本随事务释放。 */
+    public final class RollbackArtifact implements AutoCloseable {
+        private final Path original;
+        private final String packageId;
+        private PluginArtifactSnapshot snapshot;
+        private final PluginProvenanceRecord provenance;
+
+        private RollbackArtifact(Entry entry) {
+            original = entry.artifactPath();
+            provenance = entry.displacedProvenance();
+            packageId = entry.packageId();
+            snapshot = PluginArtifactSnapshot.create(layout, entry.productionSnapshot().snapshotArtifact(),
+                    PRODUCTION_PACKAGE_LIMITS.maxArchiveBytes(), preparationCache);
+        }
+
+        public LoadedPluginPackage load() {
+            synchronized (PluginRuntimeManager.this) {
+                requirePendingAdmission(packageId);
+                try (var prepared = prepareProductionSnapshot(snapshot, Optional.of(provenance), PRODUCTION_PACKAGE_LIMITS, null, null)) {
+                    snapshot = null; // prepared 持有快照，直到实际加载接管。
+                    var loaded = loadPreparedProductionArtifact(prepared, original);
+                    requireEntry(loaded.packageId()).retainProvenance(provenance);
+                    return loaded;
+                }
+            }
+        }
+
+        @Override
+        public void close() { if (snapshot != null) snapshot.close(); }
+    }
+
+    public synchronized RollbackArtifact prepareRollbackArtifact(String id, boolean removing) {
+        var entry = packageIndex.get(id);
+        if (entry == null || entry.displacedProvenance() == null) return null;
+        // 移除操作可以撤出已吊销的包。执行已保存的工件仍需通过准入检查。
+        if (!removing) requireCurrentExecutionAdmission(entry);
+        return new RollbackArtifact(entry);
+    }
+
     private LoadedPluginPackage loadPreparedProductionArtifact(PreparedPluginArtifact prepared) {
+        return loadPreparedProductionArtifact(prepared, prepared.originalArtifact());
+    }
+
+    private LoadedPluginPackage loadPreparedProductionArtifact(PreparedPluginArtifact prepared, Path original) {
         if (packageIndex.contains(prepared.inspection().descriptor().id())) {
             throw new PluginRuntimeOperationException(
                     "plugin package already loaded: " + prepared.inspection().descriptor().id());
@@ -1458,11 +1747,11 @@ public class PluginRuntimeManager {
                         "declarative-process plugins must use a canonical thin JAR: "
                                 + prepared.inspection().descriptor().id());
             }
-            loaded = loadPreparedIsolatedPlugin(materialized.originalArtifactPath(),
+            loaded = loadPreparedIsolatedPlugin(original,
                     materialized.pf4jLoadPath(), prepared.inspection().descriptor(),
                     prepared.verifiedSha256(), ownedSnapshot);
         } else {
-            loaded = loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
+            loaded = loadPreparedPlugin(original, materialized.pf4jLoadPath(), pluginsRoot,
                     prepared.inspection().descriptor(), ownedSnapshot);
         }
         classSpaces.put(incoming.id(), prepared.inspection().classSpace());
@@ -1746,6 +2035,8 @@ public class PluginRuntimeManager {
     }
 
     private synchronized void resetPluginManager() {
+        deferredArtifacts.clear();
+        replacementResidents.clear();
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
         List<Entry> previousEntries = packageIndex.clearEntries();

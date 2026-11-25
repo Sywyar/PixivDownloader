@@ -357,8 +357,17 @@ if (-not $IncludeOptional -or -not $RequireProguard -or -not $IncludeInstallerAr
         function Assert-DistributionPluginVariants($Root, $ForSetup) {
             Assert-Equal $ForSetup ((Split-Path -Leaf $Root) -eq 'installed')
         }
+        function Get-HeadlessSkippedPluginIds($Root) {
+            Assert-Equal (Test-Path -LiteralPath $Root -PathType Container) $true
+            return 'desktop-' + (Split-Path -Leaf $Root)
+        }
         function Test-ApplicationScenario {
-            param($Label, $Root, $Launcher)
+            param($Label, $Root, $Launcher, [switch]$Headless, [string[]]$SkippedIds)
+            if ($Headless) {
+                Assert-Equal $SkippedIds @('desktop-' + (Split-Path -Leaf $Root))
+            } else {
+                Assert-Equal @($SkippedIds | Where-Object { $_ }).Count 0
+            }
             if ($Label -like 'windows-installer-*') {
                 Assert-Equal $Launcher (Join-Path $Root 'PixivDownload.exe')
             }

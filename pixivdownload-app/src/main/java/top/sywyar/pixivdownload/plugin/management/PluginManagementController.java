@@ -35,6 +35,9 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponse;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
+
+import java.util.ArrayList;
 
 /**
  * 插件管理后端 API（admin-only）：把只读插件状态与外置插件运行期生命周期动词暴露为管理 HTTP 入口，供 Web / GUI
@@ -90,8 +93,20 @@ public class PluginManagementController {
 
     /** 全部插件的状态 + 运行期阶段 + 可用动词 + 是否处于恢复模式。 */
     @GetMapping("/status")
-    public PluginManagementReport status() {
-        return pluginManagementService.list();
+    public PluginManagementReport status(HttpServletRequest request) {
+        var report = pluginManagementService.list();
+        if (report.recoveryReasons().isEmpty()) return report;
+
+        var locale = localeResolver.resolveLocale(request);
+        var reasons = report.recoveryReasons().stream().map(reason -> {
+            String key = reason.messageKey();
+            if (key == null || key.isBlank()) return reason;
+            var details = new ArrayList<>(reason.messages());
+            details.add(messages.getOrDefault(locale, key, key, reason.messageArguments()));
+            return new RecoveryModeReason(reason.pluginId(), reason.status(), key, reason.requiredVersion(), details, reason.missingDependencyId(), reason.blockingProviders());
+        }).toList();
+        return new PluginManagementReport(report.recoveryMode(), report.hostElevated(), report.transactionRecovery(),
+                reasons, report.plugins(), report.services(), report.servicesTruncated());
     }
 
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
@@ -123,9 +138,14 @@ public class PluginManagementController {
     @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @Operation(description = "执行已预览的生命周期动作。enable-start 按需加载并启动热重载插件，启动成功后保存启用配置。")
     @PostMapping("/{id}/actions/{verb}")
     public PluginActionResult performPreviewed(@PathVariable String id, @PathVariable String verb,
                                                @RequestBody PluginImpactRequest request, HttpServletRequest httpRequest) {
+        if ("enable-start".equals(verb)) {
+            return withTarget(httpRequest, id, () -> pluginManagementService.confirmImpact(id, request.fingerprint(),
+                    () -> pluginManagementService.enableAndStart(id, enabledConfigurationService)));
+        }
         LifecycleAction action = java.util.Arrays.stream(LifecycleAction.values())
                 .filter(value -> value.token().equals(verb)).findFirst()
                 .orElseThrow(() -> new PluginManagementException(PluginManagementErrorCode.ILLEGAL_TRANSITION,
@@ -155,6 +175,7 @@ public class PluginManagementController {
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PluginManagementErrorResponse.class)))
     @PostMapping("/{id}/load")
     public PluginActionResult load(@PathVariable String id, HttpServletRequest httpRequest) {
         return withTarget(httpRequest, id, () -> pluginManagementService.perform(id, LifecycleAction.LOAD));
@@ -242,7 +263,8 @@ public class PluginManagementController {
             throw new PluginManagementException(PluginManagementErrorCode.INVALID_TOGGLE_REQUEST,
                     id, "update-enabled", null, "Plugin enabled request must include enabled");
         }
-        return withTarget(httpRequest, id, () -> enabledConfigurationService.update(id, request.enabled()));
+        return withTarget(httpRequest, id, () -> pluginManagementService.reserveMutation(id, "update-enabled",
+                () -> enabledConfigurationService.update(id, request.enabled())));
     }
 
     /** 以当前已安装 artifact 的精确 SHA-256 批准下一次执行。 */
@@ -329,7 +351,9 @@ public class PluginManagementController {
                 ex.status().value(),
                 ex.pluginId(),
                 ex.action(),
-                ex.runtimePhase());
+                ex.runtimePhase(),
+                ex.rollback() == null ? null : ex.rollback().restored(),
+                ex.rollback() == null ? null : ex.rollback().loadedVersion());
         return ResponseEntity.status(ex.status()).body(body);
     }
 

@@ -28,7 +28,7 @@ public final class DatabaseBootstrap {
                 .orElseGet(top.sywyar.pixivdownload.plugin.PluginToggleProperties::new);
         var disabled = toggles.entrySet().stream().filter(entry -> entry.getValue() != null && !entry.getValue().isEnabled())
                 .map(java.util.Map.Entry::getKey).toList();
-        var session = PluginBootstrapSession.createProcess(RuntimeFiles.pluginsDirectory(),
+        var session = PluginBootstrapSession.createTool(RuntimeFiles.pluginsDirectory(),
                 top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot.ofDisabled(disabled, java.util.List.of()),
                 top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores.verifierResolver(repositories))
                 .withScanCache(RuntimeFiles.pluginScanCacheDirectory())

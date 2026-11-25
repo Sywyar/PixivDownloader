@@ -45,7 +45,7 @@ class RecoveryModeServiceTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
     }
 
     @Test
@@ -54,7 +54,7 @@ class RecoveryModeServiceTest {
         var registry = new PluginRegistry(List.of(new TestPlugin("core", PluginKind.CORE)));
         var service = new RecoveryModeService(
                 new PluginStatusService(registry, startedDownloadWorkbenchInventory(), POLICY), POLICY,
-                new top.sywyar.pixivdownload.core.db.UnavailableDataSource());
+                new top.sywyar.pixivdownload.core.db.UnavailableDataSource(), owner -> true);
         assertThat(service.isActive()).isTrue();
         assertThat(service.decision().firstReason().orElseThrow().messageKey())
                 .isEqualTo("plugin.recovery.database-unavailable");
@@ -77,6 +77,21 @@ class RecoveryModeServiceTest {
 
         assertThat(service.isActive()).isFalse();
         assertThat(service.decision().reasons()).isEmpty();
+    }
+
+    @Test
+    void requiredServicePhaseInvalidatesCachedDecision() {
+        var serving = new AtomicBoolean(false);
+        var inventory = startedDownloadWorkbenchInventory();
+        var registry = new PluginRegistry(List.of(), new PluginToggleProperties(), inventory.toDiscoveryResult());
+        var service = new RecoveryModeService(new PluginStatusService(registry, inventory, POLICY), POLICY,
+                org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> serving.get());
+
+        assertThat(service.decision().firstReason().orElseThrow().status()).isEqualTo(PluginStatus.STARTED);
+        serving.set(true);
+        assertThat(service.isActive()).isFalse();
+        serving.set(false);
+        assertThat(service.isActive()).isTrue();
     }
 
     @Test
@@ -111,7 +126,7 @@ class RecoveryModeServiceTest {
             }
             return snapshot;
         }, List::of, POLICY);
-        var service = new RecoveryModeService(status, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        var service = new RecoveryModeService(status, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
         var executor = Executors.newSingleThreadExecutor();
         try {
             var oldRead = executor.submit(service::decision);
@@ -152,7 +167,7 @@ class RecoveryModeServiceTest {
         registry.start();
         RecoveryModeService service = new RecoveryModeService(
                 new PluginStatusService(registry, PluginInventory.empty(), RequiredPluginPolicy.empty()),
-                RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class));
+                RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
 
         assertThat(service.isActive()).isFalse();
         assertThat(service.decision().reasons()).isEmpty();

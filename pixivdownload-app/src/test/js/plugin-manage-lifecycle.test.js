@@ -19,7 +19,7 @@ function client(lang = 'en-US') {
     return { lang, disposed: false, apply() {}, t(key) { return this.lang + ':' + key; },
         dispose() { this.disposed = true; } };
 }
-async function page(initialReport = report('initial'), createClient = options => client(options.lang)) {
+async function page(initialReport = report('initial'), createClient = options => client(options.lang), request) {
     const nodes = new Map(), events = new Map(), requests = [], mounts = [];
     const node = id => {
         if (!nodes.has(id)) nodes.set(id, {
@@ -46,6 +46,7 @@ async function page(initialReport = report('initial'), createClient = options =>
         PixivTheme: { mount() {} },
         fetch: async (url, options) => {
             requests.push({ url, options });
+            if (request) return request(url, options);
             return { ok: true, json: async () => initialReport };
         }
     };
@@ -64,6 +65,62 @@ async function page(initialReport = report('initial'), createClient = options =>
     return { context, PM, nodes, events, requests, mounts, render, refresh: () => node('refreshBtn').click(), node };
 }
 
+if (process.env.PLUGIN_MANAGE_TEST_PORT) test('live management HTTP renders restart hints and restores a disabled hot plugin', async () => {
+    const origin = 'http://127.0.0.1:' + process.env.PLUGIN_MANAGE_TEST_PORT;
+    const responses = [];
+    const p = await page(undefined, options => ({
+        ...client(options.lang), tns: (ns, key, fallback) => fallback || key,
+        t: (key, fallback, vars) => vars?.version ? key + ' ' + vars.version : key
+    }),
+        async (url, options = {}) => {
+            const res = await fetch(new URL(url, origin), {
+                ...options, headers: { ...options.headers, Origin: origin, 'X-Session-Token': process.env.PLUGIN_MANAGE_TEST_SESSION }
+            });
+            responses.push([url, res.status]);
+            return res;
+        });
+    const model = id => p.PM.allViewModels().find(plugin => plugin.id === id);
+    const html = id => p.PM.renderCardHtml(model(id));
+    assert.doesNotMatch(html('standalone-ui'), /pm-card-pending/);
+    if (process.env.PLUGIN_MANAGE_TEST_PHASE === 'toggles') {
+        assert.match(html('provider'), /state\.pending-restart 1\.0\.0/);
+    } else if (process.env.PLUGIN_MANAGE_TEST_PHASE === 'toggles-restart') {
+        assert.match(html('healthy'), /data-pm-toggle="healthy"/);
+        for (const id of ['provider', 'waiting-middle', 'waiting-leaf']) {
+            assert.match(html(id), /state\.pending-enable/);
+            assert.doesNotMatch(html(id), /state\.pending-restart/);
+        }
+        for (const id of ['cancel-enable', 'fail-load', 'fail-start', 'healthy']) {
+            let confirmed = 0;
+            p.context.PixivFeedback = { confirm: async options => {
+                confirmed++;
+                assert.match(options.message, /impact\.enable-start/);
+                return id !== 'cancel-enable';
+            } };
+            const before = p.PM.state.report;
+            const button = { getAttribute: () => id };
+            p.node('pm-grid').click({ target: { closest: selector => selector === '[data-pm-toggle]' ? button : null } });
+            const deadline = Date.now() + 30000;
+            while (p.PM.state.report === before && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+            assert.notEqual(p.PM.state.report, before, JSON.stringify(responses));
+            assert.equal(confirmed, 1);
+            assert.equal(model(id).configuredEnabled, id === 'healthy');
+            assert.equal(model(id).running, id === 'healthy');
+        }
+        assert.equal(model('healthy').running, true, JSON.stringify(responses));
+        assert.equal(model('healthy').configuredEnabled, true);
+        assert.deepEqual(p.requests.filter(r => r.options?.method && r.options.method !== 'GET').map(r => r.url),
+            ['/api/plugins/fail-load/actions/enable-start', '/api/plugins/fail-start/actions/enable-start',
+                '/api/plugins/healthy/actions/enable-start']);
+        for (const id of ['fail-load', 'fail-start']) {
+            assert.ok(responses.some(([url, status]) => url === '/api/plugins/' + id + '/actions/enable-start' && status >= 400));
+        }
+    } else {
+        assert.equal(model('healthy').running, true);
+        assert.doesNotMatch(html('provider'), /pm-card-pending/);
+    }
+});
+
 test('更新横幅只显示可用更新、SDK 限制或检查失败，零更新与未查询不占位', async () => {
     const p = await page();
     const render = summary => {
@@ -81,6 +138,22 @@ test('更新横幅只显示可用更新、SDK 限制或检查失败，零更新�
         assert.ok(box.children.some(child => child.textContent === 'en-US:plugins:updates.' + key));
     }
     assert.equal(render({enabled: true}).hidden, true);
+});
+
+test('停服失败后显示故障插件和已停插件的不同提示，并收起信任写操作', async () => {
+    const plugins = [
+        { id: 'writer', operationDiagnostic: 'BACKEND_STOP_FAILED', runtimePhase: 'QUIESCED' },
+        { id: 'healthy', operationDiagnostic: 'BACKEND_STOP_INCOMPLETE', runtimePhase: 'STOPPED' }
+    ].map(entry => ({ ...entry, source: 'external', trust: { approvable: false, revocable: false } }));
+    const p = await page({ plugins });
+    const models = p.PM.allViewModels();
+    for (const [id, key, phase] of [['writer', 'failed', 'QUIESCED'], ['healthy', 'incomplete', 'STOPPED']]) {
+        const model = models.find(plugin => plugin.id === id);
+        assert.ok(model.messages.includes('en-US:plugins:state.backend-stop-' + key));
+        assert.equal(model.runtimePhase, phase);
+        assert.equal(model.trustApprovable, false);
+        assert.equal(model.trustRevocable, false);
+    }
 });
 
 for (const state of [

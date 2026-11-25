@@ -168,11 +168,7 @@ public class PluginInstallService {
     private PluginInstallReport toReport(PluginActivationResult activation) {
         PluginInstallResult result = activation.installResult();
         PluginDescriptor descriptor = result.descriptor();
-        // 源码冲突需先处理；其余尚未激活的进程重启插件可在下次启动加载。
-        boolean effectiveAfterRestart = result.accepted()
-                && !activation.activated() && !coordinator.activationBlockedByDevelopment(descriptor)
-                && descriptor != null
-                && descriptor.lifecyclePolicy().requiresProcessRestart();
+        boolean effectiveAfterRestart = result.accepted() && !activation.activated() && activation.deferredUntilRestart();
         List<PluginDependencyProblem> problems = activation.dependencyProblems().isEmpty()
                 ? dependencyResolver.installedProblems(descriptor)
                 : activation.dependencyProblems();

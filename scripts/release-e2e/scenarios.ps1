@@ -5,7 +5,7 @@ function Test-ApplicationScenario {
         [string]$Provider = '', [string]$ConfiguredProvider = '', [switch]$Headless,
         [switch]$FirstRun, [switch]$BootstrapPrompt, [bool]$Recovery = $false,
         [string[]]$CrashedIds = @(), [string[]]$UnavailableIds = @(), [scriptblock]$Exercise,
-        [switch]$InjectsFailure, [string]$ExpectedHealth = 'UP')
+        [switch]$InjectsFailure, [string]$ExpectedHealth = 'UP', [string[]]$SkippedIds = @())
     $expected = @(Read-ExpectedPluginIds (Get-ManifestPath $Root))
     Set-IsolatedRuntimeEnvironment $RuntimeRoot
     $port = Get-FreePort
@@ -43,7 +43,7 @@ function Test-ApplicationScenario {
         }
         Assert-ReleaseStable -Process $application -ProbeRoot $probeRoot -Port $port -Session $session `
             -ExpectedIds $expected -Provider $Provider -Recovery $Recovery -CrashedIds $CrashedIds `
-            -UnavailableIds $UnavailableIds -Headless:$Headless -BootstrapPrompt:$BootstrapPrompt -ExpectedHealth $ExpectedHealth
+            -UnavailableIds $UnavailableIds -SkippedIds $SkippedIds -BootstrapPrompt:$BootstrapPrompt -ExpectedHealth $ExpectedHealth
         if (-not $CrashedIds.Count -and -not $UnavailableIds.Count) { Assert-ReleaseNoFatalLog $Root }
         $run = [pscustomobject]@{ Process = $application; ProbeRoot = $probeRoot; Port = $port;
             Session = $session; ExpectedIds = $expected; Root = $Root; Launcher = $Launcher;

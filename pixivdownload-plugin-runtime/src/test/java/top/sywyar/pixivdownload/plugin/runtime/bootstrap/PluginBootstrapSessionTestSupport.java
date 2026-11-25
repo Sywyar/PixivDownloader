@@ -68,14 +68,14 @@ abstract class PluginBootstrapSessionTestSupport {
             Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot, PluginSupplyChainVerifier verifier) {
         return new PluginBootstrapSession(
                 pluginsRoot, PluginBootstrapSession.Ownership.CONTEXT, enabledSnapshot,
-                ignored -> verifier, () -> true);
+                ignored -> verifier, () -> true, true);
     }
 
     protected static PluginBootstrapSession createProcess(
             Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
         return new PluginBootstrapSession(
                 pluginsRoot, PluginBootstrapSession.Ownership.PROCESS, enabledSnapshot,
-                ignored -> new PluginSupplyChainVerifier(), () -> true);
+                ignored -> new PluginSupplyChainVerifier(), () -> true, false);
     }
 
     // ── startup snapshot 短生命周期 + classloader 释放 ──────────────────────────

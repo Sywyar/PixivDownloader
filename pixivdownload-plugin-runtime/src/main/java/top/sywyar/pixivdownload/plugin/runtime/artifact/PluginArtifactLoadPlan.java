@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -102,11 +103,30 @@ public final class PluginArtifactLoadPlan {
         }
 
         propagateBlockedRequiredDependencies(entries, byId, blockedIds, blockReasons, failures);
-        blockDependencyCycles(entries, byId, blockedIds, blockReasons, failures);
+        blockDependencyCycles(entries, cyclePluginIds(byId, blockedIds, false), blockedIds, blockReasons, failures);
         propagateBlockedRequiredDependencies(entries, byId, blockedIds, blockReasons, failures);
 
         List<Entry> ordered = dependencyFirstOrder(entries, byId, blockedIds);
         return new PluginArtifactLoadPlan(ordered, failures, blockedIds);
+    }
+
+    /** PF4J 启动 wrapper 时会跟随已存在的可选依赖。只检查入选的 wrapper。 */
+    public PluginArtifactLoadPlan forStartup(boolean headless, java.util.function.Predicate<String> enabled) {
+        var selected = headless ? headlessEntries(enabled) : orderedEntries;
+        // 仅包含必需依赖的图已经无环。
+        var cycles = selected.stream().anyMatch(e -> e.descriptor().dependencies().stream().anyMatch(PluginDependencyRef::optional))
+                ? pf4jCycleIds(selected) : Set.<String>of();
+        if (cycles.isEmpty()) return new PluginArtifactLoadPlan(selected, failures, skippedPluginIds);
+        var blocked = new LinkedHashSet<>(skippedPluginIds);
+        var reasons = new LinkedHashMap<String, String>();
+        var diagnostics = new ArrayList<>(failures);
+        blockDependencyCycles(selected, cycles, blocked, reasons, diagnostics);
+        var all = new LinkedHashMap<String, Entry>();
+        selected.forEach(entry -> all.put(entry.pluginId(), entry));
+        propagateBlockedRequiredDependencies(selected, all, blocked, reasons, diagnostics);
+        var surviving = new PluginArtifactLoadPlan(selected.stream().filter(e -> !blocked.contains(e.pluginId())).toList(),
+                diagnostics, blocked);
+        return headless ? new PluginArtifactLoadPlan(surviving.headlessEntries(), diagnostics, blocked) : surviving;
     }
 
     public List<Entry> orderedEntries() {
@@ -115,13 +135,17 @@ public final class PluginArtifactLoadPlan {
 
     /** 无头启动从非桌面专用包出发，仅沿必需依赖保留桌面包，沿用已验证的加载顺序。 */
     public List<Entry> headlessEntries() {
-        if (orderedEntries.stream().noneMatch(entry -> entry.descriptor().desktopOnly())) {
-            return orderedEntries;
-        }
+        return headlessEntries(id -> true);
+    }
+
+    public List<Entry> headlessEntries(java.util.function.Predicate<String> enabled) {
         Map<String, Entry> byId = new HashMap<>();
         Set<String> required = new LinkedHashSet<>();
         var pending = new ArrayDeque<Entry>();
         for (Entry entry : orderedEntries) {
+            // 计划按依赖优先排序。禁用的消费方不会触发提供方加载。
+            if (!enabled.test(entry.pluginId()) || entry.descriptor().dependencies().stream()
+                    .anyMatch(edge -> !edge.optional() && !byId.containsKey(edge.pluginId()))) continue;
             byId.put(entry.pluginId(), entry);
             if (!entry.descriptor().desktopOnly()) {
                 required.add(entry.pluginId());
@@ -215,11 +239,10 @@ public final class PluginArtifactLoadPlan {
                 + required.display() + ", but installed version is " + target.descriptor().version();
     }
 
-    private static void blockDependencyCycles(List<Entry> entries, Map<String, Entry> byId,
+    private static void blockDependencyCycles(List<Entry> entries, Set<String> cycleIds,
                                               Set<String> blockedIds,
                                               Map<String, String> blockReasons,
                                               List<PluginLoadFailure> failures) {
-        Set<String> cycleIds = cyclePluginIds(entries, byId, blockedIds);
         if (cycleIds.isEmpty()) {
             return;
         }
@@ -232,46 +255,48 @@ public final class PluginArtifactLoadPlan {
         }
     }
 
-    private static Set<String> cyclePluginIds(List<Entry> entries, Map<String, Entry> byId, Set<String> blockedIds) {
-        Map<String, VisitState> states = new HashMap<>();
-        List<String> stack = new ArrayList<>();
-        Set<String> cycleIds = new LinkedHashSet<>();
-        for (Entry entry : entries) {
-            if (!blockedIds.contains(entry.pluginId())) {
-                collectCycleIds(entry, byId, blockedIds, states, stack, cycleIds);
+    private static Set<String> cyclePluginIds(Map<String, Entry> byId, Set<String> blocked, boolean includeOptional) {
+        // 先记录遍历完成顺序，再沿反向图遍历以找出完整的强连通分量。
+        var graph = new HashMap<String, List<String>>();
+        var reverse = new HashMap<String, List<String>>();
+        for (var entry : byId.values()) {
+            if (blocked.contains(entry.pluginId())) continue;
+            var targets = new ArrayList<String>();
+            graph.put(entry.pluginId(), targets);
+            for (var edge : entry.descriptor().dependencies()) {
+                if ((!edge.optional() || includeOptional) && byId.containsKey(edge.pluginId()) && !blocked.contains(edge.pluginId())) {
+                    targets.add(edge.pluginId());
+                    reverse.computeIfAbsent(edge.pluginId(), ignored -> new ArrayList<>()).add(entry.pluginId());
+                }
             }
         }
-        return cycleIds;
+        var order = new ArrayList<String>();
+        var seen = new java.util.HashSet<String>();
+        for (String id : graph.keySet()) collectPostorder(id, graph, seen, order);
+        seen.clear();
+        var cycles = new java.util.TreeSet<String>();
+        for (String id : order.reversed()) {
+            if (seen.contains(id)) continue;
+            var component = new ArrayList<String>();
+            collectPostorder(id, reverse, seen, component);
+            if (component.size() > 1 || graph.get(id).contains(id)) cycles.addAll(component);
+        }
+        return cycles;
     }
 
-    private static void collectCycleIds(Entry entry, Map<String, Entry> byId, Set<String> blockedIds,
-                                        Map<String, VisitState> states, List<String> stack,
-                                        Set<String> cycleIds) {
-        String pluginId = entry.pluginId();
-        VisitState state = states.get(pluginId);
-        if (state == VisitState.VISITED) {
-            return;
+    private static void collectPostorder(String id, Map<String, List<String>> graph, Set<String> seen, List<String> order) {
+        if (!seen.add(id)) return;
+        for (String next : graph.getOrDefault(id, List.of())) collectPostorder(next, graph, seen, order);
+        order.add(id);
+    }
+
+    /** 热加载可能补齐现有 PF4J wrapper 之间原先缺失的可选依赖。 */
+    public static Set<String> pf4jCycleIds(List<Entry> entries) {
+        var wrappers = new LinkedHashMap<String, Entry>();
+        for (var entry : entries) {
+            if (entry.descriptor().executionMode() != PluginExecutionMode.DECLARATIVE_PROCESS) wrappers.put(entry.pluginId(), entry);
         }
-        if (state == VisitState.VISITING) {
-            int index = stack.indexOf(pluginId);
-            if (index >= 0) {
-                cycleIds.addAll(stack.subList(index, stack.size()));
-            }
-            return;
-        }
-        states.put(pluginId, VisitState.VISITING);
-        stack.add(pluginId);
-        for (PluginDependencyRef dependency : entry.descriptor().dependencies()) {
-            if (dependency.optional()) {
-                continue;
-            }
-            Entry target = byId.get(dependency.pluginId());
-            if (target != null && !blockedIds.contains(target.pluginId())) {
-                collectCycleIds(target, byId, blockedIds, states, stack, cycleIds);
-            }
-        }
-        stack.remove(stack.size() - 1);
-        states.put(pluginId, VisitState.VISITED);
+        return cyclePluginIds(wrappers, Set.of(), true);
     }
 
     private static List<Entry> dependencyFirstOrder(List<Entry> entries, Map<String, Entry> byId,
@@ -290,6 +315,7 @@ public final class PluginArtifactLoadPlan {
             return;
         }
         for (PluginDependencyRef dependency : entry.descriptor().dependencies()) {
+            if (dependency.optional()) continue;
             Entry target = byId.get(dependency.pluginId());
             if (target != null && !blockedIds.contains(target.pluginId())) {
                 appendDependencyFirst(target, byId, blockedIds, visited, ordered);
@@ -322,8 +348,4 @@ public final class PluginArtifactLoadPlan {
         }
     }
 
-    private enum VisitState {
-        VISITING,
-        VISITED
-    }
 }

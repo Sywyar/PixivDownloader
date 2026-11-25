@@ -30,8 +30,7 @@
             return;
         }
         element('h2', PMK.t(snapshot.recoveryMode ? 'recovery.banner.title' : 'recovery.no-gui'), root);
-        element('p', PMK.t('recovery.explanation'), root);
-        element('p', snapshot.advice, root).className = 'pmk-recovery-advice';
+        element('p', snapshot.advice || PMK.t('recovery.explanation'), root).className = 'pmk-recovery-advice';
         var details = element('details', '', root);
         details.open = true;
         element('summary', PMK.t('recovery.error-summary'), details);

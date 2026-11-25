@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** 保持 PF4J 物理包与应用 serving 足迹同步的运行期原语 owner。 */
+@Slf4j
 final class ExternalPluginRuntimeController {
 
     private final PluginRuntimeManager runtimeManager;
@@ -47,7 +49,7 @@ final class ExternalPluginRuntimeController {
 
     Optional<PluginDescriptor> processRestartDescriptor(String packageId) {
         return runtimeManager.loadedDescriptor(packageId)
-                .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart());
+                .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart() || runtimeManager.retainedForReplacement(packageId));
     }
 
     boolean loadedArtifactMatches(top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult installed) {
@@ -106,12 +108,19 @@ final class ExternalPluginRuntimeController {
 
     /** PF4J 先启动；应用足迹启动失败时恢复停止态，避免两套状态分叉。 */
     void start(String packageId) {
+        start(packageId, PluginRuntimePhase.STARTED);
+    }
+
+    private void start(String packageId, PluginRuntimePhase target) {
+        lifecycleService.requireServingDependencies(packageId, target);
         try {
             runtimeManager.startPlugin(packageId);
-            lifecycleService.start(packageId);
-            requirePhase(packageId, PluginRuntimePhase.STARTED);
+            if (target == PluginRuntimePhase.QUIESCED) lifecycleService.restoreNonServingPhase(packageId, target);
+            else lifecycleService.start(packageId);
+            requirePhase(packageId, target);
         } catch (Throwable failure) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
+            runtimeManager.recordDeferredStartFailure(packageId);
             try {
                 lifecycleService.stop(packageId);
             } catch (Throwable cleanupFailure) {
@@ -183,7 +192,10 @@ final class ExternalPluginRuntimeController {
     }
 
     void load(String packageId, Path artifact) {
-        LoadedPluginPackage loaded = runtimeManager.loadPlugin(artifact);
+        adopt(packageId, runtimeManager.loadPlugin(artifact));
+    }
+
+    private void adopt(String packageId, LoadedPluginPackage loaded) {
         if (!packageId.equals(loaded.packageId())) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(
                     new PluginLifecycleException(
@@ -200,13 +212,19 @@ final class ExternalPluginRuntimeController {
             lifecycleService.adoptLoadedPackage(runtimeManager.initializePlugin(packageId));
         } catch (Throwable failure) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
+            runtimeManager.recordDeferredInitialization(packageId, loaded.generation(), false);
             try {
                 runtimeManager.unloadPlugin(packageId);
             } catch (Throwable cleanupFailure) {
                 failures.record(cleanupFailure);
             }
-            throw failures.propagate("failed to adopt loaded plugin package '" + packageId + "'");
+            failures.rethrowFatal();
+            log.error("Plugin initialization failed: package={}, generation={}", packageId, loaded.generation(), failures.primary());
+            if (failure instanceof ClassifiedPluginLifecycleException classified) throw classified;
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.INITIALIZATION_FAILED,
+                    "failed to initialize loaded plugin '" + packageId + "'", failures.primary());
         }
+        runtimeManager.recordDeferredInitialization(packageId, loaded.generation(), true);
     }
 
     Path installedArtifact(String packageId) {
@@ -231,15 +249,23 @@ final class ExternalPluginRuntimeController {
         return !isLoaded(packageId);
     }
 
-    void restoreOldRuntime(String packageId, Path previousArtifact) {
+    void restoreOldRuntime(String packageId, Path previousArtifact, PluginRuntimeManager.RollbackArtifact retained,
+                           PluginRuntimePhase previousPhase) {
         if (isLoaded(packageId)) {
             if (phase(packageId) == PluginRuntimePhase.UNLOADED) {
                 lifecycleService.load(packageId);
             }
+        } else if (retained != null) {
+            adopt(packageId, retained.load());
         } else {
-            load(packageId, previousArtifact);
+            load(packageId, previousArtifact != null ? previousArtifact : installedArtifact(packageId));
         }
-        start(packageId);
+        if (previousPhase == PluginRuntimePhase.STARTED || previousPhase == PluginRuntimePhase.QUIESCED) {
+            start(packageId, previousPhase);
+        } else if (previousPhase == PluginRuntimePhase.STOPPED) {
+            lifecycleService.restoreNonServingPhase(packageId, previousPhase);
+            requirePhase(packageId, previousPhase);
+        }
     }
 
     private boolean packagePresentAfterFailure(

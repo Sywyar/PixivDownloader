@@ -36,7 +36,7 @@ class PluginAcquisitionOperationsTest {
         when(clock.instant()).thenAnswer(call -> now.get());
         when(acquisition.preview("official", "sample", "1.0.0"))
                 .thenReturn(new PluginCatalogInstallPreview.View(fingerprint, List.of(
-                        new PluginCatalogInstallPreview.Item("sample", "1.0.0", "official", null, "b".repeat(64),
+                        new PluginCatalogInstallPreview.Item("sample", "1.0.0", "official", null, "b".repeat(64), 100L,
                                 null, null, "INSTALL", List.of(), List.of(), "PACKAGE_DECIDES")), List.of()));
         service = new PluginAcquisitionOperations(acquisition, coordinator, clock);
     }

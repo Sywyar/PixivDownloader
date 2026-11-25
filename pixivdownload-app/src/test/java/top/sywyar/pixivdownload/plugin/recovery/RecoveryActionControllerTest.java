@@ -130,7 +130,7 @@ class RecoveryActionControllerTest {
     @Test
     @DisplayName("目录恢复阻断时不再次扫描插件，不生成缺失插件安装建议")
     void blockedDirectoryDoesNotScan() throws Exception {
-        when(recovery.isActive()).thenReturn(true);
+        when(recovery.decision()).thenReturn(new RecoveryModeDecision(true, List.of()));
         when(plugins.recoveryGateSnapshot()).thenReturn(PluginRecoveryGateSnapshot.unchecked());
         mvc.perform(get("/api/plugins/recovery").cookie(new Cookie("pixiv_session", "admin")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.installationBlocked").value(true))
@@ -143,7 +143,7 @@ class RecoveryActionControllerTest {
     @Test
     @DisplayName("真实恢复判定异常不能阻断无 GUI 操作，也不能授权状态未知的普通进程")
     void failingRecoveryEvaluationKeepsGuiFallbackAndFailsClosedOtherwise() throws Exception {
-        mvc = createMvc(new RecoveryModeService(plugins, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class)));
+        mvc = createMvc(new RecoveryModeService(plugins, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true));
         when(plugins.report()).thenThrow(new IllegalStateException("diagnostic unavailable"));
         when(application.requestRestart()).thenReturn(true);
         noGui.set(true);

@@ -15,8 +15,14 @@ import java.util.Set;
 public record RecoveryPluginFocus(Map<String, String> plugins, List<String> categories) {
     static RecoveryPluginFocus from(boolean safeToScan, boolean noGui, boolean databaseUnavailable, String databaseOwner,
             PluginStatusReport report, Set<String> failures) {
+        return from(safeToScan, noGui, databaseUnavailable, databaseOwner, report, failures, Set.of(), Set.of());
+    }
+
+    static RecoveryPluginFocus from(boolean safeToScan, boolean noGui, boolean databaseUnavailable, String databaseOwner,
+            PluginStatusReport report, Set<String> failures, Set<String> requiredNotServing, Set<String> blockedProviders) {
         if (!safeToScan) return new RecoveryPluginFocus(Map.of(), List.of());
         var focus = new LinkedHashMap<String, String>();
+        requiredNotServing.forEach(id -> focus.put(id, "required"));
         boolean requiredUnavailable = report.diagnostics().stream()
                 .anyMatch(plugin -> plugin.requiredByPolicy() && plugin.status() != PluginStatus.STARTED);
         for (PluginDiagnostic plugin : report.diagnostics()) {
@@ -28,6 +34,7 @@ public record RecoveryPluginFocus(Map<String, String> plugins, List<String> cate
                 default -> { }
             }
         }
+        blockedProviders.forEach(id -> focus.putIfAbsent(id, "dependency"));
         failures.forEach(id -> focus.put(id, "failed"));
         if (databaseUnavailable && databaseOwner != null && !databaseOwner.isBlank())
             focus.putIfAbsent(databaseOwner, "database");

@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
@@ -73,12 +74,8 @@ import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleF
  * schedule lease 或 queue task 引用的 child context。其余足迹拆除继续沿用 best-effort 隔离。
  *
  * <h2>插件自身 {@code start()} / {@code stop()}</h2>
- * 插件自身的生命周期回调与服务足迹（web / controller / 子 context）分属不同时机：<b>启动期</b>全部活动插件的
- * {@code start()} 由 {@link PluginRegistry}（{@code SmartLifecycle}）统一调用一次，故 {@link #startAll()} 只建立服务
- * 足迹、<b>不重复调 {@code start()}</b>（启动期接入路径 {@link #bringUpFromBoot} 传 {@code invokePluginStart=false}）；
- * <b>运行期</b>由本服务编排，但仍统一经 {@link PluginRegistry#startFeature} / {@link PluginRegistry#stopFeature}
- * 调用精确代际回调，使 SmartLifecycle 与热启停共享同一个幂等事实源。应用关闭先由本服务撤回服务足迹，随后
- * {@link PluginRegistry} 只停止仍处于 started 的身份；运行期已经成功停止的身份不会被重复回调。运行期 {@code start()}
+ * 启动期与热启停都在必需提供方就绪后，经 {@link PluginRegistry#startFeature} 调用外置插件的精确代际回调。
+ * 应用关闭时按依赖逆序排空并停止各外置身份，再关闭对应子 context；注册中心负责内置插件收尾。运行期 {@code start()}
  * 若抛异常即回滚本次已建立的足迹（controller / web / 子 context）并落 {@link PluginRuntimePhase#STOPPED}、不进入 STARTED。
  *
  * <h2>幂等与可重复</h2>
@@ -141,6 +138,7 @@ public class PluginLifecycleService {
     private final Map<String, ManagedPlugin> managed = new LinkedHashMap<>();
     private volatile boolean started;
     private boolean shuttingDown;
+    private volatile Set<String> failedShutdownPlugins = Set.of();
 
     public PluginLifecycleService(ApplicationContext parent,
                                   PluginRuntimeManager pluginRuntimeManager,
@@ -285,31 +283,34 @@ public class PluginLifecycleService {
             if (started) {
                 return;
             }
-            List<PluginRegistry.RegisteredPlugin> external = externalRegisteredPlugins();
-            // 1) 有子 context 装配定义的外置插件包（来自发现桥接清点）：建子 context + 注册 controller。
+            Map<String, PluginContextModule> modules = new LinkedHashMap<>();
             for (PluginContextModule module : pluginRuntimeManager.inspectContextModules()) {
-                String pluginId = module.sourcePluginId();
-                PluginRegistry.RegisteredPlugin registered = findRegistered(external, pluginId);
-                if (registered == null) {
-                    log.debug("Skipping inactive external plugin context module '{}'.", pluginId);
-                    continue;
+                if (modules.putIfAbsent(module.sourcePluginId(), module) != null) {
+                    log.warn("Duplicate plugin context module for '{}' - keeping the first, skipping.", module.sourcePluginId());
                 }
-                if (managed.containsKey(pluginId)) {
-                    log.warn("Duplicate plugin context module for '{}' - keeping the first, skipping.", pluginId);
-                    continue;
-                }
-                ManagedPlugin record = new ManagedPlugin(pluginId, module, registered);
-                managed.put(pluginId, record);
-                bringUpFromBoot(record);
             }
-            // 2) 没有子 context 的纯贡献外置插件：仍由最终 bring-up 点动态发布 feature 元数据 contribution。
-            for (PluginRegistry.RegisteredPlugin rp : external) {
-                if (managed.containsKey(rp.id())) {
-                    continue;
+            var pending = new LinkedHashMap<String, ManagedPlugin>();
+            for (var registered : externalRegisteredPlugins()) {
+                String id = registered.id();
+                if (!managed.containsKey(id)) pending.put(id, new ManagedPlugin(id, modules.get(id), registered));
+            }
+            // 必需提供方无需优先时，沿用启动时的模块顺序。
+            int previouslyManaged = managed.size();
+            try {
+                for (String id : modules.keySet()) visitProvidersFirst(id, pending, this::bringUpFromBoot);
+                while (!pending.isEmpty()) visitProvidersFirst(pending.firstEntry().getKey(), pending, this::bringUpFromBoot);
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                var admitted = new ArrayList<>(managed.values());
+                for (int i = admitted.size() - 1; i >= previouslyManaged; i--) {
+                    var record = admitted.get(i);
+                    if (phase(record.pluginId).orElse(null) != PluginRuntimePhase.STARTED) continue;
+                    try {
+                        doStop(record);
+                    } catch (Throwable cleanupFailure) {
+                        addSuppressedSafely(fatal, cleanupFailure);
+                    }
                 }
-                ManagedPlugin record = new ManagedPlugin(rp.id(), null, rp);
-                managed.put(rp.id(), record);
-                bringUpFromBoot(record);
+                throw fatal;
             }
             started = true;
             pluginRuntimeManager.addWorkerListener(workerEventListener);
@@ -333,22 +334,27 @@ public class PluginLifecycleService {
             shuttingDown = true;
             try {
                 pluginRuntimeManager.removeWorkerListener(workerEventListener);
-                List<ManagedPlugin> plugins = new ArrayList<>(managed.values());
+                List<ManagedPlugin> plugins = new ArrayList<>(managed.size());
+                var pending = new LinkedHashMap<>(managed);
+                for (String id : managed.keySet()) visitProvidersFirst(id, pending, plugins::add);
                 Collections.reverse(plugins);
                 Throwable failure = null;
+                var failed = new java.util.HashSet<String>();
                 // 先撤回所有插件的新工作并发出取消，再等待已接收的工作退出。
                 for (ManagedPlugin record : plugins) {
                     PluginRuntimePhase phase = lifecycleState.phase(record.pluginId).orElse(null);
                     if (phase == PluginRuntimePhase.STARTED || phase == PluginRuntimePhase.QUIESCED) {
-                        failure = runShutdownStep(record, "quiesce", this::ensureQuiesced, failure);
+                        failure = runShutdownStep(record, "quiesce", retry -> ensureQuiesced(record), failure, failed);
                     }
                 }
                 for (ManagedPlugin record : plugins) {
                     if (lifecycleState.phase(record.pluginId).orElse(null) == PluginRuntimePhase.QUIESCED
                             && record.drains.quiesceComplete()) {
-                        failure = runShutdownStep(record, "cleanup", this::drainAndStop, failure);
+                        failure = runShutdownStep(record, "cleanup",
+                                retry -> drainAndStop(record, retry), failure, failed);
                     }
                 }
+                failedShutdownPlugins = Set.copyOf(failed);
                 if (failure instanceof Error error) throw error;
                 if (failure != null) throw new PluginLifecycleException("External plugin shutdown failed", failure);
                 started = false;
@@ -360,25 +366,30 @@ public class PluginLifecycleService {
         }
     }
 
+    public boolean failedToStop(String id) {
+        return failedShutdownPlugins.contains(id);
+    }
+
     private Throwable runShutdownStep(ManagedPlugin record, String step,
-                                      Consumer<ManagedPlugin> action, Throwable previousFailure) {
+                                      Consumer<Boolean> action, Throwable previousFailure, Set<String> failed) {
         try {
             try {
-                action.accept(record);
+                action.accept(false);
             } catch (RuntimeException firstFailure) {
                 log.warn("Retrying core shutdown {} for plugin '{}' (failureType={}).",
                         step, record.pluginId, firstFailure.getClass().getName());
-                action.accept(record);
+                action.accept(true);
             }
             return previousFailure;
         } catch (Throwable failure) {
+            failed.add(record.pluginId);
             log.error("Core shutdown {} failed for plugin '{}' (failureType={}).",
                     step, record.pluginId, failure.getClass().getName());
             return mergeFailure(previousFailure, failure);
         }
     }
 
-    private void drainAndStop(ManagedPlugin record) {
+    private void drainAndStop(ManagedPlugin record, boolean finalAttempt) {
         boolean interrupted = false;
         try {
             if (capabilityContributionRegistrar.serviceBindingsPending(record.pluginId)) {
@@ -388,7 +399,7 @@ public class PluginLifecycleService {
                 }
             }
             interrupted |= record.drains.awaitDrainedUninterruptibly();
-            finishStop(record, false);
+            finishStop(record, finalAttempt);
         } finally {
             if (interrupted) Thread.currentThread().interrupt();
         }
@@ -699,6 +710,26 @@ public class PluginLifecycleService {
         }
     }
 
+    /** 回滚时重建静默插件的服务足迹，全程保持新请求准入关闭。 */
+    void restoreNonServingPhase(String id, PluginRuntimePhase previous) {
+        synchronized (lock) {
+            var record = require(id);
+            var current = lifecycleState.phase(id).orElseThrow();
+            if (previous == PluginRuntimePhase.QUIESCED) {
+                if (current == PluginRuntimePhase.LOADED || current == PluginRuntimePhase.STOPPED) {
+                    bringUpServing(record, PluginRuntimePhase.QUIESCED);
+                }
+                if (!record.servingFootprintReady || pluginRegistry.lifecycleFailure(record.registered).isPresent()) {
+                    throw new PluginLifecycleException("incomplete service footprint for quiesced plugin '" + id + "'");
+                }
+                doQuiesce(record);
+            } else {
+                doStop(record);
+                if (current == PluginRuntimePhase.LOADED) lifecycleState.set(id, PluginRuntimePhase.STOPPED);
+            }
+        }
+    }
+
     /** 全部受管外置插件 id（含已停 / 已卸，按接入顺序，只读快照）。 */
     public Set<String> managedPluginIds() {
         synchronized (lock) {
@@ -721,7 +752,7 @@ public class PluginLifecycleService {
         if (phase != PluginRuntimePhase.STOPPED && phase != PluginRuntimePhase.LOADED) {
             throw new PluginLifecycleException("cannot start plugin '" + record.pluginId + "' from phase " + phase);
         }
-        bringUpServing(record, /* invokePluginStart */ true); // 运行期 start / reload：重新调插件 start() 恢复其生命周期
+        bringUpServing(record, PluginRuntimePhase.STARTED);
     }
 
     private void doQuiesce(ManagedPlugin record) {
@@ -734,6 +765,7 @@ public class PluginLifecycleService {
     }
 
     private void doStop(ManagedPlugin record) {
+        record.servingFootprintReady = false;
         String pluginId = record.pluginId;
         PluginRuntimePhase phase = lifecycleState.phase(pluginId).orElse(null);
         if (phase == PluginRuntimePhase.STOPPED || phase == PluginRuntimePhase.UNLOADED
@@ -753,7 +785,7 @@ public class PluginLifecycleService {
                     PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "plugin '" + pluginId + "' remains quiesced with active " + activeDrain);
         }
-        finishStop(record, true);
+        finishStop(record, false);
     }
 
     /** 标记 QUIESCED，并且恰好一次按 request → capability → schedule → task → queue 的顺序发起清退。 */
@@ -856,12 +888,12 @@ public class PluginLifecycleService {
         record.capabilityRetirementAcknowledged = true;
     }
 
-    /** 全部 runtime drain 已归零后的唯一服务足迹关闭入口；核心关闭把 feature stop 留给后续 Registry phase。 */
-    private void finishStop(ManagedPlugin record, boolean invokeFeatureStop) {
+    /** 全部 runtime drain 已归零后停止精确身份，随后关闭其子 context。 */
+    private void finishStop(ManagedPlugin record, boolean finalAttempt) {
         record.drains.assertDrained(record.pluginId);
         // Request drain 归零后再封一次 stream：覆盖首次 closeForPlugin 返回后由旧请求迟到登记的失败回调。
         runtimeTaskQuiescer.quiesceStreams(record.pluginId);
-        tearDownServing(record, invokeFeatureStop);
+        tearDownServing(record, finalAttempt);
         resetQuiesceState(record);
         lifecycleState.set(record.pluginId, PluginRuntimePhase.STOPPED);
         log.info("Stopped plugin '{}'.", record.pluginId);
@@ -933,11 +965,10 @@ public class PluginLifecycleService {
     // ---- 内部：服务足迹建立 / 拆除 ----
 
     /**
-     * 启动期接入：阶段从 LOADED 起步，web 贡献已在各注册中心构造期接入故不重复接入；插件自身 {@code start()} 已由
-     * {@link PluginRegistry}（{@code SmartLifecycle}）在启动期统一调用，故本路径<b>不重复调 {@code start()}</b>
-     * （区别于运行期 {@link #doStart}）。
+     * 启动期接入复用构造期发布的精确 web 句柄，并与热启动共享 feature 回调及失败清理。
      */
     private void bringUpFromBoot(ManagedPlugin record) {
+        managed.put(record.pluginId, record);
         try {
             doBringUpFromBoot(record);
         } catch (Throwable failure) {
@@ -971,33 +1002,37 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        bringUpServing(record, /* invokePluginStart */ false); // 启动期 start() 归 PluginRegistry，本服务不重复
+        bringUpServing(record, PluginRuntimePhase.STARTED);
     }
 
     /**
      * 建立服务足迹：建子 context → 接入 runtime capability → 动态注册 controller →
-     *（仅运行期重启）调插件 {@code start()} → 接入 web/download 贡献 → 最终原子发布 schedule owner bundle，成功后阶段落到
-     * {@link PluginRuntimePhase#STARTED}。任一步失败都尝试隔离：清理完整时落 STOPPED；若某个有状态 registry
+     * 调插件 {@code start()} → 接入 web/download 贡献 → 最终原子发布 schedule owner bundle，成功后阶段落到
+     * {@code target}。正常启动开放准入，恢复静默足迹时直接进入 QUIESCED。任一步失败都尝试隔离：清理完整时落 STOPPED；若某个有状态 registry
      * 尚未达成删除后置条件，则保留句柄、context 与插件并落 QUIESCED，向上抛出以阻断 unload，供后续 stop 重试。
      *
      * <p>schedule 行为 Bean 依赖 child context，但 publication 必须是 bring-up 的最后一个可失败步骤：这样 capability、
      * controller 或插件 {@code start()} 失败时统一 registry 从未暴露半可用 owner，也不存在回滚关闭已被租用 Bean 的窗口。
-     *
-     * @param invokePluginStart 足迹建立后是否调用插件自身 {@code start()}。<b>启动期接入（boot）传 {@code false}</b>——
-     *        全部活动插件的 {@code start()} 由 {@link PluginRegistry}（{@code SmartLifecycle}）在启动期统一调用一次,
-     *        本服务不重复；<b>运行期 start / reload 传 {@code true}</b>——插件已被 {@code stop()} 过，需重新调其
-     *        {@code start()} 恢复插件自身生命周期。运行期 {@code start()} 抛异常即回滚本次足迹（见 {@link #rollBackBringUp}）。
      */
-    private void bringUpServing(ManagedPlugin record, boolean invokePluginStart) {
+    private void bringUpServing(ManagedPlugin record, PluginRuntimePhase target) {
+        record.servingFootprintReady = false;
         String pluginId = record.pluginId;
         PreparedWebContribution preparedWeb = null;
-        boolean featureStartedForRollback = !invokePluginStart && record.registered != null
+        boolean featureStartedForRollback = record.registered != null
                 && pluginRegistry.featureStarted(record.registered);
-        // a) 子 context 刷新本身可能在 @PostConstruct 登记任务；必须先为本 serving 重开一个新 generation。
+        // 子 context 刷新时即可登记任务或推流，静默恢复必须在插件代码执行前关闭准入。
         try {
-            runtimeTaskQuiescer.resumeTasks(pluginId);
+            requireServingDependencies(pluginId, target);
+        } catch (ClassifiedPluginLifecycleException blocked) {
+            log.warn("Plugin startup blocked: {}", blocked.getMessage());
+            cleanUpBringUpFailure(record, blocked, featureStartedForRollback);
+            return;
+        }
+        try {
+            runtimeTaskQuiescer.beginTaskGeneration(pluginId, target == PluginRuntimePhase.STARTED);
+            if (target == PluginRuntimePhase.QUIESCED) runtimeTaskQuiescer.quiesceStreams(pluginId);
         } catch (Throwable failure) {
-            log.error("Failed to resume runtime task admission for plugin '{}' (failureType={}) - rolling back service footprint.",
+            log.error("Failed to prepare runtime admission for plugin '{}' (failureType={}) - rolling back service footprint.",
                     pluginId, failure.getClass().getName());
             handleBringUpFailure(record, failure, featureStartedForRollback);
             return;
@@ -1095,12 +1130,11 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // f) 插件自身 start()：仅运行期重启路径经 PluginRegistry 的精确身份入口调用。
-        if (invokePluginStart) {
+        // f) 启动当前精确身份；后续发布失败时一并撤回。
+        if (record.registered != null) {
             try {
-                if (record.registered != null) {
-                    featureStartedForRollback = pluginRegistry.startFeature(record.registered);
-                }
+                pluginRegistry.startFeature(record.registered);
+                featureStartedForRollback = true;
             } catch (Throwable failure) {
                 log.error("Plugin '{}' start() failed (failureType={}) - rolling back its service footprint.",
                         pluginId, failure.getClass().getName());
@@ -1110,7 +1144,7 @@ public class PluginLifecycleService {
         }
         // g) 发布 serving 前重新开放推流 admission；失败残留未清零时拒绝混入新 serving。
         try {
-            runtimeTaskQuiescer.resumeStreams(pluginId);
+            if (target == PluginRuntimePhase.STARTED) runtimeTaskQuiescer.resumeStreams(pluginId);
         } catch (Throwable failure) {
             log.error("Failed to resume server-push streams for plugin '{}' (failureType={}) - rolling back service footprint.",
                     pluginId, failure.getClass().getName());
@@ -1176,20 +1210,21 @@ public class PluginLifecycleService {
         record.controllerCleanupComplete = false;
         record.capabilityCleanupComplete = record.context == null;
         try {
-            lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
+            if (target == PluginRuntimePhase.QUIESCED) lifecycleState.set(pluginId, target);
+            else lifecycleState.transition(pluginId, target);
             pluginRegistry.clearLifecycleFailure(record.registered);
             capabilityContributionRegistrar.serviceBindingsChanged();
+            record.servingFootprintReady = true;
         } catch (Throwable failure) {
             handleBringUpFailure(record, failure, featureStartedForRollback);
         }
     }
 
     /**
-     * lease 已归零后拆除服务足迹，顺序为 web/download → controller → runtime capability → 可选 feature stop → child context。
-     * schedule publication 已在 quiesce 起点精确撤回，不在这里按 pluginId 重复注销。运行期 stop 请求 feature stop；
-     * 核心关闭则先撤回服务足迹，由随后执行的 PluginRegistry phase 停止仍 started 的精确身份。
+     * lease 已归零后拆除服务足迹，顺序为 web/download → controller → runtime capability → feature stop → child context。
+     * schedule publication 已在 quiesce 起点精确撤回，不在这里按 pluginId 重复注销。
      */
-    private void tearDownServing(ManagedPlugin record, boolean invokeFeatureStop) {
+    private void tearDownServing(ManagedPlugin record, boolean finalAttempt) {
         String pluginId = record.pluginId;
         // serving 句柄仍 current 时不破坏 controller/capability/plugin/context，保留完整 QUIESCED 足迹供重试。
         withdrawWebContribution(record, "unregistering");
@@ -1202,8 +1237,22 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("service footprint cleanup remains pending for plugin '"
                     + pluginId + "': " + pending);
         }
-        if (invokeFeatureStop && record.registered != null) {
-            pluginRegistry.stopFeature(record.registered);
+        if (record.registered != null) {
+            try {
+                pluginRegistry.stopFeature(record.registered);
+            } catch (RuntimeException | Error failure) {
+                rethrowFatal(failure);
+                // 父 context 开始关闭后，这个已清退的代次不会再重试回调。
+                if ((finalAttempt || failure instanceof Error)
+                        && parent instanceof ConfigurableApplicationContext context && context.isClosed()) {
+                    try { closeQuietly(record); }
+                    catch (RuntimeException | Error cleanup) {
+                        rethrowFatal(cleanup);
+                        if (cleanup != failure) failure.addSuppressed(cleanup);
+                    }
+                }
+                throw failure;
+            }
         }
         closeQuietly(record);
     }
@@ -1213,7 +1262,7 @@ public class PluginLifecycleService {
      * controller → 按成功标记注销 runtime capability → 停止插件 → 关闭 child context</b>。能力注册本身失败时由
      * {@link PluginCapabilityContributionRegistrar} 完成内部回滚，此处不再二次注销原子旧快照。用于 schedule 贡献注册失败 /
      * capability 注册失败 / controller 注册失败 / 插件 {@code start()} 失败。各步幂等。仅当运行期插件 {@code start()}
-     * 已成功、随后最终 schedule publication 失败时对称调用 {@code stop()}；启动期回调仍归 {@link PluginRegistry} 所有。
+     * 已成功、随后发布失败时对称调用 {@code stop()}。
      * 若 serving 撤回失败且原句柄仍是 current，先保留已启动的插件与 context 并落 {@link PluginRuntimePhase#QUIESCED}，
      * 再向上抛出以阻断 unload；故障解除后可通过 stop 精确重试。其余各步隔离、异常只记日志。
      */
@@ -1426,6 +1475,10 @@ public class PluginLifecycleService {
         if (record.registered != null && pluginRegistry.lifecycleFailure(record.registered).isEmpty()) {
             pluginRegistry.recordLifecycleFailure(record.registered, originalFailure);
         }
+        cleanUpBringUpFailure(record, originalFailure, pluginStarted);
+    }
+
+    private void cleanUpBringUpFailure(ManagedPlugin record, Throwable originalFailure, boolean pluginStarted) {
         Throwable cleanupFailure = quiesceFailedBringUpRuntime(record);
         if (cleanupFailure != null) {
             // Any retained runtime entry may still reach child code; do not stop the feature or close its context.
@@ -1622,9 +1675,32 @@ public class PluginLifecycleService {
                 .toList();
     }
 
-    private static PluginRegistry.RegisteredPlugin findRegistered(
-            List<PluginRegistry.RegisteredPlugin> external, String pluginId) {
-        return external.stream().filter(rp -> rp.id().equals(pluginId)).findFirst().orElse(null);
+    private List<String> requiredProviders(String id) {
+        return pluginRuntimeManager.loadedDescriptor(id).map(PluginDescriptor::dependencies).orElseGet(List::of)
+                .stream().filter(edge -> !edge.optional()).map(PluginDependencyRef::pluginId).toList();
+    }
+
+    private void visitProvidersFirst(String id, Map<String, ManagedPlugin> pending, Consumer<ManagedPlugin> visit) {
+        var record = pending.remove(id);
+        if (record == null) return;
+        for (String provider : requiredProviders(id)) visitProvidersFirst(provider, pending, visit);
+        visit.accept(record);
+    }
+
+    void requireServingDependencies(String id, PluginRuntimePhase target) {
+        synchronized (lock) {
+            for (String provider : requiredProviders(id)) {
+                var phase = lifecycleState.phase(provider).orElse(null);
+                var record = managed.get(provider);
+                if (record != null && record.servingFootprintReady && pluginRegistry.lifecycleFailure(record.registered).isEmpty()) {
+                    if (phase == PluginRuntimePhase.STARTED) continue;
+                    if (target == PluginRuntimePhase.QUIESCED && phase == PluginRuntimePhase.QUIESCED
+                            && record.drains.quiesceComplete()) continue;
+                }
+                throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.DEPENDENCY_UNSATISFIED,
+                        "plugin '" + id + "' requires serving plugin '" + provider + "'");
+            }
+        }
     }
 
     private ManagedPlugin require(String pluginId) {
@@ -1655,6 +1731,8 @@ public class PluginLifecycleService {
         boolean capabilityRetirementAcknowledged = true;
         ScheduleCapabilityPublication schedulePublication;
         boolean scheduleRetirementAcknowledged = true;
+        // QUIESCED 也可能表示清理失败后仍有部分资源驻留。
+        boolean servingFootprintReady;
         final PluginRuntimeDrainState drains = new PluginRuntimeDrainState();
         boolean controllerCleanupComplete = true;
         boolean capabilityCleanupComplete = true;

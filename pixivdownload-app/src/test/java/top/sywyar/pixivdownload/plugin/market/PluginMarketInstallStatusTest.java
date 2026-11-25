@@ -79,6 +79,13 @@ class PluginMarketInstallStatusTest {
         assertThat(card.installation().sha256()).isEqualTo("a".repeat(64));
         assertThat(card.installation().runtimeVersion()).isEqualTo("1.0.0");
         assertThat(card.installation().source()).isEqualTo("unknown");
+        assertThat(detail.packages()).noneMatch(PluginMarketPackageView::effectiveAfterRestart);
+        when(lifecycle.pendingInstalls(List.of(artifact))).thenReturn(java.util.Set.of("b"));
+        for (var projection : List.of(entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b"),
+                market.pluginDetail(PluginRepository.OFFICIAL_ID, "b"))) {
+            assertThat(projection.packages()).filteredOn(PluginMarketPackageView::effectiveAfterRestart)
+                    .extracting(PluginMarketPackageView::version).containsExactly("2.0.0");
+        }
         when(statusService.report(org.mockito.ArgumentMatchers.anyList())).thenReturn(new PluginStatusReport(
                 List.of(new PluginDiagnostic("b", PluginStatus.FAILED, descriptor, false, List.of("startup failed")))));
         var failed = entryOf(market.catalog(PluginRepository.OFFICIAL_ID), "b").installation();
@@ -122,7 +129,7 @@ class PluginMarketInstallStatusTest {
     }
 
     private static PluginCatalogPackage pkg(String version, String requiredSdk) {
-        return new PluginCatalogPackage(version, "https://x/" + version + ".jar", 100L, "ab", null, null,
+        return new PluginCatalogPackage(version, "https://x/" + version + ".jar", 100L, "a".repeat(64), null, null,
                 requiredSdk, List.of(), null, List.of(), "stable", false);
     }
 

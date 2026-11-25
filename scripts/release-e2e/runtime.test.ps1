@@ -7,6 +7,7 @@ foreach ($definition in $ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst]}, $false)) {
     . ([scriptblock]::Create($definition.Extent.Text))
 }
+. (Join-Path $PSScriptRoot '../plugin-distribution-common.ps1')
 . (Join-Path $PSScriptRoot 'runtime.ps1')
 . (Join-Path $PSScriptRoot 'scenarios.ps1')
 
@@ -601,10 +602,52 @@ exit 0
 
     $script:status = [pscustomobject]@{recoveryMode=$false; plugins=@(
         [pscustomobject]@{id='gui-compose'; status='INSTALLED'; runtimePhase=$null})}
-    Assert-ReleaseStatus 1 $null @('gui-compose') -Headless | Out-Null
+    Assert-ReleaseStatus 1 $null @('gui-compose') -SkippedIds @('gui-compose') | Out-Null
     Assert-Rejected { Assert-ReleaseStatus 1 $null @('gui-compose') } 'not healthy'
     $script:status.plugins[0].runtimePhase = 'LOADED'
-    Assert-Rejected { Assert-ReleaseStatus 1 $null @('gui-compose') -Headless } 'without a runtime phase'
+    Assert-Rejected { Assert-ReleaseStatus 1 $null @('gui-compose') -SkippedIds @('gui-compose') } 'without a runtime phase'
+
+    $script:status.plugins = @(
+        [pscustomobject]@{id='backend'; status='STARTED'; runtimePhase='STARTED'}
+        [pscustomobject]@{id='gui-compose'; status='STARTED'; runtimePhase='STARTED'}
+        [pscustomobject]@{id='other-desktop'; status='INSTALLED'})
+    & {
+        $root = Join-Path $context.Session 'headless-distribution'
+        $plugins = [IO.Directory]::CreateDirectory((Join-Path $root 'plugins'))
+        $layout = [ordered]@{
+            'backend' = 'plugin.dependencies=bridge@1.0,other-desktop?@1.0'
+            'bridge' = "pixiv.desktop-only=true`nplugin.dependencies=gui-compose"
+            'gui-compose' = 'pixiv.desktop-only=true'
+            'other-desktop' = 'pixiv.desktop-only=true'
+        }
+        Import-ZipFileAssembly
+        $manifest = foreach ($id in $layout.Keys) {
+            $file = "$id.jar"
+            $jar = [IO.Compression.ZipFile]::Open((Join-Path $plugins.FullName $file), 'Create')
+            try {
+                $writer = [IO.StreamWriter]::new($jar.CreateEntry('plugin.properties').Open())
+                try { $writer.WriteLine("plugin.id=$id`n$($layout[$id])") } finally { $writer.Dispose() }
+            } finally { $jar.Dispose() }
+            @{id=$id; file=$file}
+        }
+        $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'plugins-manifest.json') -Encoding UTF8
+        $script:status.plugins += [pscustomobject]@{id='bridge'; status='STARTED'; runtimePhase='STARTED'}
+        $ScenarioGroup = 'startup'
+        $checked = [Collections.Generic.List[string]]::new()
+        function Test-ApplicationScenario {
+            param([switch]$Headless, [string[]]$SkippedIds)
+            if ($Headless) {
+                $checked.Add('headless')
+                Assert-ReleaseStatus 1 $null @(Read-ExpectedPluginIds (Get-ManifestPath $root)) -SkippedIds $SkippedIds | Out-Null
+            }
+        }
+        Test-ApplicationLayout -Label 'fixture' -Root $root -Launcher 'fixture' -RuntimeRoot $root -LogRoot $root
+        if ($checked.Count -ne 1) { throw 'Startup layout did not validate its headless scenario.' }
+        $script:status.plugins = @($script:status.plugins | Where-Object id -ne 'bridge')
+    }
+    $expectedIds = @('backend', 'gui-compose', 'other-desktop')
+    Assert-Rejected { Assert-ReleaseStatus 1 $null $expectedIds } 'not healthy'
+    Assert-Rejected { Assert-ReleaseStatus 1 $null $expectedIds -SkippedIds @('gui-compose', 'other-desktop') } 'without a runtime phase'
 
     $child = Start-Process $env:ComSpec -ArgumentList '/d /c "ping -n 2 127.0.0.1 >nul & exit 17"' `
         -PassThru -WindowStyle Hidden

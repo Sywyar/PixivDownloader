@@ -57,6 +57,7 @@ public enum PluginCatalogErrorCode {
     REVOCATION_REJECTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.revocation-rejected"),
     INSTALL_PREVIEW_CHANGED(HttpStatus.CONFLICT, "plugin.catalog.error.install-preview-changed"),
     INSTALL_PREVIEW_BLOCKED(HttpStatus.CONFLICT, "plugin.catalog.error.install-preview-blocked"),
+    BACKEND_STOP_FAILED(HttpStatus.CONFLICT, "plugin.manage.error.backend-stop-failed"),
     OPERATION_IN_PROGRESS(HttpStatus.CONFLICT, "plugin.manage.error.operation-in-progress"),
     OPERATION_NOT_FOUND(HttpStatus.GONE, "plugin.catalog.error.operation-not-found"),
     OPERATION_CAPACITY(HttpStatus.CONFLICT, "plugin.catalog.error.operation-capacity"),

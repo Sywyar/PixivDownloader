@@ -91,14 +91,14 @@ class PluginRuntimeTaskQuiescerTest {
         quiescer.prepareRuntimeTaskDrain("ext-demo", null, persisted::add);
         assertThat(persisted).containsExactly(drain);
         quiescer.quiesceAfterScheduleWithdrawal("ext-demo", drain, List.of());
-        quiescer.resumeTasks("ext-demo");
+        quiescer.beginTaskGeneration("ext-demo", true);
 
         InOrder order = inOrder(tasks, streams, queues);
         order.verify(tasks).prepareQuiesce("ext-demo");
         order.verify(tasks).cancelQuiescedTasks("ext-demo", drain);
         order.verify(streams).closeForPlugin("ext-demo");
         order.verify(queues).operationsForOwner("ext-demo");
-        order.verify(tasks).resume("ext-demo");
+        order.verify(tasks).beginGeneration("ext-demo", true);
     }
 
     @Test

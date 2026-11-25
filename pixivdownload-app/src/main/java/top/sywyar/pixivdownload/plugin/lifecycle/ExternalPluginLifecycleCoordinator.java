@@ -5,11 +5,15 @@ import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleF
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRemovalAttempt;
@@ -18,7 +22,12 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,6 +50,7 @@ public class ExternalPluginLifecycleCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(ExternalPluginLifecycleCoordinator.class);
 
+    private final PluginRuntimeManager runtimeManager;
     private final ExternalPluginRuntimeController runtimeController;
     private final ExternalPluginInstaller installer;
     private final RecoveryModeService recoveryModeService;
@@ -50,6 +60,8 @@ public class ExternalPluginLifecycleCoordinator {
      * 其它启停、卸载和删除动作走同一预约，避免依赖或旧 artifact 在检查与激活之间变化。
      */
     private final ReentrantLock lifecycleMutationLock = new ReentrantLock();
+    private volatile boolean backendStopFailed;
+    private boolean backendClosing; // 由 lifecycleMutationLock 保护
     /** 偶数表示稳定快照，奇数表示有生命周期写事务；管理读模型用作跨组件 seqlock。 */
     private final AtomicLong lifecycleMutationEpoch = new AtomicLong();
     private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
@@ -60,6 +72,7 @@ public class ExternalPluginLifecycleCoordinator {
                                               ExternalPluginInstaller installer,
                                               RecoveryModeService recoveryModeService,
                                               PluginDependencyResolver dependencyResolver) {
+        this.runtimeManager = runtimeManager;
         this.installer = installer;
         this.lifecycleService = lifecycleService;
         this.recoveryModeService = recoveryModeService;
@@ -72,30 +85,31 @@ public class ExternalPluginLifecycleCoordinator {
     }
 
     public void start(String packageId) {
-        withLock(packageId, ExternalPluginOperation.INSTALLING, () -> {
-            requireActivationDependencies(packageId);
+        withHotManagement(packageId, ExternalPluginOperation.INSTALLING, () -> {
+            requireActivationDependencies(packageId, dependencyResolver.activationDescriptor(packageId));
             runtimeController.start(packageId);
+            runtimeManager.confirmDeferredStart(packageId);
             recoveryModeService.refresh();
             return null;
         });
     }
 
     public void quiesce(String packageId) {
-        withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
+        withHotManagement(packageId, ExternalPluginOperation.REMOVING, () -> {
             runtimeController.quiesce(packageId);
             return null;
         });
     }
 
     public void stop(String packageId) {
-        withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
+        withHotManagement(packageId, ExternalPluginOperation.REMOVING, () -> {
             runtimeController.stop(packageId);
             return null;
         });
     }
 
     public UnloadedPluginPackage unload(String packageId) {
-        return withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
+        return withHotManagement(packageId, ExternalPluginOperation.REMOVING, () -> {
             UnloadedPluginPackage unloaded = runtimeController.unload(packageId);
             recoveryModeService.refresh();
             return unloaded;
@@ -103,8 +117,8 @@ public class ExternalPluginLifecycleCoordinator {
     }
 
     public void load(String packageId) {
-        withLock(packageId, ExternalPluginOperation.INSTALLING, () -> {
-            requireActivationDependencies(packageId);
+        withHotManagement(packageId, ExternalPluginOperation.INSTALLING, () -> {
+            requireActivationDependencies(packageId, descriptorForCodeLoad(packageId));
             runtimeController.load(packageId, runtimeController.installedArtifact(packageId));
             return null;
         });
@@ -112,8 +126,8 @@ public class ExternalPluginLifecycleCoordinator {
 
     /** 服务重启：保留 generation/classloader。 */
     public void restart(String packageId) {
-        withLock(packageId, ExternalPluginOperation.UPDATING, () -> {
-            requireActivationDependencies(packageId);
+        withHotManagement(packageId, ExternalPluginOperation.UPDATING, () -> {
+            requireActivationDependencies(packageId, dependencyResolver.activationDescriptor(packageId));
             try {
                 runtimeController.stop(packageId);
                 runtimeController.start(packageId);
@@ -122,31 +136,38 @@ public class ExternalPluginLifecycleCoordinator {
                 refreshRecoveryModeSafely(failures);
                 throw failures.propagate("failed to restart plugin '" + packageId + "'");
             }
+            runtimeManager.confirmDeferredStart(packageId);
             recoveryModeService.refresh();
             return null;
         });
     }
 
-    /** 代码重载：物理 unload/load，必须产生新 generation。失败时尝试从同一磁盘包恢复。 */
+    /** 代码重载：物理 unload/load，必须产生新 generation。失败时恢复重载前的运行工件。 */
     public void reload(String packageId) {
-        withLock(packageId, ExternalPluginOperation.UPDATING, () -> {
-            requireActivationDependencies(packageId);
-            Path artifact = runtimeController.artifactPath(packageId)
-                    .orElseGet(() -> runtimeController.installedArtifact(packageId));
+        withHotManagement(packageId, ExternalPluginOperation.UPDATING, () -> {
+            boolean pendingInstall = runtimeManager.hasPendingInstall(packageId);
+            requireActivationDependencies(packageId, descriptorForCodeLoad(packageId, pendingInstall));
+            runtimeController.requireNoActiveDependents(packageId);
+            Path artifact = pendingInstall ? runtimeController.installedArtifact(packageId)
+                    : runtimeController.artifactPath(packageId).orElseGet(() -> runtimeController.installedArtifact(packageId));
             long previousGeneration = runtimeController.generation(packageId).orElse(0L);
-            try {
-                runtimeController.unload(packageId);
-                runtimeController.load(packageId, artifact);
-                runtimeController.start(packageId);
-                long next = runtimeController.generation(packageId).orElse(0L);
-                if (next <= previousGeneration) {
-                    throw new PluginLifecycleException("reload did not create a new generation for " + packageId);
+            var previousVersion = runtimeManager.loadedDescriptor(packageId).map(PluginDescriptor::version).orElse(null);
+            try (var previous = retainRuntime(packageId, runtimeController.artifactPath(packageId).orElse(artifact))) {
+                try {
+                    runtimeController.unload(packageId);
+                    runtimeController.load(packageId, artifact);
+                    runtimeController.start(packageId);
+                    long next = runtimeController.generation(packageId).orElse(0L);
+                    if (next <= previousGeneration) {
+                        throw new PluginLifecycleException("reload did not create a new generation for " + packageId);
+                    }
+                } catch (Throwable failure) {
+                    operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
+                            ExternalPluginOperation.ROLLING_BACK, currentTransaction(packageId),
+                            PluginLifecycleFailureAccumulator.describe(failure)));
+                    rollbackReload(previous, previousVersion, failure);
                 }
-            } catch (Throwable failure) {
-                operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
-                        ExternalPluginOperation.ROLLING_BACK, currentTransaction(packageId),
-                        PluginLifecycleFailureAccumulator.describe(failure)));
-                rollbackReload(packageId, artifact, failure);
+                runtimeManager.confirmDeferredStart(packageId);
             }
             return null;
         });
@@ -157,11 +178,13 @@ public class ExternalPluginLifecycleCoordinator {
         return withLock(packageId, ExternalPluginOperation.REMOVING, () -> {
             boolean wasLoaded = runtimeController.isLoaded(packageId);
             boolean effectiveAfterRestart = wasLoaded && runtimeController.requiresProcessRestart(packageId);
-            if (effectiveAfterRestart) {
+            if (!wasLoaded || effectiveAfterRestart) {
                 runtimeController.requireNoActiveDependents(packageId);
             }
             Path previousArtifact = runtimeController.artifactPath(packageId)
                     .orElseGet(() -> runtimeController.installedArtifact(packageId));
+            var previous = wasLoaded && !effectiveAfterRestart ? new RetiredRuntime(packageId, currentPhase(packageId),
+                    previousArtifact, runtimeManager.prepareRollbackArtifact(packageId, true)) : null;
             PluginRemovalAttempt removal = new PluginRemovalAttempt(packageId);
             try {
                 if (wasLoaded && !effectiveAfterRestart) {
@@ -182,7 +205,7 @@ public class ExternalPluginLifecycleCoordinator {
                             + packageId + "'");
                 }
                 boolean runtimeRestored = removal.outcome() != PluginRemovalAttempt.Outcome.UNSAFE
-                        && (effectiveAfterRestart || !wasLoaded || restoreOldRuntime(packageId, previousArtifact, failures));
+                        && (previous == null || restoreOldRuntime(previous, failures));
                 if (!runtimeRestored) {
                     operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
                             ExternalPluginOperation.FAILED, currentTransaction(packageId),
@@ -191,6 +214,8 @@ public class ExternalPluginLifecycleCoordinator {
                             + packageId + "'");
                 }
                 throw failures.propagate("remove failed for '" + packageId + "'");
+            } finally {
+                if (previous != null) previous.close();
             }
             finishDurableRemoval(packageId, effectiveAfterRestart);
             return effectiveAfterRestart;
@@ -206,19 +231,123 @@ public class ExternalPluginLifecycleCoordinator {
         return runtimeController.processRestartDescriptor(packageId);
     }
 
+    public boolean isLoaded(String id) {
+        return runtimeController.isLoaded(id);
+    }
+
+    public List<String> activeDependents(String id) {
+        return runtimeManager.activeDependents(id);
+    }
+
+    public boolean waitsForReplacementRestart(PluginDescriptor descriptor) {
+        return runtimeManager.waitsForReplacementRestart(descriptor);
+    }
+
+    /** load / reload 取待生效安装包的描述符，否则沿用当前运行工件的依赖。 */
+    public Optional<PluginDescriptor> descriptorForCodeLoad(String id) {
+        return descriptorForCodeLoad(id, runtimeManager.hasPendingInstall(id));
+    }
+
+    private Optional<PluginDescriptor> descriptorForCodeLoad(String id, boolean pendingInstall) {
+        return pendingInstall ? dependencyResolver.installedDescriptor(id) : dependencyResolver.activationDescriptor(id);
+    }
+
+    public Set<String> pendingInstalls(List<InstalledPluginSnapshot> inventory) {
+        var pending = new HashSet<String>();
+        var candidates = new HashSet<String>();
+        for (var item : inventory) {
+            var plugin = item.plugin();
+            if (runtimeManager.matchesDeferredInstall(plugin.id(), plugin.path(), item.artifactSha256())) {
+                if (retainsGeneration(plugin.descriptor())) pending.add(plugin.id());
+                else candidates.add(plugin.id());
+            } else if (disabledOnPreviousStart(plugin.descriptor())) {
+                candidates.add(plugin.id());
+            }
+        }
+        if (!candidates.isEmpty()) pending.addAll(dependencyResolver.selectedAfterRestart(inventory, candidates));
+        return Set.copyOf(pending);
+    }
+
+    private boolean disabledOnPreviousStart(PluginDescriptor descriptor) {
+        return descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD
+                && runtimeManager.skippedDisabledAtStartup(descriptor.id())
+                && runtimeManager.loadedDescriptor(descriptor.id()).isEmpty();
+    }
+
+    private boolean retainsGeneration(PluginDescriptor descriptor) {
+        return runtimeManager.hasDisplacedGeneration(descriptor.id()) || waitsForReplacementRestart(descriptor);
+    }
+
+    private boolean expectsChangeAfterRestart(PluginDescriptor descriptor) {
+        return retainsGeneration(descriptor)
+                || dependencyResolver.selectedAfterRestart(descriptor.id());
+    }
+
     /** 管理读模型的跨组件一致性版本；奇数时不得发布来源证明结论。 */
     public long lifecycleMutationEpoch() {
         return lifecycleMutationEpoch.get();
     }
 
-    /** 预约一组目录安装；下载不改变读模型 epoch，各包仍独立提交，不提供跨包回滚。 */
-    public <T> T withMutationReservation(java.util.function.Supplier<T> action) {
-        lifecycleService.requireServiceMutationAllowed();
-        // ponytail: 复用全局写预约串行获取；若下载占用影响维护，再拆分预下载与短提交预约。
+    /** Spring 可能在 SmartLifecycle 停止失败后仍销毁父 context，因此先确认插件已完成清退。 */
+    public static void stopBeforeContextClose(ConfigurableApplicationContext context) {
+        if (context.isActive()) {
+            context.getBeanProvider(ExternalPluginLifecycleCoordinator.class)
+                    .ifAvailable(ExternalPluginLifecycleCoordinator::stopForBackendClose);
+        }
+    }
+
+    /** 在父 context 仍可用时完成插件清退；失败后同一 owner 可再次清退。 */
+    public void stopForBackendClose() {
+        lifecycleMutationLock.lock();
+        try {
+            backendClosing = true;
+            lifecycleMutationEpoch.incrementAndGet();
+            lifecycleService.stopAll();
+            backendStopFailed = false;
+        } catch (RuntimeException | Error failure) {
+            backendStopFailed = true;
+            throw failure;
+        } finally {
+            lifecycleMutationEpoch.incrementAndGet();
+            lifecycleMutationLock.unlock();
+        }
+    }
+
+    public boolean backendStopFailed() {
+        return backendStopFailed;
+    }
+
+    private void acquireReservation() {
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
         }
+    }
+
+    private void acquireMutationLock() {
+        lifecycleService.requireServiceMutationAllowed();
+        acquireReservation();
+        if (backendClosing) {
+            lifecycleMutationLock.unlock();
+            if (backendStopFailed) throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.BACKEND_STOP_FAILED,
+                    "backend shutdown failed; retry shutdown before changing plugins");
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "backend context is closing");
+        }
+    }
+
+    public <T> T withReadReservation(java.util.function.Supplier<T> action) {
+        acquireReservation();
+        try {
+            return action.get();
+        } finally {
+            lifecycleMutationLock.unlock();
+        }
+    }
+
+    /** 预约一组目录安装；下载不改变读模型 epoch，各包仍独立提交，不提供跨包回滚。 */
+    public <T> T withMutationReservation(java.util.function.Supplier<T> action) {
+        acquireMutationLock();
         try {
             return action.get();
         } finally {
@@ -229,11 +358,7 @@ public class ExternalPluginLifecycleCoordinator {
     /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
     public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
                                                   PluginPackageOrigin origin) {
-        lifecycleService.requireServiceMutationAllowed();
-        if (!lifecycleMutationLock.tryLock()) {
-            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
-                    "another plugin lifecycle mutation is already in progress");
-        }
+        acquireMutationLock();
         boolean outermostMutation = (lifecycleMutationEpoch.get() & 1L) == 0L;
         if (outermostMutation) {
             lifecycleMutationEpoch.incrementAndGet();
@@ -269,12 +394,18 @@ public class ExternalPluginLifecycleCoordinator {
     private PluginActivationResult finishPreparedInstall(PreparedPluginTransaction prepared) {
         PluginInstallResult stagedResult = prepared.result();
         if (!prepared.readyToCommit()) {
+            boolean deferred = false;
             if (stagedResult != null && stagedResult.descriptor() != null
                     && stagedResult.outcome().accepted()) {
                 List<PluginDependencyProblem> problems =
-                        installDependencyProblems(stagedResult.descriptor());
-                if (!problems.isEmpty()) {
+                        installDependencyProblems(stagedResult);
+                if (!problems.isEmpty() && !onlyDeferredDependencies(problems)) {
                     return dependencyRejected(prepared, problems);
+                }
+                var descriptor = stagedResult.descriptor();
+                var installed = new InstalledPlugin(descriptor, stagedResult.installedPath());
+                if (runtimeManager.matchesDeferredInstall(installed) || disabledOnPreviousStart(descriptor)) {
+                    deferred = expectsChangeAfterRestart(descriptor);
                 }
             }
             String packageId = stagedResult != null ? stagedResult.pluginId() : null;
@@ -283,54 +414,68 @@ public class ExternalPluginLifecycleCoordinator {
                     stagedResult != null && stagedResult.outcome() == PluginInstallOutcome.DUPLICATE
                             && phase == PluginRuntimePhase.STARTED
                             && runtimeController.loadedArtifactMatches(stagedResult),
-                    false, null, ExternalPluginOperation.IDLE, phase);
+                    false, null, ExternalPluginOperation.IDLE, phase, false, List.of(), deferred);
         }
         String packageId = stagedResult.pluginId();
         ExternalPluginOperation operation = operationFor(stagedResult);
-        // 新旧任一受影响代际要求进程重启时，只提交文件，不能通过更改策略或 replaces 热卸载旧实例。
-        if (activationBlockedByDevelopment(stagedResult.descriptor()) || requiresDeferredActivation(stagedResult.descriptor())) {
-            return withLock(packageId, operation, prepared.transactionId(), () ->
-                    withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
-                            prepared, () -> commitWithoutActivation(prepared))));
-        }
         return withLock(packageId, operation, prepared.transactionId(), () ->
-                withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
-                        prepared, () -> activatePrepared(prepared))));
+                withReplacementLocks(prepared, operation, () -> {
+                    var descriptor = stagedResult.descriptor();
+                    var problems = installDependencyProblems(stagedResult);
+                    boolean deferred = onlyDeferredDependencies(problems);
+                    if (!problems.isEmpty() && !deferred) return dependencyRejected(prepared, problems);
+                    boolean development = activationBlockedByDevelopment(descriptor);
+                    boolean activate = !deferred && !development && !dependencyResolver.configuredDisabled(packageId)
+                            && !requiresDeferredActivation(descriptor);
+                    var plan = new RetirementPlan();
+                    if (!development) planRetirement(descriptor, activate, plan);
+                    if (!plan.blockers.isEmpty()) return dependencyRejected(prepared, plan.blockers);
+                    return activate ? activatePrepared(prepared, plan) : commitWithoutActivation(prepared, !development, plan);
+                }));
+    }
+
+    private static boolean onlyDeferredDependencies(List<PluginDependencyProblem> problems) {
+        return !problems.isEmpty() && problems.stream().allMatch(PluginDependencyProblem::availableAfterRestart);
     }
 
     private boolean requiresDeferredActivation(PluginDescriptor descriptor) {
         return descriptor.lifecyclePolicy().requiresProcessRestart()
+                || waitsForReplacementRestart(descriptor)
                 || runtimeController.requiresProcessRestart(descriptor.id())
-                || descriptor.replaces().stream().anyMatch(runtimeController::requiresProcessRestart);
+                || descriptor.replaces().stream().anyMatch(runtimeController::requiresProcessRestart)
+                || headlessDesktop(descriptor) && runtimeManager.loadedDescriptor(descriptor.id()).isEmpty();
     }
 
-    private PluginActivationResult activatePreparedWithDependencies(
-            PreparedPluginTransaction prepared, Operation<PluginActivationResult> action) {
-        List<PluginDependencyProblem> problems =
-                installDependencyProblems(prepared.result().descriptor());
-        if (!problems.isEmpty()) {
-            return dependencyRejected(prepared, problems);
-        }
-        return action.run();
+    private boolean headlessDesktop(PluginDescriptor descriptor) {
+        return descriptor.desktopOnly() && runtimeManager.headlessStartup();
     }
 
-    private List<PluginDependencyProblem> installDependencyProblems(PluginDescriptor descriptor) {
-        return activationBlockedByDevelopment(descriptor) ? dependencyResolver.installedProblems(descriptor)
-                : dependencyResolver.activationProblems(descriptor);
+    private List<PluginDependencyProblem> installDependencyProblems(PluginInstallResult install) {
+        var descriptor = install.descriptor();
+        if (activationBlockedByDevelopment(descriptor)) return dependencyResolver.installedProblems(descriptor);
+        return dependencyResolver.installActivationProblems(install, requiresDeferredActivation(descriptor));
     }
 
-    private PluginActivationResult commitWithoutActivation(PreparedPluginTransaction prepared) {
+    private PluginActivationResult commitWithoutActivation(PreparedPluginTransaction prepared, boolean deferred, RetirementPlan plan) {
         String packageId = prepared.result().pluginId();
         PluginRuntimePhase phaseBeforeCommit = currentPhase(packageId);
+        boolean pendingRestart = deferred && (!headlessDesktop(prepared.result().descriptor())
+                || runtimeManager.loadedDescriptor(packageId).isPresent() || !plan.retained.isEmpty()
+                || waitsForReplacementRestart(prepared.result().descriptor()));
         CommittedPluginTransaction committed = null;
-        List<RetiredRuntime> retired = List.of();
+        List<RetiredRuntime> retired = new ArrayList<>();
+        String digest = null;
+        PluginProvenanceRecord previous = null;
         try {
             installer.verifyCurrentArtifacts(prepared);
-            if (!activationBlockedByDevelopment(prepared.result().descriptor())) {
-                retired = retireReplacedPackages(prepared.result().descriptor().replaces());
-            }
+            if (deferred) previous = runtimeManager.provenanceBeforeDisplacement(packageId);
+            retirePackages(plan, retired);
             committed = installer.commitTransaction(prepared);
-            installer.verifyCommittedTarget(committed);
+            if (deferred) {
+                digest = installer.verifyCommittedTargetDigest(committed);
+            } else {
+                installer.verifyCommittedTarget(committed);
+            }
             installer.markActivated(committed);
             installer.completeTransaction(committed);
         } catch (Throwable failure) {
@@ -339,13 +484,17 @@ public class ExternalPluginLifecycleCoordinator {
                 refreshRecoveryModeSafely(failures);
                 boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
                 failures.rethrowFatal();
+                // 已提交的工件在 finally 中登记，此处被替换的代次仍然驻留。
+                boolean resident = deferred && (!plan.retained.isEmpty() || runtimeManager.loadedDescriptor(packageId).isPresent()
+                        || waitsForReplacementRestart(prepared.result().descriptor()));
                 return new PluginActivationResult(prepared.transactionId(), prepared.result(), false,
-                        false, null, operationFor(prepared.result()), phaseBeforeCommit, recoveryBlocked);
+                        false, null, operationFor(prepared.result()), phaseBeforeCommit, recoveryBlocked, List.of(),
+                        resident || deferred && !recoveryBlocked && expectsChangeAfterRestart(prepared.result().descriptor()));
             }
             boolean filesRestored = committed != null
                     ? rollbackTransactionSafely(committed, failures)
                     : recoverPreparedTransaction(prepared, failures);
-            boolean rolledBack = filesRestored && restoreRetiredRuntimes(retired, failures);
+            boolean rolledBack = filesRestored && restoreRetiredRuntimes(retired, null, failures);
             refreshRecoveryModeSafely(failures);
             failures.rethrowFatal();
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
@@ -356,13 +505,22 @@ public class ExternalPluginLifecycleCoordinator {
                                     ? "previous version restored" : "previous version recovery failed"));
             boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
             return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,
-                    rolledBack ? prepared.result().previousVersion() : null,
+                    rollbackVersion(rolledBack, prepared.result().previousVersion(), retired),
                     operationFor(prepared.result()), currentPhase(packageId), recoveryBlocked);
+        } finally {
+            retired.forEach(RetiredRuntime::close);
+            if (committed != null && committed.durableState().keepsCommittedArtifact()) {
+                prepared.result().descriptor().replaces().forEach(runtimeManager::forgetDeferredArtifact);
+                if (deferred) runtimeManager.recordDeferredInstall(
+                        new InstalledPlugin(prepared.result().descriptor(), prepared.target()), digest, previous, plan.retained, pendingRestart);
+                else runtimeManager.forgetDeferredArtifact(packageId);
+            }
         }
         refreshAfterDurableMutation(packageId, "plugin install committed without runtime activation");
         boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
         return new PluginActivationResult(prepared.transactionId(), prepared.result(), false, false, null,
-                operationFor(prepared.result()), phaseBeforeCommit, recoveryBlocked);
+                operationFor(prepared.result()), phaseBeforeCommit, recoveryBlocked, List.of(),
+                deferred && !recoveryBlocked && expectsChangeAfterRestart(prepared.result().descriptor()));
     }
 
     /** 保存安装包时保留正在调试的源码实例，避免安装或替换操作卸载它。 */
@@ -391,25 +549,20 @@ public class ExternalPluginLifecycleCoordinator {
                 currentPhase(packageId), problems);
     }
 
-    private PluginActivationResult activatePrepared(PreparedPluginTransaction prepared) {
+    private PluginActivationResult activatePrepared(PreparedPluginTransaction prepared, RetirementPlan plan) {
         String packageId = prepared.result().pluginId();
-        boolean wasLoaded = runtimeController.isLoaded(packageId);
-        Path previousArtifact = runtimeController.artifactPath(packageId).orElse(null);
-        String previousVersion = prepared.result().previousVersion();
+        String previousVersion = runtimeManager.loadedDescriptor(packageId).map(PluginDescriptor::version)
+                .orElse(prepared.result().previousVersion());
         CommittedPluginTransaction committed = null;
-        List<RetiredRuntime> retired = List.of();
-        boolean runtimeMutationStarted = false;
+        List<RetiredRuntime> retired = new ArrayList<>();
+        boolean candidateLoadAttempted = false;
         try {
             // 下载 / 预校验不持包锁；进入停机窗口后先复核安装态，避免过期事务先卸下新 generation。
             installer.verifyCurrentArtifacts(prepared);
-            retired = retireReplacedPackages(prepared.result().descriptor().replaces());
-            if (wasLoaded) {
-                runtimeMutationStarted = true;
-                runtimeController.unload(packageId);
-            }
+            retirePackages(plan, retired);
             committed = installer.commitTransaction(prepared);
             installer.verifyCommittedTarget(committed);
-            runtimeMutationStarted = true;
+            candidateLoadAttempted = true;
             runtimeController.load(packageId, prepared.target());
             runtimeController.start(packageId);
             installer.markActivated(committed);
@@ -427,41 +580,14 @@ public class ExternalPluginLifecycleCoordinator {
             operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
                     ExternalPluginOperation.ROLLING_BACK, prepared.transactionId(),
                     PluginLifecycleFailureAccumulator.describe(activationFailure)));
-            boolean safeToCompensate = committed != null
-                    || prepared.commitState() != PreparedPluginTransaction.CommitState.UNSAFE;
-            boolean currentGenerationCleared = true;
-            if (runtimeMutationStarted && committed != null && safeToCompensate) {
-                currentGenerationCleared = cleanupCurrentGeneration(packageId, failures);
-            }
+            boolean currentGenerationCleared = !candidateLoadAttempted || cleanupCurrentGeneration(packageId, failures);
             boolean filesRestored = committed == null
                     ? recoverPreparedTransaction(prepared, failures)
                     : rollbackTransactionSafely(committed, failures);
-            boolean runtimeRestored = currentGenerationCleared;
-            if (committed == null && runtimeMutationStarted && wasLoaded && filesRestored) {
-                runtimeRestored = restoreOldRuntime(packageId, previousArtifact, failures);
-            } else if (committed != null && wasLoaded && filesRestored && currentGenerationCleared) {
-                Path restoreArtifact = previousArtifact;
-                if (restoreArtifact == null) {
-                    try {
-                        restoreArtifact = runtimeController.installedArtifact(packageId);
-                    } catch (Throwable artifactFailure) {
-                        failures.record(artifactFailure);
-                        runtimeRestored = false;
-                    }
-                }
-                if (runtimeRestored) {
-                    runtimeRestored = restoreOldRuntime(
-                            packageId, restoreArtifact, failures);
-                }
-            }
-            if (filesRestored) {
-                runtimeRestored = restoreRetiredRuntimes(retired, failures) && runtimeRestored;
-            } else {
-                runtimeRestored = false;
-            }
-            boolean rolledBack = filesRestored && runtimeRestored;
+            boolean rolledBack = filesRestored && restoreRetiredRuntimes(retired,
+                    currentGenerationCleared ? null : packageId, failures);
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
-                    prepared.result().descriptor(), null, previousVersion,
+                    prepared.result().descriptor(), null, prepared.result().previousVersion(),
                     List.of("activation failed: "
                                     + PluginLifecycleFailureAccumulator.describe(activationFailure),
                             rolledBack ? "previous version restored" : "previous version recovery failed"));
@@ -474,8 +600,14 @@ public class ExternalPluginLifecycleCoordinator {
             failures.rethrowFatal();
             boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
             return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,
-                    rolledBack ? previousVersion : null, operationFor(prepared.result()),
+                    rollbackVersion(rolledBack, previousVersion, retired), operationFor(prepared.result()),
                     currentPhase(packageId), recoveryBlocked);
+        } finally {
+            retired.forEach(RetiredRuntime::close);
+            if (committed != null && committed.durableState().keepsCommittedArtifact()) {
+                runtimeManager.forgetDeferredArtifact(packageId);
+                prepared.result().descriptor().replaces().forEach(runtimeManager::forgetDeferredArtifact);
+            }
         }
         refreshAfterDurableMutation(packageId, "plugin activation committed");
         boolean recoveryBlocked = markRecoveryBlockedIfNeeded(packageId, prepared, committed);
@@ -498,6 +630,7 @@ public class ExternalPluginLifecycleCoordinator {
     }
 
     private void finishDurableRemoval(String packageId, boolean effectiveAfterRestart) {
+        runtimeManager.forgetDeferredArtifact(packageId);
         Throwable failure = null;
         try {
             if (!effectiveAfterRestart) {
@@ -538,45 +671,67 @@ public class ExternalPluginLifecycleCoordinator {
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
     }
 
-    private List<RetiredRuntime> retireReplacedPackages(List<String> replacedIds) {
-        List<RetiredRuntime> retired = new java.util.ArrayList<>();
-        try {
-            for (String replacedId : replacedIds) {
-                if (runtimeController.requiresProcessRestart(replacedId)) {
-                    runtimeController.requireNoActiveDependents(replacedId);
-                    continue;
-                }
-                Path artifact = installer.listInstalled().stream()
-                        .filter(plugin -> replacedId.equals(plugin.id()))
-                        .map(InstalledPlugin::path)
-                        .findFirst()
-                        .orElse(null);
-                boolean wasLoaded = runtimeController.isLoaded(replacedId);
-                RetiredRuntime runtime = new RetiredRuntime(replacedId, artifact, wasLoaded);
-                retired.add(runtime);
-                if (wasLoaded) {
-                    runtimeController.unload(replacedId);
-                }
+    private static final class RetirementPlan {
+        final Map<String, Path> ordered = new LinkedHashMap<>();
+        final Set<String> retained = new HashSet<>();
+        final List<PluginDependencyProblem> blockers = new ArrayList<>();
+    }
+
+    private void planRetirement(PluginDescriptor candidate, boolean activate, RetirementPlan plan) {
+        var targets = new LinkedHashSet<>(candidate.replaces());
+        if (activate) targets.add(candidate.id());
+        if (targets.isEmpty()) return;
+        targets.retainAll(runtimeManager.packagePhases().keySet());
+        Set<String> visited = new HashSet<>();
+        for (String id : targets) planRetirement(id, targets, activate ? null : candidate.id(), visited, plan);
+    }
+
+    private void planRetirement(String id, Set<String> targets, String continuingConsumer,
+                                Set<String> visited, RetirementPlan plan) {
+        if (!visited.add(id)) return;
+        boolean keep = runtimeController.requiresProcessRestart(id);
+        for (String consumer : runtimeManager.activeDependents(id)) {
+            if (consumer.equals(continuingConsumer)) {
+                keep = true;
+            } else if (targets.contains(consumer)) {
+                planRetirement(consumer, targets, continuingConsumer, visited, plan);
+                if (plan.retained.contains(consumer)) keep = true;
+            } else {
+                var edge = runtimeManager.loadedDescriptor(consumer).orElseThrow().dependencies().stream()
+                        .filter(ref -> !ref.optional() && ref.pluginId().equals(id)).findFirst().orElseThrow();
+                String version = runtimeManager.loadedDescriptor(id).orElseThrow().version();
+                plan.blockers.add(PluginDependencyProblem.retirementBlocked(consumer, edge, version));
             }
-            return List.copyOf(retired);
-        } catch (Throwable failure) {
-            PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
-            if (!restoreRetiredRuntimes(retired, failures)) {
-                failures.record(new PluginLifecycleException("replaced plugin runtime recovery failed"));
-            }
-            throw failures.propagate("failed to retire replaced plugin runtimes");
         }
+        if (keep) plan.retained.add(id);
+        else plan.ordered.put(id, runtimeController.artifactPath(id).orElse(null));
+    }
+
+    private void retirePackages(RetirementPlan plan, List<RetiredRuntime> retired) {
+        plan.ordered.forEach((id, artifact) -> {
+            retired.add(retainRuntime(id, artifact));
+            runtimeController.unload(id);
+        });
+    }
+
+    private RetiredRuntime retainRuntime(String id, Path artifact) {
+        return new RetiredRuntime(id, runtimeController.phase(id), artifact,
+                runtimeManager.prepareRollbackArtifact(id, false));
+    }
+
+    private String rollbackVersion(boolean rolledBack, String previousVersion, List<RetiredRuntime> retired) {
+        if (!rolledBack) return null;
+        if (previousVersion != null || retired.size() != 1) return previousVersion;
+        return runtimeManager.loadedDescriptor(retired.getFirst().packageId()).map(PluginDescriptor::version).orElse(null);
     }
 
     private boolean restoreRetiredRuntimes(
-            List<RetiredRuntime> retired,
+            List<RetiredRuntime> retired, String occupiedId,
             PluginLifecycleFailureAccumulator failures
     ) {
-        boolean restored = true;
-        for (RetiredRuntime runtime : retired) {
-            if (runtime.wasLoaded() && runtime.artifact() != null) {
-                restored = restoreOldRuntime(runtime.packageId(), runtime.artifact(), failures) && restored;
-            }
+        boolean restored = occupiedId == null;
+        for (RetiredRuntime runtime : retired.reversed()) {
+            if (!runtime.packageId().equals(occupiedId)) restored = restoreOldRuntime(runtime, failures) && restored;
         }
         return restored;
     }
@@ -585,7 +740,7 @@ public class ExternalPluginLifecycleCoordinator {
                                        ExternalPluginOperation operation,
                                        Operation<T> action) {
         List<String> ids = prepared.result().descriptor().replaces().stream().sorted().toList();
-        List<ReentrantLock> acquired = new java.util.ArrayList<>();
+        List<ReentrantLock> acquired = new ArrayList<>();
         try {
             for (String id : ids) {
                 ReentrantLock lock = locks.computeIfAbsent(id, ignored -> new ReentrantLock());
@@ -610,16 +765,20 @@ public class ExternalPluginLifecycleCoordinator {
         }
     }
 
-    private record RetiredRuntime(String packageId, Path artifact, boolean wasLoaded) {
+    private record RetiredRuntime(String packageId, PluginRuntimePhase phase, Path artifact, PluginRuntimeManager.RollbackArtifact retained)
+            implements AutoCloseable {
+        @Override
+        public void close() {
+            if (retained != null) retained.close();
+        }
     }
 
     private PluginRuntimePhase currentPhase(String packageId) {
         return runtimeController.phase(packageId);
     }
 
-    private void requireActivationDependencies(String packageId) {
-        var descriptor = dependencyResolver.activationDescriptor(packageId)
-                .orElseThrow(() -> new ClassifiedPluginLifecycleException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
+    private void requireActivationDependencies(String packageId, Optional<PluginDescriptor> source) {
+        var descriptor = source.orElseThrow(() -> new ClassifiedPluginLifecycleException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
                         "installed artifact not found: " + packageId));
         List<PluginDependencyProblem> problems = dependencyResolver.activationProblems(descriptor);
         if (!problems.isEmpty()) {
@@ -641,13 +800,9 @@ public class ExternalPluginLifecycleCoordinator {
         }
     }
 
-    private boolean restoreOldRuntime(
-            String packageId,
-            Path previousArtifact,
-            PluginLifecycleFailureAccumulator failures
-    ) {
+    private boolean restoreOldRuntime(RetiredRuntime previous, PluginLifecycleFailureAccumulator failures) {
         try {
-            runtimeController.restoreOldRuntime(packageId, previousArtifact);
+            runtimeController.restoreOldRuntime(previous.packageId(), previous.artifact(), previous.retained(), previous.phase());
             return true;
         } catch (Throwable rollbackFailure) {
             failures.record(rollbackFailure);
@@ -659,24 +814,24 @@ public class ExternalPluginLifecycleCoordinator {
         return Map.copyOf(operations);
     }
 
-    private void rollbackReload(String packageId, Path artifact, Throwable original) {
+    private void rollbackReload(RetiredRuntime previous, String previousVersion, Throwable original) {
+        String packageId = previous.packageId();
         PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(original);
-        try {
-            boolean currentGenerationCleared = cleanupCurrentGeneration(packageId, failures);
-            if (!currentGenerationCleared || !restoreOldRuntime(packageId, artifact, failures)) {
-                throw new PluginLifecycleException("previous generation could not be restored");
-            }
-        } catch (Throwable rollbackFailure) {
-            failures.record(rollbackFailure);
+        boolean restored = cleanupCurrentGeneration(packageId, failures)
+                && (previousVersion == null || restoreOldRuntime(previous, failures));
+        var version = runtimeManager.loadedDescriptor(packageId).map(PluginDescriptor::version).orElse(null);
+        var phase = currentPhase(packageId);
+        restored = restored && java.util.Objects.equals(version, previousVersion) && phase == previous.phase();
+        if (!restored) {
             operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
-                    ExternalPluginOperation.FAILED, currentTransaction(packageId),
-                    "reload failed: " + PluginLifecycleFailureAccumulator.describe(original)
-                            + ": rollback failed: "
-                            + PluginLifecycleFailureAccumulator.describe(rollbackFailure)));
+                    ExternalPluginOperation.FAILED, currentTransaction(packageId), "reload rollback failed"));
             refreshRecoveryModeSafely(failures);
-            throw failures.propagate("reload and rollback failed for '" + packageId + "'");
         }
-        throw failures.propagate("reload failed for '" + packageId + "'; previous code restored");
+        failures.rethrowFatal();
+        var outcome = new ClassifiedPluginLifecycleException.ReloadRollback(restored, version, phase);
+        log.warn("Plugin reload failed: package={}, restored={}, loadedVersion={}, phase={}",
+                packageId, restored, version, outcome.phase(), failures.primary());
+        throw new ClassifiedPluginLifecycleException(outcome, failures.primary());
     }
 
     private String currentTransaction(String packageId) {
@@ -732,17 +887,29 @@ public class ExternalPluginLifecycleCoordinator {
         }
     }
 
+    private <T> T withHotManagement(String id, ExternalPluginOperation operation, Operation<T> action) {
+        return withLock(id, operation, () -> {
+            var loaded = runtimeManager.loadedDescriptor(id);
+            var restricted = loaded.filter(d -> d.lifecyclePolicy().requiresRestart() || waitsForReplacementRestart(d));
+            if (restricted.isEmpty() && (loaded.isEmpty() || runtimeManager.hasPendingInstall(id))) {
+                restricted = dependencyResolver.installedDescriptor(id)
+                        .filter(d -> d.lifecyclePolicy().requiresRestart() || waitsForReplacementRestart(d));
+            }
+            if (restricted.isPresent()) {
+                throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN,
+                        "Plugin requires restart before hot management: " + id);
+            }
+            return action.run();
+        });
+    }
+
     private <T> T withLock(String packageId, ExternalPluginOperation operation, Operation<T> action) {
         return withLock(packageId, operation, UUID.randomUUID().toString(), action);
     }
 
     private <T> T withLock(String packageId, ExternalPluginOperation operation,
                            String transactionId, Operation<T> action) {
-        lifecycleService.requireServiceMutationAllowed();
-        if (!lifecycleMutationLock.tryLock()) {
-            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
-                    "another plugin lifecycle mutation is already in progress");
-        }
+        acquireMutationLock();
         boolean outermostMutation = (lifecycleMutationEpoch.get() & 1L) == 0L;
         if (outermostMutation) {
             lifecycleMutationEpoch.incrementAndGet();

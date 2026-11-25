@@ -270,6 +270,22 @@ class PluginLifecycleTransitionTest extends PluginLifecycleServiceTestSupport {
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = PluginRuntimePhase.class, names = {"QUIESCED", "STOPPED"})
+    void rollbackRestoresServingFootprintOnlyForQuiescedGeneration(PluginRuntimePhase previous) {
+        MockHarness h = new MockHarness();
+        h.service.unload("ext-demo");
+        h.service.load("ext-demo");
+        int starts = h.plugin.startCount;
+        clearInvocations(h.webRegistrar);
+        h.service.restoreNonServingPhase("ext-demo", previous);
+        assertThat(h.service.phase("ext-demo")).contains(previous);
+        assertThat(h.state.acceptsNewRequests("ext-demo")).isFalse();
+        boolean quiesced = previous == PluginRuntimePhase.QUIESCED;
+        assertThat(h.plugin.startCount).isEqualTo(starts + (quiesced ? 1 : 0));
+        verify(h.webRegistrar, times(quiesced ? 1 : 0)).prepare(h.registered);
+    }
+
     @Test
     @DisplayName("未知 pluginId：生命周期动词抛清晰诊断")
     void unknownPluginIsRejected() {

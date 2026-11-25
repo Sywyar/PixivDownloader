@@ -42,7 +42,7 @@ public final class PluginArtifactVerificationService {
 
     public VerificationResult verifyForInstall(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin) {
         PluginPackageOrigin effectiveOrigin = origin != null ? origin : PluginPackageOrigin.localUpload();
-        if (effectiveOrigin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, effectiveOrigin, false);
+        if (effectiveOrigin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, effectiveOrigin, false, null);
         return verifierFor(effectiveOrigin).verifyArtifact(new ArtifactVerificationRequest(
                 artifact,
                 descriptor.id(),
@@ -55,33 +55,34 @@ public final class PluginArtifactVerificationService {
 
     public VerificationResult verifyInstalled(Path artifact, PluginDescriptor descriptor,
                                               PluginProvenanceRecord provenance) {
-        if (provenance == null) {
-            return verifierFor(null).verifyArtifact(new ArtifactVerificationRequest(
-                    artifact,
-                    descriptor.id(),
-                    descriptor.version(),
-                    null,
-                    null,
-                    null,
-                    VerificationPolicy.installedCustom()));
-        }
-        PluginPackageOrigin origin = provenance.originForOfflineVerification();
-        if (origin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, origin, true);
-        return verifierFor(origin).verifyArtifact(new ArtifactVerificationRequest(
-                artifact,
-                descriptor.id(),
-                descriptor.version(),
-                provenance.artifactSizeBytes(),
-                provenance.artifactSha256(),
-                origin.signature(),
-                origin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean())));
+        return verifyInstalled(artifact, descriptor, provenance, null);
     }
 
-    private VerificationResult verifyCommunity(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin, boolean installed) {
+    public VerificationResult verifyInventoryEntry(InstalledPluginSnapshot snapshot) {
+        return verifyInstalled(snapshot.plugin().path(), snapshot.plugin().descriptor(), snapshot.provenance(),
+                new PluginSupplyChainVerifier.MeasuredArtifact(snapshot.artifactSizeBytes(), snapshot.artifactSha256()));
+    }
+
+    private VerificationResult verifyInstalled(Path artifact, PluginDescriptor descriptor, PluginProvenanceRecord provenance,
+                                               PluginSupplyChainVerifier.MeasuredArtifact measured) {
+        PluginPackageOrigin origin = provenance == null ? null : provenance.originForOfflineVerification();
+        if (origin != null && origin.communityEvidence() != null) return verifyCommunity(artifact, descriptor, origin, true, measured);
+        var request = new ArtifactVerificationRequest(artifact, descriptor.id(), descriptor.version(),
+                provenance == null ? null : provenance.artifactSizeBytes(), provenance == null ? null : provenance.artifactSha256(),
+                origin == null ? null : origin.signature(), origin == null ? VerificationPolicy.installedCustom()
+                        : origin.installedVerificationPolicy(developmentModeEnabled.getAsBoolean()));
+        var verifier = verifierFor(origin);
+        return measured == null ? verifier.verifyArtifact(request) : verifier.verifyArtifact(request, measured);
+    }
+
+    private VerificationResult verifyCommunity(Path artifact, PluginDescriptor descriptor, PluginPackageOrigin origin, boolean installed,
+                                                PluginSupplyChainVerifier.MeasuredArtifact measured) {
         var evidence = origin.communityEvidence();
-        return verifierFor(origin).verifyCommunityPackage(new CommunityPackageVerificationRequest(artifact,
-                origin.repositoryId(), descriptor.id(), descriptor.version(), origin.expectedSizeBytes(), origin.expectedSha256(),
-                evidence.assuranceLevel(), evidence.sourceCommit(), evidence.reviewSha256(), origin.signature(), installed));
+        var request = new CommunityPackageVerificationRequest(artifact, origin.repositoryId(), descriptor.id(),
+                descriptor.version(), origin.expectedSizeBytes(), origin.expectedSha256(), evidence.assuranceLevel(),
+                evidence.sourceCommit(), evidence.reviewSha256(), origin.signature(), installed);
+        var verifier = verifierFor(origin);
+        return measured == null ? verifier.verifyCommunityPackage(request) : verifier.verifyCommunityPackage(request, measured);
     }
 
     public VerificationResult verifyIdentityMigration(

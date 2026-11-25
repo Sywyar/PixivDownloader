@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.web.ApiErrorWriter;
 import top.sywyar.pixivdownload.common.web.SafeRequestPath;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeDecision;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 
 import java.io.IOException;
@@ -67,11 +68,12 @@ public class RecoveryModeGate extends OncePerRequestFilter {
             chain.doFilter(req, res);
             return;
         }
-        if (!recoveryModeService.isActive()) {
+        var decision = recoveryModeService.decision();
+        if (!decision.active()) {
             chain.doFilter(req, res);
             return;
         }
-        block(req, res, path.orElse(req.getRequestURI()));
+        block(req, res, path.orElse(req.getRequestURI()), decision);
     }
 
     /** 恢复模式下仍放行的最小入口集合（诊断 / 修复 / 健康 / 核心认证与 setup / 基础静态）。 */
@@ -162,24 +164,17 @@ public class RecoveryModeGate extends OncePerRequestFilter {
                 || path.startsWith("/vendor/");
     }
 
-    private void block(HttpServletRequest req, HttpServletResponse res, String path) throws IOException {
+    private void block(HttpServletRequest req, HttpServletResponse res, String path, RecoveryModeDecision decision) throws IOException {
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         if (path.startsWith("/api/")) {
-            String code = resolveMessageCode();
-            String message = messages.getOrDefault(localeResolver.resolveLocale(req), code,
-                    "缺少必须的下载插件，请先安装或修复后重试");
+            var reason = decision.firstReason();
+            String code = reason.map(RecoveryModeReason::messageKey).filter(key -> !key.isBlank()).orElse("plugin.recovery.blocked");
+            String message = messages.getOrDefault(localeResolver.resolveLocale(req), code, code,
+                    reason.map(RecoveryModeReason::messageArguments).orElseGet(() -> new Object[0]));
             res.setHeader(HttpHeaders.RETRY_AFTER, "120");
             ApiErrorWriter.write(res, HttpServletResponse.SC_SERVICE_UNAVAILABLE, code, message);
         } else {
             res.sendRedirect(PLUGIN_MARKET_PATH);
         }
-    }
-
-    /** 取首个未满足必选插件的稳定错误码；该码同时定位对应的本地化文案。 */
-    private String resolveMessageCode() {
-        return recoveryModeService.decision().firstReason()
-                .map(RecoveryModeReason::messageKey)
-                .filter(k -> k != null && !k.isBlank())
-                .orElse("plugin.recovery.blocked");
     }
 }

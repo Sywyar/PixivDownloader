@@ -78,7 +78,7 @@ class RecoverySentinelRecoveryGateTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties());
         recoveryModeService = new RecoveryModeService(
-                new PluginStatusService(registry, PluginInventory.empty(), policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+                new PluginStatusService(registry, PluginInventory.empty(), policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
     }
 
     private RecoveryModeGate gate() {
