@@ -7,12 +7,14 @@ import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
+import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -28,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -47,6 +51,83 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("插件生命周期：运行期任务与请求资源")
 class PluginLifecycleRuntimeResourceTest extends PluginLifecycleServiceTestSupport {
+
+    @Test
+    void quiescedRestoreClosesStreamsDuringWebPublication() {
+        record Registration(boolean accepting, int active, int closes) {}
+        try (ContextHarness h = new ContextHarness()) {
+            String id = h.plugin.id();
+            h.service.startAll();
+            h.service.quiesce(id);
+            h.service.unload(id);
+            h.service.load(id);
+            assertThat(h.streamRegistry.acceptsNewStreams(id)).isFalse();
+
+            var closes = new AtomicInteger();
+            var activeAtClose = new AtomicInteger(-1);
+            var duringCommit = new AtomicReference<Registration>();
+            when(h.webRegistrar.commit(any())).thenAnswer(ignored -> {
+                var streams = h.service.contextFor(id).orElseThrow().getBean(PluginStreamRegistrar.class);
+                var registration = new FutureTask<>(() -> {
+                    boolean accepting = streams.acceptsNewStreams();
+                    streams.register("restore", () -> {
+                        activeAtClose.set(h.streamRegistry.activeStreamCount(id));
+                        closes.incrementAndGet();
+                    });
+                    return new Registration(accepting, h.streamRegistry.activeStreamCount(id), closes.get());
+                });
+                Thread.startVirtualThread(registration);
+                duringCommit.set(registration.get(5, TimeUnit.SECONDS));
+                return h.runtimeWebHandle;
+            }).thenReturn(h.runtimeWebHandle);
+
+            h.service.restoreNonServingPhase(id, PluginRuntimePhase.QUIESCED);
+            assertThat(duringCommit.get()).isEqualTo(new Registration(false, 0, 1));
+            assertThat(activeAtClose).hasValue(0);
+            assertThat(h.service.phase(id)).contains(PluginRuntimePhase.QUIESCED);
+            assertThat(h.streamRegistry.activeStreamCount(id)).isZero();
+            assertThat(closes).hasValue(1);
+
+            h.service.stop(id);
+            h.service.start(id);
+            var streams = h.service.contextFor(id).orElseThrow().getBean(PluginStreamRegistrar.class);
+            streams.register("serving", closes::incrementAndGet);
+            assertThat(h.streamRegistry.activeStreamCount(id)).isOne();
+            assertThat(closes).hasValue(1);
+            h.service.stop(id);
+            assertThat(closes).hasValue(2);
+        }
+    }
+
+    @Test
+    void restoredFeatureStartCannotRunTasksUntilNormalStart() {
+        try (ContextHarness h = new ContextHarness()) {
+            String id = h.plugin.id();
+            h.service.startAll();
+            h.service.quiesce(id);
+            h.service.unload(id);
+            h.service.load(id);
+            clearInvocations(h.registry);
+            var runs = new AtomicInteger();
+            doAnswer(ignored -> {
+                var tasks = h.service.contextFor(id).orElseThrow().getBean(PluginRuntimeTaskRegistrar.class);
+                try {
+                    tasks.registerOneShot(runs::incrementAndGet).run();
+                } catch (PluginRuntimeTaskRejectedException quiesced) {
+                    assertThat(tasks.acceptsNewTasks()).isFalse();
+                }
+                return true;
+            }).when(h.registry).startFeature(h.registered);
+
+            h.service.restoreNonServingPhase(id, PluginRuntimePhase.QUIESCED);
+            verify(h.registry).startFeature(h.registered);
+            assertThat(runs).hasValue(0);
+            h.service.stop(id);
+            h.service.start(id);
+            assertThat(runs).hasValue(1);
+            h.service.stop(id);
+        }
+    }
 
     @Test
     @DisplayName("后台任务普通取消失败保持 QUIESCED 与子上下文，重试同代成功后才拆足迹")

@@ -1,10 +1,14 @@
 package top.sywyar.pixivdownload.plugin.catalog.manifest;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVersion;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues;
 
 import java.util.List;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import java.util.Map;
 
 /**
@@ -43,11 +47,20 @@ public record PluginCatalogPackage(
         String sourceCommit,
         CommunityValues.Reference reviewRef,
         CommunityValues.Owner historicalOwner,
-        top.sywyar.pixivdownload.sdk.community.content.MarketContent content) {
+        top.sywyar.pixivdownload.sdk.community.content.MarketContent content,
+        Map<String, InstallerArtifact> installerArtifacts) {
+
+    public List<PluginDependencyRef> dependencyRefs() {
+        return dependencies.stream().flatMap(value -> PluginDependencyRef.parseList(value).stream()).toList();
+    }
+
+    public record InstallerArtifact(String packageUrl, Long expectedSizeBytes, String sha256,
+                                    SignatureMetadata signature, String signatureUrl) {}
 
     public PluginCatalogPackage {
         identityMigrationSignatures = identityMigrationSignatures != null
                 ? Map.copyOf(identityMigrationSignatures) : Map.of();
+        installerArtifacts = installerArtifacts == null ? Map.of() : Map.copyOf(installerArtifacts);
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
         changeNotes = changeNotes != null ? List.copyOf(changeNotes) : List.of();
     }
@@ -59,7 +72,7 @@ public record PluginCatalogPackage(
             String sourceCommit, CommunityValues.Reference reviewRef, CommunityValues.Owner historicalOwner) {
         this(version, packageUrl, expectedSizeBytes, sha256, signature, identityMigrationSignatures, signatureUrl,
                 requiredSdk, dependencies, releasedTime, changeNotes, channel, deprecated, assuranceLevel,
-                sourceCommit, reviewRef, historicalOwner, null);
+                sourceCommit, reviewRef, historicalOwner, null, Map.of());
     }
 
     public PluginCatalogPackage(
@@ -85,6 +98,29 @@ public record PluginCatalogPackage(
             boolean deprecated) {
         this(version, packageUrl, expectedSizeBytes, sha256, signature, Map.of(), signatureUrl,
                 requiredSdk, dependencies, releasedTime, changeNotes, channel, deprecated);
+    }
+
+    /** 同版本重装只选择与本机字节匹配、且经官方签名验证的安装器附件。 */
+    public PluginCatalogPackage forInstalledArtifact(PluginRepository repository, String pluginId,
+                                                     String installedVersion, String installedSha256) {
+        if (installedSha256 == null || !version.equals(installedVersion) || installedSha256.equalsIgnoreCase(sha256)
+                || installerArtifacts.isEmpty() || !repository.official()) return this;
+        for (var variant : installerArtifacts.values()) {
+            if (installedSha256.equalsIgnoreCase(variant.sha256()) && variant.expectedSizeBytes() != null
+                    && PluginCatalogTrustStores.verifierForRepository(repository).verifiesOfficialArtifactIdentity(
+                            pluginId, version, variant.expectedSizeBytes(), variant.sha256(), variant.signature())) {
+                return new PluginCatalogPackage(version, variant.packageUrl(), variant.expectedSizeBytes(), variant.sha256(),
+                        variant.signature(), identityMigrationSignatures, variant.signatureUrl(), requiredSdk, dependencies,
+                        releasedTime, changeNotes, channel, deprecated, assuranceLevel, sourceCommit, reviewRef,
+                        historicalOwner, content, installerArtifacts);
+            }
+        }
+        return this;
+    }
+
+    public boolean conflictsWithInstalledArtifact(String installedVersion, String installedSha256) {
+        return installedSha256 != null && sha256 != null && !sha256.equalsIgnoreCase(installedSha256)
+                && PluginPackageVersion.samePrecedence(version, installedVersion);
     }
 
     /** 是否声明了结构化签名元数据。 */

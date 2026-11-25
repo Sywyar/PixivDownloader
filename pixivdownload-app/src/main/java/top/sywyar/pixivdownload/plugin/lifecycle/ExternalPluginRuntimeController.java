@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -8,12 +9,14 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
 /** 保持 PF4J 物理包与应用 serving 足迹同步的运行期原语 owner。 */
+@Slf4j
 final class ExternalPluginRuntimeController {
 
     private final PluginRuntimeManager runtimeManager;
@@ -37,6 +40,15 @@ final class ExternalPluginRuntimeController {
         return runtimeManager.packagePhases().containsKey(packageId);
     }
 
+    boolean loadedInactiveAtBoot(String packageId) {
+        return inactiveBootRegistration(packageId).isPresent();
+    }
+
+    private Optional<PluginRegistry.RegisteredPlugin> inactiveBootRegistration(String packageId) {
+        return runtimeManager.generation(packageId)
+                .flatMap(generation -> lifecycleService.inactiveBootRegistration(packageId, generation));
+    }
+
     boolean isDevelopmentArtifact(String packageId) {
         return runtimeManager.isDevelopmentArtifact(packageId);
     }
@@ -47,7 +59,7 @@ final class ExternalPluginRuntimeController {
 
     Optional<PluginDescriptor> processRestartDescriptor(String packageId) {
         return runtimeManager.loadedDescriptor(packageId)
-                .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart());
+                .filter(descriptor -> descriptor.lifecyclePolicy().requiresProcessRestart() || runtimeManager.retainedForReplacement(packageId));
     }
 
     boolean loadedArtifactMatches(top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult installed) {
@@ -106,12 +118,19 @@ final class ExternalPluginRuntimeController {
 
     /** PF4J 先启动；应用足迹启动失败时恢复停止态，避免两套状态分叉。 */
     void start(String packageId) {
+        start(packageId, PluginRuntimePhase.STARTED);
+    }
+
+    private void start(String packageId, PluginRuntimePhase target) {
+        lifecycleService.requireServingDependencies(packageId, target);
         try {
             runtimeManager.startPlugin(packageId);
-            lifecycleService.start(packageId);
-            requirePhase(packageId, PluginRuntimePhase.STARTED);
+            if (target == PluginRuntimePhase.QUIESCED) lifecycleService.restoreNonServingPhase(packageId, target);
+            else lifecycleService.start(packageId);
+            requirePhase(packageId, target);
         } catch (Throwable failure) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
+            runtimeManager.recordDeferredStartFailure(packageId);
             try {
                 lifecycleService.stop(packageId);
             } catch (Throwable cleanupFailure) {
@@ -135,6 +154,24 @@ final class ExternalPluginRuntimeController {
             return new UnloadedPluginPackage(packageId, installed.path(), installed.version(), 0L);
         }
         requireNoActiveDependents(packageId);
+        var inactive = inactiveBootRegistration(packageId);
+        if (inactive.isPresent()) {
+            var registration = inactive.get();
+            lifecycleService.unregisterInactiveBootPackage(registration);
+            try {
+                return runtimeManager.unloadPlugin(packageId);
+            } catch (Throwable failure) {
+                var failures = new PluginLifecycleFailureAccumulator(failure);
+                try {
+                    if (runtimeManager.generation(packageId).orElse(0L) == registration.generation()) {
+                        lifecycleService.restoreInactiveBootPackage(registration);
+                    }
+                } catch (Throwable rollbackFailure) {
+                    failures.record(rollbackFailure);
+                }
+                throw failures.propagate("failed to unload inactive plugin '" + packageId + "'");
+            }
+        }
         var packagePhase = runtimeManager.packagePhases().get(packageId);
         if (!lifecycleService.managedPluginIds().contains(packageId) && phase(packageId) == null
                 && lifecycleService.generation(packageId).isEmpty()
@@ -183,7 +220,11 @@ final class ExternalPluginRuntimeController {
     }
 
     void load(String packageId, Path artifact) {
-        LoadedPluginPackage loaded = runtimeManager.loadPlugin(artifact);
+        if (loadedInactiveAtBoot(packageId)) unload(packageId);
+        adopt(packageId, runtimeManager.loadPlugin(artifact));
+    }
+
+    private void adopt(String packageId, LoadedPluginPackage loaded) {
         if (!packageId.equals(loaded.packageId())) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(
                     new PluginLifecycleException(
@@ -200,13 +241,19 @@ final class ExternalPluginRuntimeController {
             lifecycleService.adoptLoadedPackage(runtimeManager.initializePlugin(packageId));
         } catch (Throwable failure) {
             PluginLifecycleFailureAccumulator failures = new PluginLifecycleFailureAccumulator(failure);
+            runtimeManager.recordDeferredInitialization(packageId, loaded.generation(), false);
             try {
                 runtimeManager.unloadPlugin(packageId);
             } catch (Throwable cleanupFailure) {
                 failures.record(cleanupFailure);
             }
-            throw failures.propagate("failed to adopt loaded plugin package '" + packageId + "'");
+            failures.rethrowFatal();
+            log.error("Plugin initialization failed: package={}, generation={}", packageId, loaded.generation(), failures.primary());
+            if (failure instanceof ClassifiedPluginLifecycleException classified) throw classified;
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.INITIALIZATION_FAILED,
+                    "failed to initialize loaded plugin '" + packageId + "'", failures.primary());
         }
+        runtimeManager.recordDeferredInitialization(packageId, loaded.generation(), true);
     }
 
     Path installedArtifact(String packageId) {
@@ -223,7 +270,7 @@ final class ExternalPluginRuntimeController {
         if (!isLoaded(packageId)) {
             return true;
         }
-        if (lifecycleService.managedPluginIds().contains(packageId)) {
+        if (lifecycleService.managedPluginIds().contains(packageId) || loadedInactiveAtBoot(packageId)) {
             unload(packageId);
         } else {
             runtimeManager.unloadPlugin(packageId);
@@ -231,15 +278,40 @@ final class ExternalPluginRuntimeController {
         return !isLoaded(packageId);
     }
 
-    void restoreOldRuntime(String packageId, Path previousArtifact) {
+    void restoreOldRuntime(String packageId, Path previousArtifact, PluginRuntimeManager.RollbackArtifact retained,
+                           PluginRuntimePhase previousPhase, boolean inactiveAtBoot) {
+        if (inactiveAtBoot && !isLoaded(packageId)) {
+            var loaded = retained != null ? retained.load() : runtimeManager.loadPlugin(previousArtifact);
+            try {
+                var initialized = runtimeManager.initializePlugin(loaded.packageId());
+                runtimeManager.startPlugin(loaded.packageId());
+                lifecycleService.restoreInactiveBootPackage(initialized);
+            } catch (Throwable failure) {
+                var failures = new PluginLifecycleFailureAccumulator(failure);
+                try {
+                    runtimeManager.unloadPlugin(loaded.packageId());
+                } catch (Throwable cleanupFailure) {
+                    failures.record(cleanupFailure);
+                }
+                throw failures.propagate("failed to restore inactive plugin '" + packageId + "'");
+            }
+            return;
+        }
         if (isLoaded(packageId)) {
             if (phase(packageId) == PluginRuntimePhase.UNLOADED) {
                 lifecycleService.load(packageId);
             }
+        } else if (retained != null) {
+            adopt(packageId, retained.load());
         } else {
-            load(packageId, previousArtifact);
+            load(packageId, previousArtifact != null ? previousArtifact : installedArtifact(packageId));
         }
-        start(packageId);
+        if (previousPhase == PluginRuntimePhase.STARTED || previousPhase == PluginRuntimePhase.QUIESCED) {
+            start(packageId, previousPhase);
+        } else if (previousPhase == PluginRuntimePhase.STOPPED) {
+            lifecycleService.restoreNonServingPhase(packageId, previousPhase);
+            requirePhase(packageId, previousPhase);
+        }
     }
 
     private boolean packagePresentAfterFailure(

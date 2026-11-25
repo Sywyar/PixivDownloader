@@ -27,6 +27,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import top.sywyar.pixivdownload.repairprobe.StartupRepairProbePlugin;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
+import java.nio.charset.StandardCharsets;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Signature;
@@ -50,6 +55,31 @@ public final class PluginTestProvenance {
     private PluginTestProvenance() {
     }
 
+    public static Path stageRepairProbe(Path directory, String id, String version, String extraProperties) throws Exception {
+        Files.createDirectories(directory);
+        Path file = directory.resolve(id + "-" + version + ".jar");
+        try (var zip = new ZipOutputStream(Files.newOutputStream(file))) {
+            zip.putNextEntry(new ZipEntry("plugin.properties"));
+            zip.write(("plugin.id=" + id + "\nplugin.version=" + version + "\nplugin.requires=" + SdkVersion.MAJOR + "." + SdkVersion.MINOR
+                    + "\n" + extraProperties + "\npixiv.execution-mode=host-process-full-trust\nplugin.class="
+                    + StartupRepairProbePlugin.class.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("repair-probe/" + id + "/version.txt"));
+            zip.write(version.getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            for (Class<?> type : List.of(StartupRepairProbePlugin.class, StartupRepairProbePlugin.Feature.class,
+                    StartupRepairProbePlugin.StartupTaskConfig.class, StartupRepairProbePlugin.ContextProbe.class,
+                    StartupRepairProbePlugin.ShutdownConfig.class, StartupRepairProbePlugin.PushConfig.class,
+                    StartupRepairProbePlugin.PushProbe.class)) {
+                String entry = type.getName().replace('.', '/') + ".class";
+                zip.putNextEntry(new ZipEntry(entry));
+                try (var input = type.getResourceAsStream("/" + entry)) { input.transferTo(zip); }
+                zip.closeEntry();
+            }
+        }
+        return file;
+    }
+
     public static void writeLocalUpload(Path pluginsDir, Path artifact) throws IOException {
         var descriptor = PluginPackageReader.inspect(artifact).descriptor();
         VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
@@ -63,7 +93,18 @@ public final class PluginTestProvenance {
         String pluginId = descriptor.id();
         String version = descriptor.version();
         String sha256 = PluginPackageIntegrity.sha256Hex(artifact);
-        SignatureMetadata metadata = new SignatureMetadata(
+        SignatureMetadata metadata = signArtifact(pluginId, version, Files.size(artifact), sha256);
+        PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
+        VerificationResult result = VERIFIER.verifyArtifact(new ArtifactVerificationRequest(
+                artifact, pluginId, version, Files.size(artifact), sha256, metadata,
+                VerificationPolicy.customRepository()));
+        PluginProvenanceRecord provenance = PluginProvenanceRecord.from(origin, result);
+        new PluginProvenanceStore(pluginsDir).write(artifact, provenance.withTrustDecision(
+                PluginTrustPolicy.approve(descriptor, provenance, Instant.now())));
+    }
+
+    public static SignatureMetadata signArtifact(String pluginId, String version, long size, String sha256) {
+        return new SignatureMetadata(
                 SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519,
                 KEY_ID,
@@ -72,15 +113,12 @@ public final class PluginTestProvenance {
                         KEY_ID,
                         pluginId,
                         version,
-                        Files.size(artifact),
+                        size,
                         HexFormat.of().parseHex(sha256)))));
-        PluginPackageOrigin origin = PluginPackageOrigin.localUpload(metadata);
-        VerificationResult result = VERIFIER.verifyArtifact(new ArtifactVerificationRequest(
-                artifact, pluginId, version, Files.size(artifact), sha256, metadata,
-                VerificationPolicy.customRepository()));
-        PluginProvenanceRecord provenance = PluginProvenanceRecord.from(origin, result);
-        new PluginProvenanceStore(pluginsDir).write(artifact, provenance.withTrustDecision(
-                PluginTrustPolicy.approve(descriptor, provenance, Instant.now())));
+    }
+
+    static TrustedPluginKey trustedKey() {
+        return TRUSTED_KEY;
     }
 
     public static PluginSupplyChainVerifier verifier() {

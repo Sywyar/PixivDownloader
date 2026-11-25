@@ -19,7 +19,9 @@ public final class SwingBackendLifecycle {
     public static DesktopUiHost.BackendState state() { return snapshot().state(); }
     public static boolean startAsync() { return startAsync(null); }
     public static boolean startAsync(Runnable afterStart) { return SwingHost.host().startBackend(onEdt(afterStart)); }
-    public static boolean stopAsync(Runnable afterStop) { return SwingHost.host().stopBackend(onEdt(afterStop)); }
+    public static boolean stopAsync(Runnable afterStop, java.util.function.Consumer<Throwable> onFailure) {
+        return SwingHost.host().stopBackend(onEdt(afterStop), failure -> onEdt(() -> onFailure.accept(failure)).run());
+    }
     public static boolean restartAsync() { return restartAsync(null); }
     public static boolean restartAsync(Runnable afterRestart) { return SwingHost.host().restartBackend(onEdt(afterRestart)); }
 

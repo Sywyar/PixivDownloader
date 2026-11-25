@@ -63,6 +63,26 @@ class PluginRuntimeResourcesTest {
     }
 
     @Test
+    void restoredQuiescedContextKeepsItsResourceAccessClosedAfterNormalRestart() {
+        var previous = registry.prepareQuiesce("owner");
+        registry.closeResources("owner", previous);
+        registry.beginGeneration("owner", false);
+        var restored = registry.resourcesForPlugin("owner");
+        assertThatThrownBy(restored::openScope).hasMessage("PLUGIN_RESOURCE_CLOSED");
+
+        var drain = registry.prepareQuiesce("owner");
+        assertThat(drain.generation()).isGreaterThan(previous.generation());
+        registry.closeResources("owner", drain);
+        registry.resume("owner");
+        assertThatThrownBy(restored::openScope).hasMessage("PLUGIN_RESOURCE_CLOSED");
+        var calls = new AtomicInteger();
+        try (var scope = registry.resourcesForPlugin("owner").openScope()) {
+            scope.guard(calls::incrementAndGet).run();
+        }
+        assertThat(calls).hasValue(1);
+    }
+
+    @Test
     @DisplayName("旧入口与迟到回调不触达替换代际")
     void lateCallbacksAndFactoriesCannotReachReplacement() {
         var scope = resources.openScope();

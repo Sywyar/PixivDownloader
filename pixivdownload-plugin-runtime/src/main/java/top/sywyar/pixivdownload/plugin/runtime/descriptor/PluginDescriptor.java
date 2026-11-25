@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
  * @param executionMode    插件代码执行位置与能力边界；外置包必须显式声明
  * @param configurationClassNames 由已验证包描述符声明的 Spring 配置类全限定名；不调用插件入口 getter 获取
  * @param riskDeclaration 已冻结包内的开发者能力声明；不从插件代码或安装路径重新推导
+ * @param desktopOnly 仅在桌面启动或作为其它包的必需依赖时加载；未声明的包在所有模式加载
  */
 public record PluginDescriptor(
         String id,
@@ -59,7 +60,8 @@ public record PluginDescriptor(
         PluginExecutionMode executionMode,
         List<String> configurationClassNames,
         PluginRiskDeclaration riskDeclaration,
-        PluginContractDeclaration contract) {
+        PluginContractDeclaration contract,
+        boolean desktopOnly) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -98,7 +100,7 @@ public record PluginDescriptor(
                             PluginRiskDeclaration riskDeclaration) {
         this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
                 description, iconKey, colorToken, kind, replaces, lifecyclePolicy, executionMode,
-                configurationClassNames, riskDeclaration, null);
+                configurationClassNames, riskDeclaration, null, false);
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -183,13 +185,14 @@ public record PluginDescriptor(
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
                 packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode(),
                 packageDescriptor.configurationClassNames(), packageDescriptor.riskDeclaration(),
-                packageDescriptor.contract());
+                packageDescriptor.contract(), packageDescriptor.desktopOnly());
     }
 
     public PluginDescriptor withExecutionMode(PluginExecutionMode mode) {
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind, replaces,
-                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames, riskDeclaration, contract);
+                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames, riskDeclaration, contract,
+                desktopOnly);
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */

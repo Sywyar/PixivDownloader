@@ -24,7 +24,10 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.same;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -144,7 +147,7 @@ class PluginLifecycleServiceTest extends PluginLifecycleServiceTestSupport {
     }
 
     @Test
-    @DisplayName("phase 0 插件 start 失败：不建立子 context，保留失败诊断并落 STOPPED")
+    @DisplayName("外置插件 start 失败时关闭刚创建的子 context，保留诊断并落 STOPPED")
     void bootFeatureStartFailureSkipsServingFootprint() {
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
@@ -160,11 +163,34 @@ class PluginLifecycleServiceTest extends PluginLifecycleServiceTestSupport {
                     parent, List.of(module), registry, capabilityRegistrar());
 
             registry.start();
+            assertThat(plugin.startCount).isZero();
             service.startAll();
+            assertThat(plugin.startCount).isOne();
 
             assertThat(service.contextFor(pluginId)).isEmpty();
             assertThat(service.phase(pluginId)).contains(PluginRuntimePhase.STOPPED);
             assertThat(registry.lifecycleFailuresById()).containsKey(pluginId);
+        }
+    }
+
+    @Test
+    void fatalBootCallbackRetiresPreviouslyStartedExternalGeneration() {
+        try (var parent = new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
+            var first = new RecordingPlugin("first");
+            var second = spy(new RecordingPlugin("second"));
+            var fatal = new InternalError("fixture boot failure");
+            doThrow(fatal).when(second).start();
+            var loader = getClass().getClassLoader();
+            var registry = new PluginRegistry(List.of(), new PluginToggleProperties(), new PluginDiscoveryResult(List.of(
+                    new DiscoveredFeaturePlugin("first", "first", first, loader),
+                    new DiscoveredFeaturePlugin("second", "second", second, loader)), List.of()));
+            var service = realService(parent, List.of(), registry, capabilityRegistrar());
+            registry.start();
+            assertThatThrownBy(service::startAll).isSameAs(fatal);
+            registry.stop();
+            assertThat(first.startCount).isOne();
+            assertThat(first.stopCount).isOne();
+            assertThat(service.phase("first")).contains(PluginRuntimePhase.STOPPED);
         }
     }
 

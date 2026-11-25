@@ -391,6 +391,7 @@
             + esc(t('modal.close', '关闭')) + '</button></div><div class="pmk-content-dialog-body"><p class="pmk-section-text"></p>'
             + '<label><span>' + esc(t('detail.version', '版本')) + '</span> <select class="pmk-version-select"></select></label>'
             + '<p class="pmk-installation-notice"></p><button type="button" class="pmk-btn pmk-btn--primary pmk-detail-install"></button>'
+            + '<a class="pmk-btn pmk-conflict-manage" href="/plugin-manage.html"></a>'
             + '<dl class="pmk-local-artifact"></dl><p class="pmk-market-facts"></p>'
             + '<button type="button" class="pmk-btn pmk-btn--gray pmk-more-versions"></button>'
             + '<div class="pmk-content"></div><div class="pmk-version-notes"></div>'
@@ -451,9 +452,14 @@
             var meta = PMK.installMeta(status);
             install.disabled = installing || !!state.installing[installKey(catalog.repositoryId, pluginId)] || meta.disabled;
             install.textContent = t(installing ? 'install.state.installing' : meta.labelKey);
+            var manage = dialog.querySelector('.pmk-conflict-manage');
+            manage.hidden = status !== 'ARTIFACT_CONFLICT';
+            manage.textContent = t('install.goto-manage');
             select.disabled = installing;
             dialog.querySelector('.pmk-installation-notice').textContent = PMK.data.installationNotice(entry, pkg);
-            dialog.querySelector('.pmk-market-facts').textContent = t('installation.market-facts');
+            dialog.querySelector('.pmk-market-facts').textContent = [t('installation.market-facts'),
+                pkg && PMK.formatSize(pkg.expectedSizeBytes, true), pkg && pkg.sha256 && 'SHA-256 ' + pkg.sha256
+            ].filter(Boolean).join(' · ');
             dialog.querySelector('.pmk-local-artifact').innerHTML = '<dt>' + esc(t('installation.local-package')) + '</dt>'
                 + PMK.data.localArtifactFields(entry).map(function (field) {
                     return '<dt>' + esc(field.label) + '</dt><dd>' + esc(field.value) + '</dd>';

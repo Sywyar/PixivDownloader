@@ -16,6 +16,8 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
  * @param pluginId     目标插件 id（可空）
  * @param action       尝试执行的运行期动词 token（状态查询 / 无动词时为空）
  * @param runtimePhase 目标插件当时的运行期阶段（仅在已知时附带，可空）
+ * @param rolledBack 重载失败后，是否已确认恢复操作前的运行状态；其他错误为空
+ * @param loadedVersion 完成重载补偿时实际加载的版本；没有已加载工件或未执行补偿时为空
  */
 public record PluginManagementErrorResponse(
         @Schema(implementation = PluginManagementErrorCode.class) String code,
@@ -23,5 +25,7 @@ public record PluginManagementErrorResponse(
         int status,
         @HttpApiNullable String pluginId,
         @HttpApiNullable String action,
-        @HttpApiNullable PluginRuntimePhase runtimePhase) implements ApiErrorResponse {
+        @HttpApiNullable PluginRuntimePhase runtimePhase,
+        @HttpApiNullable Boolean rolledBack,
+        @HttpApiNullable String loadedVersion) implements ApiErrorResponse {
 }

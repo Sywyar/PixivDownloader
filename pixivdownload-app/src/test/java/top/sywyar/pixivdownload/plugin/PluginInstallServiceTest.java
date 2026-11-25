@@ -103,8 +103,7 @@ class PluginInstallServiceTest {
     void storesDependenciesWithoutRequiringActivationInDevelopmentMode() {
         service.install(explodedUpload("dep.zip", "stored-dep", "1.0.0", null, null), false);
         var lifecycle = mock(PluginLifecycleService.class);
-        var resolver = new PluginDependencyResolver(installer,
-                mock(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class), lifecycle);
+        var resolver = new PluginDependencyResolver(installer, lifecycle);
         var runtime = mock(PluginRuntimeManager.class);
         when(runtime.isDevelopmentArtifact("dependent")).thenReturn(true);
         var coordinator = new ExternalPluginLifecycleCoordinator(runtime, lifecycle,

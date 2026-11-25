@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
+import top.sywyar.pixivdownload.plugin.PluginTestProvenance;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.operation.PluginAcquisitionOperations;
@@ -28,9 +32,18 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+
+import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
+import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService;
+import top.sywyar.pixivdownload.plugin.market.PluginMarketService;
+import top.sywyar.pixivdownload.plugin.verification.PluginRevocationView;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -88,6 +101,142 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"windows-x64", "universal", "tampered-download", "different-installed", "different-build"})
+    void reinstallUsesTheSignedArtifactAlreadyOnDisk(String scenario) throws Exception {
+        String id = "market-probe", version = "1.0.0";
+        Path universal = Files.write(home.resolve("universal.zip"), CatalogTestSupport.explodedPluginZip(id, version, null));
+        byte[] windowsBytes = CatalogTestSupport.explodedPluginZip(id, version, "*");
+        Path windows = Files.write(home.resolve("windows.zip"), windowsBytes);
+        Path onDisk = switch (scenario) {
+            case "universal" -> universal;
+            case "different-build" -> Files.write(home.resolve("local.zip"), CatalogTestSupport.explodedPluginZip(id, version + "+local", "*"));
+            case "different-installed" -> Files.write(home.resolve("other.zip"), CatalogTestSupport.explodedPluginZip(id, version, "2.0"));
+            default -> windows;
+        };
+        Path servedWindows = windows;
+        if (scenario.equals("tampered-download")) {
+            windowsBytes[10] ^= 1; // 修改 ZIP 条目时间，保持大小和内容不变。
+            servedWindows = Files.write(home.resolve("changed.zip"), windowsBytes);
+        }
+        checkCatalogReinstall(scenario, universal, windows, onDisk, servedWindows);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"windows-x64", "universal"})
+    @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "test.compose.universal", matches = ".+")
+    void repairPackagedCompose(String variant) throws Exception {
+        Path windows = Path.of(System.getProperty("test.compose.artifact"));
+        Path universal = Path.of(System.getProperty("test.compose.universal"));
+        checkCatalogReinstall(variant, universal, windows, variant.equals("windows-x64") ? windows : universal, windows);
+    }
+
+    private void checkCatalogReinstall(String scenario, Path universal, Path windows, Path onDisk, Path servedWindows)
+            throws Exception {
+        var descriptor = PluginPackageReader.inspect(windows).descriptor();
+        String id = descriptor.id(), version = descriptor.version();
+        server = CatalogTestSupport.startServer();
+        var universalRequests = new AtomicInteger();
+        var windowsRequests = new AtomicInteger();
+        String universalHash = PluginPackageIntegrity.sha256Hex(universal), windowsHash = PluginPackageIntegrity.sha256Hex(windows);
+        long universalSize = Files.size(universal), windowsSize = Files.size(windows);
+        var windowsArtifact = new PluginCatalogPackage.InstallerArtifact(
+                serveArtifact(servedWindows, windowsRequests), windowsSize,
+                windowsHash, PluginTestProvenance.signArtifact(id, version, windowsSize, windowsHash), null);
+        var pkg = new PluginCatalogPackage(version, serveArtifact(universal, universalRequests),
+                universalSize, universalHash, PluginTestProvenance.signArtifact(id, version, universalSize, universalHash),
+                Map.of(), null, descriptor.requires().raw(), List.of(), null, List.of(), null, false, null, null, null, null, null,
+                Map.of("windows-x64", windowsArtifact));
+        var repo = PluginRepository.official(true, 3000, 3000, 65536, Math.max(windowsSize, universalSize));
+        var catalog = mock(PluginCatalogService.class);
+        var entry = new PluginCatalogEntry(id, null, null, null, null, List.of(pkg));
+        when(catalog.resolveRepository("official")).thenReturn(repo);
+        when(catalog.resolvePackage("official", id, version)).thenReturn(new PluginCatalogService.ResolvedPackage(repo, entry, pkg));
+        var verifier = PluginTestProvenance.verifier();
+        var installer = new ExternalPluginInstaller(pluginsDir, PluginPackageLimits.defaults(), ignored -> verifier);
+        installers.add(installer);
+        installer.recoverPendingTransactions();
+        String seedHash = PluginPackageIntegrity.sha256Hex(onDisk);
+        long seedSize = Files.size(onDisk);
+        String installedVersion = PluginPackageReader.inspect(onDisk).descriptor().version();
+        var origin = PluginPackageOrigin.forTrustedCatalog(repo.repositoryId(), true, seedSize, seedHash,
+                PluginTestProvenance.signArtifact(id, installedVersion, seedSize, seedHash));
+        var prepared = installer.prepareTransaction(onDisk, false, origin);
+        assertThat(prepared.readyToCommit()).as(prepared.result().toString()).isTrue();
+        var committed = installer.commitTransaction(prepared);
+        installer.verifyCommittedTarget(committed);
+        installer.markActivated(committed);
+        installer.completeTransaction(committed);
+        Path installed = prepared.target();
+        var dependencies = new PluginDependencyResolver(installer);
+        var runtime = mock(PluginRuntimeManager.class);
+        var coordinator = new ExternalPluginLifecycleCoordinator(runtime, mock(PluginLifecycleService.class), installer,
+                mock(RecoveryModeService.class), dependencies);
+        var preview = new PluginCatalogInstallPreview(catalog, null, installer, runtime, coordinator, dependencies);
+        var acquisition = new PluginCatalogAcquisitionService(catalog,
+                new PluginPackageDownloader(CatalogTestSupport.policyFaithful(), downloadTempDir),
+                new PluginInstallService(coordinator, dependencies), dependencies, null, null, preview);
+        try (var trust = org.mockito.Mockito.mockStatic(PluginCatalogTrustStores.class)) {
+            trust.when(() -> PluginCatalogTrustStores.verifierForRepository(repo)).thenReturn(verifier);
+            boolean selectWindows = onDisk.equals(windows);
+            boolean conflict = scenario.equals("different-installed") || scenario.equals("different-build");
+            var plan = acquisition.preview("official", id, version);
+            var selected = plan.packages().getFirst();
+            assertThat(selected.sha256()).isEqualTo(selectWindows ? windowsHash : universalHash);
+            assertThat(selected.expectedSizeBytes()).isEqualTo(selectWindows ? windowsSize : universalSize);
+            var registry = mock(PluginRepositoryRegistry.class);
+            when(registry.find("official")).thenReturn(Optional.of(repo));
+            when(registry.featureEnabled()).thenReturn(true);
+            when(catalog.loadEntryPage(repo, id, null, 24)).thenReturn(
+                    new PluginCatalogDetailPage(entry, "test", null, 1L, false));
+            var status = mock(PluginStatusService.class);
+            when(status.recoveryGateSnapshot()).thenReturn(installer.recoveryGateSnapshot());
+            when(status.report(any())).thenReturn(PluginStatusReport.empty());
+            var revocations = mock(PluginCatalogRevocationService.class);
+            var market = new PluginMarketService(registry, catalog, acquisition,
+                    status, null, null, installer, coordinator);
+            var detail = market.pluginDetail("official", id).packages().getFirst();
+            assertThat(detail.sha256()).isEqualTo(selected.sha256());
+            assertThat(detail.expectedSizeBytes()).isEqualTo(selected.expectedSizeBytes());
+            assertThat(detail.installationMatch()).isEqualTo(selectWindows ? "OFFICIAL_INSTALLER_VARIANT"
+                    : conflict ? "DIFFERENT_ARTIFACT" : "SAME_ARTIFACT");
+            when(revocations.details(eq(repo), eq(id), any(), any())).thenReturn(
+                    mock(PluginRevocationView.class));
+            var factsService = new PluginMarketService(registry, catalog, acquisition,
+                    status, revocations, null, installer, coordinator);
+            factsService.packageFacts("official", id, version);
+            verify(revocations).status(eq(repo), eq(id), org.mockito.ArgumentMatchers.argThat(
+                    value -> value.sha256().equals(selected.sha256()) && value.expectedSizeBytes().equals(selected.expectedSizeBytes())), any());
+            if (conflict) {
+                assertThat(plan.conflicts()).containsExactly(new PluginCatalogInstallPreview.Conflict(
+                        "SAME_VERSION_DIFFERENT_ARTIFACT", id, List.of(seedHash, universalHash)));
+                assertThat(catchThrowableOfType(PluginCatalogException.class, () ->
+                        acquisition.installPreviewed("official", id, version, null, plan.fingerprint())).code())
+                        .isEqualTo(PluginCatalogErrorCode.INSTALL_PREVIEW_BLOCKED);
+                assertThat(acquisition.install("official", id, version).outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+                assertThat(windowsRequests.get() + universalRequests.get()).isZero();
+                var universalOrigin = PluginPackageOrigin.forTrustedCatalog(repo.repositoryId(), true, universalSize,
+                        universalHash, pkg.signature());
+                assertThat(installer.prepareTransaction(universal, false, universalOrigin).result().outcome())
+                        .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+                assertThat(PluginPackageIntegrity.sha256Hex(installed)).isEqualTo(seedHash);
+                return;
+            }
+            assertThat(plan.conflicts()).isEmpty();
+            var result = acquisition.installPreviewed("official", id, version, null, plan.fingerprint());
+            var expected = scenario.equals("tampered-download")
+                    ? PluginInstallOutcome.REJECTED_INTEGRITY : PluginInstallOutcome.DUPLICATE;
+            assertThat(result.outcome()).as(result.toString()).isEqualTo(expected);
+            var direct = acquisition.install("official", id, version);
+            assertThat(direct.outcome()).isEqualTo(expected);
+            assertThat(direct.effectiveAfterRestart()).isFalse();
+            assertThat(windowsRequests.get()).isEqualTo(selectWindows ? 2 : 0);
+            assertThat(universalRequests.get()).isEqualTo(selectWindows ? 0 : 2);
+            assertThat(PluginPackageIntegrity.sha256Hex(installed)).isEqualTo(seedHash);
+            assertThat(result.effectiveAfterRestart()).isFalse();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"preconfirmed", "prompt", "tampered"})
     @DisplayName("确认安装后仅在执行和下载后读取目录，创建记录与重复执行不联网")
     void confirmedOperationReusesSelectionWithoutRepeatingRequests(String mode) throws Exception {
@@ -124,7 +273,7 @@ class PluginCatalogAcquisitionServiceTest {
         when(lifecycle.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         var coordinator = new ExternalPluginLifecycleCoordinator(runtime, lifecycle, installer,
                 mock(RecoveryModeService.class), dependencies);
-        var preview = new PluginCatalogInstallPreview(catalog, null, dependencies, installer, runtime, coordinator);
+        var preview = new PluginCatalogInstallPreview(catalog, null, installer, runtime, coordinator, dependencies);
         var acquisition = new PluginCatalogAcquisitionService(catalog,
                 new PluginPackageDownloader(provider, downloadTempDir),
                 new PluginInstallService(coordinator, dependencies), dependencies, null, null, preview);
@@ -815,6 +964,18 @@ class PluginCatalogAcquisitionServiceTest {
 
     private String servePackage(String path, byte[] body) {
         CatalogTestSupport.serveBytes(server, path, body);
+        return CatalogTestSupport.loopbackUrl(server, path);
+    }
+
+    private String serveArtifact(Path file, AtomicInteger downloads) {
+        String path = "/" + file.getFileName();
+        server.createContext(path, exchange -> {
+            try (exchange) {
+                downloads.incrementAndGet();
+                exchange.sendResponseHeaders(200, Files.size(file));
+                Files.copy(file, exchange.getResponseBody());
+            }
+        });
         return CatalogTestSupport.loopbackUrl(server, path);
     }
 

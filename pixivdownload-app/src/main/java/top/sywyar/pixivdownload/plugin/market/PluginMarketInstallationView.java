@@ -1,10 +1,13 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogPackage;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import io.swagger.v3.oas.annotations.media.Schema;
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.InstalledPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.ProvenanceSnapshotState;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVersion;
 
 /** 本机磁盘包与运行实例分别投影；内容相同不代表来源、信任或激活状态相同。 */
 public record PluginMarketInstallationView(
@@ -41,11 +44,15 @@ public record PluginMarketInstallationView(
                 runtimeVersion, runtimeStatus, installedArtifactsEnabled);
     }
 
+    PluginCatalogPackage selectArtifact(PluginRepository repository, String pluginId, PluginCatalogPackage pkg) {
+        return pkg.forInstalledArtifact(repository, pluginId, version, sha256);
+    }
+
     String comparison(String marketVersion, String marketSha256) {
         if ("ABSENT".equals(state)) return "NOT_INSTALLED";
         if ("UNKNOWN".equals(state)) return "UNKNOWN";
         if (version == null) return "UNKNOWN";
-        if (!version.equals(marketVersion)) return "DIFFERENT_VERSION";
+        if (!PluginPackageVersion.samePrecedence(version, marketVersion)) return "DIFFERENT_VERSION";
         if (sha256 == null || marketSha256 == null || !marketSha256.matches("(?i)[0-9a-f]{64}")) return "UNKNOWN";
         return sha256.equalsIgnoreCase(marketSha256) ? "SAME_ARTIFACT" : "DIFFERENT_ARTIFACT";
     }

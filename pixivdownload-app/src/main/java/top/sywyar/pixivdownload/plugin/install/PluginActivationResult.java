@@ -16,7 +16,8 @@ public record PluginActivationResult(
         ExternalPluginOperation operation,
         PluginRuntimePhase runtimePhase,
         boolean recoveryBlocked,
-        List<PluginDependencyProblem> dependencyProblems) {
+        List<PluginDependencyProblem> dependencyProblems,
+        boolean deferredUntilRestart) {
 
     public PluginActivationResult {
         dependencyProblems = dependencyProblems != null ? List.copyOf(dependencyProblems) : List.of();
@@ -26,7 +27,7 @@ public record PluginActivationResult(
                                   boolean activated, boolean rolledBack, String rollbackVersion,
                                   ExternalPluginOperation operation, PluginRuntimePhase runtimePhase) {
         this(transactionId, installResult, activated, rolledBack, rollbackVersion,
-                operation, runtimePhase, false, List.of());
+                operation, runtimePhase, false, List.of(), false);
     }
 
     public PluginActivationResult(String transactionId, PluginInstallResult installResult,
@@ -34,7 +35,7 @@ public record PluginActivationResult(
                                   ExternalPluginOperation operation, PluginRuntimePhase runtimePhase,
                                   List<PluginDependencyProblem> dependencyProblems) {
         this(transactionId, installResult, activated, rolledBack, rollbackVersion,
-                operation, runtimePhase, false, dependencyProblems);
+                operation, runtimePhase, false, dependencyProblems, false);
     }
 
     public PluginActivationResult(String transactionId, PluginInstallResult installResult,
@@ -42,6 +43,6 @@ public record PluginActivationResult(
                                   ExternalPluginOperation operation, PluginRuntimePhase runtimePhase,
                                   boolean recoveryBlocked) {
         this(transactionId, installResult, activated, rolledBack, rollbackVersion,
-                operation, runtimePhase, recoveryBlocked, List.of());
+                operation, runtimePhase, recoveryBlocked, List.of(), false);
     }
 }

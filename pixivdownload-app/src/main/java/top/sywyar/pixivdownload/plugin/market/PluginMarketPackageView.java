@@ -20,7 +20,7 @@ import java.util.List;
  * @param signaturePresent      是否声明了结构化签名；可信展示以 {@code verification} 后端投影为准
  * @param requiredSdk       声明的SDK 版本要求（可空）
  * @param compatible            当前SDK 是否满足该要求（未声明视为兼容）
- * @param effectiveAfterRestart 安装后是否需重启才生效（当前事务化热更新为 {@code false}）
+ * @param effectiveAfterRestart 匹配的本机安装包是否正等待重启生效
  * @param dependencies          声明的插件间依赖（展示用）
  * @param releasedTime          发布时间（ISO-8601，可空；版本历史展示）
  * @param changeNotes           更新说明条目（可空；详情弹窗更新日志）
@@ -45,6 +45,8 @@ public record PluginMarketPackageView(
         PluginVerificationView verification,
         boolean installable,
         @HttpApiNullable top.sywyar.pixivdownload.sdk.community.content.MarketContent content,
+        @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"NOT_INSTALLED", "UNKNOWN",
+                "DIFFERENT_VERSION", "SAME_ARTIFACT", "OFFICIAL_INSTALLER_VARIANT", "DIFFERENT_ARTIFACT"})
         String installationMatch) {
 
     public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,
@@ -56,10 +58,10 @@ public record PluginMarketPackageView(
                 dependencies, releasedTime, changeNotes, channel, deprecated, verification, installable, content, "UNKNOWN");
     }
 
-    PluginMarketPackageView withInstallation(PluginMarketInstallationView installation) {
+    PluginMarketPackageView withInstallationMatch(String match, boolean pendingRestart) {
         return new PluginMarketPackageView(version, expectedSizeBytes, sha256, signaturePresent, requiredSdk,
-                compatible, effectiveAfterRestart, dependencies, releasedTime, changeNotes, channel, deprecated,
-                verification, installable, content, installation.comparison(version, sha256));
+                compatible, pendingRestart, dependencies, releasedTime, changeNotes, channel, deprecated,
+                verification, installable, content, match);
     }
 
     public PluginMarketPackageView(String version, long expectedSizeBytes, String sha256, boolean signaturePresent,

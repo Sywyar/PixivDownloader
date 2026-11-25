@@ -34,6 +34,8 @@ public enum PluginManagementErrorCode {
 
     OPERATION_IN_PROGRESS(HttpStatus.CONFLICT, "plugin.manage.error.operation-in-progress"),
 
+    BACKEND_STOP_FAILED(HttpStatus.CONFLICT, "plugin.manage.error.backend-stop-failed"),
+
     IMPACT_CHANGED(HttpStatus.CONFLICT, "plugin.manage.error.impact-changed"),
 
     DEPENDENCY_BLOCKED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-blocked"),
@@ -52,6 +54,10 @@ public enum PluginManagementErrorCode {
     /** 已接受一个尚未触发的后端上下文重启请求。 */
     BACKEND_RESTART_PENDING(HttpStatus.CONFLICT, "plugin.manage.error.backend-restart-pending"),
 
+    RELOAD_ROLLED_BACK(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.reload-rolled-back"),
+    RELOAD_ROLLBACK_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.reload-rollback-failed"),
+
+    INITIALIZATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.initialization-failed"),
     PHYSICAL_UNLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.physical-unload-failed");
 
     private final HttpStatus status;

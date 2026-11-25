@@ -83,13 +83,19 @@ const PMK = sandbox.window.PixivPluginMarket;
     eq('制品撤回后不保留旧体积', PMK.data.cardModel(entry).sizeLabel, null);
 }
 for (const [match, expected] of [['SAME_ARTIFACT', 'INSTALLED_SAME'],
-    ['DIFFERENT_ARTIFACT', 'INSTALL_DIFFERENT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
+    ['DIFFERENT_ARTIFACT', 'ARTIFACT_CONFLICT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
     const pkg = {version: '7.0.0', installationMatch: match, compatible: true, installable: true,
         verification: {status: 'VERIFIED_COMMUNITY', assuranceLevel: 'SOURCE_REVIEWED', revocationStatus: 'CLEAR'}};
     const entry = {pluginId: 'sample', latestVersion: pkg.version, recommendedVersion: pkg.version,
         installedVersion: pkg.version, installStatus: 'INSTALLED', packages: [pkg]};
     eq('卡片按后端内容比较区分版本号相同的包', PMK.data.cardModel(entry).installStatus, expected);
     eq('手动所选版本使用相同比较结果', PMK.data.selectedInstallStatus(entry, pkg, null, true), expected);
+    if (match === 'SAME_ARTIFACT') {
+        eq('无头跳过的已安装包不提示重启',
+            PMK.data.installResultStatus({accepted: true, activated: false, effectiveAfterRestart: false}, expected), expected);
+        pkg.effectiveAfterRestart = true;
+        eq('刷新市场后仍显示同一制品的待重启更新', PMK.data.cardModel(entry).installStatus, 'PENDING_RESTART');
+    }
     eq('撤销阻断不被本机相同包事实替代',
         PMK.data.selectedInstallStatus(entry, pkg, {revocationStatus: 'REVOKED'}, true), 'REVOKED');
 }

@@ -52,7 +52,7 @@ class PluginStatusServiceTest {
         when(status.failureSnapshot()).thenReturn(Map.of());
         when(status.report()).thenReturn(new top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport(List.of(
                 new PluginDiagnostic("required", PluginStatus.STARTED, null, true, List.of()))));
-        RecoveryModeService recovery = new RecoveryModeService(status, policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        RecoveryModeService recovery = new RecoveryModeService(status, policy, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
         assertThat(recovery.isActive()).isFalse();
 
         when(status.failureSnapshot()).thenReturn(Map.of("required", "CRASHED"));
@@ -176,7 +176,7 @@ class PluginStatusServiceTest {
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.FAILED);
         assertThat(diagnostic.messages()).containsExactly("startup exploded");
         assertThat(service.startupFailuresById()).containsOnlyKeys("crashy");
-        RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
         assertThat(recovery.isActive()).isFalse();
         assertThat(recovery.reasons()).isEmpty();
     }
@@ -210,7 +210,7 @@ class PluginStatusServiceTest {
         Map<String, String> failed = service.failureSnapshot();
         assertThat(failed).containsEntry("crashy", "CRASHED");
         assertThat(service.startupFailuresById()).isEmpty();
-        assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class)).isActive()).isFalse();
+        assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true).isActive()).isFalse();
         assertThatThrownBy(() -> failed.put("other", "failure"))
                 .isInstanceOf(UnsupportedOperationException.class);
         when(runtime.status()).thenReturn(Optional.of(new PluginRuntimeStatus(

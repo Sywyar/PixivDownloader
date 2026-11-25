@@ -94,6 +94,13 @@ try {
     $metadataBudget.Remaining = $consumed
     $null = Get-PluginPackageMetadata $wrapped -Budget $metadataBudget
     Assert-PreviewThrows { Get-PluginPackageMetadata $wrapped -Budget $metadataBudget } 'Metadata budget was reset for each plugin.'
+    # An official same-version universal build may already be installed from the market.
+    $sameRoot = Join-Path $fixture 'same-version'
+    $same = New-PreviewPackage (Join-Path $sameRoot 'plugins') 'regular.jar' 'regular' '2.0.0' '2.0.0'
+    Assert-Preview ($same.sha256 -ne $bundles[0].sha256) 'Test requires different package digests.'
+    $samePlan = New-InstallerPluginPlan $inputManifest $sameRoot '2.0.0' '1.0.0' 'en'
+    $row = $samePlan.rows | Where-Object id -eq 'regular'
+    Assert-Preview ($row.reason -eq 'different' -and -not $row.selected -and $row.selectable) 'Same-version different bytes should be retained by default.'
     $before = Get-PlanSnapshot $application
     $plan = New-InstallerPluginPlan $inputManifest $application '2.0.0' '1.0.0' 'en'
     Assert-Preview ($plan.rows.Count -eq 5) 'Incorrect inventory count.'
@@ -169,6 +176,9 @@ try {
         )
         New-PreviewPackage $targetPlugins 'retain.jar' 'retain' '3.0.0' '2.0' | Out-Null
         New-PreviewPackage $targetPlugins 'old-upgrade.jar' 'upgrade' '1.0.0' '2.0' | Out-Null
+        $disabledConfig = Join-Path $target 'config/config.yaml'
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $disabledConfig)) | Out-Null
+        [IO.File]::WriteAllText($disabledConfig, 'plugins.upgrade.enabled: false', $utf8)
         Save-PlanJson $distribution (Join-Path $imagePlugins 'plugins-manifest.json')
         [IO.File]::WriteAllText((Join-Path $image 'fixture.txt'), 'installed')
         [IO.File]::WriteAllText((Join-Path $fixture 'signature.jar'), 'compile fixture')
@@ -203,6 +213,10 @@ try {
         Assert-Preview (Test-Path -LiteralPath (Join-Path $target 'fixture.txt')) 'Application payload was not copied.'
         Assert-Preview (-not (Test-Path -LiteralPath (Join-Path $targetPlugins 'old-upgrade.jar'))) 'Real installer did not reconcile approved plugin.'
         Assert-Preview ((Get-PluginPackageMetadata (Join-Path $targetPlugins 'upgrade.jar')).version -eq '2.0.0') 'Real installer did not install approved plugin.'
+        Assert-Preview (([IO.File]::ReadAllText($disabledConfig)) -eq 'plugins.upgrade.enabled: false') 'Upgrade changed the disabled plugin setting.'
+        $installedManifest = Get-Content -LiteralPath (Join-Path $targetPlugins 'plugins-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $upgraded = @($installedManifest | Where-Object id -eq 'upgrade')
+        Assert-Preview ($upgraded.Count -eq 1 -and $upgraded[0].sha256 -eq (Get-PlanFileHash (Join-Path $targetPlugins 'upgrade.jar'))) 'Upgrade manifest does not identify the installed bytes.'
         Write-Host 'Production installer copy and reconciliation passed.'
     }
     Write-Host 'Installer preview behavior passed.'

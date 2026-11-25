@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.lifecycle;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -139,6 +140,16 @@ public final class PluginRuntimePackageIndex {
         private PluginInventory contributionSnapshot;
         private final PluginArtifactSnapshot productionSnapshot;
         private String deploymentIdentity;
+        private PluginProvenanceRecord displacedProvenance;
+        private boolean retainedForReplacement;
+
+        public boolean retainedForReplacement() { return retainedForReplacement; }
+
+        public void retainForReplacement() { retainedForReplacement = true; }
+
+        public PluginProvenanceRecord displacedProvenance() { return displacedProvenance; }
+
+        public void retainProvenance(PluginProvenanceRecord provenance) { displacedProvenance = provenance; }
 
         private Entry(
                 String packageId,

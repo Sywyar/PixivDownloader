@@ -218,7 +218,8 @@ try {
             ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) { throw "Failed to download $assetName from release $tag." }
         $artifactPath = Join-Path $tmp $assetName
-        $artifactDescriptor = Read-PluginDescriptor $artifactPath
+        $variant = Get-InstallerPluginVariant $plugin
+        $artifactDescriptor = if ($variant) { Assert-OfficialPluginArtifact $artifactPath $plugin } else { Read-PluginDescriptor $artifactPath }
         if ($null -eq $artifactDescriptor -or $artifactDescriptor['plugin.id'] -ne $id -or $artifactDescriptor['plugin.version'] -ne $version) {
             throw "Published artifact descriptor does not match $id $version."
         }
@@ -288,6 +289,25 @@ try {
             changeNotes       = $changeNotes
             channel           = if ($isNightly) { 'nightly' } elseif ($version -match '-([a-z]+)') { $Matches[1] } else { 'stable' }
             deprecated        = $false
+        }
+        if ($variant) {
+            $name = Get-OfficialPluginArtifactName $variant $version
+            foreach ($asset in @($name, "$name.sig")) {
+                & gh release download $tag --repo $Repo --pattern $asset --dir $tmp --clobber | ForEach-Object { Write-Host $_ }
+                if ($LASTEXITCODE -ne 0) { throw "Failed to download $asset from release $tag." }
+            }
+            $file = Join-Path $tmp $name
+            $variantDescriptor = Assert-OfficialPluginArtifact $file $variant
+            if ($variantDescriptor['plugin.version'] -cne $version -or $variantDescriptor['plugin.requires'] -cne $manifestRequiredSdk) {
+                throw "Installer artifact descriptor does not match the universal package: $name"
+            }
+            $length = (Get-Item -LiteralPath $file).Length
+            $digest = Get-Sha256Hex $file
+            $verified = Assert-PluginArtifactSignature $SignatureToolJar $file "$file.sig" $id $version $length $digest
+            $url = "https://github.com/$Repo/releases/download/$tag/$name"
+            $package['installerArtifacts'] = @{ $variant.Classifier = [ordered]@{
+                packageUrl=$url; expectedSizeBytes=$length; sha256=$digest; signature=$verified; signatureUrl="$url.sig"
+            } }
         }
         if (Has-Property $publication 'content') { $package['content'] = $publication.content }
 

@@ -51,6 +51,20 @@ public class PluginEnabledConfigurationService {
      * 未知或没有可用描述符的包也拒绝，避免把任意路径变量写进宿主配置。
      */
     public PluginEnabledState update(String id, boolean enabled) {
+        var descriptor = configurableDescriptor(id, enabled);
+        synchronized (writeLock) {
+            try {
+                editor.write("plugins." + descriptor.id() + ".enabled", Boolean.toString(enabled));
+            } catch (IOException e) {
+                throw new PluginManagementException(PluginManagementErrorCode.TOGGLE_PERSIST_FAILED,
+                        id, enabled ? "enable" : "disable", null, "Failed to persist plugin enabled state: " + id);
+            }
+            pluginToggles.setEnabled(descriptor.id(), enabled);
+        }
+        return new PluginEnabledState(descriptor.id(), enabled, descriptor.lifecyclePolicy());
+    }
+
+    PluginDescriptor configurableDescriptor(String id, boolean enabled) {
         String action = enabled ? "enable" : "disable";
         if (BuiltInPlugins.isBuiltIn(id)) {
             throw new PluginManagementException(PluginManagementErrorCode.BUILT_IN_PLUGIN,
@@ -69,16 +83,7 @@ public class PluginEnabledConfigurationService {
                     id, action, null, "Unknown plugin: " + id);
         }
 
-        synchronized (writeLock) {
-            try {
-                editor.write("plugins." + descriptor.id() + ".enabled", Boolean.toString(enabled));
-            } catch (IOException e) {
-                throw new PluginManagementException(PluginManagementErrorCode.TOGGLE_PERSIST_FAILED,
-                        id, action, null, "Failed to persist plugin enabled state: " + id);
-            }
-            pluginToggles.setEnabled(descriptor.id(), enabled);
-        }
-        return new PluginEnabledState(descriptor.id(), enabled, descriptor.lifecyclePolicy());
+        return descriptor;
     }
 
     /** 插件启用态写入结果。 */

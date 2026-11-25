@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -286,7 +287,7 @@ public final class BackendLifecycleManager {
         }
 
         if (stopToStart != null) {
-            startStopWorker(stopToStart, null);
+            startStopWorker(stopToStart, null, null);
         }
         return awaitCloseAttempt(completion, deadlineNanos);
     }
@@ -319,10 +320,16 @@ public final class BackendLifecycleManager {
     }
 
     /**
-     * 关闭唯一拥有的 context，并依据 {@code isActive()} 区分「虽有异常但已确认关闭」和「未确认关闭」。
-     * 只有前者允许继续清退 PF4J；后者保留 context 引用供后续重试。
+     * 先确认外置插件完成清退，再关闭父 context。任一步未完成都保留原实例以供重试。
      */
     private static ContextCloseResult closeOwnedContext(ConfigurableApplicationContext ctx) {
+        try {
+            ExternalPluginLifecycleCoordinator.stopBeforeContextClose(ctx);
+        } catch (Throwable failure) {
+            log.warn("Backend plugin shutdown failed: {}", safeMessage(failure), failure);
+            return new ContextCloseResult(CloseResult.FAILED, failure);
+        }
+
         Throwable failure = null;
         try {
             int exitCode = SpringApplication.exit(ctx);
@@ -347,24 +354,30 @@ public final class BackendLifecycleManager {
         return new ContextCloseResult(active ? CloseResult.FAILED : CloseResult.CLOSED, failure);
     }
 
-    private static void startStopWorker(StopOperation operation, Runnable afterStop) {
+    private static void startStopWorker(StopOperation operation, Runnable afterStop, Consumer<Throwable> onFailure) {
         Thread stopper = new Thread(() -> {
             ContextCloseResult closed = closeOwnedContext(operation.ownedContext);
             CloseResult result = closed.result();
+            Throwable stopFailure = closed.failure();
+            if (result == CloseResult.FAILED && stopFailure == null)
+                stopFailure = new IllegalStateException("backend context close was not confirmed");
             synchronized (LOCK) {
                 if (activeStopOperation == operation) {
                     if (result == CloseResult.CLOSED) {
                         updateState(State.STOPPED, null);
                     } else {
                         context = operation.ownedContext;
-                        updateState(State.FAILED,
-                                new IllegalStateException("backend context close was not confirmed"));
+                        updateState(State.FAILED, stopFailure);
                     }
                     activeStopOperation = null;
                 }
             }
             operation.completion.complete(result);
-            if (isFatal(closed.failure())) throw (Error) closed.failure();
+            try {
+                if (result == CloseResult.FAILED && onFailure != null) onFailure.accept(stopFailure);
+            } finally {
+                if (isFatal(closed.failure())) throw (Error) closed.failure();
+            }
             if (result == CloseResult.CLOSED && afterStop != null) {
                 afterStop.run();
             }
@@ -575,7 +588,7 @@ public final class BackendLifecycleManager {
                     } else {
                         context = lateClose;
                         updateState(State.FAILED,
-                                new IllegalStateException("late backend context close was not confirmed"));
+                                closed.failure() != null ? closed.failure() : new IllegalStateException("late backend context close was not confirmed"));
                     }
                     activeStartOperation = null;
                 }
@@ -602,6 +615,10 @@ public final class BackendLifecycleManager {
     }
 
     public static boolean stopAsync(Runnable afterStop) {
+        return stopAsync(afterStop, null);
+    }
+
+    public static boolean stopAsync(Runnable afterStop, Consumer<Throwable> onFailure) {
         StopOperation operation = null;
         synchronized (LOCK) {
             if (state == State.STOPPING || state == State.STARTING) {
@@ -619,7 +636,7 @@ public final class BackendLifecycleManager {
         }
 
         if (operation != null) {
-            startStopWorker(operation, afterStop);
+            startStopWorker(operation, afterStop, onFailure);
         } else if (afterStop != null) {
             afterStop.run();
         }

@@ -54,6 +54,8 @@ class EnvironmentExportServiceTest {
     void refusesUnconfirmedShutdown() {
         var context = mock(ConfigurableApplicationContext.class);
         when(context.isActive()).thenReturn(true);
+        when(context.getBeanProvider(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator.class))
+                .thenReturn(mock(org.springframework.beans.factory.ObjectProvider.class));
         assertThatThrownBy(() -> EnvironmentExportService.stopBackend(context)).isInstanceOf(java.io.IOException.class)
                 .hasMessage("transfer.backend-not-stopped");
         verify(context).close();

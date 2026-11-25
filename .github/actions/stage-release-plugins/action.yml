@@ -29,6 +29,7 @@ runs:
           SignatureToolJar = $signatureTools[0].FullName
           IncludeOptional = $true
           RequireProguard = $true
+          IncludeInstallerArtifacts = $true
         }
         if ($env:PLUGIN_MANIFEST_COMMIT -notmatch '^[0-9a-f]{40}$') {
           throw "Invalid plugin manifest commit: $env:PLUGIN_MANIFEST_COMMIT"

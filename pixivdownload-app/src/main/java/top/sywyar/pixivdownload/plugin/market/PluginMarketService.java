@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 插件市场后端服务：把 {@code plugin.catalog} 引擎（{@link PluginRepositoryRegistry} 仓库列表 + {@link PluginCatalogService}
@@ -95,9 +96,18 @@ public class PluginMarketService {
         var resolved = catalogService.resolvePackage(repositoryId, pluginId, version);
         var repository = resolved.repository();
         var pkg = resolved.pkg();
+        List<PluginDiagnostic> diagnostics;
+        if (repository.official() && !pkg.installerArtifacts().isEmpty()) {
+            var installed = installedVersionsById();
+            var local = installed.entries().get(pluginId);
+            if (local != null) pkg = local.selectArtifact(repository, pluginId, pkg);
+            diagnostics = installed.diagnostics();
+        } else {
+            diagnostics = pluginStatusService.report().diagnostics();
+        }
         var snapshot = refreshRevocations(repository);
         var view = top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector.forCatalogPackage(repository, pkg);
-        var previous = pluginStatusService.report().diagnostics().stream()
+        var previous = diagnostics.stream()
                 .filter(item -> pluginId.equals(item.id())).map(PluginDiagnostic::descriptor)
                 .filter(java.util.Objects::nonNull).findFirst().orElse(null);
         String revocation = revocations != null ? revocations.status(repository, pluginId, pkg, snapshot) : "NOT_CHECKED";
@@ -220,10 +230,16 @@ public class PluginMarketService {
                 ? PluginMarketInstallationView.from(null, null, null, installedVersions.enabled())
                 : PluginMarketInstallationView.unknown(null, installedVersions.enabled()));
         boolean installed = local.version() != null;
-        var packages = entry.packages().stream().map(pkg -> revocations == null
-                ? PluginMarketPackageView.from(repository, pkg)
-                : PluginMarketPackageView.from(repository, pkg,
-                    revocations.details(repository, entry.pluginId(), pkg, snapshot))).toList();
+        var packages = entry.packages().stream().map(original -> {
+            var pkg = local.selectArtifact(repository, entry.pluginId(), original);
+            var view = revocations == null ? PluginMarketPackageView.from(repository, pkg)
+                    : PluginMarketPackageView.from(repository, pkg,
+                            revocations.details(repository, entry.pluginId(), pkg, snapshot));
+            String match = original == pkg ? local.comparison(pkg.version(), pkg.sha256()) : "OFFICIAL_INSTALLER_VARIANT";
+            boolean pending = installedVersions.pendingRestart().contains(entry.pluginId())
+                    && ("SAME_ARTIFACT".equals(match) || "OFFICIAL_INSTALLER_VARIANT".equals(match));
+            return view.withInstallationMatch(match, pending);
+        }).toList();
         return PluginMarketEntryView.from(entry, installed, local.version(), packages).withInstallation(local);
     }
 
@@ -253,11 +269,12 @@ public class PluginMarketService {
                                 ? diagnostic.descriptor().version() : null, diagnostic.status().name()));
             }
         }
-        if (inventory == null) return new InstalledState(versions, installer == null, enabled);
+        if (inventory == null) return new InstalledState(versions, installer == null, enabled, diagnostics, Set.of());
         if (!gate.equals(pluginStatusService.recoveryGateSnapshot())
-                || lifecycle != null && epoch != lifecycle.lifecycleMutationEpoch()) return new InstalledState(versions, false, enabled);
+                || lifecycle != null && epoch != lifecycle.lifecycleMutationEpoch()) return new InstalledState(versions, false, enabled, diagnostics, Set.of());
         Map<String, List<InstalledPluginSnapshot>> byId = inventory.entries().stream()
                 .collect(java.util.stream.Collectors.groupingBy(item -> item.plugin().id()));
+        var pendingRestart = lifecycle == null ? Set.<String>of() : lifecycle.pendingInstalls(inventory.entries());
         var ids = new java.util.HashSet<>(versions.keySet());
         ids.addAll(byId.keySet());
         for (String id : ids) {
@@ -273,10 +290,12 @@ public class PluginMarketService {
                             ? runtime.descriptor().version() : null,
                     runtime != null ? runtime.status().name() : null, enabled));
         }
-        return new InstalledState(versions, true, enabled);
+        return new InstalledState(versions, true, enabled, diagnostics,
+                lifecycle == null || epoch == lifecycle.lifecycleMutationEpoch() ? pendingRestart : Set.of());
     }
 
-    private record InstalledState(Map<String, PluginMarketInstallationView> entries, boolean complete, boolean enabled) { }
+    private record InstalledState(Map<String, PluginMarketInstallationView> entries, boolean complete, boolean enabled,
+                                  List<PluginDiagnostic> diagnostics, Set<String> pendingRestart) { }
 
     public PluginMarketService(PluginRepositoryRegistry repositories, PluginCatalogService catalog,
             PluginCatalogAcquisitionService acquisition, PluginStatusService status,

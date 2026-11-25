@@ -1022,8 +1022,12 @@ public final class ExternalCapabilityInvocationRegistry {
         }
         synchronized (lock) {
             OwnerState state = states.get(owner.publicationId());
-            return state != null && state.owner.equals(owner) && state.phase == Phase.PUBLISHED;
+            return state != null && state.owner.equals(owner) && acceptsNewInvocation(state);
         }
+    }
+
+    private boolean acceptsNewInvocation(OwnerState state) {
+        return state.phase == Phase.PUBLISHED && serviceAdmission.acceptsNewRequests(state.owner.pluginId());
     }
 
     /** Discard an unpublished batch and clear every raw target, even when preparation failed part way through. */
@@ -1222,8 +1226,7 @@ public final class ExternalCapabilityInvocationRegistry {
                     }
                 }
                 if (typedService) {
-                    if ((consumer != null || !hasActiveOwner(state)) && (state.phase != Phase.PUBLISHED
-                            || !serviceAdmission.acceptsNewRequests(state.owner.pluginId()))) {
+                    if ((consumer != null || !hasActiveOwner(state)) && !acceptsNewInvocation(state)) {
                         throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
                     }
                     if (serviceCalls >= MAX_SERVICE_CALLS) {
@@ -1239,7 +1242,7 @@ public final class ExternalCapabilityInvocationRegistry {
                 ownerScope = new ActiveOwnerScope(state);
                 ownerScope.enter();
                 if (!nestedSameOwner) {
-                    if (state.phase != Phase.PUBLISHED || !state.leaseState.tryAcquire(leaseToken)) {
+                    if (!acceptsNewInvocation(state) || !state.leaseState.tryAcquire(leaseToken)) {
                         throw unavailable(handle);
                     }
                 } else if (state.phase != Phase.PUBLISHED && state.phase != Phase.WITHDRAWN) {

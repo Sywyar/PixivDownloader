@@ -210,10 +210,7 @@
         parts.push(sectionHtml({title: PM.t('common:plugin-info.dependencies'),
             fields: (vm.sdk ? [{label: PM.t('common:plugin-info.sdk'), value: vm.sdk.specified ? vm.sdk.required : PM.t('sdk.any')}] : []).concat([{
                 label: PM.t('common:plugin-info.dependency-plugins'),
-                value: vm.deps.length ? vm.deps.map(function (dep) {
-                    return PM.pluginLabel(dep.pluginId) + (dep.versionSupport ? ' · ' + dep.versionSupport : '')
-                        + (dep.optional ? ' · ' + PM.t('deps.optional') : '');
-                }).join('\n') : PM.t('common:plugin-info.no-dependencies')
+                value: PM.dependencyList(vm.deps)
             }])
         }, 'dependencies'));
         serviceSections(vm.id).forEach(function (section, index) { parts.push(sectionHtml(section, 'services-' + index)); });

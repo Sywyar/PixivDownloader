@@ -162,7 +162,7 @@ function Build-StagedPluginArtifact {
         [Parameter(Mandatory = $true)][string]$Version,
         [Parameter(Mandatory = $true)][string]$AssetName
     )
-    if (-not $buildAllPlugins -and -not $UsePrebuiltArtifacts) {
+    if (-not $buildAllPlugins -and -not $UsePrebuiltArtifacts -and -not $Plugin.PSObject.Properties['Classifier']) {
         Invoke-PluginBuild -Modules @($Plugin.Module)
     }
 
@@ -287,6 +287,21 @@ function Write-StagedCompanionFiles {
     return [pscustomobject]@{ Sha = $sha; ShaFile = $shaFile; SigFile = $sigFile }
 }
 
+function New-ReleasePluginFiles($Plugin, [string]$SourceVersion, [string]$Version) {
+    foreach ($artifact in @($Plugin) + @(Get-InstallerPluginVariant $Plugin)) {
+        $assetName = Get-OfficialPluginArtifactName $artifact $Version
+        if ($SourceVersion -ceq $Version) {
+            $file = Build-StagedPluginArtifact -Plugin $artifact -Version $Version -AssetName $assetName
+        } else {
+            $file = Build-StagedNightlyPluginArtifact -Plugin $artifact -SourceVersion $SourceVersion -Version $Version -AssetName $assetName
+        }
+        $companions = Write-StagedCompanionFiles -StagedArtifact $file -AssetName $assetName -Plugin $artifact -Version $Version
+        $file
+        $companions.ShaFile
+        $companions.SigFile
+    }
+}
+
 function Upload-ReleaseAssetFiles {
     param(
         [Parameter(Mandatory = $true)][string]$Tag,
@@ -341,15 +356,10 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
         $tag = "$($plugin.Id)-nightly"
         $title = "Nightly Build $($plugin.Id)-v$version"
         $release = Get-ReleaseAssetState $tag
-        $assetName = Get-OfficialPluginArtifactName $plugin $version
-        $stagedArtifact = Build-StagedNightlyPluginArtifact -Plugin $plugin -SourceVersion $sourceVersion `
-            -Version $version -AssetName $assetName
-        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName `
-            -Plugin $plugin -Version $version
-
+        $artifactFiles = @(New-ReleasePluginFiles $plugin $sourceVersion $version)
         $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $sourceVersion $stageDir $sourceCommit)
         $contentHash = Get-OfficialMarketContentHash $contentPaths
-        $uploadPaths = @($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths
+        $uploadPaths = $artifactFiles + $contentPaths
         if ($release.Exists) {
             $assetNames = @($release.AssetNames)
             Save-ReleaseDownloadCheckpoint -Repo $Repo -Tag $tag -Release $release -Plugin $plugin -Directory $stageDir `
@@ -376,10 +386,11 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)) {
 foreach ($plugin in $plugins) {
     $version = Read-SourceVersion $plugin.Module
     $tag = "$($plugin.Id)-v$version"
-    $assetName = Get-OfficialPluginArtifactName $plugin $version
-    $shaAssetName = "$assetName.sha256"
-    $sigAssetName = "$assetName.sig"
-    $expectedAssets = @($assetName, $shaAssetName, $sigAssetName)
+    $artifacts = @($plugin) + @(Get-InstallerPluginVariant $plugin)
+    $expectedAssets = @(foreach ($artifact in $artifacts) {
+        $name = Get-OfficialPluginArtifactName $artifact $version
+        $name; "$name.sha256"; "$name.sig"
+    })
     $release = Get-ReleaseAssetState $tag
     $assetNames = @($release.AssetNames)
     # 重试复用该版本第一次发布的源码身份；旧元数据继续按无来源地址的合同比较。
@@ -392,8 +403,7 @@ foreach ($plugin in $plugins) {
             Write-Host "==> Force publishing $tag; release does not exist yet."
         }
 
-        $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
-        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
+        $artifactFiles = @(New-ReleasePluginFiles $plugin $version $version)
 
         $contentPaths = @()
         $contentHash = $release.ContentHash
@@ -416,7 +426,7 @@ foreach ($plugin in $plugins) {
         }
 
         $missingContent = @($contentPaths | Where-Object { $assetNames -notcontains [IO.Path]::GetFileName($_) })
-        Upload-ReleaseAssetFiles -Tag $tag -Paths (@($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $missingContent)
+        Upload-ReleaseAssetFiles -Tag $tag -Paths ($artifactFiles + $missingContent)
         $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag ($assetNames + @($contentPaths | ForEach-Object { [IO.Path]::GetFileName($_) })) $stageDir $contentHash
         $published += "$tag (forced)"
         continue
@@ -439,15 +449,19 @@ foreach ($plugin in $plugins) {
         }
 
         Write-Host "==> $tag already exists but missing asset(s): $($missingAssets -join ', '); supplementing."
-        if ($assetNames -notcontains $assetName) {
-            throw "Release $tag already exists without $assetName. Bump plugin.version instead of publishing new bytes under an existing tag."
-        }
-        $stagedArtifact = Download-ReleaseAsset -Tag $tag -AssetName $assetName
-        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
-
         $uploadPaths = @()
-        if ($missingAssets -contains $shaAssetName) { $uploadPaths += $companions.ShaFile }
-        if ($missingAssets -contains $sigAssetName) { $uploadPaths += $companions.SigFile }
+        foreach ($artifact in $artifacts) {
+            $assetName = Get-OfficialPluginArtifactName $artifact $version
+            if ($assetNames -notcontains $assetName) {
+                throw "Release $tag already exists without $assetName. Bump plugin.version instead of publishing new bytes under an existing tag."
+            }
+            if ($missingAssets -contains "$assetName.sha256" -or $missingAssets -contains "$assetName.sig") {
+                $file = Download-ReleaseAsset -Tag $tag -AssetName $assetName
+                $companions = Write-StagedCompanionFiles -StagedArtifact $file -AssetName $assetName -Plugin $artifact -Version $version
+                if ($missingAssets -contains "$assetName.sha256") { $uploadPaths += $companions.ShaFile }
+                if ($missingAssets -contains "$assetName.sig") { $uploadPaths += $companions.SigFile }
+            }
+        }
         $uploadPaths += @($contentPaths | Where-Object { $missingAssets -contains [IO.Path]::GetFileName($_) })
         Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
         $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag $expectedAssets $stageDir $release.ContentHash
@@ -455,16 +469,15 @@ foreach ($plugin in $plugins) {
         continue
     }
 
-    $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
-    $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
+    $artifactFiles = @(New-ReleasePluginFiles $plugin $version $version)
 
-    Write-Host "==> Publishing $tag ($assetName, sha256 $($companions.Sha))"
+    Write-Host "==> Publishing $tag with $($artifacts.Count) signed artifact(s)."
     $contentPaths = @(New-OfficialMarketContent $ProjectRoot $Repo $tag $plugin.Id $version $stageDir $contentSourceCommit)
     $contentHash = Get-OfficialMarketContentHash $contentPaths
     $notesFile = Write-ReleaseDownloadNotes $stageDir "Plugin $($plugin.Id) $version. market-content-sha256=$contentHash market-source-commit=$contentSourceCommit"
     gh release create $tag --repo $Repo --title $tag --notes-file $notesFile
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-    Upload-ReleaseAssetFiles -Tag $tag -Paths (@($stagedArtifact, $companions.ShaFile, $companions.SigFile) + $contentPaths)
+    Upload-ReleaseAssetFiles -Tag $tag -Paths ($artifactFiles + $contentPaths)
     $null = Read-OfficialMarketContent $ProjectRoot $Repo $tag @('market-content.json') $stageDir $contentHash
     $published += "$tag (created)"
 }

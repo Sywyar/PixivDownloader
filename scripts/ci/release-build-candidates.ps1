@@ -24,7 +24,15 @@ $modules = @($pom.project.modules.module | Where-Object {
 })
 $manifestPath = Join-Path $Directory 'manifest.json'
 
+$composeModule = 'pixivdownload-plugin-gui-compose'
+$installerJar = if ($modules -ccontains $composeModule) {
+    $version = $pom.project.version
+    if ($version -cnotmatch '^[0-9][a-z0-9.-]*$') { throw "Invalid candidate artifact version." }
+    "$composeModule/target/windows-x64/$composeModule-$version-windows-x64.jar"
+}
+
 function Assert-CandidatePath([string]$RelativePath) {
+    if ($installerJar -and $RelativePath -ceq $installerJar) { return }
     if ($RelativePath -notmatch '^([a-z0-9-]+)/target/(classes/.+|[a-z0-9.-]+\.jar)$' -or
         $modules -cnotcontains $Matches[1] -or $RelativePath -match '(^|/)(\.|\.\.)(/|$)|\\|:') {
         throw "Invalid candidate path: $RelativePath"
@@ -51,6 +59,7 @@ if ($Mode -eq 'Export') {
             $_.Name -like "$module-*.jar" -and $_.Name -notmatch '-(sources|javadoc|original)\.jar$'
         })
         if ($jars.Count -ne 1) { throw "Expected one final candidate JAR for $module." }
+        if ($module -ceq $composeModule) { $jars += Get-Item -LiteralPath (Join-Path $ProjectRoot $installerJar) -ErrorAction Stop }
         $classes = @(Get-ChildItem -LiteralPath (Join-Path $target 'classes') -Recurse -File)
         if ($classes.Count -eq 0) { throw "Missing candidate classes for $module." }
         foreach ($file in @($classes) + @($jars)) {
@@ -83,6 +92,7 @@ if ($Mode -eq 'Export') {
             throw "Candidate SHA-256 mismatch: $($file.path)"
         }
     }
+    if ($installerJar -and -not $seen.Contains($installerJar)) { throw "Missing Windows installer plugin candidate." }
     foreach ($module in $modules) {
         if (@($manifest.files | Where-Object { $_.path -like "$module/target/$module-*.jar" }).Count -ne 1 -or
             @($manifest.files | Where-Object { $_.path -like "$module/target/classes/*" }).Count -eq 0) {

@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
  * @param versionSupport   依赖声明中的版本要求
  * @param optional         是否为可选依赖
  * @param installedVersion 当前可见版本（缺失时为 {@code null}）
- * @param status           当前可见状态或下游安装结果（可空）
+ * @param status           与原因对应的状态、依赖方 id 或诊断上下文（可空）
  * @param reason           稳定原因码
  * @param detail           英文诊断说明（排错用，非用户文案）
  */
@@ -20,9 +20,26 @@ public record PluginDependencyProblem(
         String versionSupport,
         boolean optional,
         @HttpApiNullable String installedVersion,
-        @HttpApiNullable @Schema(examples = {"DISABLED", "REJECTED_INCOMPATIBLE"}) String status,
+        @HttpApiNullable @Schema(examples = {"DISABLED", "BUILT_IN", "REJECTED_INCOMPATIBLE"}) String status,
         Reason reason,
         String detail) {
+
+    static final String HEADLESS_SKIPPED = "HEADLESS_SKIPPED";
+    static final String AWAITING_RESTART = "AWAITING_RESTART";
+
+    public boolean availableAfterRestart() {
+        return reason == Reason.UNAVAILABLE && deferredStatus(status);
+    }
+
+    static boolean deferredStatus(String status) {
+        return AWAITING_RESTART.equals(status) || HEADLESS_SKIPPED.equals(status);
+    }
+
+    static PluginDependencyProblem builtIn(PluginDependencyRef dependency) {
+        return new PluginDependencyProblem(dependency.pluginId(), dependency.versionSupport(), dependency.optional(),
+                null, "BUILT_IN", Reason.UNAVAILABLE, "required dependency " + dependency.pluginId()
+                        + " is built into the host and cannot supply a plugin package dependency");
+    }
 
     public static PluginDependencyProblem missing(PluginDependencyRef dependency) {
         return new PluginDependencyProblem(dependency.pluginId(), dependency.versionSupport(), dependency.optional(),
@@ -34,6 +51,26 @@ public record PluginDependencyProblem(
                 installedVersion, null, Reason.VERSION_UNSATISFIED,
                 "required dependency " + dependency.pluginId() + " needs version "
                         + dependency.requirement().display() + ", but visible version is " + installedVersion);
+    }
+
+    public static PluginDependencyProblem dependentConflict(String dependentId, PluginDependencyRef dependency,
+                                                            String installedVersion, String candidateVersion) {
+        return new PluginDependencyProblem(dependency.pluginId(), dependency.versionSupport(), false,
+                installedVersion, dependentId, Reason.DEPENDENT_CONFLICT,
+                dependentId + " requires " + dependency.pluginId() + " " + dependency.requirement().display()
+                        + (candidateVersion == null ? ", which would be removed" : ", but the candidate version is " + candidateVersion));
+    }
+
+    public static PluginDependencyProblem retirementBlocked(String consumer, PluginDependencyRef dependency, String version) {
+        return new PluginDependencyProblem(dependency.pluginId(), dependency.versionSupport(), false, version,
+                consumer, Reason.DEPENDENT_CONFLICT, "loaded plugin " + consumer + " requires " + dependency.pluginId()
+                        + " and prevents its unload");
+    }
+
+    static PluginDependencyProblem restartAdmissionRejected(PluginDependencyRef dependency, String version) {
+        return new PluginDependencyProblem(dependency.pluginId(), dependency.versionSupport(), dependency.optional(),
+                version, "ADMISSION_REJECTED", Reason.UNAVAILABLE,
+                "installed artifact for required dependency " + dependency.pluginId() + " failed restart admission");
     }
 
     public static PluginDependencyProblem unavailable(PluginDependencyRef dependency,
@@ -71,6 +108,7 @@ public record PluginDependencyProblem(
     public enum Reason {
         MISSING,
         VERSION_UNSATISFIED,
+        DEPENDENT_CONFLICT,
         UNAVAILABLE,
         CATALOG_MISSING,
         CATALOG_VERSION_UNSATISFIED,

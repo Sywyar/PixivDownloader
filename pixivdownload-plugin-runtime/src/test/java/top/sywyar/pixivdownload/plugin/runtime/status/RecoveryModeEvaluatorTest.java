@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.runtime.status;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
@@ -80,6 +82,16 @@ class RecoveryModeEvaluatorTest {
         RecoveryModeReason reason = decision.firstReason().orElseThrow();
         assertThat(reason.status()).isEqualTo(PluginStatus.INCOMPATIBLE_REQUIRED);
         assertThat(reason.requiredVersion().display()).isEqualTo("1.0");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PluginStatus.class, names = {"INSTALLED", "RESOLVED", "LOADED", "STOPPED", "STARTED"})
+    void installedPluginAwaitingServiceKeepsItsStatusAndReportsTheStartAction(PluginStatus status) {
+        var decision = evaluator.evaluate(reportWith(DW, status), policyRequiring(DW), java.util.Set.of(DW));
+        var reason = decision.firstReason().orElseThrow();
+        assertThat(reason.status()).isEqualTo(status);
+        assertThat(reason.messageKey()).isEqualTo("plugin.recovery.not-serving");
+        assertThat(reason.messages()).isEmpty();
     }
 
     @Test

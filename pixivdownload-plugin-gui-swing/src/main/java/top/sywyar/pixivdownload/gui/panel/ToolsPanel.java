@@ -70,6 +70,7 @@ public class ToolsPanel extends JPanel {
     private boolean migrationRunning;
     private DesktopUiHost.BackfillTask backfillTask;
     private boolean disposed;
+    private DesktopUiHost.BackendState previousBackendState;
     private JPanel backfillForm;
     private final JProgressBar backfillProgress = new JProgressBar();
     private final JLabel backfillCounts = SwingPage.text(SwingPage.Style.SECONDARY, "");
@@ -368,9 +369,10 @@ public class ToolsPanel extends JPanel {
         }
 
         setBackfillStatus(message("gui.tools.folder-checker.status.preparing"));
+        boolean restart = SwingBackendLifecycle.state() == DesktopUiHost.BackendState.RUNNING;
         boolean accepted = SwingBackendLifecycle.stopAsync(() -> {
             try {
-                FolderChecker checker = new FolderChecker(JFrame.DISPOSE_ON_CLOSE, this::handleFolderCheckerClosed);
+                FolderChecker checker = new FolderChecker(JFrame.DISPOSE_ON_CLOSE, () -> handleFolderCheckerClosed(restart));
                 checker.showWindow();
                 setBackfillStatus(message("gui.tools.folder-checker.status.opened"));
             } catch (Exception e) {
@@ -378,24 +380,36 @@ public class ToolsPanel extends JPanel {
                 refreshActionStates();
                 setBackfillStatus(message("gui.tools.folder-checker.status.open-failed"));
                 log.error(logMessage("gui.tools.log.folder-checker.open-failed"), e);
-                SwingBackendLifecycle.startAsync();
+                if (restart) SwingBackendLifecycle.startAsync();
                 GuiErrorDialog.show(this,
                         message("gui.dialog.error.title"),
                         message("gui.tools.dialog.folder-checker-open-failed.message", e.getMessage()));
             }
-        });
-        if (!accepted) {
-            exclusiveToolName = null;
-            refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    message("gui.message.backend-busy"),
-                    message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
-        }
+        }, failure -> handleToolStopFailure(false, failure));
+        if (!accepted) handleToolStopFailure(false, null);
     }
 
-    private void handleFolderCheckerClosed() {
+    private void handleToolStopFailure(boolean migration, Throwable failure) {
+        exclusiveToolName = null;
+        String detail = failure == null ? message("gui.message.backend-busy")
+                : SwingHost.host().message("desktop.ui.tools.stop-failed", java.util.Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()));
+        if (migration) {
+            migrationRunning = false;
+            closeMigrationLogSession();
+            setMigrationStatus(detail);
+        } else {
+            setBackfillStatus(detail);
+        }
+        refreshActionStates();
+    }
+
+    private void handleFolderCheckerClosed(boolean restart) {
         exclusiveToolName = null;
         refreshActionStates();
+        if (!restart) {
+            setBackfillStatus(message("gui.tools.folder-checker.status.closed"));
+            return;
+        }
         setBackfillStatus(message("gui.tools.folder-checker.status.restoring"));
         if (!SwingBackendLifecycle.startAsync(() ->
                 setBackfillStatus(message("gui.tools.folder-checker.status.completed")))) {
@@ -567,19 +581,13 @@ public class ToolsPanel extends JPanel {
         refreshActionStates();
         setMigrationStatus(message("gui.tools.migration.status.preparing"));
 
-        boolean accepted = SwingBackendLifecycle.stopAsync(() -> prepareMigrationInBackground(options));
-        if (!accepted) {
-            migrationRunning = false;
-            exclusiveToolName = null;
-            closeMigrationLogSession();
-            refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    message("gui.message.backend-busy"),
-                    message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
-        }
+        boolean restart = SwingBackendLifecycle.state() == DesktopUiHost.BackendState.RUNNING;
+        boolean accepted = SwingBackendLifecycle.stopAsync(() -> prepareMigrationInBackground(options, restart),
+                failure -> handleToolStopFailure(true, failure));
+        if (!accepted) handleToolStopFailure(true, null);
     }
 
-    private void prepareMigrationInBackground(DesktopUiHost.MigrationOptions options) {
+    private void prepareMigrationInBackground(DesktopUiHost.MigrationOptions options, boolean restart) {
         setMigrationStatus(message("gui.tools.migration.status.counting"));
 
         Thread worker = new Thread(() -> {
@@ -590,7 +598,7 @@ public class ToolsPanel extends JPanel {
                 handleMigrationPreparationFailure(
                         message("gui.tools.migration.status.count-failed"),
                         message("gui.tools.dialog.migration.count-failed.prefix"),
-                        error
+                        error, restart
                 );
                 return;
             }
@@ -608,39 +616,45 @@ public class ToolsPanel extends JPanel {
                 handleMigrationPreparationFailure(
                         message("gui.tools.migration.status.log-open-failed"),
                         message("gui.tools.dialog.migration.log-open-failed.prefix"),
-                        error
+                        error, restart
                 );
                 return;
             }
 
             openLogAfterPreparation(currentMigrationLogSession);
-            runMigrationInBackground(options);
+            runMigrationInBackground(options, restart);
         }, "tools-json-to-sqlite-migration-prepare");
         worker.setDaemon(true);
         worker.start();
     }
 
-    private void handleMigrationPreparationFailure(String statusText, String dialogPrefix, Throwable failure) {
+    private void handleMigrationPreparationFailure(String statusText, String dialogPrefix, Throwable failure, boolean restart) {
         log.error(logMessage("gui.tools.log.migration.prepare-failed",
                 failure == null ? logMessage("gui.log.no-detail") : failure.getMessage()), failure);
-        closeMigrationLogSession();
-        migrationRunning = false;
-        exclusiveToolName = null;
-        SwingUtilities.invokeLater(this::refreshActionStates);
-
-        Runnable afterRestart = () -> SwingUtilities.invokeLater(() -> {
+        completeMigration(restart, () -> {
             setMigrationStatus(statusText);
             GuiErrorDialog.show(this,
                     message("gui.dialog.error.title"),
                     dialogPrefix + (failure.getMessage() == null
                             ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
-        if (!SwingBackendLifecycle.startAsync(afterRestart)) {
-            afterRestart.run();
-        }
     }
 
-    private void runMigrationInBackground(DesktopUiHost.MigrationOptions options) {
+    private void completeMigration(boolean restart, Runnable showResult) {
+        closeMigrationLogSession();
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (restart) SwingBackendLifecycle.startAsync();
+            } finally {
+                migrationRunning = false;
+                exclusiveToolName = null;
+                refreshActionStates();
+                showResult.run();
+            }
+        });
+    }
+
+    private void runMigrationInBackground(DesktopUiHost.MigrationOptions options, boolean restart) {
         setMigrationStatus(message("gui.tools.migration.status.running"));
         long startedAt = System.currentTimeMillis();
 
@@ -669,17 +683,9 @@ public class ToolsPanel extends JPanel {
                     log.warn(logMessage("gui.tools.log.migration.failed"), historyFailure);
                 } finally {
                     log.info(logMessage("gui.tools.log.migration.finished"));
-                    closeMigrationLogSession();
-                    migrationRunning = false;
-                    exclusiveToolName = null;
-                    SwingUtilities.invokeLater(this::refreshActionStates);
-
                     DesktopUiHost.MigrationSummary finalSummary = summary;
                     Throwable finalFailure = failure;
-                    if (!SwingBackendLifecycle.startAsync(() ->
-                            SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure)))) {
-                        SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure));
-                    }
+                    completeMigration(restart, () -> finishMigration(finalSummary, finalFailure));
                 }
             }
         }, "tools-json-to-sqlite-migration");
@@ -813,11 +819,13 @@ public class ToolsPanel extends JPanel {
             case FAILED -> message("gui.backend.state.failed");
         }));
 
-        if (snapshot.state() == DesktopUiHost.BackendState.FAILED && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
+        if (snapshot.state() == DesktopUiHost.BackendState.FAILED && previousBackendState != DesktopUiHost.BackendState.STOPPING
+                && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
             setBackfillStatus(message("gui.tools.backfill.status.backend-failed"));
             setMigrationStatus(message("gui.tools.migration.status.backend-failed"));
         }
 
+        previousBackendState = snapshot.state();
         refreshActionStates();
     }
 

@@ -173,13 +173,13 @@ function Assert-ReleaseHealth {
 function Assert-ReleaseStatus {
     param([int]$Port, $Session, [string[]]$ExpectedIds, [string[]]$CrashedIds = @(),
         [string[]]$UnavailableIds = @(), [bool]$Recovery = $false, [string]$EvidencePath = '',
-        [string]$ExpectedHealth = 'UP')
+        [string]$ExpectedHealth = 'UP', [string[]]$SkippedIds = @())
     Assert-ReleaseHealth $Port $ExpectedHealth
     $status = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/plugins/status" `
         -WebSession $Session -TimeoutSec 60
     if ($EvidencePath) { $status | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $EvidencePath -Encoding UTF8 }
     if ([bool]$status.recoveryMode -ne $Recovery) { throw "Unexpected recovery mode: $($status.recoveryMode)" }
-    foreach ($id in @($ExpectedIds + $CrashedIds + $UnavailableIds | Sort-Object -Unique)) {
+    foreach ($id in @($ExpectedIds + $CrashedIds + $UnavailableIds + $SkippedIds | Sort-Object -Unique)) {
         $rows = @($status.plugins | Where-Object { $_.id -eq $id })
         if ($UnavailableIds -contains $id) {
             if (@($rows | Where-Object { $_.status -eq 'STARTED' }).Count) {
@@ -188,12 +188,18 @@ function Assert-ReleaseStatus {
             continue
         }
         if ($rows.Count -ne 1) { throw "Expected one plugin status for $id" }
+        $phaseProperty = $rows[0].PSObject.Properties['runtimePhase']
+        $phase = if ($null -ne $phaseProperty) { $phaseProperty.Value }
         if ($CrashedIds -contains $id) {
-            if ($rows[0].status -ne 'CRASHED' -or $rows[0].runtimePhase -in @('STARTED', 'QUIESCED')) {
-                throw "Plugin crash was not reported or services remain active: $id ($($rows[0].status)/$($rows[0].runtimePhase))"
+            if ($rows[0].status -ne 'CRASHED' -or $phase -in @('STARTED', 'QUIESCED')) {
+                throw "Plugin crash was not reported or services remain active: $id ($($rows[0].status)/$phase)"
             }
-        } elseif ($rows[0].status -ne 'STARTED' -or $rows[0].runtimePhase -ne 'STARTED') {
-            throw "Plugin is not healthy: $id ($($rows[0].status)/$($rows[0].runtimePhase))"
+        } elseif ($SkippedIds -contains $id) {
+            if ($rows[0].status -ne 'INSTALLED' -or $null -ne $phase) {
+                throw "Desktop plugin must be installed without a runtime phase in headless mode: $id"
+            }
+        } elseif ($rows[0].status -ne 'STARTED' -or $phase -ne 'STARTED') {
+            throw "Plugin is not healthy: $id ($($rows[0].status)/$phase)"
         }
     }
     return $status
@@ -225,14 +231,14 @@ function Assert-ReleaseStable {
     param($Process, [string]$ProbeRoot, [int]$Port, $Session, [string[]]$ExpectedIds,
         [string]$Provider = '', [string[]]$CrashedIds = @(), [string[]]$UnavailableIds = @(),
         [bool]$Recovery = $false, [switch]$BootstrapPrompt, [int]$Seconds = 10,
-        [string]$ExpectedHealth = 'UP')
+        [string]$ExpectedHealth = 'UP', [string[]]$SkippedIds = @())
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         Assert-ArtifactAlive $Process 'Runtime observation'
         if ($null -ne $Session) {
             Assert-ReleaseStatus -Port $Port -Session $Session -ExpectedIds $ExpectedIds `
                 -CrashedIds $CrashedIds -UnavailableIds $UnavailableIds -Recovery $Recovery `
-                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') -ExpectedHealth $ExpectedHealth | Out-Null
+                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') -ExpectedHealth $ExpectedHealth -SkippedIds $SkippedIds | Out-Null
         } elseif (-not $BootstrapPrompt) {
             Assert-ReleaseHealth $Port $ExpectedHealth
         }

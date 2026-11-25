@@ -127,7 +127,8 @@
         var vm = PM.allViewModels().find(function (candidate) { return candidate.id === id; });
         if (!vm || !vm.toggleable) return;
         if (vm.lifecyclePolicy === 'HOT_RELOAD') {
-            onAction(id, vm.running ? 'stop' : 'start');
+            var start = !vm.configuredEnabled || vm.availableActions.includes('load') ? 'enable-start' : 'start';
+            onAction(id, vm.running ? 'stop' : start);
             return;
         }
         onConfiguredToggle(vm);
@@ -155,6 +156,8 @@
             // 先重拉状态，让开关立即反映 configuredEnabled；运行态仍由后端 runtimePhase 如实展示。
             await load();
 
+            var refreshed = PM.allViewModels().find(function (candidate) { return candidate.id === vm.id; });
+            if (refreshed && !refreshed.pendingToggleLabel && !refreshed.entry.effectiveAfterRestart) return;
             if (vm.lifecyclePolicy === 'BACKEND_RESTART') {
                 var restartNow = await global.PixivFeedback.confirm({
                     title: PM.t('restart.backend.title', '重启后端'),
@@ -209,13 +212,15 @@
             }
         } catch (e) {
             var message = (e && e.message) || PM.t('action.error.generic', '操作失败');
+            if (e && typeof e.rolledBack === 'boolean' && e.loadedVersion) {
+                message += ' · ' + PM.t('common:plugin-info.loaded-version') + ': ' + e.loadedVersion;
+            }
             PM.toast(PM.t('action.failed', '操作失败：{message}', { message: message }), 'error');
         } finally {
             PM.state.busyId = null;
-            PM.renderAll();
+            await load();
+            if (global.PixivNav) PixivNav.mount();
         }
-        await load();
-        if (global.PixivNav) PixivNav.mount();
     }
 
     async function onRevocationRefresh(repositoryId, button) {

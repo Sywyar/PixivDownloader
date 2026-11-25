@@ -539,7 +539,7 @@ abstract class PluginLifecycleServiceTestSupport {
                 scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry);
     }
 
-    /** 模拟 phase 0 已成功启动精确身份，并让 mock 保持与 PluginRegistry 相同的成功后状态转换语义。 */
+    /** 模拟已经启动的精确身份，并让 mock 保持与 PluginRegistry 相同的成功后状态转换语义。 */
     protected static void delegateFeatureCallbacks(
             PluginRegistry registry, PluginRegistry.RegisteredPlugin registered) {
         AtomicBoolean started = new AtomicBoolean(true);

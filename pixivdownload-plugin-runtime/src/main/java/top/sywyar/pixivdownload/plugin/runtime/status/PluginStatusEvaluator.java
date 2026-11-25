@@ -96,8 +96,8 @@ public final class PluginStatusEvaluator {
 
         DependencyProblem dependencyProblem = firstDependencyProblem(descriptor, byId);
         if (dependencyProblem != null) {
-            return diagnostic(id, dependencyProblem.status(), descriptor, requiredByPolicy,
-                    List.of(dependencyProblem.message()));
+            return new PluginDiagnostic(id, dependencyProblem.status(), descriptor, requiredByPolicy,
+                    List.of(dependencyProblem.message()), dependencyProblem.missingId());
         }
 
         // 必选策略版本范围校验（已安装、自身兼容，但不满足策略要求的版本范围）
@@ -124,14 +124,14 @@ public final class PluginStatusEvaluator {
             ObservedPlugin target = byId.get(dependency.pluginId());
             if (target == null) {
                 return new DependencyProblem(PluginStatus.MISSING_REQUIRED,
-                        "missing required dependency: " + dependency.pluginId());
+                        "missing required dependency: " + dependency.pluginId(), dependency.pluginId());
             }
             VersionRequirement required = dependency.requirement();
             VersionRequirement actual = VersionRequirement.parse(target.descriptor().version());
             if (!required.isSatisfiedBy(actual.major(), actual.minor())) {
                 return new DependencyProblem(PluginStatus.INCOMPATIBLE_REQUIRED,
                         "required dependency " + dependency.pluginId() + " needs version " + required.display()
-                                + ", but installed version is " + target.descriptor().version());
+                                + ", but installed version is " + target.descriptor().version(), null);
             }
         }
         return null;
@@ -155,8 +155,8 @@ public final class PluginStatusEvaluator {
                 }
                 DependencyProblem problem = firstUnavailableDependency(descriptor, byPluginId);
                 if (problem != null) {
-                    byPluginId.put(descriptor.id(), diagnostic(descriptor.id(), problem.status(), descriptor,
-                            current.requiredByPolicy(), List.of(problem.message())));
+                    byPluginId.put(descriptor.id(), new PluginDiagnostic(descriptor.id(), problem.status(), descriptor,
+                            current.requiredByPolicy(), List.of(problem.message()), problem.missingId()));
                     changed = true;
                 }
             }
@@ -180,7 +180,7 @@ public final class PluginStatusEvaluator {
             }
             PluginStatus status = blockedStatusFor(target.status());
             return new DependencyProblem(status, "required dependency " + dependency.pluginId()
-                    + " is not available (status " + target.status() + ")");
+                    + " is not available (status " + target.status() + ")", target.missingDependencyId());
         }
         return null;
     }
@@ -205,6 +205,6 @@ public final class PluginStatusEvaluator {
                 : base;
     }
 
-    private record DependencyProblem(PluginStatus status, String message) {
+    private record DependencyProblem(PluginStatus status, String message, String missingId) {
     }
 }

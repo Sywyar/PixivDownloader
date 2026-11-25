@@ -54,6 +54,15 @@ function Stage-OfficialPlugins {
         $targetArtifact = Join-Path $pluginsDir $stableName
         Copy-Item -LiteralPath $sourceArtifact -Destination $targetArtifact -Force
         $sha = Get-Sha256Hex $targetArtifact
+        if ($PrebuiltPluginsDir -and $plugin.PSObject.Properties['Classifier']) {
+            $name = [IO.Path]::GetFileName($sourceArtifact)
+            $checksum = "$sha  $name"
+            if (-not (Test-Path -LiteralPath "$sourceArtifact.sig" -PathType Leaf) -or
+                -not (Test-Path -LiteralPath "$sourceArtifact.sha256" -PathType Leaf) -or
+                [IO.File]::ReadAllText("$sourceArtifact.sha256").TrimEnd() -cne $checksum) {
+                throw "Missing signature or mismatched installer artifact checksum: $name"
+            }
+        }
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         if ($AllowUnsignedLocalPlugins) {

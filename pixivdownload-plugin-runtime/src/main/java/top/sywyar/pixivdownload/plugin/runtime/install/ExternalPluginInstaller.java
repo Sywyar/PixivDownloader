@@ -941,6 +941,11 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
     /** 在任何 classloader / 插件入口构造前，按已冻结 manifest 再验放置后的 artifact 与 provenance。 */
     public void verifyCommittedTarget(CommittedPluginTransaction transaction) {
+        verifyCommittedTargetDigest(transaction);
+    }
+
+    /** 返回此次复验所绑定的事务清单摘要。 */
+    public String verifyCommittedTargetDigest(CommittedPluginTransaction transaction) {
         installLock.lock();
         try {
             if (!acquireDirectorySessionLockIfPresent()) {
@@ -952,6 +957,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget, scanCache);
             recoveryVisibleInventoryVerifier.verifyActivatedTarget(manifest,
                     recoveryVisibleInventoryVerifier.inspectVisibleInventory(budget), budget, verificationService);
+            return manifest.newArtifact().sha256();
         } catch (IOException | PluginRecoveryValidationException e) {
             // 调用方必须先按同一 committed handle 回滚；回滚失败才封闭 gate，避免自锁。
             throw new IllegalStateException("committed plugin target failed its frozen verification", e);
@@ -1976,6 +1982,21 @@ public class ExternalPluginInstaller implements AutoCloseable {
             return revoked;
         } catch (IOException e) {
             throw new IllegalStateException("failed to revoke plugin execution trust", e);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 目录选包只需要磁盘字节身份，无需读取其它插件的来源记录。 */
+    public Optional<Artifact> installedArtifactForVersion(String pluginId, String version) {
+        installLock.lock();
+        try {
+            if (!acquireDirectorySessionLockIfPresent()) return Optional.empty();
+            requireRecoverySafe("inspect installed plugin digest");
+            return inspectInstalledArtifactsExclusive().stream()
+                    .filter(item -> pluginId.equals(item.plugin().id())
+                            && PluginPackageVersion.samePrecedence(version, item.plugin().version()))
+                    .findFirst();
         } finally {
             installLock.unlock();
         }

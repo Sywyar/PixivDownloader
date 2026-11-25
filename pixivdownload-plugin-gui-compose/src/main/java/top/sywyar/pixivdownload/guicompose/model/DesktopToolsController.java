@@ -11,7 +11,8 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyl
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 
 import java.nio.file.Path;
-import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -130,7 +131,8 @@ final class DesktopToolsController {
 
     void openFolderCheckerDialog() {
         if (toolsBusy() || toolDialog != null) return;
-        if (owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING && owner.backendSnapshot().state() != DesktopUiHost.BackendState.STOPPED) {
+        var state = host.backendSnapshot().state();
+        if (state != DesktopUiHost.BackendState.RUNNING && state != DesktopUiHost.BackendState.STOPPED) {
             owner.showDialog(
                     "folder.backend-busy",
                     "gui.dialog.please-wait.title",
@@ -140,7 +142,7 @@ final class DesktopToolsController {
             owner.rebuild();
             return;
         }
-        folderCheckerRestartBackend = owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+        folderCheckerRestartBackend = state == DesktopUiHost.BackendState.RUNNING;
         lastOpenedTool = "folder";
         folderNotice = "";
         exclusiveToolName = host.message("gui.tools.card.folder-checker.title");
@@ -152,22 +154,25 @@ final class DesktopToolsController {
         }
         owner.setBusy(true);
         owner.rebuild();
-        if (!host.stopBackend(() -> {
+        if (!host.stopBackend(() -> finishFolderStop(true, null), failure -> finishFolderStop(false, failure)))
+            finishFolderStop(false, null);
+    }
+
+    private void finishFolderStop(boolean stopped, Throwable failure) {
+        synchronized (owner) {
+            if (stopped) {
+                toolDialog = ToolDialog.FOLDER_CHECKER;
+                folderNotice = "";
+            } else {
+                exclusiveToolName = "";
+                exclusiveToolStartedAt = 0L;
+                folderCheckerRestartBackend = false;
+                owner.showDialog("folder.backend-busy", failure == null ? "gui.dialog.please-wait.title" : "gui.dialog.error.title",
+                        failure == null ? TextToken.key("gui.message.backend-busy")
+                                : TextToken.raw(host.message("desktop.ui.tools.stop-failed", safeMessage(failure))),
+                        DesktopUiDocument.DialogStyle.WARNING);
+            }
             owner.setBusy(false);
-            toolDialog = ToolDialog.FOLDER_CHECKER;
-            folderNotice = "";
-            owner.rebuild();
-        })) {
-            owner.setBusy(false);
-            exclusiveToolName = "";
-            exclusiveToolStartedAt = 0L;
-            folderCheckerRestartBackend = false;
-            owner.showDialog(
-                    "folder.backend-busy",
-                    "gui.dialog.please-wait.title",
-                    "gui.message.backend-busy",
-                    DesktopUiDocument.DialogStyle.WARNING
-            );
             owner.rebuild();
         }
     }
@@ -1064,7 +1069,7 @@ final class DesktopToolsController {
             boolean stopBackend
     ) {
         if (toolsBusy()) return;
-        DesktopUiHost.BackendState backendState = owner.backendSnapshot().state();
+        DesktopUiHost.BackendState backendState = host.backendSnapshot().state();
         if (stopBackend
                 ? backendState != DesktopUiHost.BackendState.RUNNING
                         && backendState != DesktopUiHost.BackendState.STOPPED
@@ -1094,19 +1099,14 @@ final class DesktopToolsController {
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
-            boolean restart = stopBackend
-                    && owner.backendSnapshot().state() == DesktopUiHost.BackendState.RUNNING;
+            CompletableFuture<Void> acceptedStop = null;
             try {
-                if (restart) {
-                    java.util.concurrent.CountDownLatch stopped = new java.util.concurrent.CountDownLatch(
-                            1);
-                    if (!host.stopBackend(stopped::countDown) || !stopped.await(
-                            Duration.ofSeconds(
-                                    30).toMillis(),
-                            java.util.concurrent.TimeUnit.MILLISECONDS
-                    )) {
+                if (stopBackend && backendState == DesktopUiHost.BackendState.RUNNING) {
+                    var stopped = new CompletableFuture<Void>();
+                    if (!host.stopBackend(() -> stopped.complete(null), stopped::completeExceptionally))
                         throw new IllegalStateException(host.message("gui.message.backend-busy"));
-                    }
+                    acceptedStop = stopped;
+                    stopped.get(30, TimeUnit.SECONDS);
                 }
                 ToolCompletion completion = operation.run();
                 activity = new DesktopUiNode.ToolActivity(
@@ -1153,20 +1153,32 @@ final class DesktopToolsController {
                 );
                 LOG.error("Desktop tool failed", failure);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, true,
-                        TextToken.key("desktop.ui.tools.operation-failed"));
+                        failure instanceof java.util.concurrent.ExecutionException && failure.getCause() != null
+                                ? TextToken.raw(host.message("desktop.ui.tools.stop-failed", safeMessage(failure.getCause())))
+                                : TextToken.key("desktop.ui.tools.operation-failed"));
             } finally {
-                try {
-                    if (restart) host.startBackend(owner::rebuild);
-                } catch (RuntimeException failure) {
-                    LOG.error("Unable to restore backend after desktop tool", failure);
-                } finally {
-                    exclusiveToolName = "";
-                    exclusiveToolStartedAt = 0L;
-                    owner.setBusy(false);
-                    owner.rebuild();
+                if (acceptedStop == null) {
+                    finishExclusiveTool(false);
+                } else {
+                    // 超时或中断只结束工具；收到本次停服终态后才恢复并交还独占权。
+                    acceptedStop.whenComplete((ignored, failure) -> finishExclusiveTool(failure == null));
+                    if (!acceptedStop.isDone()) owner.rebuild();
                 }
             }
         });
+    }
+
+    private void finishExclusiveTool(boolean restart) {
+        try {
+            if (restart) host.startBackend(owner::rebuild);
+        } catch (RuntimeException failure) {
+            LOG.error("Unable to restore backend after desktop tool", failure);
+        } finally {
+            exclusiveToolName = "";
+            exclusiveToolStartedAt = 0L;
+            owner.setBusy(false);
+            owner.rebuild();
+        }
     }
 
     private void loadDefaults() {

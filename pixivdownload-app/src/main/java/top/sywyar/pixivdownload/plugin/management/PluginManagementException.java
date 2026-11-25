@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 
 import java.util.Objects;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.lifecycle.ClassifiedPluginLifecycleException.ReloadRollback;
 
 /**
  * 插件管理操作失败：携带稳定机器码 {@link PluginManagementErrorCode}（决定 HTTP 状态与 i18n 文案 key）以及可空的
@@ -17,6 +18,7 @@ public class PluginManagementException extends RuntimeException {
     private final String pluginId;
     private final String action;
     private final PluginRuntimePhase runtimePhase;
+    private final ReloadRollback rollback;
 
     /**
      * @param code         稳定机器码（决定 HTTP 状态与 i18n 文案 key）
@@ -27,11 +29,21 @@ public class PluginManagementException extends RuntimeException {
      */
     public PluginManagementException(PluginManagementErrorCode code, String pluginId, String action,
                                      PluginRuntimePhase runtimePhase, String detail) {
-        super(detail);
+        this(code, pluginId, action, runtimePhase, detail, null, null);
+    }
+
+    PluginManagementException(PluginManagementErrorCode code, String pluginId, String action,
+                              PluginRuntimePhase runtimePhase, String detail, ReloadRollback rollback, Throwable cause) {
+        super(detail, cause);
+        this.rollback = rollback;
         this.code = Objects.requireNonNull(code, "code");
         this.pluginId = pluginId;
         this.action = action;
         this.runtimePhase = runtimePhase;
+    }
+
+    public ReloadRollback rollback() {
+        return rollback;
     }
 
     /** 稳定机器码。 */

@@ -44,14 +44,9 @@ class PluginReleaseScriptsTest {
         String script = script("publish-plugin-releases.ps1");
 
         assertThat(script).contains(
-                "$assetName = Get-OfficialPluginArtifactName $plugin $version",
-                "$expectedAssets = @($assetName, $shaAssetName, $sigAssetName)",
                 "$missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })",
                 "already published with expected assets; skip",
                 "Download-ReleaseAsset -Tag $tag -AssetName $assetName",
-                "Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName",
-                "if ($missingAssets -contains $shaAssetName)",
-                "if ($missingAssets -contains $sigAssetName)",
                 "Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths",
                 "$sigFile = \"$StagedArtifact.sig\"",
                 "\"artifact\"",
@@ -159,7 +154,6 @@ class PluginReleaseScriptsTest {
                 "^jna-[0-9].*\\.jar$",
                 "^ui-desktop-[0-9].*\\.jar$",
                 "^material-icons-extended-desktop-[0-9].*\\.jar$",
-                "^skiko-awt-runtime-linux-arm64-[0-9].*\\.jar$",
                 "Plugin jar is not thin - found private lib/*.jar entries");
         assertThat(common).doesNotContain("Format = \"zip\"");
         assertThat(common).doesNotContain("Assert-ExplodedPluginZip");

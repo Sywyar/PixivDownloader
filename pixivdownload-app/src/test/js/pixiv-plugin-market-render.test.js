@@ -301,7 +301,8 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     plugin.installation = {state: 'PRESENT', version: '1.0.0', sha256: 'b'.repeat(64),
         runtimeStatus: 'STARTED', installedArtifactsEnabled: true};
     plugin.packages[1].sha256 = 'a'.repeat(64);
-    plugin.packages[1].installationMatch = 'DIFFERENT_ARTIFACT';
+    plugin.packages[1].expectedSizeBytes = 2345678;
+    plugin.packages[1].installationMatch = 'UNKNOWN';
     let current = plugin;
     let history;
     const cursors = [];
@@ -332,11 +333,13 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     assert.match(textOf(button()), /install.state.activated/);
     const modalText = textOf(elements(page.root, 'pmk-modal')[0]);
     assert.ok(modalText.includes('a'.repeat(64)));
+    assert.ok(modalText.includes('2345678 B'));
     assert.ok(!modalText.includes('b'.repeat(64)));
     assert.equal(select().options[select().selectedIndex].value, '1.0.0');
     assert.deepEqual(cursors, [undefined, undefined, 'history'], '历史版本的比较结论重新读取后端');
     current.installation.sha256 = 'b'.repeat(64);
     current.packages = plugin.packages;
+    current.packages[1].installationMatch = 'DIFFERENT_ARTIFACT';
     const modal = elements(page.root, 'pmk-modal')[0];
     modal.props.onClick({target: modal, currentTarget: modal});
     await page.flush();
@@ -345,8 +348,13 @@ test('覆盖安装后刷新打开详情的本机摘要与按钮，并保留选�
     select().options.forEach(option => { option.selected = option.value === '1.0.0'; });
     select().listeners.change();
     await page.flush();
-    assert.equal(!!button().props.disabled, false, '新的本机包差异不能被旧成功回执覆盖');
-    assert.match(textOf(button()), /install.action.selected-package/);
+    assert.equal(button().props.disabled, true, '新的本机包差异不能被旧成功回执覆盖');
+    assert.match(textOf(button()), /installation.state.mismatch/);
+    const manage = elements(page.root, 'pmk-modal-actionbar-right')[0].children.find(n => n.tagName === 'A');
+    assert.equal(manage.props.href, '/plugin-manage.html');
+    button().props.onClick();
+    await page.flush();
+    assert.equal(page.installCalls.length, 1);
     assert.deepEqual(page.errors, []);
 });
 
@@ -777,7 +785,7 @@ test('基础详情刷新后统一版本选择、文档与来源查询，并保�
             closest() { return null; }, focus() {}, showModal() {} });
         const nodes = Object.fromEntries(['h2', 'p', 'button', 'label span', 'select', '.pmk-more-versions',
             '.pmk-content', '.pmk-version-notes', '[data-pmk-facts]', '.pmk-detail-install',
-            '.pmk-installation-notice', '.pmk-local-artifact', '.pmk-market-facts'].map(selector => [selector, element()]));
+            '.pmk-installation-notice', '.pmk-local-artifact', '.pmk-market-facts', '.pmk-conflict-manage'].map(selector => [selector, element()]));
         nodes['[data-pmk-facts]'].attrs['data-pmk-facts'] = 'visible';
         const dialog = { ...element(), querySelector: selector => nodes[selector], close() { this.closed = true; } };
         const root = { addEventListener: (name, callback) => { handlers[name] = callback; },

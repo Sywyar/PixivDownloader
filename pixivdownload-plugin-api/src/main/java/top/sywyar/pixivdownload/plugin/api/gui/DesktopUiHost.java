@@ -730,7 +730,15 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      * @param afterStop 成功回调
      * @return 操作是否被接受
      */
-    boolean stopBackend(Runnable afterStop);
+    default boolean stopBackend(Runnable afterStop) { return stopBackend(afterStop, null); }
+
+    /**
+     * 请求停止后端。接受请求后，只回调该请求的一个终态；失败时后端仍可能持有资源。
+     * @param afterStop 确认关闭后的回调，可为空
+     * @param onFailure 异步停服失败回调，可为空
+     * @return 请求是否被接受；立即拒绝时不调用回调
+     */
+    boolean stopBackend(Runnable afterStop, Consumer<Throwable> onFailure);
 
     /**
      * 重启后端，并在成功后调用回调。

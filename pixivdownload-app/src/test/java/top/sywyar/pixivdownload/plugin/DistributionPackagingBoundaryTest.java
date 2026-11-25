@@ -1070,7 +1070,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("gui-compose 由 Gradle 生成通用 JAR-with-lib，并可从私有类加载器初始化 Skiko")
-    void guiComposePackagesAsGradleJarWithPrivateLibraries() {
+    void guiComposePackagesAsGradleJarWithPrivateLibraries() throws Exception {
         Path classesDir = locateConfiguredDir(GUI_COMPOSE_CLASSES_PROPERTY);
         requireAvailable(classesDir != null && Files.isDirectory(classesDir),
                 "插件构建产物未就绪（需 reactor 先 process-classes pixivdownload-plugin-gui-compose）");
@@ -1110,6 +1110,37 @@ class DistributionPackagingBoundaryTest {
                 || name.startsWith("org/pf4j/"));
 
         assertGuiComposeJarLoadsAndInitializesSkiko(jar, tempDir);
+
+        Path installerJar = jar.resolveSibling("windows-x64").resolve(
+                jar.getFileName().toString().replaceFirst("\\.jar$", "-windows-x64.jar"));
+        if (skipMissingPackagedArtifact(installerJar, "Windows 安装器的 Compose 插件 JAR 未生成")) {
+            return;
+        }
+        assertProguardProcessedArtifact(installerJar);
+        assertThat(jarEntryNames(installerJar)).containsExactlyInAnyOrderElementsOf(entries.stream()
+                .filter(name -> !name.startsWith("lib/skiko-awt-runtime-") || name.startsWith("lib/skiko-awt-runtime-windows-x64-"))
+                .toList());
+        if (System.getProperty("os.name").startsWith("Windows") &&
+                List.of("amd64", "x86_64").contains(System.getProperty("os.arch"))) {
+            // The separate JVM gives Skiko and JNA their own native library namespace.
+            Path logs = tempDir.resolve("installer-skiko.log");
+            Process probe = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-cp", System.getProperty("java.class.path"), InstallerComposeProbe.class.getName(),
+                    installerJar.toString(), tempDir.resolve("installer").toString())
+                    .redirectErrorStream(true).redirectOutput(logs.toFile()).start();
+            try {
+                assertThat(probe.waitFor(90, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(probe.exitValue()).withFailMessage("%s", Files.readString(logs)).isZero();
+            } finally {
+                if (probe.isAlive()) probe.destroyForcibly().waitFor();
+            }
+        }
+    }
+
+    public static class InstallerComposeProbe {
+        public static void main(String[] args) {
+            assertGuiComposeJarLoadsAndInitializesSkiko(Path.of(args[0]), Path.of(args[1]));
+        }
     }
 
     // --- 验证 thin 外置插件形态：先据构建 classes 目录，jar 存在时再据真实 jar 追加更强断言 ---

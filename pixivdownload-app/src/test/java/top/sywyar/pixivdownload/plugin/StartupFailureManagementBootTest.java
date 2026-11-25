@@ -30,8 +30,6 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
-import top.sywyar.pixivdownload.repairprobe.StartupRepairProbePlugin;
-import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -39,8 +37,6 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -87,7 +83,7 @@ class StartupFailureManagementBootTest {
                     Files.createDirectories(Path.of(value));
                 }
                 for (String id : List.of(REQUIRED, OPTIONAL)) {
-                    Path artifact = packageFile(home.resolve("plugins"), id, "7.2.0");
+                    Path artifact = PluginTestProvenance.stageRepairProbe(home.resolve("plugins"), id, "7.2.0", "");
                     PluginTestProvenance.writeVerifiedLocalUpload(home.resolve("plugins"), artifact);
                     Path data = home.resolve("data/" + id + "/saved.txt");
                     Files.createDirectories(data.getParent());
@@ -126,7 +122,7 @@ class StartupFailureManagementBootTest {
         assertThat(runtime.packagePhases()).doesNotContainKey(OPTIONAL);
         assertThat(home.resolve("plugins/" + OPTIONAL + "-7.2.0.jar")).doesNotExist();
 
-        Path replacement = packageFile(home.resolve("candidate"), REQUIRED, "8.0.0");
+        Path replacement = PluginTestProvenance.stageRepairProbe(home.resolve("candidate"), REQUIRED, "8.0.0", "");
         PluginTestProvenance.writeVerifiedLocalUpload(replacement.getParent(), replacement);
         var signature = new top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore(replacement.getParent())
                 .read(replacement).orElseThrow().signature();
@@ -148,25 +144,6 @@ class StartupFailureManagementBootTest {
             assertThat(Files.readString(home.resolve("data/" + id + "/saved.txt"), StandardCharsets.UTF_8))
                     .isEqualTo("retained plugin data");
         }
-    }
-
-    private static Path packageFile(Path directory, String id, String version) throws Exception {
-        Files.createDirectories(directory);
-        Path file = directory.resolve(id + "-" + version + ".jar");
-        try (var zip = new ZipOutputStream(Files.newOutputStream(file))) {
-            zip.putNextEntry(new ZipEntry("plugin.properties"));
-            zip.write(("plugin.id=" + id + "\nplugin.version=" + version + "\nplugin.requires=" + SdkVersion.MAJOR + "." + SdkVersion.MINOR
-                    + "\npixiv.lifecycle-policy=hot-reload\npixiv.execution-mode=host-process-full-trust\nplugin.class="
-                    + StartupRepairProbePlugin.class.getName() + "\n").getBytes(StandardCharsets.UTF_8));
-            zip.closeEntry();
-            for (Class<?> type : List.of(StartupRepairProbePlugin.class, StartupRepairProbePlugin.Feature.class)) {
-                String entry = type.getName().replace('.', '/') + ".class";
-                zip.putNextEntry(new ZipEntry(entry));
-                try (var input = type.getResourceAsStream("/" + entry)) { input.transferTo(zip); }
-                zip.closeEntry();
-            }
-        }
-        return file;
     }
 
     public static class Cleanup extends AbstractTestExecutionListener {

@@ -43,6 +43,9 @@
             err.httpStatus = res.status;
             err.pluginId = body && body.pluginId;
             err.action = body && body.action;
+            err.runtimePhase = body && body.runtimePhase;
+            err.rolledBack = body && body.rolledBack;
+            err.loadedVersion = body && body.loadedVersion;
             throw err;
         }
         return body;
@@ -213,11 +216,20 @@
             var version = entry.version || PM.t('common:plugin-info.not-installed');
             if (entry.loadedVersion && entry.loadedVersion !== entry.version) version += ' · '
                 + PM.t('common:plugin-info.loaded-version') + ': ' + entry.loadedVersion;
-            return {label: PM.pluginLabel(entry.id, entry), value: version + ' · ' + (vm.phaseLabel || vm.statusLabel)};
+            var summary = version + ' · ' + (vm.phaseLabel || vm.statusLabel);
+            if (Array.isArray(entry.loadedDependencies) && Array.isArray(entry.dependencies)) {
+                var installed = PM.dependencyList(entry.dependencies);
+                var loaded = PM.dependencyList(entry.loadedDependencies);
+                if (installed !== loaded) {
+                    summary += '\n' + PM.t('common:plugin-info.loaded-version') + ' · ' + loaded
+                            + '\n' + PM.t('common:plugin-info.installed-version') + ' · ' + installed;
+                }
+            }
+            return {label: PM.pluginLabel(entry.id, entry), value: summary};
         }) : [];
         var confirmed = await global.PixivFeedback.confirm({
             title: PM.t('action.' + action, action) + ' · ' + target.name,
-            message: PM.t('impact.summary'),
+            message: PM.t(action === 'enable-start' ? 'impact.enable-start' : 'impact.summary'),
             danger: ['remove', 'unload', 'stop'].indexOf(action) !== -1,
             sections: [
                 {title: PM.t('common:plugin-info.plugin'), fields: [

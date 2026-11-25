@@ -365,6 +365,45 @@ class DesktopToolsControllerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void folderStopFailureReleasesOnlyItsRequest() throws Exception {
+        var running = new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
+        var failure = new IllegalStateException("writer still active");
+        var failed = new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.FAILED, failure);
+        var listener = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<DesktopUiHost.BackendSnapshot>>();
+        var requests = new ArrayList<Object[]>();
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("backendSnapshot", args -> running);
+        overrides.put("subscribeBackend", args -> {
+            listener.set((java.util.function.Consumer<DesktopUiHost.BackendSnapshot>) args[0]);
+            return (AutoCloseable) () -> {};
+        });
+        overrides.put("stopBackend", args -> { requests.add(args); return requests.size() > 1; });
+        overrides.put("message", args -> args[0].equals("desktop.ui.tools.stop-failed")
+                ? ((Object[]) args[1])[0] : args[0]);
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            activate(model, "tools.folder-checker.open");
+            assertFalse(model.busy());
+            activate(model, "tools.folder-checker.open");
+            assertTrue(model.busy());
+            listener.get().accept(new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPING, null));
+            listener.get().accept(failed);
+            ((java.util.function.Consumer<Throwable>) requests.get(1)[1]).accept(failure);
+            assertFalse(model.busy());
+            assertTrue(model.snapshot().document().dialogs().toString().contains("writer still active"));
+            assertTrue(descendants(overview(model)).noneMatch(node -> node.id().equals("tools.active.close")));
+            listener.get().accept(running);
+            activate(model, "tools.folder-checker.open");
+            listener.get().accept(failed); // A delayed state notification cannot finish this second request.
+            assertTrue(model.busy());
+            ((Runnable) requests.get(2)[0]).run();
+            assertFalse(model.busy());
+            assertTrue(model.snapshot().document().pages().stream()
+                    .flatMap(page -> descendants(page.content())).anyMatch(node -> node.id().equals("tools.active.close")));
+        }
+    }
+
+    @Test
     @DisplayName("目录工具在工作区内打开，等待停服时互斥，关闭后恢复服务")
     void opensInlineAndRestoresServiceOnClose() throws Exception {
         List<String> calls = new ArrayList<>();
@@ -539,6 +578,49 @@ class DesktopToolsControllerTest {
     }
 
     @Test
+    void lateStopRestoresOnceBeforeAnotherMigrationCanRun() throws Exception {
+        var requests = new java.util.concurrent.LinkedBlockingQueue<Object[]>();
+        var outcomes = new java.util.concurrent.LinkedBlockingQueue<Object>();
+        var starts = new java.util.concurrent.atomic.AtomicInteger();
+        var state = new java.util.concurrent.atomic.AtomicReference<>(DesktopUiHost.BackendState.RUNNING);
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(state.get(), null));
+        overrides.put("stopBackend", args -> { requests.add(args); return true; });
+        overrides.put("startBackend", args -> {
+            starts.incrementAndGet();
+            state.set(DesktopUiHost.BackendState.STARTING);
+            return true;
+        });
+        overrides.put("countMigrationCandidates", args -> { throw new AssertionError("Migration must not run"); });
+        overrides.put("recordToolHistory", args -> { outcomes.add(args[1]); return null; });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            activate(model, "tools.migration.run");
+            Object[] first = requests.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(DesktopUiHost.ToolOutcome.FAILED, outcomes.poll(45, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(model.busy());
+            activate(model, "tools.migration.run");
+            assertTrue(requests.isEmpty());
+            assertEquals(0, starts.get());
+            ((Runnable) first[0]).run();
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals(1, starts.get());
+            activate(model, "tools.migration.run");
+            assertFalse(model.busy(), "The backend is starting even before the UI receives its state event");
+            assertTrue(requests.isEmpty());
+
+            state.set(DesktopUiHost.BackendState.RUNNING);
+            activate(model, "tools.migration.run");
+            Object[] second = requests.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            ((Runnable) first[0]).run();
+            assertTrue(model.busy());
+            ((java.util.function.Consumer<Throwable>) second[1]).accept(new IllegalStateException("stop failed"));
+            assertEquals(DesktopUiHost.ToolOutcome.FAILED, outcomes.poll(5, java.util.concurrent.TimeUnit.SECONDS));
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals(1, starts.get());
+        }
+    }
+
+    @Test
     @DisplayName("迁移结果保留真实计数，服务恢复抛错也释放工具互锁")
     void preservesCompletionWhenServiceRestoreFails() throws Exception {
         List<Object[]> records = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -584,6 +666,9 @@ class DesktopToolsControllerTest {
         List<Object[]> records = java.util.Collections.synchronizedList(new ArrayList<>());
         List<String> messages = java.util.Collections.synchronizedList(new ArrayList<>());
         Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        var backendRequests = new java.util.concurrent.atomic.AtomicInteger();
+        overrides.put("stopBackend", args -> { backendRequests.incrementAndGet(); return false; });
+        overrides.put("startBackend", args -> { backendRequests.incrementAndGet(); return false; });
         int total = migrated + skipped + failed;
         overrides.put("countMigrationCandidates", args -> total);
         overrides.put("runMigration", args -> new DesktopUiHost.MigrationSummary(total, migrated, skipped, false, "opaque", failed));
@@ -605,6 +690,7 @@ class DesktopToolsControllerTest {
             assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
                 while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
             });
+            assertEquals(0, backendRequests.get(), "An initially stopped backend must stay stopped");
             assertEquals(failed > 0, overview(model).activity().failed());
             assertTrue(messages.contains("gui.tools.migration.result." + status));
             assertEquals(1, records.size());

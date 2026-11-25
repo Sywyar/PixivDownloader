@@ -68,22 +68,20 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         var committed = new CommittedPluginTransaction(prepared, List.of());
         when(installer.prepareTransaction(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
                 .thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.loadedDescriptor(anyString())).thenAnswer(call -> {
             String id = call.getArgument(0);
             return replaced.contains(id)
                     ? Optional.of(descriptor(id, PluginLifecyclePolicy.PROCESS_RESTART, List.of())) : Optional.empty();
         });
-        for (String id : replaced) {
-            when(runtimeManager.activeDependents(id)).thenReturn(List.of());
-        }
+        when(runtimeManager.packagePhases()).thenReturn(Map.of(
+                replaced.getFirst(), PluginRuntimePackagePhase.STARTED, replaced.getLast(), PluginRuntimePackagePhase.STARTED));
         when(installer.commitTransaction(prepared)).thenReturn(committed);
 
         var result = coordinator().installOrUpdate(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload());
 
         assertThat(result.installResult().accepted()).isTrue();
         assertThat(result.activated()).isFalse();
-        verify(installer).verifyCommittedTarget(committed);
+        verify(installer).verifyCommittedTargetDigest(committed);
         verify(installer).markActivated(committed);
         verify(installer).completeTransaction(committed);
         verifyNoRuntimeMutation();
@@ -98,7 +96,6 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         var committed = new CommittedPluginTransaction(prepared, List.of());
         when(installer.prepareTransaction(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
                 .thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.loadedDescriptor(descriptor.id())).thenReturn(Optional.of(
                 descriptor(descriptor.id(), PluginLifecyclePolicy.PROCESS_RESTART, List.of())));
         when(lifecycleService.phase(descriptor.id())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
@@ -121,10 +118,9 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         var prepared = prepared(descriptor, null);
         when(installer.prepareTransaction(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
                 .thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.loadedDescriptor(anyString())).thenAnswer(call -> retained.equals(call.getArgument(0))
                 ? Optional.of(descriptor(retained, PluginLifecyclePolicy.PROCESS_RESTART, List.of())) : Optional.empty());
-        when(runtimeManager.activeDependents(retained)).thenReturn(List.of());
+        when(runtimeManager.packagePhases()).thenReturn(Map.of(retained, PluginRuntimePackagePhase.STARTED));
         when(installer.commitTransaction(prepared)).thenThrow(new IllegalStateException("fixture commit failure"));
         when(installer.discardPrepared(prepared)).thenReturn(true);
 
@@ -183,11 +179,7 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
 
         when(installer.prepareTransaction(prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload()))
                 .thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
-        when(installer.listInstalled()).thenReturn(List.of(new InstalledPlugin(
-                new PluginDescriptor(retiredId, retiredId, "1.0.0", VersionRequirement.parse("1.0"),
-                        List.of(), "example.LegacyThemePlugin", null, "legacy.label", null, null, null,
-                        PluginKind.FEATURE), retiredArtifact)));
+        when(runtimeManager.artifactPath(retiredId)).thenReturn(Optional.of(retiredArtifact));
         when(runtimeManager.packagePhases()).thenReturn(Map.of(retiredId, PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.activeDependents(retiredId)).thenReturn(List.of());
         when(lifecycleService.phase("gui-swing")).thenReturn(Optional.empty());
@@ -234,7 +226,6 @@ class ExternalPluginLifecycleCoordinatorReplacementTest {
         when(reloaded.packageId()).thenReturn(retiredId);
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(installer.listInstalled()).thenReturn(List.of(retired));
         AtomicBoolean wrapperPresent = new AtomicBoolean(true);
         AtomicReference<PluginRuntimePhase> phase = new AtomicReference<>(PluginRuntimePhase.STARTED);

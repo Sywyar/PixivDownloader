@@ -15,6 +15,7 @@ param(
     [string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$SignatureToolJar,
     [switch]$IncludeOptional,
+    [switch]$IncludeInstallerArtifacts,
     [switch]$RequireProguard
 )
 
@@ -140,13 +141,13 @@ function Select-CatalogPackage($Entry) {
     return $null
 }
 
-function Assert-CatalogPackage($Plugin, $Package) {
+function Assert-CatalogPackage($Plugin, $Package, $Artifact) {
     if ($null -eq $Package) { throw "No compatible catalog package found for $($Plugin.Id)." }
     if ([string]::IsNullOrWhiteSpace([string](Get-Prop $Package "version"))) { throw "Missing version for $($Plugin.Id)." }
-    if ([string]::IsNullOrWhiteSpace([string](Get-Prop $Package "packageUrl"))) { throw "Missing packageUrl for $($Plugin.Id)." }
-    if ([string]::IsNullOrWhiteSpace([string](Get-Prop $Package "sha256"))) { throw "Missing sha256 for $($Plugin.Id)." }
-    if ([int64](Get-Prop $Package "expectedSizeBytes") -le 0) { throw "Missing expectedSizeBytes for $($Plugin.Id)." }
-    if ($null -eq (Get-Prop $Package "signature")) { throw "Missing structured signature for $($Plugin.Id)." }
+    if ([string]::IsNullOrWhiteSpace([string](Get-Prop $Artifact "packageUrl"))) { throw "Missing packageUrl for $($Plugin.Id)." }
+    if ([string](Get-Prop $Artifact "sha256") -notmatch '^[0-9a-f]{64}$') { throw "Invalid sha256 for $($Plugin.Id)." }
+    if ([int64](Get-Prop $Artifact "expectedSizeBytes") -le 0) { throw "Missing expectedSizeBytes for $($Plugin.Id)." }
+    if ($null -eq (Get-Prop $Artifact "signature")) { throw "Missing structured signature for $($Plugin.Id)." }
 }
 
 $OutputDir = Assert-SafeDistributionOutputDirectory `
@@ -204,10 +205,20 @@ try {
             $incompatiblePluginIds += $plugin.Id
             continue
         }
-        Assert-CatalogPackage $plugin $package
+        Assert-CatalogPackage $plugin $package $package
         $stagingPlans += [pscustomobject]@{
             Plugin = $plugin
             Package = $package
+            Artifact = $package
+        }
+        if ($IncludeInstallerArtifacts) {
+            $variant = Get-InstallerPluginVariant $plugin
+            if ($variant) {
+                $attachment = Get-Prop (Get-Prop $package 'installerArtifacts') $variant.Classifier
+                if ($null -eq $attachment) { throw "Missing signed $($variant.Classifier) installer artifact for $($plugin.Id)." }
+                Assert-CatalogPackage $variant $package $attachment
+                $stagingPlans += [pscustomobject]@{ Plugin=$variant; Package=$package; Artifact=$attachment }
+            }
         }
     }
 
@@ -241,14 +252,15 @@ try {
 
         $version = [string](Get-Prop $package "version")
         $assetName = Get-OfficialPluginArtifactName $plugin $version
-        $artifactPath = Join-Path $OutputDir $assetName
+        $directory = if ($plugin.PSObject.Properties['Classifier']) { Join-Path $OutputDir $plugin.Classifier } else { $OutputDir }
+        $artifactPath = Join-Path $directory $assetName
         $artifactSignaturePath = "$artifactPath.sig"
-        $sha256 = [string](Get-Prop $package "sha256")
-        $expectedSize = [int64](Get-Prop $package "expectedSizeBytes")
-        $packageUrl = [string](Get-Prop $package "packageUrl")
+        $sha256 = [string](Get-Prop $plan.Artifact "sha256")
+        $expectedSize = [int64](Get-Prop $plan.Artifact "expectedSizeBytes")
+        $packageUrl = [string](Get-Prop $plan.Artifact "packageUrl")
 
         Invoke-DownloadFile $packageUrl $artifactPath
-        $signatureJson = (Get-Prop $package "signature") | ConvertTo-Json -Compress -Depth 8
+        $signatureJson = (Get-Prop $plan.Artifact "signature") | ConvertTo-Json -Compress -Depth 8
         [System.IO.File]::WriteAllText($artifactSignaturePath, $signatureJson + "`n", $Utf8NoBom)
         [void](Assert-PluginArtifactSignature $SignatureToolJar $artifactPath $artifactSignaturePath `
             $plugin.Id $version $expectedSize $sha256)

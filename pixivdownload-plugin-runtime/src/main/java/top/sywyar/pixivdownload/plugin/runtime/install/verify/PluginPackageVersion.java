@@ -48,6 +48,11 @@ public final class PluginPackageVersion implements Comparable<PluginPackageVersi
         return new PluginPackageVersion(intAt(parts, 0), intAt(parts, 1), intAt(parts, 2), prerelease);
     }
 
+    /** 与安装器的 DUPLICATE 判定一致，包括只在构建元数据上不同的版本。 */
+    public static boolean samePrecedence(String left, String right) {
+        return left != null && right != null && (left.equals(right) || parse(left).compareTo(parse(right)) == 0);
+    }
+
     private static int intAt(String[] parts, int index) {
         if (index >= parts.length) {
             return 0;

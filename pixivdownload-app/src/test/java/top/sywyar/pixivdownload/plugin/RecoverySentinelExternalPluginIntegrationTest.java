@@ -111,7 +111,7 @@ class RecoverySentinelExternalPluginIntegrationTest {
         assertThat(statusService.report().byId("recovery-sentinel").orElseThrow().status())
                 .isEqualTo(PluginStatus.STARTED);
 
-        RecoveryModeService recovery = new RecoveryModeService(statusService, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        RecoveryModeService recovery = new RecoveryModeService(statusService, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
         assertThat(recovery.isActive()).isFalse();
         assertThat(recovery.decision().reasons()).isEmpty();
     }
@@ -129,7 +129,7 @@ class RecoverySentinelExternalPluginIntegrationTest {
         assertThat(statusService.report().byId("recovery-sentinel").orElseThrow().status())
                 .isEqualTo(PluginStatus.DISABLED);
 
-        RecoveryModeService recovery = new RecoveryModeService(statusService, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        RecoveryModeService recovery = new RecoveryModeService(statusService, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class), owner -> true);
         assertThat(recovery.isActive()).isTrue();
         assertThat(recovery.decision().firstReason().orElseThrow().pluginId()).isEqualTo("recovery-sentinel");
         assertThat(recovery.decision().firstReason().orElseThrow().status()).isEqualTo(PluginStatus.DISABLED);

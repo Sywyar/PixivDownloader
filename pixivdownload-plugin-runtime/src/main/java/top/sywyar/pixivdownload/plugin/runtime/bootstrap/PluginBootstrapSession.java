@@ -87,17 +87,6 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private volatile boolean closed;
     private DatabaseProviderBinding databaseBinding;
 
-    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
-                                   PluginSupplyChainVerifier verifier) {
-        this(pluginsRoot, ownership, enabledSnapshot, fixedVerifier(verifier));
-    }
-
-    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
-                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
-        this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
-                RecoveryGatedPluginRuntimeManager::new);
-    }
-
     PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
                            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                            RuntimeManagerFactory runtimeManagerFactory) {
@@ -115,10 +104,10 @@ public final class PluginBootstrapSession implements AutoCloseable {
 
     PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
                            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
-                           BooleanSupplier developmentModeEnabled) {
+                           BooleanSupplier developmentModeEnabled, boolean headless) {
         this(pluginsRoot, ownership, enabledSnapshot, verifierResolver,
                 (root, resolver, installer) -> new RecoveryGatedPluginRuntimeManager(
-                        root, resolver, installer, developmentModeEnabled),
+                        root, resolver, installer, developmentModeEnabled, headless),
                 ExternalPluginInstaller::recoverPendingTransactions,
                 developmentModeEnabled);
     }
@@ -172,14 +161,22 @@ public final class PluginBootstrapSession implements AutoCloseable {
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭），使用调用方提供的验签门面。 */
     public static PluginBootstrapSession createProcess(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
                                                        PluginSupplyChainVerifier verifier) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifier);
+        return createProcess(pluginsRoot, enabledSnapshot, fixedVerifier(verifier));
     }
 
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭），使用调用方提供的按来源验签门面。 */
     public static PluginBootstrapSession createProcess(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
                                                        Function<PluginPackageOrigin, PluginSupplyChainVerifier>
                                                                verifierResolver) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifierResolver);
+        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifierResolver,
+                PluginDevelopmentArtifacts::enabled, false);
+    }
+
+    /** 停机工具自行关闭进程会话，只启动后端及其必需依赖。 */
+    public static PluginBootstrapSession createTool(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifierResolver,
+                PluginDevelopmentArtifacts::enabled, true);
     }
 
     /** headless / Spring context 拥有的会话（context 关闭时释放）。 */
@@ -190,14 +187,15 @@ public final class PluginBootstrapSession implements AutoCloseable {
     /** headless / Spring context 拥有的会话（context 关闭时释放），使用调用方提供的验签门面。 */
     public static PluginBootstrapSession createContext(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
                                                        PluginSupplyChainVerifier verifier) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot, verifier);
+        return createContext(pluginsRoot, enabledSnapshot, fixedVerifier(verifier));
     }
 
     /** headless / Spring context 拥有的会话（context 关闭时释放），使用调用方提供的按来源验签门面。 */
     public static PluginBootstrapSession createContext(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
                                                        Function<PluginPackageOrigin, PluginSupplyChainVerifier>
                                                                verifierResolver) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot, verifierResolver);
+        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot, verifierResolver,
+                PluginDevelopmentArtifacts::enabled, true);
     }
 
     /**
@@ -515,6 +513,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
         PluginRuntimeManager current = manager;
         if (current == null) {
             current = runtimeManagerFactory.create(pluginsRoot, verifierResolver, installer);
+            current.useDisabledAtStartup(enabledSnapshot.disabledFeatureIds());
             current.useScanCache(scanCache);
             current.usePreparationCache(preparationCache);
             current.updateAdmissionPolicy(admissionPolicy);
@@ -581,22 +580,21 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private static final class RecoveryGatedPluginRuntimeManager extends PluginRuntimeManager {
 
         private final ExternalPluginInstaller installer;
-
-        private RecoveryGatedPluginRuntimeManager(
-                Path pluginsRoot,
-                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
-                ExternalPluginInstaller installer) {
-            super(pluginsRoot, verifierResolver);
-            this.installer = Objects.requireNonNull(installer, "installer");
-        }
+        private final boolean headless;
 
         private RecoveryGatedPluginRuntimeManager(
                 Path pluginsRoot,
                 Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver,
                 ExternalPluginInstaller installer,
-                BooleanSupplier developmentModeEnabled) {
+                BooleanSupplier developmentModeEnabled, boolean headless) {
             super(pluginsRoot, verifierResolver, developmentModeEnabled);
             this.installer = Objects.requireNonNull(installer, "installer");
+            this.headless = headless;
+        }
+
+        @Override
+        public boolean headlessStartup() {
+            return headless;
         }
 
         @Override

@@ -104,8 +104,9 @@ class ExternalCapabilityLifecycleIntegrationTest {
             PluginRuntimeTaskQuiescer quiescer = new PluginRuntimeTaskQuiescer(
                     scheduleRegistrar, streamRegistry, queueRegistry, taskRegistry);
 
+            PluginLifecycleState lifecycleState = new PluginLifecycleState();
             ExternalCapabilityInvocationRegistry invocationRegistry =
-                    new ExternalCapabilityInvocationRegistry();
+                    new ExternalCapabilityInvocationRegistry(lifecycleState);
             PushChannelRegistry pushRegistry = new PushChannelRegistry(List.of());
             PushChannelCapabilityAdapter pushAdapter =
                     new PushChannelCapabilityAdapter(pushRegistry, invocationRegistry);
@@ -125,7 +126,6 @@ class ExternalCapabilityLifecycleIntegrationTest {
                 return result;
             }).when(capabilityRegistrar).withdraw(nullable(ExternalCapabilityPublication.class));
 
-            PluginLifecycleState lifecycleState = new PluginLifecycleState();
             PluginLifecycleService service = new PluginLifecycleService(
                     parent, runtime, new PluginApplicationContextFactory(streamRegistry, taskRegistry),
                     mock(PluginControllerRegistrar.class), webRegistrar, scheduleRegistrar,

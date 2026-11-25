@@ -685,11 +685,25 @@ async function apiTests() {
     nextFetchResponse.body.consumers = [{id: 'reader', version: '4.8', status: 'INSTALLED'}];
     await PM.confirmImpact('library', 'remove');
     ok('未加载的依赖方仍显示安装版本', dialogText(impactDialogs.at(-1)).includes('4.8'));
+    nextFetchResponse.body.consumers = [{id: 'reader', version: '1.1', loadedVersion: '1.0',
+        dependencies: [], loadedDependencies: [{pluginId: 'library', versionSupport: '1.0'}]}];
+    await PM.confirmImpact('library', 'remove');
+    const pendingImpact = dialogText(impactDialogs.at(-1));
+    ok('列出运行代际的依赖', pendingImpact.includes('common:plugin-info.loaded-version · library · 1.0'));
+    ok('列出磁盘新版已移除的依赖', pendingImpact.includes('common:plugin-info.installed-version · common:plugin-info.no-dependencies'));
     delete nextFetchResponse.body.consumers;
     await PM.confirmImpact('library', 'remove');
     ok('缺失依赖信息与空列表区分', dialogText(impactDialogs.at(-1)).includes('common:plugin-info.unknown'));
     sandbox.PixivFeedback = originalConfirm;
     PM.i18n.client = previousClient;
+
+    for (const restored of [true, false]) {
+        nextFetchResponse = {ok: false, status: 500, body: {code: restored ? 'RELOAD_ROLLED_BACK' : 'RELOAD_ROLLBACK_FAILED',
+            error: 'Reload failed', rolledBack: restored, loadedVersion: '1.0.0'}};
+        const failure = await PM.performAction('library', 'reload', 'c'.repeat(64)).catch(error => error);
+        eq('重载失败保留回滚结果', failure.rolledBack, restored);
+        eq('重载失败保留加载版本', failure.loadedVersion, '1.0.0');
+    }
 
     // A-1) 正常安装：multipart POST 到 INSTALL_URL，file 字段 + allowDowngrade 默认 false。
     fetchCalls.length = 0;

@@ -73,6 +73,8 @@ class PluginManagementServiceTest {
     @DisplayName("移除影响预览保留反向消费者，运行代次变化后拒绝旧确认")
     void revalidatesImpactBeforeManagementMutation() {
         var coordinator = mock(ExternalPluginLifecycleCoordinator.class);
+        when(coordinator.withReadReservation(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
+                ((java.util.function.Supplier<?>) call.getArgument(0)).get());
         when(coordinator.withMutationReservation(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
                 ((java.util.function.Supplier<?>) call.getArgument(0)).get());
         var service = org.mockito.Mockito.spy(new PluginManagementService(mock(PluginStatusService.class),

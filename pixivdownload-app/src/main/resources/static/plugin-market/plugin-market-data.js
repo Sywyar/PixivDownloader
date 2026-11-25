@@ -263,8 +263,10 @@
         if (blocked) return blocked;
         if (!pkg) return entry.installStatus;
         if (pkg.compatible === false) return 'INCOMPATIBLE';
+        if (pkg.effectiveAfterRestart && !D.suspectedProblem(entry)) return 'PENDING_RESTART';
         if (pkg.installationMatch === 'SAME_ARTIFACT') return D.suspectedProblem(entry) ? 'REINSTALL' : 'INSTALLED_SAME';
-        if (pkg.installationMatch === 'DIFFERENT_ARTIFACT') return 'INSTALL_DIFFERENT';
+        if (pkg.installationMatch === 'OFFICIAL_INSTALLER_VARIANT') return D.suspectedProblem(entry) ? 'REINSTALL' : 'INSTALLED';
+        if (pkg.installationMatch === 'DIFFERENT_ARTIFACT') return 'ARTIFACT_CONFLICT';
         if (pkg.installationMatch === 'UNKNOWN') return 'INSTALL_UNVERIFIED';
         if (D.developmentLoaded(entry) && (manual || entry.installStatus === 'NOT_INSTALLED')) return 'INSTALL_DISTRIBUTION';
         return manual ? 'NOT_INSTALLED' : entry.installStatus;
@@ -272,7 +274,7 @@
 
     D.installationNotice = function (entry, pkg) {
         var match = pkg && pkg.installationMatch;
-        var notice = ['SAME_ARTIFACT', 'DIFFERENT_ARTIFACT', 'UNKNOWN'].indexOf(match) !== -1
+        var notice = ['SAME_ARTIFACT', 'OFFICIAL_INSTALLER_VARIANT', 'DIFFERENT_ARTIFACT', 'UNKNOWN'].indexOf(match) !== -1
             ? PMK.t('installation.match.' + match) : '';
         if (D.artifactMismatch(entry, pkg)) notice = PMK.t('installation.same-version-mismatch');
         var state = D.installationState(entry, pkg);

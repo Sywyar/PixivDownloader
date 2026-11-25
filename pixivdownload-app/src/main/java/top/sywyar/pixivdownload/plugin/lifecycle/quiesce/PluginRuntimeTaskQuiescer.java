@@ -80,9 +80,9 @@ public class PluginRuntimeTaskQuiescer {
         pluginStreamRegistry.resume(pluginId);
     }
 
-    /** 新 serving 发布前为该 owner 开放一个新的中性后台任务 generation。 */
-    public void resumeTasks(String pluginId) {
-        runtimeTaskRegistry.resume(pluginId);
+    /** 子 context 初始化前按目标阶段设置本代任务准入。 */
+    public void beginTaskGeneration(String pluginId, boolean acceptNewTasks) {
+        runtimeTaskRegistry.beginGeneration(pluginId, acceptNewTasks);
     }
 
     /** 全部业务 drain 已归零后释放精确代际的资源；失败保留同代资源供重试。 */

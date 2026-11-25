@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateState;
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
@@ -61,18 +63,18 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
  * 运行期阶段（仅受管外置插件有）、是否受管、必选性 / 是否允许停用、可用动词与诊断说明。
  *
  * <h2>运行期动词（{@link #perform}）</h2>
- * 仅作用于<b>受管外置插件</b>（{@link PluginLifecycleService#managedPluginIds()}）。前置守卫：内置插件随主程序编译、
- * <b>不可</b>运行期热启停（拒 409）；经 {@code plugins.<id>.enabled} 配置禁用而未激活的外置插件不在受管范围（拒 409）；
+ * 热启停针对受管外置插件；允许管理员启用已安装的热重载包，并移除符合策略的磁盘包。
+ * 内置插件随主程序编译，不可运行期热启停（拒 409）；
  * 未知 id 拒 404；必选插件（{@link RequiredPluginPolicy} 声明 {@code allowDisable=false}）<b>不允许</b>被停用类动词
  * （quiesce / stop / unload / remove）降级（拒 409）。守卫通过后委托统一生命周期编排器执行；其非法状态流转
  * （{@link PluginLifecycleException}）转 409。
  *
- * <p>本服务只读 + 编排、<b>不持久化</b>启停状态：运行期动词在内存生效、不写配置；跨重启的禁用仍由
- * {@code plugins.<id>.enabled} 配置承载，不在本服务范围内改配置。它不触碰鉴权——HTTP 入口由 {@code AuthFilter}
+ * <p>运行期动词在内存生效；管理开关的组合启用操作在启动成功后交由配置服务保存。它不触碰鉴权——HTTP 入口由 {@code AuthFilter}
  * 按 {@code /api/plugins/**} = ADMIN 独立校验。
  */
 @Service
 public class PluginManagementService {
+    private static final Logger log = LoggerFactory.getLogger(PluginManagementService.class);
 
     private static final int MAX_MANAGEMENT_PROVENANCE_RECORDS = InstalledPluginInventorySnapshot.MAX_RECORDS;
     private static final long MAX_MANAGEMENT_PROVENANCE_BYTES = InstalledPluginInventorySnapshot.MAX_PROVENANCE_BYTES;
@@ -193,13 +195,15 @@ public class PluginManagementService {
         Set<String> managedIds = pluginLifecycleService.managedPluginIds();
         Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications =
                 allowProvenanceReads ? runtimeVerificationsById() : Map.of();
+        Set<String> pendingInstalls = coordinator == null || installedArtifacts.isEmpty() ? Set.of()
+                : coordinator.pendingInstalls(installedArtifacts.values().stream().flatMap(List::stream).toList());
         List<PluginManagementEntry> entries = new ArrayList<>();
         for (PluginDiagnostic diagnostic : status.diagnostics()) {
             if ("plugin-runtime".equals(diagnostic.id()) && diagnostic.descriptor() == null) {
                 continue;
             }
             entries.add(toEntry(diagnostic, managedIds, installedArtifacts, runtimeVerifications,
-                    expectedGate, allowProvenanceReads));
+                    expectedGate, allowProvenanceReads, pendingInstalls));
         }
         return List.copyOf(entries);
     }
@@ -210,18 +214,19 @@ public class PluginManagementService {
             Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
             Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
             PluginRecoveryGateSnapshot expectedGate,
-            boolean allowProvenanceReads) {
+            boolean allowProvenanceReads, Set<String> pendingInstalls) {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
-        PluginDescriptor loadedProcess = coordinator != null
-                ? coordinator.processRestartDescriptor(id).orElse(null) : null;
         List<InstalledPluginSnapshot> installed = installedArtifacts.getOrDefault(id, List.of());
+        boolean pendingInstall = installed.size() == 1 && pendingInstalls.contains(id);
+        PluginDescriptor loadedProcess = pendingInstall ? pluginLifecycleService.descriptor(id).orElse(null)
+                : coordinator != null ? coordinator.processRestartDescriptor(id).orElse(null) : null;
         boolean retainedProcess = loadedProcess != null && !pluginLifecycleService.isDevelopmentArtifact(id);
         boolean removedInstalledPackage = retainedProcess && allowProvenanceReads && installed.isEmpty();
         if (retainedProcess && installed.size() == 1) {
             descriptor = installed.get(0).plugin().descriptor();
         }
-        boolean effectiveAfterRestart = retainedProcess && allowProvenanceReads
+        boolean effectiveAfterRestart = pendingInstall || retainedProcess && allowProvenanceReads
                 && (installed.size() != 1
                 || !loadedProcess.version().equals(installed.get(0).plugin().version())
                 || (!runtimeVerifications.getOrDefault(id, List.of()).isEmpty()
@@ -230,11 +235,12 @@ public class PluginManagementService {
                         installed.get(0).artifactSizeBytes(), installed.get(0).artifactSha256()))));
         PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
         boolean builtIn = BuiltInPlugins.isBuiltIn(id);
-        PluginLifecyclePolicy lifecyclePolicy = retainedProcess ? PluginLifecyclePolicy.PROCESS_RESTART
-                : descriptor != null ? descriptor.lifecyclePolicy() : null;
-        boolean installedOnly = descriptor != null && !builtIn
-                && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
-        boolean managed = lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
+        PluginLifecyclePolicy lifecyclePolicy = retainedProcess && loadedProcess.lifecyclePolicy().requiresProcessRestart()
+                ? PluginLifecyclePolicy.PROCESS_RESTART : descriptor != null ? descriptor.lifecyclePolicy() : null;
+        boolean installedOnly = descriptor != null && !builtIn && phase == null
+                && (diagnostic.status() == PluginStatus.INSTALLED || diagnostic.status() == PluginStatus.DISABLED && installed.size() == 1);
+        boolean retainedForReplacement = descriptor != null && coordinator != null && coordinator.waitsForReplacementRestart(descriptor);
+        boolean managed = !retainedForReplacement && lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
                 && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
                 || installedOnly);
         boolean allowDisable = !builtIn && allowDisable(id);
@@ -244,15 +250,21 @@ public class PluginManagementService {
         PluginVerificationView verification = verificationOf(id, descriptor, phase, installedArtifacts,
                 runtimeVerifications, expectedGate, allowProvenanceReads,
                 retainedProcess).withDescriptor(descriptor);
-        List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
-        if (allowProvenanceReads && coordinator != null && allowDisable
-                && (lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
-                || descriptor != null && diagnostic.status() == PluginStatus.FAILED && phase == null)
+        List<String> actions = availableActions(managed, phase, allowDisable, installedOnly, pluginToggles.isEnabled(id));
+        if (actions.isEmpty() && allowProvenanceReads && coordinator != null && allowDisable && descriptor != null
+                && removableWithoutHotManagement(id, retainedForReplacement, lifecyclePolicy, diagnostic.status(), phase)
                 && installedArtifacts.getOrDefault(id, List.of()).size() == 1) {
             actions = List.of("remove");
         }
         if ("REVOKED".equals(verification.revocationStatus())) {
             actions = actions.stream().filter(action -> !List.of("load", "start", "restart", "reload").contains(action)).toList();
+        }
+        if (coordinator != null && coordinator.backendStopFailed()) {
+            actions = List.of();
+            toggleable = false;
+            boolean failed = pluginLifecycleService.failedToStop(id);
+            operation = new ExternalPluginOperationSnapshot(id, failed ? ExternalPluginOperation.FAILED : ExternalPluginOperation.IDLE,
+                    null, failed ? "BACKEND_STOP_FAILED" : "BACKEND_STOP_INCOMPLETE");
         }
         return new PluginManagementEntry(
                 id,
@@ -264,7 +276,7 @@ public class PluginManagementService {
                 removedInstalledPackage ? null : descriptor != null ? descriptor.version() : null,
                 descriptor != null ? descriptor.kind() : null,
                 descriptor != null ? SdkRequirementView.from(descriptor.requires()) : null,
-                dependencyViews(descriptor),
+                removedInstalledPackage ? List.of() : dependencyViews(descriptor),
                 sourceOf(id, descriptor),
                 diagnostic.status(),
                 phase,
@@ -285,7 +297,8 @@ public class PluginManagementService {
                 pluginToggles.isEnabled(id),
                 toggleable && !removedInstalledPackage,
                 loadedProcess != null ? loadedProcess.version() : null,
-                effectiveAfterRestart);
+                effectiveAfterRestart,
+                effectiveAfterRestart && retainedProcess ? dependencyViews(loadedProcess) : null);
     }
 
     public PluginTrustView approveTrust(String pluginId, String confirmedArtifactSha256) {
@@ -293,7 +306,8 @@ public class PluginManagementService {
             throw trustFailure(pluginId, "approve-trust", "plugin trust store is unavailable");
         }
         try {
-            return PluginTrustView.from(installer.approveTrust(pluginId, confirmedArtifactSha256));
+            return reserveMutation(pluginId, "approve-trust", () ->
+                    PluginTrustView.from(installer.approveTrust(pluginId, confirmedArtifactSha256), true));
         } catch (IllegalArgumentException | IllegalStateException failure) {
             throw trustFailure(pluginId, "approve-trust", failure.getMessage());
         }
@@ -304,7 +318,7 @@ public class PluginManagementService {
             throw trustFailure(pluginId, "revoke-trust", "plugin trust store is unavailable");
         }
         try {
-            return PluginTrustView.from(installer.revokeTrust(pluginId));
+            return reserveMutation(pluginId, "revoke-trust", () -> PluginTrustView.from(installer.revokeTrust(pluginId), true));
         } catch (IllegalArgumentException | IllegalStateException failure) {
             throw trustFailure(pluginId, "revoke-trust", failure.getMessage());
         }
@@ -342,7 +356,7 @@ public class PluginManagementService {
                 || !snapshot.artifactSha256().equals(snapshot.provenance().artifactSha256())) {
             return PluginTrustView.state(PluginTrustState.INVALID);
         }
-        return PluginTrustView.from(snapshot.provenance());
+        return PluginTrustView.from(snapshot.provenance(), coordinator == null || !coordinator.backendStopFailed());
     }
 
     /** 描述符的插件间依赖声明投影（未安装的必选项无描述符 → 空列表）。 */
@@ -510,13 +524,13 @@ public class PluginManagementService {
      * 受管外置插件按当前阶段给出启用类（恢复 / 重建足迹，必选插件也可用）与停用类（降级，必选插件不提供）动词。
      */
     private static List<String> availableActions(boolean managed, PluginRuntimePhase phase, boolean allowDisable,
-                                                 boolean installedOnly) {
+                                                 boolean installedOnly, boolean enabled) {
         if (!managed) {
             return List.of();
         }
         List<String> actions = new ArrayList<>();
         if (installedOnly) {
-            actions.add(LifecycleAction.LOAD.token());
+            if (enabled) actions.add(LifecycleAction.LOAD.token());
             if (allowDisable) {
                 actions.add(LifecycleAction.REMOVE.token());
             }
@@ -552,7 +566,11 @@ public class PluginManagementService {
 
     /** 停用与移除前展示当前身份和反向消费者；不自动级联停止或删除其它插件。 */
     public PluginImpactPreview previewImpact(String id) {
-        return reserveImpact(id, () -> impact(id));
+        try {
+            return coordinator.withReadReservation(() -> impact(id));
+        } catch (ClassifiedPluginLifecycleException failure) {
+            throw new PluginManagementException(failure.code(), id, "preview", null, failure.getMessage());
+        }
     }
 
     private PluginImpactPreview impact(String id) {
@@ -567,8 +585,9 @@ public class PluginManagementService {
                         id, "preview", null, "unknown plugin"));
         var serviceImpact = serviceRegistry == null ? null : serviceRegistry.serviceImpact(id);
         var serviceConsumers = serviceImpact == null ? java.util.Set.<String>of() : serviceImpact.consumers();
+        var loadedConsumers = Set.copyOf(coordinator.activeDependents(id));
         var consumers = entries.stream().filter(entry -> !entry.id().equals(id))
-                .filter(entry -> serviceConsumers.contains(entry.id()) || entry.dependencies().stream()
+                .filter(entry -> loadedConsumers.contains(entry.id()) || serviceConsumers.contains(entry.id()) || entry.dependencies().stream()
                         .anyMatch(dep -> !dep.optional() && dep.pluginId().equals(id)))
                 .sorted(java.util.Comparator.comparing(PluginManagementEntry::id)).toList();
         String facts = impactFacts(target) + consumers.stream().map(PluginManagementService::impactFacts).toList()
@@ -584,13 +603,13 @@ public class PluginManagementService {
 
     private static String impactFacts(PluginManagementEntry entry) {
         return java.util.Arrays.asList(entry.id(), entry.version(), entry.loadedVersion(), entry.generation(),
-                entry.status(), entry.runtimePhase(), entry.dependencies(), entry.configuredEnabled(),
+                entry.status(), entry.runtimePhase(), entry.dependencies(), entry.loadedDependencies(), entry.effectiveAfterRestart(), entry.configuredEnabled(),
                 entry.lifecyclePolicy(), entry.availableActions(), entry.trust(), entry.source(),
                 entry.allowDisable(), entry.toggleable()).toString();
     }
 
     public <T> T confirmImpact(String id, String fingerprint, java.util.function.Supplier<T> action) {
-        return reserveImpact(id, () -> {
+        return reserveMutation(id, "preview", () -> {
             if (!impact(id).fingerprint().equals(fingerprint)) {
                 throw new PluginManagementException(PluginManagementErrorCode.IMPACT_CHANGED, id,
                         "preview", null, "plugin impact changed; review the current state");
@@ -599,15 +618,45 @@ public class PluginManagementService {
         });
     }
 
+    /** 在已确认的变更预留范围内调用。启动成功后才修改下次启动的配置。 */
+    public PluginActionResult enableAndStart(String id, PluginEnabledConfigurationService configuration) {
+        var descriptor = configuration.configurableDescriptor(id, true);
+        if (descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD) {
+            throw new PluginManagementException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN, id, "enable-start", null,
+                    "Plugin requires restart: " + id);
+        }
+        var before = pluginLifecycleService.phase(id).orElse(null);
+        boolean needsLoad = before == null || before == PluginRuntimePhase.UNLOADED;
+        boolean wasEnabled = pluginToggles.isEnabled(id);
+        pluginToggles.setEnabled(id, true);
+        try {
+            if (needsLoad) perform(id, LifecycleAction.LOAD);
+            var started = perform(id, LifecycleAction.START);
+            if (!wasEnabled) configuration.update(id, true);
+            return started;
+        } catch (RuntimeException | Error failure) {
+            pluginToggles.setEnabled(id, wasEnabled);
+            var current = pluginLifecycleService.phase(id).orElse(null);
+            try {
+                if (needsLoad && current != null && current != PluginRuntimePhase.UNLOADED) perform(id, LifecycleAction.UNLOAD);
+                else if (current == PluginRuntimePhase.STARTED && before != current) perform(id, LifecycleAction.STOP);
+            } catch (RuntimeException cleanup) {
+                failure.addSuppressed(cleanup);
+                log.error("Failed to restore plugin {} after enable/start failed", id, cleanup);
+            }
+            throw failure;
+        }
+    }
+
     public PluginActionResult performPreviewed(String id, LifecycleAction action, String fingerprint) {
         return confirmImpact(id, fingerprint, () -> perform(id, action));
     }
 
-    private <T> T reserveImpact(String id, java.util.function.Supplier<T> action) {
+    public <T> T reserveMutation(String id, String operation, java.util.function.Supplier<T> action) {
         try {
             return coordinator.withMutationReservation(action);
         } catch (ClassifiedPluginLifecycleException failure) {
-            throw new PluginManagementException(failure.code(), id, "preview", null, failure.getMessage());
+            throw new PluginManagementException(failure.code(), id, operation, null, failure.getMessage());
         }
     }
 
@@ -643,10 +692,20 @@ public class PluginManagementService {
         } catch (PluginLifecycleException e) {
             PluginManagementErrorCode code = e instanceof ClassifiedPluginLifecycleException classified
                     ? classified.code() : PluginManagementErrorCode.ILLEGAL_TRANSITION;
-            throw new PluginManagementException(code, id, action.token(),
-                    pluginLifecycleService.phase(id).orElse(null), e.getMessage());
+            var rollback = e instanceof ClassifiedPluginLifecycleException classified ? classified.rollback() : null;
+            var phase = rollback == null ? pluginLifecycleService.phase(id).orElse(null) : rollback.phase();
+            throw new PluginManagementException(code, id, action.token(), phase, e.getMessage(), rollback, e);
         }
         return new PluginActionResult(id, action.token(), pluginLifecycleService.phase(id).orElse(null));
+    }
+
+    private boolean removableWithoutHotManagement(String id, boolean retained, PluginLifecyclePolicy policy,
+                                                  PluginStatus status, PluginRuntimePhase phase) {
+        return retained || policy == PluginLifecyclePolicy.PROCESS_RESTART || status == PluginStatus.FAILED
+                || policy == PluginLifecyclePolicy.HOT_RELOAD && status == PluginStatus.DISABLED
+                || policy == PluginLifecyclePolicy.BACKEND_RESTART && (status == PluginStatus.DISABLED || status == PluginStatus.INSTALLED)
+                && (phase == null || phase == PluginRuntimePhase.UNLOADED)
+                && (!coordinator.isLoaded(id) || coordinator.loadedInactiveAtBoot(id));
     }
 
     /** 校验 id 是受管外置插件；否则按「内置 / 未激活外置 / 未知」分别给出明确拒绝（附尝试的动词 token 供诊断）。 */
@@ -658,14 +717,13 @@ public class PluginManagementService {
         var report = pluginStatusService.report();
         var diagnostic = report != null ? report.byId(id) : Optional.<PluginDiagnostic>empty();
         PluginDescriptor descriptor = diagnostic.map(PluginDiagnostic::descriptor).orElse(null);
-        // 启动失败的包可能还没有应用 generation；移除仍经统一协调器，required 守卫随后执行。
-        if (descriptor != null && diagnostic.get().status() == PluginStatus.FAILED
-                && action == LifecycleAction.REMOVE && coordinator != null) {
-            return;
-        }
-        if (descriptor != null && descriptor.lifecyclePolicy() == PluginLifecyclePolicy.PROCESS_RESTART
-                && action == LifecycleAction.REMOVE && coordinator != null) {
-            return;
+        boolean retained = descriptor != null && coordinator != null && coordinator.waitsForReplacementRestart(descriptor);
+        if (action == LifecycleAction.REMOVE && coordinator != null && descriptor != null
+                && removableWithoutHotManagement(id, retained, descriptor.lifecyclePolicy(), diagnostic.get().status(),
+                        pluginLifecycleService.phase(id).orElse(null))) return;
+        if (action != LifecycleAction.REMOVE && retained) {
+            throw new PluginManagementException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN, id, action.token(),
+                    pluginLifecycleService.phase(id).orElse(null), "Replaced plugins remain loaded until restart: " + id);
         }
         if (descriptor != null && descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD) {
             throw new PluginManagementException(PluginManagementErrorCode.RESTART_REQUIRED_PLUGIN,
@@ -677,6 +735,10 @@ public class PluginManagementService {
             return;
         }
         if (pluginLifecycleService.phase(id).orElse(null) == PluginRuntimePhase.UNLOADED) {
+            return;
+        }
+        if (action == LifecycleAction.LOAD && coordinator != null && pluginToggles.isEnabled(id)
+                && coordinator.loadedInactiveAtBoot(id)) {
             return;
         }
         if (diagnostic.isPresent()
@@ -698,11 +760,13 @@ public class PluginManagementService {
         if (report == null) {
             return;
         }
-        PluginDiagnostic target = report.byId(id).orElse(null);
-        if (target == null || target.descriptor() == null) {
+        var target = coordinator != null && (action == LifecycleAction.LOAD || action == LifecycleAction.RELOAD)
+                ? coordinator.descriptorForCodeLoad(id)
+                : report.byId(id).map(PluginDiagnostic::descriptor);
+        if (target.isEmpty()) {
             return;
         }
-        for (PluginDependencyRef dependency : target.descriptor().dependencies()) {
+        for (PluginDependencyRef dependency : target.get().dependencies()) {
             if (dependency.optional()) {
                 continue;
             }
@@ -878,8 +942,9 @@ public class PluginManagementService {
      * @param lifecyclePolicy  描述符声明的生命周期策略（无描述符时为 {@code null}）
      * @param configuredEnabled 当前配置中的期望启用态（缺项默认 {@code true}）
      * @param toggleable       是否允许管理入口修改期望启用态（内置 / 必选 / 无描述符均为 {@code false}）
-     * @param loadedVersion    当前进程仍持有的 process-restart 插件版本，与磁盘安装版本独立
-     * @param effectiveAfterRestart 安装状态已变化，驻留实例需要完整进程重启才能替换或移除
+     * @param loadedVersion    等待重启或采用进程重启策略时，当前进程仍持有的插件版本
+     * @param effectiveAfterRestart 当前安装变更尚未在服务中生效
+     * @param loadedDependencies 等待切换时驻留版本声明的依赖；dependencies 同时表示磁盘版本的声明
      */
     public record PluginManagementEntry(
             String id,
@@ -911,7 +976,8 @@ public class PluginManagementService {
             boolean configuredEnabled,
             boolean toggleable,
             @HttpApiNullable String loadedVersion,
-            boolean effectiveAfterRestart) {
+            boolean effectiveAfterRestart,
+            @HttpApiNullable List<PluginDependencyView> loadedDependencies) {
 
         /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
         public PluginManagementEntry(
@@ -939,7 +1005,7 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    PluginLifecyclePolicy.HOT_RELOAD, true, false, null, false);
+                    PluginLifecyclePolicy.HOT_RELOAD, true, false, null, false, null);
         }
 
         /** 兼容需要显式断言启用配置与生命周期策略、但不关心运行操作元数据的调用方。 */
@@ -971,7 +1037,7 @@ public class PluginManagementService {
                     PluginTrustView.state(PluginTrustState.INVALID), null,
                     ExternalPluginOperation.IDLE, null, null,
                     PluginExecutionMode.HOST_PROCESS_FULL_TRUST,
-                    lifecyclePolicy, configuredEnabled, toggleable, null, false);
+                    lifecyclePolicy, configuredEnabled, toggleable, null, false, null);
         }
     }
 
@@ -1000,7 +1066,7 @@ public class PluginManagementService {
             return new PluginTrustView(state, null, null, null, null, null, false, false);
         }
 
-        private static PluginTrustView from(PluginProvenanceRecord provenance) {
+        private static PluginTrustView from(PluginProvenanceRecord provenance, boolean mutable) {
             PluginTrustDecision decision = provenance.trustDecision();
             PluginTrustState state;
             if (provenance.developmentOnly()) {
@@ -1014,7 +1080,7 @@ public class PluginManagementService {
                 state = provenance.officialRepository()
                         ? PluginTrustState.OFFICIAL : PluginTrustState.CONFIRMATION_REQUIRED;
             }
-            boolean production = !provenance.developmentOnly();
+            boolean editable = mutable && !provenance.developmentOnly();
             return new PluginTrustView(
                     state,
                     provenance.artifactSha256(),
@@ -1022,9 +1088,9 @@ public class PluginManagementService {
                     decision != null ? decision.approvalType() : null,
                     decision != null ? decision.approvedAt() : null,
                     provenance.trustRevokedAt(),
-                    production && (state == PluginTrustState.REVOKED
+                    editable && (state == PluginTrustState.REVOKED
                             || state == PluginTrustState.CONFIRMATION_REQUIRED),
-                    production && (decision != null || provenance.officialRepository()));
+                    editable && (decision != null || provenance.officialRepository()));
         }
     }
 

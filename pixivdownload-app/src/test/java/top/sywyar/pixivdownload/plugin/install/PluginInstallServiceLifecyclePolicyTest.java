@@ -79,7 +79,9 @@ class PluginInstallServiceLifecyclePolicyTest {
     @DisplayName("进程重启策略未即时激活时报告等待重启生效")
     void processRestartDeferredInstallRequiresRestart() {
         PluginDescriptor descriptor = descriptor("gui-swing", PluginLifecyclePolicy.PROCESS_RESTART);
-        PluginActivationResult activation = activation(descriptor, false, null);
+        var result = new PluginInstallResult(PluginInstallOutcome.INSTALLED, descriptor, Path.of("gui-swing.jar"), null, List.of());
+        var activation = new PluginActivationResult("tx", result, false, false, null, ExternalPluginOperation.INSTALLING,
+                null, false, List.of(), true);
         Path packageFile = Path.of("gui-swing.jar");
         PluginPackageOrigin origin = PluginPackageOrigin.localUpload();
         when(coordinator.installOrUpdate(packageFile, false, origin)).thenReturn(activation);

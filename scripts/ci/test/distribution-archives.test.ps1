@@ -56,6 +56,34 @@ try {
         }
         Remove-Item -LiteralPath $sample
     }
+    & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $plugin = [pscustomobject]@{ Id='fixture'; Module='fixture'; Format='jar'; PrivateLibs=$true;
+            ClassPrefix='fixture/'; RequiredLibPatterns=@('^common\.jar$');
+            InstallerClassifier='windows-x64'; NativeTargets=@('windows-x64','linux-x64') }
+        $variant = Get-InstallerPluginVariant $plugin
+        $universal = Join-Path $fixture (Get-OfficialPluginArtifactName $plugin '1.0')
+        $windows = Join-Path $fixture ('windows-x64/' + (Get-OfficialPluginArtifactName $variant '1.0'))
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $windows)) | Out-Null
+        foreach ($spec in @($plugin, $variant)) {
+            $file = if ($spec.PSObject.Properties['Classifier']) { $windows } else { $universal }
+            $archive = [IO.Compression.ZipFile]::Open($file, [IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $descriptor = [IO.StreamWriter]::new($archive.CreateEntry('plugin.properties').Open(), $utf8)
+                try { $descriptor.WriteLine('plugin.id=fixture') } finally { $descriptor.Dispose() }
+                [void]$archive.CreateEntry('fixture/Plugin.class')
+                [void]$archive.CreateEntry('lib/common.jar')
+                foreach ($platform in $spec.NativeTargets) { [void]$archive.CreateEntry("lib/skiko-awt-runtime-$platform-1.jar") }
+            } finally { $archive.Dispose() }
+            Assert-Equal (Find-PrebuiltOfficialPluginArtifact $spec $fixture) $file
+            Assert-Equal (Assert-OfficialPluginArtifact $file $spec)['plugin.id'] 'fixture'
+        }
+        foreach ($pair in @(@($windows,$plugin), @($universal,$variant))) {
+            $failure = $null
+            try { Assert-OfficialPluginArtifact $pair[0] $pair[1] | Out-Null } catch { $failure = $_ }
+            if ("$failure" -notlike '*Unexpected Skiko native runtime set*') { throw "Wrong target accepted: $failure" }
+        }
+    }
     foreach ($suffix in @('plain', '[source]')) {
         & {
             $root = Join-Path $fixture "java-$suffix"
@@ -224,6 +252,35 @@ if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
                 Assert-Equal ([IO.File]::ReadAllText((Join-Path $offline 'tools/ffmpeg/ffmpeg.exe'), $utf8)) 'bin/ffmpeg.exe'
                 Assert-Equal ([IO.File]::ReadAllText((Join-Path $offline 'tools/ffmpeg/ffprobe.exe'), $utf8)) 'bin/ffprobe.exe'
                 Assert-Equal @(Get-ChildItem -LiteralPath (Join-Path $offline 'tools/ffmpeg/licenses') -File).Count 3
+            }
+            if ($suffix -eq 'plain') {
+                $mockStage = @'
+function Stage-OfficialPlugins($AppDir, $Plugins) {
+    $compose = $Plugins | Where-Object Id -ceq 'gui-compose'
+    $target = if ($compose.PSObject.Properties['Classifier']) { $compose.Classifier } else { 'universal' }
+    Write-FixtureFile (Join-Path $AppDir 'plugins/compose-target.txt') $target
+    return $Plugins.Count
+}
+'@
+                [IO.File]::AppendAllText((Join-Path $scripts 'package-local-plugin-staging.ps1'), ([Environment]::NewLine + $mockStage), $utf8)
+                Write-FixtureFile (Join-Path $scripts 'prepare-inno-admin-loader.ps1') "'Invoke-FixtureCompiler'"
+                function Invoke-FixtureCompiler {
+                    $imageArg = @($args | Where-Object { $_ -like '/DAppImageDir=*' })
+                    $image = $imageArg[0].Substring('/DAppImageDir='.Length)
+                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $image 'plugins/compose-target.txt'))) 'windows-x64'
+                    $global:LASTEXITCODE = 0
+                }
+                $originalProgramFiles = ${env:ProgramFiles(x86)}
+                try {
+                    ${env:ProgramFiles(x86)} = Join-Path $root 'toolchain'
+                    Write-FixtureFile (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe') 'compiler path fixture'
+                    & (Join-Path $scripts 'package-local.ps1') -Version 1.2.3 -PrebuiltJar $inputJar -SignatureToolJar $signatureTool
+                } finally { ${env:ProgramFiles(x86)} = $originalProgramFiles }
+                foreach ($image in @($online, $offline)) {
+                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $image 'plugins/compose-target.txt'))) 'universal'
+                }
+                Assert-Archive (Join-Path $root 'build/out/PixivDownload-1.2.3-win-x64-online-portable.zip') $online 'PixivDownload/'
+                Assert-Archive (Join-Path $root 'build/out/PixivDownload-1.2.3-win-x64-portable.zip') $offline 'PixivDownload/'
             }
             $rejectRuntimeTrust = $true
             $failed = $false

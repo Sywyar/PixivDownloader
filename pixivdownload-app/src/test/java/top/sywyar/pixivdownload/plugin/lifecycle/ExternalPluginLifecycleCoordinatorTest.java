@@ -101,6 +101,21 @@ class ExternalPluginLifecycleCoordinatorTest {
     }
 
     @Test
+    void failedBackendShutdownAllowsCleanupRetryButRejectsFreshPluginWork() {
+        var coordinator = coordinator();
+        var failure = new PluginLifecycleException("writer still active");
+        doThrow(failure).doNothing().when(lifecycleService).stopAll();
+
+        assertThatThrownBy(coordinator::stopForBackendClose).isSameAs(failure);
+        assertThatThrownBy(() -> coordinator.start("writer")).isInstanceOf(ClassifiedPluginLifecycleException.class);
+        assertThatThrownBy(() -> coordinator.withMutationReservation(() -> null))
+                .isInstanceOf(ClassifiedPluginLifecycleException.class);
+        coordinator.stopForBackendClose();
+        verify(lifecycleService, times(2)).stopAll();
+        verify(runtimeManager, never()).startPlugin("writer");
+    }
+
+    @Test
     @DisplayName("服务重启启动失败后立即刷新恢复模式投影且不覆盖主失败")
     void restartStartFailureRefreshesRecoveryProjection() {
         String pluginId = "restart-failure-plugin";
@@ -148,8 +163,12 @@ class ExternalPluginLifecycleCoordinatorTest {
         doThrow(startFailure).when(runtimeManager).startPlugin(pluginId);
 
         assertThatThrownBy(() -> coordinator().reload(pluginId))
-                .isSameAs(startFailure)
-                .satisfies(thrown -> assertThat(thrown.getSuppressed()).contains(cleanupFailure));
+                .isInstanceOfSatisfying(ClassifiedPluginLifecycleException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(PluginManagementErrorCode.RELOAD_ROLLBACK_FAILED);
+                    assertThat(failure.rollback().restored()).isFalse();
+                    assertThat(failure.getCause()).isSameAs(startFailure);
+                    assertThat(startFailure.getSuppressed()).contains(cleanupFailure);
+                });
 
         verify(runtimeManager).loadPlugin(artifact);
         verify(runtimeManager, times(2)).unloadPlugin(pluginId);
@@ -169,7 +188,6 @@ class ExternalPluginLifecycleCoordinatorTest {
                 "tx-process", result, staged.getParent(), staged, target, List.of());
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -183,7 +201,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         assertThat(activation.installResult().accepted()).isTrue();
         verify(installer).markActivated(committed);
         verify(installer).completeTransaction(committed);
-        verify(installer).verifyCommittedTarget(committed);
+        verify(installer).verifyCommittedTargetDigest(committed);
         verify(runtimeManager, never()).loadPlugin(target);
         verify(runtimeManager, never()).startPlugin(pluginId);
         verify(lifecycleService, never()).start(pluginId);
@@ -203,7 +221,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         TestVirtualMachineError fatal = new TestVirtualMachineError("fatal after process transaction retirement");
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
@@ -243,7 +260,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
         when(loaded.packageId()).thenReturn(pluginId);
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         when(runtimeManager.loadPlugin(target)).thenReturn(loaded);
@@ -279,7 +295,7 @@ class ExternalPluginLifecycleCoordinatorTest {
                 "missing-dependency", "1.0", false, null, null,
                 PluginDependencyProblem.Reason.MISSING, "required dependency is not installed");
         when(installer.prepareTransaction(packageFile, false, origin)).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of(problem));
+        when(dependencyResolver.installActivationProblems(duplicate, false)).thenReturn(List.of(problem));
 
         PluginActivationResult activation = coordinator().installOrUpdate(packageFile, false, origin);
 
@@ -385,7 +401,7 @@ class ExternalPluginLifecycleCoordinatorTest {
             validationEntered.countDown();
             awaitLatch(releaseValidation, "dependency validation release");
             return List.of(problem);
-        }).when(dependencyResolver).activationProblems(descriptor);
+        }).when(dependencyResolver).installActivationProblems(result, false);
         ExternalPluginLifecycleCoordinator coordinator = coordinator();
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -431,7 +447,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         AssertionError failure = new AssertionError("dependency resolver failed");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenThrow(failure);
+        when(dependencyResolver.installActivationProblems(prepared.result(), false)).thenThrow(failure);
 
         assertPreparedInstallFailureDiscards(prepared, failure);
     }
@@ -469,7 +485,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         AssertionError failure = new AssertionError("package phase inspection failed");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenThrow(failure);
 
         assertPreparedInstallFailureDiscards(prepared, failure);
@@ -485,8 +500,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         AssertionError failure = new AssertionError("artifact path inspection failed");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
-        when(runtimeManager.packagePhases()).thenReturn(Map.of());
+        when(runtimeManager.packagePhases()).thenReturn(Map.of(prepared.result().pluginId(), PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.artifactPath(prepared.result().pluginId())).thenThrow(failure);
 
         assertPreparedInstallFailureDiscards(prepared, failure);
@@ -501,7 +515,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         AssertionError failure = new AssertionError("current phase inspection failed");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(lifecycleService.phase(prepared.result().pluginId())).thenThrow(failure);
 
         assertPreparedInstallFailureDiscards(prepared, failure);
@@ -518,9 +531,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(loaded.packageId()).thenReturn(pluginId);
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         when(runtimeManager.loadPlugin(prepared.target())).thenReturn(loaded);
         when(runtimeManager.initializePlugin(pluginId)).thenReturn(loaded);
@@ -550,7 +561,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         String pluginId = prepared.result().pluginId();
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(lifecycleService.phase(pluginId)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         doThrow(new AssertionError("post-terminal refresh failed")).when(recoveryModeService).refresh();
@@ -579,7 +589,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         AssertionError failure = new AssertionError("prepared bindings changed");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.of(previousArtifact));
@@ -711,9 +720,7 @@ class ExternalPluginLifecycleCoordinatorTest {
                 "tx", result, staged.getParent(), staged, target, List.of());
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenReturn(committed);
         doThrow(new AssertionError("load failed after commit")).when(runtimeManager).loadPlugin(target);
         when(installer.rollbackTransaction(same(committed))).thenReturn(true);
@@ -742,9 +749,7 @@ class ExternalPluginLifecycleCoordinatorTest {
                 "tx-verify", result, staged.getParent(), staged, target, List.of());
         CommittedPluginTransaction committed = new CommittedPluginTransaction(prepared, List.of());
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -784,13 +789,11 @@ class ExternalPluginLifecycleCoordinatorTest {
         LoadedPluginPackage loaded = mock(LoadedPluginPackage.class);
         when(loaded.packageId()).thenReturn(pluginId);
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(
                 Map.of(),
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED),
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -844,9 +847,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         IllegalStateException activationFailure = new IllegalStateException("load failed after commit");
         ThreadDeath cleanupFatal = new ThreadDeath();
         when(installer.prepareTransaction(staged, false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(descriptor)).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -877,9 +878,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(loaded.packageId()).thenReturn(pluginId);
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -919,9 +918,7 @@ class ExternalPluginLifecycleCoordinatorTest {
         when(loaded.packageId()).thenReturn(pluginId);
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
-        when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.empty());
         when(installer.commitTransaction(prepared)).thenAnswer(invocation -> {
             prepared.confirmCommitState(PreparedPluginTransaction.CommitState.COMMITTED);
             return committed;
@@ -960,7 +957,6 @@ class ExternalPluginLifecycleCoordinatorTest {
         Path previousArtifact = Path.of("plugins", pluginId + "-old.jar");
         when(installer.prepareTransaction(
                 prepared.stagedArtifact(), false, PluginPackageOrigin.localUpload())).thenReturn(prepared);
-        when(dependencyResolver.activationProblems(prepared.result().descriptor())).thenReturn(List.of());
         when(runtimeManager.packagePhases()).thenReturn(
                 Map.of(pluginId, PluginRuntimePackagePhase.STARTED));
         when(runtimeManager.artifactPath(pluginId)).thenReturn(Optional.of(previousArtifact));

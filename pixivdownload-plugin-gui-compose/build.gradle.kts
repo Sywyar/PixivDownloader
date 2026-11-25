@@ -2,6 +2,8 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
@@ -57,6 +59,9 @@ buildscript {
 }
 
 abstract class VerifyPluginArtifact : DefaultTask() {
+    @get:Input
+    abstract val nativeTargets: ListProperty<String>
+
     @get:InputFile
     abstract val pluginArtifact: RegularFileProperty
 
@@ -102,11 +107,11 @@ abstract class VerifyPluginArtifact : DefaultTask() {
             check(duplicateClasses.isEmpty()) {
                 "Plugin runtime libraries contain duplicate classes: $duplicateClasses"
             }
-            listOf("windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-arm64").forEach { target ->
-                check(entries.any { it.startsWith("lib/skiko-awt-runtime-$target-") }) {
-                    "Skiko native runtime is missing for $target"
-                }
-            }
+            val runtimes = entries.filter { it.startsWith("lib/skiko-awt-runtime-") }
+            check(runtimes.size == nativeTargets.get().size && nativeTargets.get().all { target ->
+                val name = Regex("""lib/skiko-awt-runtime-$target-[0-9][^/]*\.jar""")
+                runtimes.count(name::matches) == 1
+            }) { "Expected Skiko targets ${nativeTargets.get()}, found $runtimes" }
             check(entries.none { it.startsWith("top/sywyar/pixivdownload/plugin/api/") }) {
                 "plugin-api classes must remain host-provided"
             }
@@ -238,6 +243,8 @@ configurations.configureEach {
     exclude(group = "org.slf4j", module = "slf4j-api")
 }
 
+val universalTargets = listOf("windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-arm64")
+
 dependencies {
     compileOnly(sdkClasspath)
     idePf4jVersion?.let { version ->
@@ -250,11 +257,7 @@ dependencies {
     implementation("net.java.dev.jna:jna-platform:5.17.0")
     implementation("tools.jackson.core:jackson-databind:3.1.7")
     val skikoVersion = providers.gradleProperty("skikoVersion").get()
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-x64:$skikoVersion")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-windows-arm64:$skikoVersion")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-x64:$skikoVersion")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-linux-arm64:$skikoVersion")
-    runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:$skikoVersion")
+    universalTargets.forEach { target -> runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-$target:$skikoVersion") }
 
     testImplementation(sdkClasspath)
     idePf4jVersion?.let { version ->
@@ -385,12 +388,12 @@ val proguardMarker = tasks.register<WriteProperties>("proguardMarker") {
     property("obfuscate", "false")
 }
 
-val pluginJar = tasks.register<Jar>("pluginJar") {
+fun registerPluginJar(taskName: String, target: String? = null) = tasks.register<Jar>(taskName) {
     group = "build"
     description = "Builds the reproducible PF4J JAR-with-lib artifact."
     dependsOn(proguardPlugin, normalizeProguardLibraries)
-    archiveFileName.set("$mavenFinalName.jar")
-    destinationDirectory.set(mavenBuildDirectory)
+    archiveFileName.set(if (target == null) "$mavenFinalName.jar" else "$mavenFinalName-$target.jar")
+    destinationDirectory.set(if (target == null) mavenBuildDirectory else mavenBuildDirectory.resolve(target))
     duplicatesStrategy = DuplicatesStrategy.FAIL
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
@@ -399,9 +402,16 @@ val pluginJar = tasks.register<Jar>("pluginJar") {
         from(proguardMarker)
     }
     into("lib") {
-        from(normalizedProguardLibraries)
+        from(normalizedProguardLibraries) {
+            if (target != null) exclude {
+                it.name.startsWith("skiko-awt-runtime-") && !it.name.startsWith("skiko-awt-runtime-$target-")
+            }
+        }
     }
 }
+
+val pluginJar = registerPluginJar("pluginJar")
+val windowsPluginJar = registerPluginJar("windowsPluginJar", "windows-x64")
 
 val stagePluginDevelopment = tasks.register<Sync>("stagePluginDevelopment") {
     group = "build"
@@ -419,6 +429,11 @@ val verifyPluginArtifact = tasks.register<VerifyPluginArtifact>("verifyPluginArt
     description = "Checks the real plugin artifact and its private dependency boundary."
     dependsOn(pluginJar)
     pluginArtifact.set(pluginJar.flatMap(Jar::getArchiveFile))
+    nativeTargets.set(universalTargets)
+}
+val verifyWindowsPluginArtifact = tasks.register<VerifyPluginArtifact>("verifyWindowsPluginArtifact") {
+    pluginArtifact.set(windowsPluginJar.flatMap(Jar::getArchiveFile))
+    nativeTargets.set(listOf("windows-x64"))
 }
 
 tasks.register("compilePlugin") {
@@ -431,7 +446,7 @@ tasks.register("mavenTest") {
 }
 tasks.register("assemblePlugin") {
     group = "build"
-    dependsOn(pluginJar)
+    dependsOn(pluginJar, windowsPluginJar)
 }
 tasks.register("checkPlugin") {
     group = "verification"
@@ -441,5 +456,5 @@ tasks.register<Delete>("cleanPlugin") {
     delete(layout.buildDirectory, mavenBuildDirectory)
 }
 
-tasks.named("assemble") { dependsOn(pluginJar) }
-tasks.named("check") { dependsOn(verifyPluginArtifact) }
+tasks.named("assemble") { dependsOn(pluginJar, windowsPluginJar) }
+tasks.named("check") { dependsOn(verifyPluginArtifact, verifyWindowsPluginArtifact) }

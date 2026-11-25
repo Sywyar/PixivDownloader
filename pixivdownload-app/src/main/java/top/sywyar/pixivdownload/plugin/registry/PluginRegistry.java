@@ -60,8 +60,8 @@ import java.util.stream.Collectors;
  * {@code DatabaseSchemaRegistry}），即使插件被禁用其声明的表 / 列仍创建，已有数据保留；
  * owner key 取注册时捕获的稳定 id，不重新调用插件实例的 {@link PixivFeaturePlugin#id()}。
  * <p>
- * 插件生命周期：应用启动后按注册顺序调用各<b>活动</b>插件 {@link PixivFeaturePlugin#start()}，
- * 关闭时按反序调用 {@link PixivFeaturePlugin#stop()}；禁用插件不进入活动快照，其生命周期方法不被调用。
+ * 插件生命周期：本注册中心按注册顺序启动内置插件；外置插件由服务装配按依赖顺序调用 {@link PixivFeaturePlugin#start()}，
+ * 关闭时外置回调随服务足迹清退，内置插件按反序调用 {@link PixivFeaturePlugin#stop()}；禁用插件不进入活动快照，其生命周期方法不被调用。
  */
 @Slf4j
 @Component
@@ -274,6 +274,15 @@ public class PluginRegistry implements SmartLifecycle {
 
     /** 注册一条带包身份和 generation 的完整运行时记录。 */
     public void register(RegisteredPlugin candidate) {
+        register(candidate, false);
+    }
+
+    /** 恢复启用状态尚未生效的启动期安装身份。 */
+    public void registerInactive(RegisteredPlugin candidate) {
+        register(candidate, true);
+    }
+
+    private void register(RegisteredPlugin candidate, boolean inactive) {
         String pluginId = candidate.id();
         if (!PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
             throw new IllegalStateException("invalid plugin id: " + pluginId);
@@ -283,7 +292,7 @@ public class PluginRegistry implements SmartLifecycle {
             if (containsId(current.installed(), pluginId) || containsId(current.active(), pluginId)) {
                 throw new IllegalStateException("duplicate plugin id: " + pluginId);
             }
-            boolean active = isActive(candidate);
+            boolean active = !inactive && isActive(candidate);
             List<RegisteredPlugin> nextInstalled = new ArrayList<>(current.installed());
             nextInstalled.add(candidate);
             List<RegisteredPlugin> nextActive = new ArrayList<>(current.active());
@@ -585,7 +594,7 @@ public class PluginRegistry implements SmartLifecycle {
         List<RegisteredPlugin> startedThisAttempt = new ArrayList<>();
         Throwable startFailure = null;
         for (RegisteredPlugin registered : plugins) {
-            if (lifecycleFailure(registered).isPresent()) continue;
+            if (registered.source() == PluginSource.EXTERNAL || lifecycleFailure(registered).isPresent()) continue;
             try {
                 if (startFeature(registered)) {
                     startedThisAttempt.add(registered);
@@ -623,6 +632,7 @@ public class PluginRegistry implements SmartLifecycle {
         Throwable fatal = null;
         for (int i = plugins.size() - 1; i >= 0; i--) {
             RegisteredPlugin registered = plugins.get(i);
+            if (registered.source() == PluginSource.EXTERNAL) continue;
             try {
                 stopFeature(registered);
             } catch (Throwable failure) {

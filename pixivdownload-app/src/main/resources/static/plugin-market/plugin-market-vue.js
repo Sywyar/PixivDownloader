@@ -209,7 +209,7 @@
                             vm.modalStatus === 'INSTALLING' ? progress(vm.installing[vm.installKey(vm.activeCatalogRepositoryId, vm.selectedPluginId)]) : h('button', {
                                 class: ['pmk-btn pmk-install', 'pmk-btn--' + vm.modalMeta.variant], disabled: vm.modalMeta.disabled, onClick: vm.installModal
                             }, [icon('fa-solid fa-' + vm.modalMeta.icon), h('span', vm.modalLabel)]),
-                            ['INSTALLED', 'INSTALLED_SAME', 'INSTALL_DIFFERENT', 'INSTALL_UNVERIFIED', 'ACTIVATED', 'PENDING_RESTART', 'STORED_DEVELOPMENT'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
+                            ['INSTALLED', 'INSTALLED_SAME', 'ARTIFACT_CONFLICT', 'INSTALL_UNVERIFIED', 'ACTIVATED', 'PENDING_RESTART', 'STORED_DEVELOPMENT'].includes(vm.modalState()) ? h('a', {class: 'pmk-btn pmk-btn--primary', href: '/plugin-manage.html'}, t('install.goto-manage')) : null
                         ])
                     ]),
                     h('div', { class: 'pmk-modal-body' }, [
@@ -698,7 +698,7 @@
                     this.doInstall(card.repositoryId, card.pluginId, card.targetVersion);
                 },
                 installModal: function () {
-                    if (this.selectedPluginId) {
+                    if (this.selectedPluginId && !this.modalMeta.disabled) {
                         this.doInstall(this.activeCatalogRepositoryId, this.selectedPluginId,
                             this.selectedVersion);
                     }
@@ -785,7 +785,7 @@
                     if (pkg) rows.push({ key: 'detail.version', val: 'v' + pkg.version, mono: true });
                     rows.push({key: 'detail.installed-version', val: entry.installedVersion || this.t('common:plugin-info.not-installed')});
                     if (m.updatedTime) rows.push({ key: 'detail.updated', val: PMK.formatDate(m.updatedTime) });
-                    var size = pkg ? PMK.formatSize(pkg.expectedSizeBytes) : null;
+                    var size = pkg ? PMK.formatSize(pkg.expectedSizeBytes, true) : null;
                     if (size) rows.push({ key: 'detail.size', val: size, mono: true });
                     if (pkg && pkg.requiredSdk) {
                         rows.push({ key: 'detail.requires', val: pkg.requiredSdk, mono: true, danger: !pkg.compatible });
