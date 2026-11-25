@@ -2,11 +2,13 @@
 
 サードパーティープラグインは SDK 開発パッケージの独立したプロジェクトテンプレートから作成できます。必要なのは JDK 25、Node.js、同梱のビルドツールと実行マニフェストだけで、主リポジトリのクローンは不要です。
 
-SDK 2.x は JDK 25、Spring Framework 7、Servlet 6.1、Jackson 3 を使用し、Spring Boot 4 ホストに対応します。SDK 1.x プラグインはインストール時または起動時の検査で拒否されます。`plugin.requires` の変更だけでは移行できません。新しいインターフェースに対応させ、再コンパイルしてください。
+SDK 2.x は JDK 25、Spring Framework 7、Servlet 6.1、Jackson 3 を基盤とし、Spring Boot 4 ホストに対応します。SDK 1.x プラグインはインストール時および起動時の検査で拒否されます。
 
-SDK 1.x から移行する際は、`PluginDataSource` を `PluginDatabase` に、SQL 文字列を `TableSpec.check` の中立式に、`DesktopUiHost.resolveDatabasePath` をデータベース接続先の契約に置き換えてください。リソース bundle には `LocaleBundlePolicy` を明示します。取得認証情報には `X-Acquisition-Credential` を使い、スケジュールタスクの認証情報の登録・解除には汎用の `POST` / `DELETE /api/schedule/tasks/{id}/credential` を使います。これらの API の有効化トークンと認証要件は引き続き満たす必要があります。Jackson のデータバインドクラスは `tools.jackson.*` に移りますが、アノテーションは `com.fasterxml.jackson.annotation` のままです。Spring のヘッダーを Map として扱う場合は `HttpHeaders.asMultiValueMap()` を使ってください。
-
-`ScheduleTaskView` から `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed` は削除されました。ソースは `sourceType`、実行状態は `runState`、結果は `lastOutcome`、中断状態は `suspendReason` / `suspendCode` から取得します。結果のメッセージには `outcomeCode` / `outcomeMessage`、直近の実行時刻には `lastRunTime` を使ってください。
+- **SDK 1.x から 2.x への主な移行項目**（`plugin.requires` の変更だけでは読み込めないため、新しい契約に合わせて再コンパイルが必要）：
+  - **子コンテキストと記述子**：`PixivPluginProvider` は `featurePlugin()` のみを維持し、Spring 子コンテキストの `@Bean` 設定クラスは `plugin.properties` の `pixiv.configuration-classes` で宣言します。
+  - **データベースと UI 契約**：`PluginDataSource` を方言非依存の `PluginDatabase` に、SQL 制約文字列を `TableSpec.check` の中立式に、`DesktopUiHost.resolveDatabasePath` をデータベース接続先の契約に置き換えます。リソース bundle には `LocaleBundlePolicy` を明示してください。
+  - **認証情報とスケジュールタスク表示**：取得用認証情報ヘッダーは `X-Acquisition-Credential` に統一され、スケジュールタスクの認証情報登録・解除は汎用の `POST` / `DELETE /api/schedule/tasks/{id}/credential` を使用します（有効化トークンと認可要件を満たす必要あり）。`ScheduleTaskView` から `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed` が削除され、`sourceType`、`runState`、`lastOutcome`、`suspendReason`/`suspendCode`、`outcomeCode`/`outcomeMessage`、`lastRunTime` に置き換わりました。
+  - **Jackson 3 と Spring 7**：Jackson のデータバインドクラスは `tools.jackson.*` に移動しました（アノテーションは `com.fasterxml.jackson.annotation` を維持）。Spring の `HttpHeaders` を `Map` として扱う場合は `asMultiValueMap()` を呼び出します。
 
 | 開発内容 | 対応する章 |
 | --- | --- |
@@ -92,6 +94,9 @@ pixiv.lifecycle-policy=process-restart
 
 - `plugin.id` は `PixivFeaturePlugin.id()` と完全一致させます。`plugin.requires` は必要な SDK バージョンを示し、安定版は `requiredMajor == hostMajor && requiredMinor <= hostMinor`、プレリリースは `alpha.N` / `beta.N` / `rc.N` の形式で完全一致を要求します。
 - `pixiv.execution-mode` は必須で、`declarative-process` または `host-process-full-trust` を指定します。`pixiv.lifecycle-policy` は `hot-reload`（デフォルト）、`backend-restart`、`process-restart` から選択できます。`pixiv.risk-signals` にはリスクを示す token を宣言できます。
+- `pixiv.desktop-only` の既定値は `false` です。デスクトップ専用のプラグインには `true` を指定できます。ヘッドレス起動時は、バックエンドのプラグインが直接または間接的に必須の依存先としている場合だけ読み込みます。読み込みを省略したパッケージも、プラグイン管理画面にはインストール済みと表示されます。
+- `plugin.dependencies` には依存先の外部 PF4J パッケージを指定します。`core` などホストの組み込みコンポーネントを必須依存に指定すると、インストール先への書き込み前に拒否されます。必要なホスト SDK のバージョンは `plugin.requires` で宣言してください。
+- デスクトップ UI プロバイダーは、`DesktopUiHost.stopBackend(afterStop, onFailure)` でバックエンドの停止を要求できます。データへの排他アクセスが必要なツールは `afterStop` で起動してください。要求が受理された場合は、結果に応じていずれか一方のコールバックだけが呼ばれます。戻り値が `false` の場合は要求が直ちに拒否され、コールバックは呼ばれません。
 - 外部プラグインの入口は `PixivPluginProvider` を実装し、唯一の `PixivFeaturePlugin` を返します。Spring 子コンテキストの明示的な `@Bean` 設定クラスは記述子の `pixiv.configuration-classes` で宣言します。ホストのパッケージ走査に依存してはいけません。
 
 ```java
@@ -129,15 +134,12 @@ public List<WebRouteContribution> routes() {
 2. **フロントエンド動作モジュールを実装**：`moduleUrl` 内で `PixivBatch.queueTypes.registerModule(initializer)` を呼び、必須の `process(item, context)` と、宣言した `import`、`acquisition.*`、`filters`、`settings` を実装します。状態は `context.updateItem(patch)` で更新し、`DownloadTasks` を使う場合は `context.bindTask(taskId)` で実行 UUID に関連付けます。非同期コールバックが書き戻す前に `AbortSignal` / `isActive()` を確認し、`onCleanup()` でリソースを解放してください。
 3. **バックエンドで信頼できる利用者識別を解決**：Controller に親コンテキストの `RequestOwnerIdentityResolver` を注入して、現在のリクエストの利用者を解決します。本文やパラメーターで自己申告された owner UUID を信頼してはいけません。ファイルが耐久的に保存され、記録がコミットされてから完了とします。
 4. **`QueueOperations` と実際の処理完了待ち（Quiesce / Drain）を実装**：`workKey` は不透明な文字列で、ホストが `POST /api/download/queue/{queueType}/cancel` の JSON 本文に入れて渡します。非同期・バックグラウンドタスクを持つキューは、`prepareQuiesce` をオーバーライドして新規受付を停止し、正の世代番号を持つ実際の `QueueDrain` を返す必要があります。処理中のタスクがゼロになってから drain を完了します。
-5. **UI スロットとスケジュール機能（任意）**：`uiSlots()` で `WebUiSlotContribution` を提供します。ホストの `PixivVue.mountUiSlot` を使い、Vue runtime はパッケージに含めません。`scheduledSourceDescriptors()` と、子コンテキストの `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean でスケジュール機能を提供します。ホストはスケジューリング、ロック、認証情報、ウォーターマークのコミットを担当します。次のページを取得する前や作品種別を切り替える前に、取得元は `context.workSink().drain()` を呼び出せます。完了後に `context.isPending(key)` を使うと、そのページに再試行待ちの作品があるか確認できます。
-
-`POST /api/download/tasks` でこの作品タイプを受け付けるには、プラグインの子コンテキストに `DownloadSubmissionHandler` Bean を登録します。`workType()` はタイプ ID を返します。OpenAPI に入力スキーマを掲載するには、`inputSchemaResource()` からプラグイン内の JSON Schema の絶対クラスパスを返してください。`submit` でオプションを検証し、正常に戻る前にホストから渡された `DownloadAttempt` を `DownloadLifecycle.track` で登録します。
-
-対象作品のメタデータを取得する際に取得元が 404 を返した場合は、`submit` で `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` をスローします。ホストは SDK のデフォルトメソッド `submitAndReportFailure` を呼び、プラグインのプロキシ経由で理由コードを受け取ります。初回の送信には `404 WORK_NOT_FOUND` が返ります。個別のページや添付ファイルのみが欠けている場合は、そのリソースのエラーとして扱ってください。既存のハンドラーは引き続き `submit` を実装できます。
-
-送信オプションが無効な場合は、JSON Pointer と安定した理由コードを持つ `InputFieldException` を送出します。例は `/options/pages` と `out_of_range` です。標準の `submitAndReportFailure` はプラグインプロキシを通じてフィールドと理由を渡します。診断に入力値や認証情報を含めないでください。
-
-作業量を測定できる場合は、その試行に登録したキューハンドルで `DownloadLifecycle.reportProgress(attempt, task, progress)` を呼びます。`DownloadTaskProgress` の単位は `PAGES`、`IMAGES`、`BYTES` です。工程の総数が既知で正の場合に、同じ単位の完了数と総数を報告します。最終結果は終端イベントで通知します。
+5. **UI スロットとスケジュール機能（任意）**：`uiSlots()` で `WebUiSlotContribution` を提供します（ホストの `PixivVue.mountUiSlot` を使い、Vue runtime は同梱しない）。`scheduledSourceDescriptors()` と子コンテキストの `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean でスケジュール機能を提供します（ホストがスケジューリング、ロック、認証情報、ウォーターマークのコミットを担当）。次ページへ進む前や作品種別を切り替える前に現在のバッチ完了を待つ場合は `context.workSink().drain()` を呼び出し、完了後に `context.isPending(key)` でそのページに再試行待ちの作品が残っているか確認できます。
+6. **統一送信入口 `POST /api/download/tasks` への接続（`DownloadSubmissionHandler`）**：プラグインの子コンテキストに `DownloadSubmissionHandler` Bean を登録します：
+   - `workType()` で作品種別 ID を返し、OpenAPI に入力スキーマを出力する場合は `inputSchemaResource()` でプラグイン内 JSON Schema の絶対クラスパスを返します。
+   - `submit` でオプションを検証し、正常復帰前にホストから渡された `DownloadAttempt` を `DownloadLifecycle.track` で登録します。
+   - **エラーと理由コードの伝播**：ホストは SDK のデフォルトメソッド `submitAndReportFailure` を介してプラグインプロキシ越しに失敗理由を受け取ります（既存の実装は引き続き `submit` のみを実装可能）。上流のメタデータ照会で明確に 404 が返った場合は `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` をスローすると初回送信で `404 WORK_NOT_FOUND` が返ります（個別ページや添付ファイルのみが欠けている場合はそのリソースの失敗として扱う）。送信オプションが不正な場合は JSON Pointer と安定した理由コードを持つ `InputFieldException`（例：`/options/pages` と `out_of_range`。診断に入力原値や認証情報を含めないこと）をスローします。
+   - **進捗の報告**：現在の工程の総数が既知かつ正の値である場合、その試行で登録したキューハンドルを使って `DownloadLifecycle.reportProgress(attempt, task, progress)` を呼び出します（`DownloadTaskProgress` の単位は `PAGES`、`IMAGES`、`BYTES` のいずれかで完了数と総数を同一単位にし、最終結果は終端イベントで確定します）。
 
 ## プラグイン専用ギャラリーの追加
 
@@ -179,6 +181,7 @@ SDK 2.x はプラグイン間の型付きサービスをサポートします。
 
 - 契約を保持するプラグインは `pixiv.contract-api` と `pixiv.contract-sha256` で元の純 JDK API JAR を宣言し、`process-restart` を使用します。提供側は `serviceExports()` で実装を公開し、利用側は `serviceImports()` で依存を宣言して `PluginServices` を注入します。
 - `find(key)`、`require(key)`、`findAll(key)`、またはライフサイクルに結び付く `bind(keys, activation)` / `bindAll(keys, activation)` で、正確な publication に紐付いたプロキシを取得します。
+- 呼び出し時にホストの API で必要な機能が利用できるかを確認し、機能が見つからない場合や呼び出しが拒否された場合は、その機能に依存する操作だけで対処してください。
 - `sdk-tools.jar` で JSON Schema、リモート呼び出し adapter を生成し、バイナリー互換性を検査できます。
 
 ```text
@@ -200,7 +203,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 注釈で固定 HTTP 対象を宣言する
 
-SDK 2.x ではプラグインのコールバックメソッドに `@HttpHook` を付けられます。以下の `StatusObserver` をプラグインの子コンテキストで `@Bean` 登録すると、ホストが宣言を検出します。対象コントローラーの変更は不要です。この例は成功したローカルヘルスチェックを数えます。`/api/download/status` は作品のダウンロード完了を示しません。
+SDK 2.x ではプラグイン子コンテキストのシングルトン `@Bean` メソッドに `@HttpHook` を付与して固定 HTTP コールバックを宣言でき、対象 Controller の変更は不要です。次の例はローカルヘルスチェック `GET /api/download/status` の成功リクエストを数えます（このエンドポイントは状態プローブであり、作品のダウンロード完了を示すものではありません）：
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;
@@ -223,16 +226,10 @@ public final class StatusObserver {
 }
 ```
 
-プラグイン管理で詳細を開き、HTTP Hook 宣言の「承認内容を確認」を選びます。対象、段階、フィールド権限、影響するページを確認し、「確認して公開」を実行します。同じ宣言はプラグインの再有効化後に復帰します。宣言、データ契約、対象マッピングが変わった場合は再承認が必要です。選択した宣言だけを更新し、他の宣言は自動更新しません。無効化やアンロードでも承認済みの事前検査は残ります。解除するには管理者が解除内容を確認して公開します。
-
-シングルトン Bean の public 同期インスタンスメソッドを使い、引数は `OperationHook.Invocation` 一つにします。事前コールバックは `Decision` を返し、完了コールバックは void も使えます。`@Async` や処理終了前に戻るコールバックは非対応です。ホストログには実際のクラスとメソッドを記録します。インターフェース方式と注釈方式を合わせて、プラグイン当たり最大 16 Hook です。
-
-`targetOwner/method/path` は実際のカタログから handler を選びます。同じパスに複数候補がある場合、`params/headers/consumes/produces` にカタログの条件を完全に指定します。空でないリストは条件集合と完全一致し、空リストはその条件を絞り込みません。対象がない場合や一意に決まらない場合は承認できません。同じ handler の全ルート別名で関連付けを共有します。
-
-通常のメソッドはメタデータのみ受け取り、設定は `{}` です。フィールド、設定 schema、リソース、対話式チャレンジが必要な場合は `OperationHook` を実装して `invoke` に注釈を付け、`id()` を注釈の ID と一致させます。`fields` は承認、機密フィールド検査、上限の対象です。動的設定とページエディターの関連付けは注釈なしでも利用できます。
-
-管理 API は `GET /api/web/operation-hooks/declarations?provider=<pluginId>` と `POST /api/web/operation-hooks/declarations/prepare` です。後者は `{revision, provider, id, fingerprint, remove}` を受け取り、返された計画を既存の `publish` に送ります。カタログ、プラグイン、公開リビジョンが変わったら計画を再取得してください。
-
+- **メソッド形式と上限**：コールバックはシングルトン Bean の `public` 同期インスタンスメソッドとし、引数は `OperationHook.Invocation` 1 つだけです（`BEFORE_INVOKE` は `Decision` を返し、`AFTER_COMPLETION` は `void` も可。`@Async` や復帰後に非同期で処理を続けるコールバックは非対応）。1 プラグインにつきインターフェース方式と注釈方式を合わせて最大 16 個まで宣言でき、ホストログには実際のクラスとメソッドが記録されます。
+- **対象の照合**：`targetOwner`、`method`、`path` で実際のルートカタログ上の handler を選択し、同一パスに複数候補がある場合は `params`、`headers`、`consumes`、`produces` で完全な条件集合を指定します（空リストはその条件を絞り込まず、対象不在や曖昧なままでは承認不可。同一 handler のすべてのルート別名が関連付けを共有します）。
+- **フィールド抽出と対話式チャレンジ**：通常の注釈メソッドはメタデータのみを受け取り、設定は `{}` に固定されます。フィールド抽出、設定 schema、リソース、対話式チャレンジが必要な場合は `OperationHook` を実装してその `invoke` メソッドに `@HttpHook` を付け、`id()` と注釈 `id` を一致させます（`fields` は管理者承認、機密フィールド検査、予算制限の対象）。動的な設定やページエディターの関連付けは引き続き従来のインターフェースを使用します。
+- **管理者による承認と API**：管理者は[プラグイン管理 → プラグイン詳細 → HTTP Hook 宣言](/ja/plugin-management#プラグインの-http-hook-を承認する)でプレビュー・承認して公開します（API では `GET /api/web/operation-hooks/declarations?provider=<pluginId>` と `POST /api/web/operation-hooks/declarations/prepare` に `{revision, provider, id, fingerprint, remove}` を渡して計画を取得し、`publish` に送信します。カタログ・プラグイン・公開リビジョンが変わった後は古い計画を使い回さないでください）。
 
 ## 通常のスロットとページコンポーネント
 

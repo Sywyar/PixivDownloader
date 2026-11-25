@@ -36,25 +36,21 @@ Imported works on the desktop home page counts this plugin's successful imports,
 
 ## Import history
 
-There are two ways to register downloads made before installing the plugin. Both follow the file-format and read-only-reference rules above and skip existing works, including soft-deleted ones. After import, backfill tools can fill supported fields but cannot restore missing source files.
+There are two ways to register downloads made before installing the plugin. Both follow the file-format and read-only-reference rules above and skip existing works, including soft-deleted ones.
 
-History import processes only local records and files. Page counts reflect contiguous local page records; import cannot verify the current page count on Pixiv. After successful registration, the running desktop GUI requests focus and asks whether to start metadata backfill. Choosing Later or closing the prompt leaves backfill stopped; you can also start it from Tools → Data backfill. Backfill checks all works with missing information in the gallery, fills fields such as title, author and tags through the backend, and saves a curated metadata snapshot in `metadata_json` without overwriting existing values. Fetch failures do not undo imports. Original novel files remain accessible, but history import and metadata backfill do not restore the body required for online reading or translation.
+History import verifies only local records and source files (page counts are derived from contiguous local page records; it neither requests Pixiv metadata nor reads or sends Pixiv Cookies). After registration finishes, a running desktop GUI prompts to start [metadata backfill](/en/local-import?id=metadata-backfill) (choosing "Later" or closing the prompt leaves backfill off; you can run it anytime under "Tools → Data backfill"). Backfill fetches missing titles, authors, tags and `metadata_json` through the backend without overwriting existing values or rolling back imported records on failure (history import and backfill do not restore novel body text for online reading or translation, though the original novel files remain accessible).
 
-### Method 1: read browser history directly through the userscript (no export file)
+### Method 1: read browser history directly through the userscript (recommended, no export file)
 
 1. Keep the local backend running, save External download directory in plugin settings, and refresh a signed-in Pixiv page.
 2. Open the original Pixiv site in the same browser profile used by PixivBatchDownloader, pause external downloads, then select Read browser download history → Read and check in the Tampermonkey menu. The script scans the current site's history database read-only in batches, up to 1 GiB per operation; do not modify or clear history during the scan.
-3. Check the pending, existing and missing / conflicting counts. Up to 100 details are shown; if the pending count is `0`, the check ends there. Click Start import. The script sends history records to the local service to verify files and register works. This operation neither requests Pixiv metadata nor reads or sends Pixiv cookies.
+3. Check the pending, existing and missing / conflicting counts (up to 100 details are shown; if the pending count is `0`, the check ends there), then click Start import to send records to the local service for file verification and registration.
 
 Keep the page open during import. 100% means processing is finished, not that every item succeeded. Cancelling, leaving the page or switching servers stops further processing; registered works remain. Temporary data is stored in `data/pixiv-batch-downloader-import/browser-history/` and cleaned up after normal completion or about 15 minutes of inactivity.
 
 ### Method 2: import exported JSON through desktop tools
 
-1. Open PixivBatchDownloader import support in the desktop GUI's Tools section. In Compose, it opens as a dialog under Quick tools.
+1. Open PixivBatchDownloader import support in the desktop GUI's Tools section (under Quick tools as a dialog in Compose; closing the dialog leaves the running task active in the background—use Cancel to stop it).
 2. Export history JSON from PixivBatchDownloader. If there are multiple parts, put them in one dedicated directory and select it. Each file is limited to 512 MiB, with up to 64 files and 1 GiB total.
-3. Select the source-file root. Combining it with the relative path `n` in each record must locate the actual file. This selection does not overwrite automatic-import configuration. Click Check and preview.
-4. Click Start import and check successful, skipped and failed counts. No Pixiv cookie is needed. Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or the application exits normally.
-
-The PixivBatchDownloader import support userscript makes importing past downloads easier: use method 1 above to read browser history directly. Desktop import also works independently. Closing its dialog leaves the task running; use Cancel to stop it.
-
-[Fill in metadata after import](/en/local-import?id=metadata-backfill)
+3. Select the source-file root (combining it with the relative path `n` in each record must locate the actual file; this selection does not overwrite automatic-import configuration) and click Check and preview.
+4. Click Start import and check successful, skipped and failed counts (no Pixiv Cookie is needed). Temporary preparation files are stored in `data/pixiv-batch-downloader-import/history-import/` and cleaned up when the task ends or the application exits normally.

@@ -23,6 +23,7 @@ PixivDownloader는 Pixiv 일러스트, 만화, 움짤과 소설을 로컬 컴퓨
 | 스크립트나 에이전트에서 다운로드를 요청하고 진행 상황 확인 | [OpenAPI와 프로그램 키](/ko/http-api) |
 | Pixiv 웹페이지에서 다운로드 도우미 실행 | [사용자 스크립트](/ko/userscripts) |
 | PixivBatchDownloader로 다운로드한 작품을 갤러리에 등록 | [외부 다운로드 가져오기](/ko/pixiv-batch-downloader-import) |
+| 경로 템플릿으로 기존 로컬 이미지를 갤러리에 등록 | [로컬 작품 가져오기](/ko/local-import) |
 | 등록한 작품 탐색, 필터링, 내보내기 및 삭제 | [작품 갤러리](/ko/gallery) |
 | 설정, 프록시, 데이터베이스와 미디어 형식 변경 | [설정 참조](/ko/configuration) |
 | 작품과 데이터 폴더 백업, 복원 또는 이전 | [저장소 및 백업](/ko/storage) |
@@ -37,6 +38,7 @@ PixivDownloader는 Pixiv 일러스트, 만화, 움짤과 소설을 로컬 컴퓨
 
 - [서드파티 플러그인 SDK](/ko/plugin-development): 템플릿으로 프로젝트를 만들고 확장 계약을 구현하며 서명하고 제출하는 방법입니다.
 - [주 저장소 개발](/ko/development): 환경 준비, 빌드, 테스트와 PR 제출 방법입니다.
+- [HTTP API 및 권한 선언 작성](/ko/http-api-development): 기능에 대응하는 HTTP 엔드포인트, 프로그램 키 권한과 다국어 OpenAPI 설명을 추가하는 방법입니다.
 - [SDK 다운로드](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [버전별 API 참조](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## 버전 및 도움 요청

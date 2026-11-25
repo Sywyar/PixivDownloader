@@ -120,42 +120,36 @@ npm run test:i18n
 
 ## 可選的 JDK 25 AOT Cache
 
-儲存庫的 `scripts/aot-cache.mjs` 為最終 boot JAR 準備並使用 JVM 啟動快取，需要 Node.js 與現有 JDK 25。它不下載 JDK，也不啟用 Spring AOT。安裝程式保留原有啟動方式；CI 的產物驗證會執行實際快取訓練與 strict 啟動檢查。僅對可信 JAR 執行訓練；訓練會執行應用程式，但使用隔離的暫存設定，不讀取目前執行個體的使用者資料。
+儲存庫提供 `scripts/aot-cache.mjs` 為最終 boot JAR 訓練並使用 JDK 25 AOT 啟動快取（需 Node.js 與本機 JDK 25，不自動下載 JDK，也不啟用 Spring AOT）。安裝程式保留一般啟動方式；CI 產物驗收會執行實際快取訓練與 `--strict` 命中檢查。
 
-直接依序執行共用設定 `AOT Prepare` 與 `AOT Packaged Run`，無須先手動打包。IntelliJ IDEA 使用 `.run`，VS Code 使用同名工作，Eclipse 匯入 `eclipse/` 下的同名 launch 設定。Prepare 使用 Maven Toolchains 選定的 JDK 25，自動建置主程式與官方外掛、組裝獨立執行目錄，再準備快取。Windows 使用系統 PowerShell；Linux / macOS 的 PATH 須包含 PowerShell 7（`pwsh`）。對應命令如下：
+- **安全與適用邊界**：僅對可信 JAR 執行訓練（訓練會實際啟動應用程式，但使用隔離的暫存設定，不讀取目前執行個體的使用者資料）。JDK 25 AOT Cache 不支援以非空編譯目錄建立快取，連結快取也不支援 JDWP 中斷點偵錯；原始碼執行與中斷點偵錯請維持使用 `Developer Mode`。單元測試、JaCoCo、Maven 與 Gradle 建置程序不使用應用程式 AOT 快取，訓練開銷需由重複啟動節省的時間抵消。
+- **使用共用設定或 Maven 一鍵準備與啟動**：無須先手動打包，直接在 IDE 執行共用設定 `AOT Prepare` 與 `AOT Packaged Run`（IntelliJ IDEA `.run/`、VS Code 同名工作、Eclipse `eclipse/` launch 設定；即使以 IDE Debug 啟動，入口也會自動在 AOT 子程序中移除 JDWP 與 IDEA 偵錯代理參數，保留堆積大小、Proxy 與憑證參數），或在終端機執行對應命令（Windows 使用系統 PowerShell，Linux / macOS 需 `pwsh`）：
 
-```powershell
-.\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-.\mvnw.cmd -N -Paot validate
-```
+  ```powershell
+  .\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
+  .\mvnw.cmd -N -Paot validate
+  ```
 
-預設執行目錄為 `target/aot-runtime`，可用 `-Daot.runtime.directory=...` 指定新目錄。`artifacts/` 保存主程式與完整官方分發外掛集合（含選用外掛，不含復原測試探針），`cache/` 保存依 JAR 與 JDK 內容區分的快取，`instance/` 是應用程式的工作目錄，保存獨立設定與資料。`mvn clean` 會刪除 `target/` 下的預設執行目錄；需要長期保留資料時，請指定 `target/` 以外的目錄，並在 Prepare 與 Run 使用相同值。首次 Run 按正常流程初始化，不會讀取或覆寫儲存庫根目錄的既有執行個體。程式碼變更後再次執行 Prepare，成功後才切換新產物，設定與資料保留。相同產物驗證後重用；僅外掛變更而主程式與 JDK 不變時，可重用主程式快取。 單一執行個體鎖位於此執行目錄的 `instance/ipc/`，與其他開發或正式執行個體隔離；同時執行仍需設定不同服務連接埠。
+  - **執行目錄結構**：預設位於 `target/aot-runtime`（會被 `mvn clean` 清理；需長期保留資料時，請在 Prepare 與 Run 同時指定工作區外的 `-Daot.runtime.directory=...`）。目錄下 `artifacts/` 存放主程式與完整官方外掛集合（含選用外掛，不含復原測試探針，依本機未簽署開發規則組裝，嚴禁作為正式簽署發行物分發），`cache/` 存放依 JAR 與 JDK 區分的快取，`instance/` 為獨立工作目錄（單一執行個體鎖位於 `instance/ipc/`，不讀取或覆寫儲存庫根目錄既有執行個體；與其他執行個體並存時需設定不同服務連接埠）。
+  - **增量重用與鎖定管理**：`Prepare` 使用 Maven Toolchains 選定的 JDK 25 建置（略過單元測試），成功後才原子切換新產物並保留 `instance/` 設定與資料；僅修改外掛而主程式與 JDK 未變時可重用主程式快取。同一執行目錄拒絕並行 `Prepare` / `Run`（Windows 下停止 Prepare 會一併結束子程序並釋放鎖；遇到鎖定占用請先停止對應工作，切勿手動刪除 `.lock` 檔案）。舊產物與快取不自動清理，停止程序後可手動刪除不再使用的快取目錄。
 
-Prepare 的 Maven 建置會略過單元測試，測試與 CI 門禁仍另行執行。外掛沿用本機未簽章來源規則組裝，僅供本機開發，不可當作官方簽章發行物分發。Run 不重新編譯；同一目錄正用於準備或執行時，會拒絕並行操作。失敗會保留上一份可執行記錄，損壞內容不予重用；可選擇新執行目錄重新準備。舊產物與快取不自動清理，會佔用磁碟；停止相關程序後可刪除不再使用的內容，保留 `instance/` 中需要的資料。
+- **底層 CLI（處理既有 boot JAR 與 CI 重用）**：不自動編譯或組裝外掛（無外掛的核心 JAR 僅提供復原模式）。請從儲存庫根目錄執行（替換 `<version>`、JDK 25 路徑與已初始化的執行個體目錄）：
 
-`AOT Prepare` 與 `AOT Packaged Run` 可直接使用一般 Run。即使透過 IDE Debug 啟動，入口也只在 AOT 子程序的環境中移除 JDWP 與 IDEA 偵錯代理參數，保留堆積大小、Proxy、憑證等其他參數；應用程式的斷點偵錯仍使用 `Developer Mode`。在 Windows 下停止 Prepare 或其啟動器，會一併結束這次建置與訓練的子程序並釋放鎖，不影響其他應用程式執行個體。遇到鎖占用時，先停止同一執行目錄的 Prepare 或 Run 工作，再重試，不要刪除 `.lock` 檔案。其他鎖錯誤請依輸出的底層原因排查。
+  ```powershell
+  $repo = (Get-Location).Path
+  $jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
+  $jdk = 'C:/path/to/jdk-25'
+  $cache = Join-Path $repo 'target/aot-cache'
+  node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
 
-`Developer Mode` 仍用於原始碼執行與中斷點偵錯。JDK 25 AOT Cache 無法以非空編譯目錄建立快取，目前的連結快取也無法用於 JDWP 偵錯。單元測試、JaCoCo、Maven 與 Gradle 建置程序不使用應用程式 AOT 快取；訓練成本應依實際重複啟動次數評估。
+  Set-Location 'C:/path/to/initialized-instance'
+  node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
+  if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
+  ```
 
-以下底層 CLI 處理既有 JAR，也供 CI 直接重用，不自動建置或組裝外掛。請從儲存庫根目錄執行，替換 `<version>`、JDK 路徑及已初始化的執行個體目錄。新快取使用尚未建立的目錄，既有有效快取可重複驗證重用。執行時使用所選執行個體的設定、外掛與資料；沒有外掛的核心 JAR 僅提供復原模式。
-
-```powershell
-$repo = (Get-Location).Path
-$jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
-$jdk = 'C:/path/to/jdk-25'
-$cache = Join-Path $repo 'target/aot-cache'
-node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-
-Set-Location 'C:/path/to/initialized-instance'
-node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
-if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
-```
-
-底層首次準備成功會輸出 `AOT prepare: ready`，重用有效快取時輸出 `AOT prepare: reusing verified cache`。啟動前核對原始 JAR、解開的依賴、JDK 與快取的 SHA-256；損壞或不完整的快取會保留原目錄，請用 `--cache-dir` 指定新目錄。訓練資料於結束時清理。清單僅檢查本機一致性，不能取代發行簽章或外掛准入。
-
-正常啟動保留目前環境，快取不相容時由 JVM 回退。驗證命中時，在 `run` 的 `--` 之前加入 `--strict`，並檢查 JVM 的 `Using AOT-linked classes: true` 診斷；程序成功結束本身不代表命中。訓練成本需由多次啟動節省的時間抵消，部署前應使用相同 JAR、JDK、外掛、資料與啟動目標測量。機制詳見 [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html)。
+  首次準備成功輸出 `AOT prepare: ready`，重用有效快取輸出 `AOT prepare: reusing verified cache`（啟動前核對原始 JAR、解開的依賴、JDK 與快取的 SHA-256；快取損壞時保留原目錄供排查，請用 `--cache-dir` 指定新目錄）。一般啟動在快取不相容時由 JVM 自動回退；驗證快取命中需在 `run` 的 `--` 前加入 `--strict` 並檢查 `Using AOT-linked classes: true` 輸出。相關機制詳見 [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html)。
 
 ## 本地 Windows 打包
 

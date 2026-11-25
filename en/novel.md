@@ -49,13 +49,12 @@ Open the novel gallery:
 http://localhost:6999/pixiv-novel-gallery.html
 ```
 
-You can filter by title, author, series or tags, and use **full-text search of the novel body** through the local index. Click a card to open `pixiv-novel.html?id=<id>`, read the text, view the series contents, and move to the previous / next chapter.
+You can filter by title, author, series or tags, and use **full-text search of the novel body** through the local index. Click a card to open `pixiv-novel.html?id=<id>`, read the text, view the series contents, and move to the previous / next chapter:
 
-The reader toolbar keeps Back, Listen, Translate and Favorite within reach. Open More actions to change the interface language or appearance, or open the original novel on Pixiv. Administrators can also export or delete the novel from this menu; deletion still requires confirmation.
-
-Administrators can choose Export from the reader's More actions menu, select the reading language and translation engine separately, and download a single EPUB directly. Export creates no archive task or temporary archive and leaves downloaded source files unchanged.
-
-For batch export, select works in the novel gallery. Language and engine are separate choices, alongside grouping and ZIP options. Translations use the formats of existing local documents, or EPUB when no local document exists. Only translation combinations saved for every selected novel are offered; untranslated fields retain the original text.
+- **Reader toolbar and More actions**: the top bar keeps Back, Listen, Translate and Favorite accessible. The "More actions" menu switches UI language or theme and opens the original Pixiv URL; administrators can also export or delete the novel there (deletion requires confirmation).
+- **Single-novel and batch export (administrator)**:
+  - **Single-novel export**: select "More actions → Export" in the reader, choose the reading language and translation engine separately, and download a single EPUB immediately (creates no background archive task or temporary file, and leaves downloaded local source files untouched).
+  - **Gallery batch export**: select works in the novel gallery, choose reading language and translation engine (only combinations saved across all selected novels are offered), and choose grouping and ZIP options. Translations use the format of existing local documents, or EPUB if none exists, while untranslated fields fall back to the original text.
 
 ## Listen to novels (single-voice TTS)
 
@@ -78,45 +77,38 @@ In desktop settings under "AI models", configure and enable both a "Text model" 
 
 ## Translation engines (administrator)
 
-Install and enable `translation` (its `novel-translation-contract` dependency is installed with it). Select an engine on the "Translation" page in desktop settings, save, and restart the backend when prompted. Manual translation in the reader, series translation and automatic translation after download all use the selected engine:
+Install and enable `translation` (its `novel-translation-contract` dependency is installed with it). Select an engine on the "Translation" page in desktop settings, save, and restart the backend when prompted. Manual translation in the reader, series translation and automatic translation after download all use the selected engine (AI credentials belong to `ai`, Youdao and LibreTranslate credentials to `translation`, and speech credentials to `tts`):
 
-| Engine | Configuration and limits |
+| Engine | Configuration and target-language selection |
 | --- | --- |
-| AI model | Reuses the model, base URL and credentials saved by the `ai` plugin (supports local OpenAI-compatible services) |
-| Youdao | Requires an application ID and application secret for the Youdao Zhiyun text translation API (a Youdao Dictionary client account does not work) |
-| LibreTranslate | Requires the base URL of a self-hosted service (without `/translate`) and an optional API Key; you must provide the service and language models |
+| AI model | Reuses the model, base URL and credentials saved by the `ai` plugin (supports local OpenAI-compatible services); the dialog accepts free-text target languages and term mapping tables |
+| Youdao | Enter the application ID and secret for the Youdao Zhiyun text translation API (Youdao Dictionary client accounts do not work); target-language dropdown uses the bundled official language table |
+| LibreTranslate | Enter the base URL of a self-hosted service (without `/translate`) and an optional API Key; opening the dialog queries `/languages` on that service for supported target languages (with a reload option on failure) |
 
-Youdao and LibreTranslate split long text using their own request settings and combine short segments into batches. Line breaks and Pixiv image, page and jump markers are preserved. Splits prefer sentence or whitespace boundaries; an overlong word is split by Unicode code points without breaking surrogate pairs. Titles and body text use separate requests, without AI term glossaries.
+### Youdao and LibreTranslate request parameters and rate-limit retries
 
-Desktop Settings > Translation shows request parameters for the selected engine. The table lists client defaults. Prefix each key with `translation.youdao.` or `translation.libretranslate.`. Save and restart the backend.
+Youdao and LibreTranslate split long text according to their request settings, batch short paragraphs together, and preserve line breaks and Pixiv image, pagination and jump markers (splits prefer sentence endings or whitespace; overlong words split on Unicode code points without breaking surrogate pairs; titles and body text are requested separately without AI term glossaries). Desktop "Settings → Translation" displays parameters for the active engine (prefixed with `translation.youdao.` or `translation.libretranslate.`; save and restart the backend):
 
 | Parameter | Youdao default | LibreTranslate default | Allowed range |
 | --- | --- | --- | --- |
-| `request-chars` | 5000 | 5000 | Youdao: 1–5000; LibreTranslate: 1–1,000,000 |
-| `batch-size` | 50 | 10 | 1–100 |
-| `request-interval-ms` | 1000 ms | 0 ms | 0–60,000 ms |
-| `request-concurrency` | 1 | 1 | 1–32 |
-| `max-retries` | 3 | 3 | 0–10 |
-| `read-timeout-seconds` | 120 s | 120 s | 1–3600 s |
-| `use-proxy` | false | false | true / false |
+| `request-chars` | `5000` | `5000` | Youdao: `1–5000`; LibreTranslate: `1–1,000,000` |
+| `batch-size` | `50` | `10` | `1–100` |
+| `request-interval-ms` | `1000` ms | `0` ms | `0–60,000` ms |
+| `request-concurrency` | `1` | `1` | `1–32` |
+| `max-retries` | `3` | `3` | `0–10` |
+| `read-timeout-seconds` | `120` s | `120` s | `1–3600` s |
+| `use-proxy` | `false` | `false` | `true` / `false` |
 
+- **Budget and quota calculation**: `request-chars` caps both a single segment and the batch total (Youdao's official per-query limit is 5,000 characters; LibreTranslate's actual limits depend on server configuration, while `5000` and `batch-size` are client defaults). Because LibreTranslate charges quota per text entry in a batch, the effective pacing interval is multiplied by the number of texts in the batch.
+- **Shared concurrency and rate-limit backoff**: manual, series and post-download auto-translations share concurrency and pacing per engine. Only Youdao `411`/`412` or HTTP `429` triggers automatic backoff retries on the current batch (honoring `Retry-After`; waits exceeding 60 seconds report a rate-limit error immediately and hold new requests during cooldown). Authentication failures, timeouts and other errors are not auto-retried.
 
-The character budget caps both each text and the batch total. Youdao documents a 5,000-character limit per query. LibreTranslate character, batch and request quotas depend on the deployment or API key; 5,000 is this client’s budget. Batch sizes of 50/10 and Youdao’s 1,000 ms interval are client presets, not account quotas. LibreTranslate charges request quota per text in a batch, so pacing multiplies the interval by the text count. Adjust the batch count to the actual quota of hosted services as well.
+### Multi-engine translations and task checkpoints
 
-Manual, series and automatic translations share each engine’s request concurrency and pacing. Only Youdao `411` / `412` or HTTP `429` retries the current batch, with increasing waits and respect for `Retry-After`. Waits over 60 seconds return a rate-limit error; new tasks cannot send early during the cooldown. Authentication failures, timeouts and other errors are not replayed automatically. All selected fields must succeed before a chapter is saved; failures preserve existing translations. Resuming the same task reuses saved successful responses. Logs include batch, request, retry and translated-character counts, without source text, translations or credentials.
-- AI credentials are managed by `ai`, Youdao and LibreTranslate credentials by `translation`, and speech credentials by `tts`.
-
-The translation dialog shows the current engine. Youdao uses its official language table for the target-language dropdown; LibreTranslate reads supported targets from the configured service, with a reload option if loading fails. AI retains free-text input and term glossaries. Failure messages provide guidance for the reported cause. English backend logs record the execution ID, document ID, engine, stage and safe error codes without novel text or secrets.
-
-A novel can keep translations into the same language from different engines. Overwrite and skip apply only to the current engine. The reader and series pages group separate Reading language and Translation engine controls, offering only combinations with saved translations. The engine shows Not applicable for the original text. Merged downloads and novel exports also offer separate language and engine choices; narration reads the selected translation. Existing translations without an engine record remain labeled "Unknown source" and keep their original language-only filename suffix. All AI models share the `ai` engine identity, so switching AI models does not create another translation version.
-
-The backend saves translation progress. Closing or hiding the page lets the task continue. Open Translate again to view the existing task, pause, resume or cancel it. Cancellation waits for the active request to exit and retains successful checkpoints and completed chapters. Discarding a task requires confirmation and removes only its task record and checkpoints, leaving published translations intact.
-
-After a backend restart, unfinished tasks stay paused until you resume them. Resuming checks the source, existing translation, engine address, model and segmentation settings. If they changed, restore the settings or discard the task and translate again. AI terminology context is retained with checkpoints. Truncated model output is never published as a complete translation. Discard the task and start again with smaller segments, or adjust the output limit in the model service, if supported, before resuming.
-
-If an AI response omits required fields, reports a different target language or contains an invalid language code, the task pauses. Resuming requests the invalid part again and reuses the other saved successful responses.
-
-Up to 256 task records and 256 Mi UTF-16 code units of checkpoints are retained. Creating a task removes completed records older than 7 days or, if capacity is full, the oldest completed record. Paused and cancelled tasks require manual discard. If the external service processed a request but its response was not saved locally, resuming may send that request again and incur another charge.
+- **Side-by-side multi-engine translations**: a novel can retain translations into the same target language from multiple engines ("Overwrite" and "Skip" apply only to the current engine; all AI models share the `ai` engine ID; legacy translations without an engine record appear as "Unknown source" and keep their original language-only EPUB suffix). The reader, series page, merged EPUB download and novel export provide paired "Reading language" and "Translation engine" selectors (listing only existing combinations, or "Not applicable" for original text), and narration reads whichever translation is currently selected.
+- **Background progress and checkpointed resume**: formal translations are committed only after all selected fields succeed, so mid-run failures never overwrite existing translations. Progress and completed segment checkpoints are saved by the backend (up to 256 tasks and 256 Mi UTF-16 code units of checkpoints; completed task records expire after 7 days or on capacity eviction, whereas paused or cancelled tasks must be explicitly discarded—discarding removes only task state and checkpoints, not published translations).
+  - Tasks continue running after you close the page; click "Translate" again to view progress, pause, resume or cancel (cancelling waits for the active request to exit and preserves completed chapters and checkpoints).
+  - Unfinished tasks remain paused after a backend restart and do not auto-resume. Resuming verifies source text, target language, engine URL, model and segmentation settings (restore matching settings or discard and re-translate on mismatch).
+  - AI glossary context persists with checkpoints. If AI output is truncated, misses required fields or returns an unexpected language, the task pauses automatically; resuming re-requests only the invalid segment while reusing saved segments (to use smaller segments, discard and re-translate, or raise the model server's output token limit before resuming; if an external call executed before its response was persisted, resuming may bill that request again).
 
 ## AI translation and term mapping tables (administrator)
 

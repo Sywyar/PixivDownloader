@@ -12,22 +12,21 @@
 
 ## 자격 증명 키와 백업
 
-설치마다 독립적인 무작위 마스터 키를 생성하고 보호된 형태로 `config/credentials.key`에 저장합니다. Windows는 기본적으로 현재 사용자의 DPAPI를 사용하므로 서비스는 항상 같은 계정으로 실행하세요. Windows 사용자나 컴퓨터를 바꾸기 전에 자격 증명을 포함한 비밀번호 보호 `.pdbackup`을 내보내고 대상 환경에서 가져오세요. 설정 디렉터리를 복사하는 것만으로는 복원할 수 없습니다.
+설치 인스턴스마다 독립적인 무작위 마스터 키를 생성하여 보호된 형태로 `config/credentials.key`에 저장합니다:
 
-Linux, macOS, Docker에서는 자격 증명을 처음 저장하거나 업그레이드하기 전에 별도의 보호 키 파일이 필요합니다. 무작위 32바이트를 표준 Base64로 인코딩한 내용을 저장하고, 실행 계정만 읽을 수 있도록 설정하며, 설정 디렉터리와 그 백업 밖에 보관하세요. OpenSSL이 설치되어 있으면 최초 한 번 Bash에서 다음 명령으로 파일을 만들고 시작 환경 변수를 설정할 수 있습니다. 기존 파일은 덮어쓰지 않습니다.
+- **Windows**: 기본적으로 현재 OS 사용자의 DPAPI를 사용하므로 백그라운드 서비스도 항상 동일한 계정으로 실행해야 합니다. Windows 사용자나 컴퓨터를 바꿀 때는 `config/` 폴더 복사만으로 기존 자격 증명을 복호화할 수 없으므로, 원본 환경에서 자격 증명이 포함된 비밀번호 보호 `.pdbackup`을 내보낸 뒤 대상 환경에서 가져오세요.
+- **Linux / macOS / Docker**: 자격 증명을 처음 저장하거나 업그레이드하기 전에 `config/` 및 그 백업 폴더 밖에 별도의 보호 키 파일(무작위 32바이트의 표준 Base64 인코딩, 실행 계정만 읽기 가능)을 준비하고, 환경 변수 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` 또는 JVM 인수 `-Dpixivdownload.credential-key-file=/절대/경로`로 지정해야 합니다. 최초 생성 예시(`set -C`로 기존 키 덮어쓰기 방지):
 
-```bash
-umask 077
-mkdir -p "$HOME/.config/pixivdownload-secrets"
-( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
-export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
-```
+  ```bash
+  umask 077
+  mkdir -p "$HOME/.config/pixivdownload-secrets"
+  ( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+  export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+  ```
 
-같은 터미널에서 앱을 시작하세요. 백그라운드 서비스는 서비스 환경에 변수를 설정해야 합니다. Docker에서는 파일을 `/run/secrets/pixivdownload-credentials`에 읽기 전용으로 마운트하고 변수를 해당 컨테이너 내부 경로로 설정하세요. Java 시작 인수 `-Dpixivdownload.credential-key-file=/절대/경로`도 지원합니다. 보호 키는 별도로 안전하게 백업하고 시작할 때마다 다시 생성하지 마세요. 키가 없거나 일치하지 않으면 원래 자격 증명을 보존하고 복호화를 거부합니다.
-
-일반 읽기와 쓰기에서 이전 형식을 자동 업그레이드하며 비활성 플러그인의 자격 증명도 이전합니다. 이전 키는 이 업그레이드에만 사용하고, 모든 파일의 이전이 끝나면 이전 형식 파일의 재삽입을 거부합니다. 손상된 파일은 복구와 재시도를 위해 보존하며 다른 플러그인은 계속 사용할 수 있습니다. 기존 오프라인 백업의 보호 방식은 바뀌지 않습니다. 환경 간 이전에는 암호화된 `.pdbackup`을 사용하며, 가져올 때 대상 설치 키로 다시 암호화합니다.
-
-저장소의 Compose 템플릿은 보호 키를 자동 마운트합니다. 호스트 환경 변수에는 호스트 파일 경로를 지정하며, 변수가 없으면 시작을 거부합니다. Linux 호스트에서는 컨테이너 계정 UID/GID `10001:10001`만 파일을 읽을 수 있도록 설정하세요. 파일 생성 후 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`와 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`를 실행할 수 있습니다. 파일 기반 Compose secret은 호스트 파일 권한을 유지합니다.
+  - 같은 터미널에서 앱을 시작하거나 백그라운드 서비스 환경에 해당 변수를 등록하세요. 보호 키는 별도로 안전하게 백업하고 시작할 때마다 다시 생성하지 마세요(키를 분실하거나 일치하지 않으면 원래 자격 증명을 보존한 채 복호화를 거부합니다).
+  - **Docker / Compose**: 호스트 키 파일을 컨테이너의 `/run/secrets/pixivdownload-credentials`에 읽기 전용으로 마운트하고 변수를 해당 경로로 설정합니다. 저장소의 Compose 템플릿은 호스트의 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE`을 자동 마운트하며 미설정 시 시작을 거부합니다. Linux 호스트에서는 컨테이너 계정 `10001:10001`만 읽을 수 있도록 권한을 제한하세요(`sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE" && sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`).
+- **이전 자격 증명 자동 업그레이드**: 일반 읽기/쓰기 시 이전 형식의 자격 증명(비활성 플러그인 포함)을 자동 이전하며, 모든 파일 이전이 완료되면 이전 형식 재주입을 거부합니다. 손상된 파일은 복구와 재시도를 위해 보존되며 다른 플러그인은 계속 작동합니다. 환경 간 복원에는 암호화된 `.pdbackup`을 사용하세요(가져올 때 대상 환경의 마스터 키로 재암호화됩니다).
 
 ## 설정 및 환경 이전
 
@@ -209,28 +208,22 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 ## 작품 저장 디렉터리 템플릿 :id=directory-templates
 
-「설정 → 다운로드」에서 일러스트와 소설의 저장 경로를 따로 편집합니다. 변수를 치환한 경로가 최종 작품 디렉터리이며 작가나 작품 ID 폴더를 자동으로 덧붙이지 않습니다. 상대 경로는 앱 작업 디렉터리를 기준으로 해석하며 절대 경로도 사용할 수 있습니다. 저장 후 앱을 다시 시작하면 적용됩니다.
+데스크톱의 '설정 → 다운로드'에서 일러스트와 소설의 저장 디렉터리 템플릿을 각각 편집합니다(앱 작업 디렉터리 기준 상대 경로와 절대 경로 지원, 저장 후 앱을 재시작하면 적용). 치환된 경로가 최종 작품 디렉터리이며 작가나 작품 ID 하위 폴더를 자동으로 덧붙이지 않습니다. 템플릿 변경은 이후 새 다운로드에만 적용되며 기존 폴더 이전은 [저장소 및 백업](/ko/storage)을 참고하세요.
 
-작품 종류마다 기본 템플릿을 하나씩 둡니다. 「모드 추가」로 단일 작품, User, 시리즈, 검색 또는 빠른 가져오기 모드의 전체 경로를 덮어쓸 수 있습니다. 추가하지 않았거나 삭제했거나 비워 둔 모드는 해당 작품 종류의 기본값을 사용합니다. 모드는 이번 다운로드의 취득 방식을 뜻하며, 작품이 시리즈에 속한다는 이유만으로 시리즈 모드를 사용하지는 않습니다.
+- **기본 템플릿과 모드별 재정의**: 작품 종류마다 기본 템플릿을 하나씩 유지하며, '모드 추가'로 취득 모드(`<mode>`는 `single-import`, `user`, `series`, `search`, `quick`. 작품이 시리즈에 속해도 시리즈 모드로 요청하지 않았다면 `series` 모드가 아님)별 전체 경로를 덮어쓸 수 있습니다. 추가하지 않았거나 제거·비워 둔 모드는 해당 종류의 기본 템플릿을 사용합니다:
+  - **일러스트(호스트 `config/config.yaml`)**: `download.root-folder`(기본)와 `download.mode-templates.<mode>`.
+  - **소설(`novel` 플러그인 `config/plugins/novel.properties`)**: `download.novel-directory-template`(기본)와 `download.novel-mode-templates.<mode>`.
+- **사용 가능한 변수 및 경로 규칙**:
+  - `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}`(취득 출처의 사용자 이름), `{R18}`을 지원합니다(표기가 정확히 일치해야 하며, 로컬 가져오기 전용 변수인 `{page}`, `{extension}`, `{name}`은 사용할 수 없음).
+  - 템플릿에는 **변수로 `{artwork_id}`만 포함하는 경로 구간이 반드시 있어야 합니다**(`novel-{artwork_id}`처럼 같은 구간에 고정 문자를 붙일 수는 있으나 다른 변수는 함께 둘 수 없음. 숫자 소설 ID를 일러스트와 구분하려면 `novel-` 접두사 사용을 권장).
+  - 컬렉션, 시리즈, `{R18}` 값이 없으면 빈 문자열로 치환됩니다(구간 전체가 비면 해당 디렉터리 단계는 생략되고, 같은 구간의 고정 문자는 유지). 그 밖의 필수 값이 없으면 다운로드를 거부합니다.
+- **컬렉션 전용 디렉터리 접두사 치환**: 전용 디렉터리가 설정된 로컬 컬렉션을 선택하면 템플릿에서 '변수가 처음 포함된 디렉터리 구간' 앞의 고정 경로를 해당 컬렉션 디렉터리로 바꾸고, 그 변수 구간과 뒤쪽 경로(고정 문자 포함)는 그대로 유지합니다(예: `pixiv-download/novel-{artwork_id}`와 컬렉션 디렉터리 `D:/Favorites`를 함께 쓰면 `D:/Favorites/novel-{artwork_id}`로 치환).
+- **로컬 가져오기 템플릿과의 차이**: 저장 디렉터리 템플릿은 항상 폴더를 가리키므로 끝에 `/`가 필요 없지만, [로컬 작품 가져오기](/ko/local-import)는 끝의 `/` 유무로 폴더 템플릿과 단일 파일 템플릿을 구분합니다.
 
-일러스트 템플릿은 호스트 `config/config.yaml`의 `download.root-folder`와 `download.mode-templates.<mode>`에 저장합니다. 소설 템플릿은 `novel` 플러그인이 `config/plugins/novel.properties`의 `download.novel-directory-template`와 `download.novel-mode-templates.<mode>`에 저장합니다. `<mode>`는 `single-import`, `user`, `series`, `search`, `quick` 중 하나입니다.
-
-사용 가능한 변수: `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}`, `{R18}`. 표기를 정확히 일치시켜야 합니다.
-
-템플릿에는 `{artwork_id}`만 변수로 사용하는 경로 구간이 있어야 합니다. `novel-{artwork_id}`처럼 고정 문자를 붙일 수 있지만 같은 구간에 다른 변수를 넣을 수는 없습니다. 소설 ID도 숫자이므로 `novel-` 같은 접두사로 일러스트와 구분하세요.
-
-`{username}`은 취득 출처의 사용자 이름입니다. 컬렉션, 시리즈, `R18` 값이 없으면 빈 문자열로 치환합니다. 치환 후 완전히 빈 디렉터리 단계는 생략하고 같은 단계의 고정 문자는 남깁니다. 다른 필수 값이 없으면 다운로드를 거부합니다. 로컬 가져오기용 `{page}`, `{extension}`, `{name}` 등은 저장 디렉터리에 사용할 수 없습니다.
-
-기본 템플릿과 선택 가능한 모드별 템플릿 예시:
-
-| 용도 | 템플릿 |
+| 용도 | 템플릿 예시 |
 | --- | --- |
 | 일러스트 기본값 | `pixiv-download/{artwork_id}` |
-| 일러스트 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 일러스트 User 모드 | `pixiv-download/{username}/{R18}/{artwork_id}` |
 | 소설 기본값 | `pixiv-download/novel-{artwork_id}` |
-| 소설 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 소설 User 모드 | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
 | 시리즈 모드 예시 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
-
-선택한 컬렉션에 저장 디렉터리가 있으면 변수가 처음 포함된 디렉터리 구간 앞의 고정 경로를 해당 디렉터리로 바꿉니다. 그 구간부터 뒤쪽은 고정 문자를 포함해 모두 유지합니다. 예를 들어 `pixiv-download/novel-{artwork_id}`와 컬렉션 디렉터리 `D:/Favorites`를 함께 사용하면 `D:/Favorites/novel-{artwork_id}`로 확장됩니다.
-
-이 템플릿은 항상 다운로드 디렉터리를 지정하므로 끝에 `/`를 붙일 필요가 없습니다. 로컬 가져오기는 별도 규칙을 사용하여 `/`로 끝나면 폴더, 그렇지 않으면 파일을 지정합니다. [로컬 작품 가져오기](/ko/local-import)를 참고하세요. 템플릿 변경은 이후 다운로드에 적용되며 기존 파일을 옮기지 않습니다. 폴더 이전은 [저장소 및 백업](/ko/storage)을 참고하세요.

@@ -12,22 +12,21 @@
 
 ## 憑證金鑰與備份
 
-每個安裝實例都會產生獨立的隨機主金鑰，保護後儲存於 `config/credentials.key`。Windows 預設使用目前使用者的 DPAPI；服務應固定以同一帳號執行。更換 Windows 使用者或電腦前，請先匯出包含憑證且設有密碼的 `.pdbackup`，再於目標環境匯入，僅複製設定目錄不足以還原憑證。
+每個安裝實例都會產生獨立的隨機主金鑰，以受保護形式儲存於 `config/credentials.key`：
 
-Linux、macOS 與 Docker 必須在首次儲存或升級憑證前提供獨立的保護金鑰檔案。內容為 32 個隨機位元組的標準 Base64 編碼，只允許執行帳號讀取，並放在設定目錄及其備份之外。安裝 OpenSSL 後，可在 Bash 中首次建立檔案並設定啟動環境變數；既有檔案不會被覆寫：
+- **Windows**：預設使用目前作業系統使用者的 DPAPI 保護；背景服務應固定以同一使用者帳號執行。更換 Windows 使用者或電腦時，僅複製 `config/` 目錄無法解密原憑證，需先在原環境匯出包含憑證且設密保護的 `.pdbackup`，再於目標環境匯入。
+- **Linux / macOS / Docker**：必須在首次儲存或升級憑證前，將獨立的保護金鑰檔案放在 `config/` 及其備份目錄之外（內容為 32 個隨機位元組的標準 Base64 編碼，只允許執行帳號讀取），並透過環境變數 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` 或 JVM 參數 `-Dpixivdownload.credential-key-file=/絕對路徑` 指定。首次建立範例（使用 `set -C` 防止覆寫既有金鑰）：
 
-```bash
-umask 077
-mkdir -p "$HOME/.config/pixivdownload-secrets"
-( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
-export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
-```
+  ```bash
+  umask 077
+  mkdir -p "$HOME/.config/pixivdownload-secrets"
+  ( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+  export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+  ```
 
-請在同一終端機啟動應用程式；背景服務須在服務環境中設定此變數。Docker 將檔案以唯讀方式掛載至 `/run/secrets/pixivdownload-credentials`，並將變數設為該容器內路徑。也可使用 Java 啟動參數 `-Dpixivdownload.credential-key-file=/絕對路徑`。保護金鑰應另行安全備份，勿在每次啟動時重新產生；金鑰遺失或不符時，應用程式會保留原憑證並拒絕解密。
-
-一般讀寫會自動升級舊版憑證，停用外掛的憑證也會遷移。舊金鑰僅用於舊格式升級；全部檔案遷移完成後拒絕重放舊格式。損壞檔案會保留供修復與重試，其他外掛仍可使用。遷移不會改變既有離線備份的保護方式；跨環境還原使用加密 `.pdbackup`，匯入後以目標安裝金鑰重新加密。
-
-儲存庫的 Compose 範本會自動掛載保護金鑰，宿主環境變數仍填宿主檔案路徑，未設定時會拒絕啟動。Linux 宿主須讓容器帳號 UID/GID `10001:10001` 獨占讀取檔案，例如產生後執行 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` 與 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`；檔案型 Compose secret 沿用宿主權限。
+  - 請在同一終端機啟動應用程式，或將此環境變數寫入背景服務設定。保護金鑰須另行安全備份，切勿在每次啟動時重新產生；金鑰遺失或不符時，應用程式會保留原憑證檔案並拒絕解密。
+  - **Docker / Compose**：將宿主機金鑰檔案以唯讀方式掛載至容器內 `/run/secrets/pixivdownload-credentials` 並設定對應環境變數。儲存庫附帶的 Compose 範本會自動掛載宿主 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` 指定的檔案（未設定時拒絕啟動）；Linux 宿主機須將該檔案設為容器帳號 `10001:10001` 獨占唯讀（`sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE" && sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`）。
+- **舊版憑證自動升級**：舊版憑證在一般讀寫時自動遷移至新格式（含已停用外掛的憑證）；全部檔案完成遷移後將拒絕重放舊格式。損壞的憑證檔案會保留在原位供修復與重試，不影響其他外掛執行。跨環境還原請使用加密 `.pdbackup`，匯入時以目標環境主金鑰重新加密。
 
 ## 設定與環境遷移
 
@@ -209,28 +208,22 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 ## 作品儲存目錄範本 :id=directory-templates
 
-在「設定 → 下載」中分別編輯插畫與小說的儲存目錄。展開後的路徑就是最終作品目錄，不會再自動附加作者或作品 ID 層級。相對路徑以應用程式工作目錄為基準，也可填寫絕對路徑；儲存後重新啟動應用程式生效。
+在桌面「設定 → 下載」中分別設定插畫與小說的儲存目錄範本（支援以應用程式工作目錄為基準的相對路徑或絕對路徑，儲存後重新啟動應用程式生效）。範本展開後的路徑即為最終作品目錄，不會再額外附加作者或作品 ID 子目錄；修改範本僅作用於後續新下載，搬遷既有目錄見[儲存與備份](/zh-hant/storage)。
 
-每類作品各有一個預設範本。按「新增模式」可為單一作品、User、系列、搜尋或快捷模式設定完整覆寫；未新增、移除或留空的模式使用該類作品的預設範本。模式代表此次取得來源，作品屬於某個系列不代表使用系列模式。
+- **預設範本與模式覆寫**：每類作品各有一個預設範本，點擊「新增模式」可依此次取得來源（`<mode>` 取 `single-import`、`user`、`series`、`search`、`quick`；作品屬於某系列不代表使用 `series` 模式）單獨覆寫完整目錄，留空或移除則退回預設範本：
+  - **插畫（宿主 `config/config.yaml`）**：`download.root-folder`（預設範本）與 `download.mode-templates.<mode>`。
+  - **小說（`novel` 外掛 `config/plugins/novel.properties`）**：`download.novel-directory-template`（預設範本）與 `download.novel-mode-templates.<mode>`。
+- **可用變數與路徑限制**：
+  - 支援 `{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`（取得來源的使用者名稱）、`{R18}`（均須依小寫底線或 `R18` 精確比對；不支援 `{page}`、`{extension}`、`{name}` 等本地匯入變數）。
+  - 範本**必須包含獨占一個路徑區段的 `{artwork_id}`**（允許同區段帶固定文字前綴，如 `novel-{artwork_id}`，但同一路徑區段內不得包含其他變數；建議小說保留 `novel-` 前綴以區分純數字 ID）。
+  - 收藏夾、系列與 `{R18}` 變數無值時展開為空（整段為空的目錄層自動省略，同段有固定文字則保留），其餘必要變數缺少時會拒絕此次下載。
+- **收藏夾自訂目錄替換**：當下載指定了綁定獨立目錄的本地收藏夾時，收藏夾目錄會替換範本中「首個含變數的目錄層」之前的固定前綴，該變數層及後續層級（含區段內固定文字）完整保留。例如範本 `pixiv-download/novel-{artwork_id}` 搭配收藏夾目錄 `D:/Favorites`，展開為 `D:/Favorites/novel-{artwork_id}`。
+- **與本地匯入範本的差異**：儲存目錄範本始終指向目錄，末尾無需加 `/`；而[本地作品匯入](/zh-hant/local-import)以末尾是否帶 `/` 區分資料夾範本與單一檔案範本。
 
-插畫範本儲存在宿主 `config/config.yaml` 的 `download.root-folder` 與 `download.mode-templates.<mode>`；小說範本由 `novel` 外掛儲存在 `config/plugins/novel.properties` 的 `download.novel-directory-template` 與 `download.novel-mode-templates.<mode>`。`<mode>` 為 `single-import`、`user`、`series`、`search` 或 `quick`。
-
-可用變數：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。變數名稱必須符合此處的拼寫。
-
-範本必須包含獨占一個路徑區段的 `{artwork_id}`，該區段可帶固定文字，例如 `novel-{artwork_id}`，但不能同時包含其他變數。小說 ID 仍是純數字，建議以 `novel-` 區分插畫與小說。
-
-`{username}` 是取得來源的使用者名稱。收藏夾、系列與 `R18` 變數缺值時展開為空；完全為空的目錄層會省略，同層的固定文字保留。其他必要值缺少時會拒絕此次下載。`{page}`、`{extension}`、`{name}` 等本地匯入變數不能用於儲存目錄。
-
-以下為預設範本與可選模式範本的範例：
-
-| 用途 | 範本 |
+| 用途 | 範本範例 |
 | --- | --- |
 | 插畫預設 | `pixiv-download/{artwork_id}` |
-| 插畫 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 插畫 User 模式 | `pixiv-download/{username}/{R18}/{artwork_id}` |
 | 小說預設 | `pixiv-download/novel-{artwork_id}` |
-| 小說 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 小說 User 模式 | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
 | 系列模式範例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
-
-選取設有目錄的收藏夾時，收藏夾目錄會替換範本中首個含變數的目錄層之前的固定路徑；該目錄層及後續部分完整保留，包括固定文字。例如 `pixiv-download/novel-{artwork_id}` 搭配收藏夾目錄 `D:/Favorites`，會依 `D:/Favorites/novel-{artwork_id}` 展開。
-
-這些範本始終指定下載目錄，末尾不要求 `/`。本地匯入使用另一套規則：以 `/` 結尾比對資料夾，未以 `/` 結尾則比對檔案，見[本地作品匯入](/zh-hant/local-import)。修改範本只影響後續下載，不會移動既有檔案；搬遷目錄見[儲存與備份](/zh-hant/storage)。

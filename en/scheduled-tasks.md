@@ -57,7 +57,7 @@ sec min hour day month weekday
 | Manga / novel series (Series mode) | Checks the chapter list each run, skips downloaded chapters and downloads new ones |
 | My bookmarks / New works from followed users / Collections | Expand the corresponding source in [Quick access](/en/quick-access) before creating the task. Collections download both illustrations and novels. The source is read-only when editing a task; delete and recreate the task to change it |
 
-Fixed-page searches process illustrations or novels one page at a time. Works on the same page can download in parallel. The task stops requesting pages when it reaches the fetch limit or a work on the current page is pending retry. Set **Minimum page interval (ms)** in Download settings. The interval starts when the previous search request begins and includes time spent downloading. Leave it blank to use 0 ms for a fixed page count or 10,000 ms for an end page of `-1`. Enter 0 to skip the additional wait.
+Fixed-page searches process illustrations or novels page by page: works within a page download in parallel, and pagination stops as soon as the run fetch limit is reached or any work on the current page is pending retry. **Download settings → Minimum page interval (ms)** is measured from the start of the previous search request (including download time on the current page): when blank, it defaults to `0` ms for fixed page counts and `10000` ms for an end page of `-1`; enter `0` explicitly to disable the extra wait.
 
 ## Initial fetch limit
 

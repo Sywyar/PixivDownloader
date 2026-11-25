@@ -43,9 +43,8 @@ The following variables are available under "Download settings → Filename temp
 | `{R18}` | `R18`, `R18G` or an empty string |
 | `{R18+}` | `SFW`, `R18` or `R18G` |
 
-For a selected local collection named `Favorites` with ID `7`, `{collection_name}_{collection_id}_{artwork_id}_p{page}` can produce `Favorites_7_42_p0.png`. With no collection selected, the same template produces `__42_p0.png`. Both illustrations and novels support these variables. The actual filenames are saved at download time, so renaming a collection does not rename existing files.
-
-Filename templates affect filenames only: `/` and `\` become `_` and do not create subdirectories. [Work directory templates](/en/configuration?id=directory-templates) control save paths and support the applicable work, collection, series and acquisition-source variables listed above. [Local artwork import](/en/local-import) parses existing paths in reverse and has its own supported variables.
+- `{collection_name}` and `{collection_id}` apply to both illustrations and novels: for example, with local collection `Favorites` (ID `7`) selected, `{collection_name}_{collection_id}_{artwork_id}_p{page}` produces `Favorites_7_42_p0.png`, or `__42_p0.png` when no collection is selected. Renaming a collection later does not rename already saved files.
+- Filename templates control only the filename itself—`/` and `\` are replaced with `_` and never create subdirectories. Directory hierarchy is controlled by [work directory templates](/en/configuration?id=directory-templates); for reverse-parsing existing file paths, see [local artwork import](/en/local-import).
 
 ## Automatic bookmarking and Ugoira processing
 
@@ -56,16 +55,14 @@ Filename templates affect filenames only: `/` and `\` become `_` and do not crea
 
 - **Download monitor (`http://localhost:6999/monitor.html`)**: view active download progress, filter history by author / tag / AI status or search it with fuzzy matching, and view download trend charts.
 - **Potential duplicate detection (`http://localhost:6999/pixiv-duplicates.html`, administrator only, requires `gallery-tools`)**: find visually similar images using perceptual hashing (dHash), even when filenames or resolutions differ. Adjust the Hamming distance threshold (default `10`; lower is stricter), switch between "Cross-work mode / Full-library mode", and click a thumbnail to open its detail page for handling.
-- **Desktop GUI tools page**: provides **Image classifier**, **Database directory check**, **Data backfill**, **Legacy data and metadata import**, **Historical media processing** and **PixivBatchDownloader import support**.
+- **Desktop GUI tools page**: grouped in Compose by execution style (plugin tools appear automatically when enabled):
+  - **Quick tools** (open in dialogs; closing the dialog leaves running tasks active in the background, and you can reopen the tool to inspect or cancel): **Data backfill**, **[PixivBatchDownloader import support](/en/pixiv-batch-downloader-import)** and **[Import local artworks](/en/local-import)** (all require the backend to remain running and do not enter offline maintenance mode).
+  - **Utilities** (dedicated full-page workspace; switching sidebar pages or exiting requests cancellation while keeping completed changes, waiting for any active write to finish): **Image classifier**, **Database directory check**, **Legacy data and metadata import**, **Historical media processing** and **FFmpeg management**.
 
-Compose groups tools by how you use them. **Quick tools** include Data backfill, PixivBatchDownloader import support and Import local artworks. They open in dialogs; closing a dialog leaves its task running. Reopen it from Tools to check progress or cancel. **Utilities** include Image classifier, Directory check, and FFmpeg and its tools. They use a dedicated page; exiting or selecting another sidebar page requests cancellation and keeps completed changes. A tool that is writing may require you to wait for the current operation before exiting. Plugin tools appear when their capabilities are available and arrange themselves within the group.
-
-!> Offline maintenance tools such as Directory check use an exclusive maintenance session; the GUI automatically stops and restores the backend. Back up the selected database first (for PostgreSQL, also back up the server-side database), and do not start another instance using the same data directory. When the operation ends, check the tool report, backend state and gallery access. Closing the tool window does not mean the operation succeeded.
-
-Import local artworks is an online tool that requires the backend to stay running; it does not use the maintenance shutdown flow above. Register files using path templates, or scan saved presets with all optional fields left empty. See the [guide and examples](/en/local-import).
+!> Offline database maintenance tools such as Directory check use an exclusive maintenance session in which the GUI automatically stops and restores the backend. Back up the selected database first (for PostgreSQL, also back up the server-side database), and never start another instance on the same data directory. Afterwards, verify the tool report, backend status and gallery access—do not treat closing the window as completion.
 
 ## Guest invitations
 
 Guest invitations are available in both `solo` and `multi` modes. In the gallery's upper-right corner, an administrator can click "Invite Guests", set an expiry time, allowed content ratings (SFW / R18 / R18G) and tag / author allowlists, then copy `http://host:port/invite?code=xxx` to share read-only access with external guests. All invitation codes can be viewed, disabled or deleted centrally at `http://localhost:6999/pixiv-invite-manage.html`.
 
-Invitation links open a prefilled redemption page; GET requests do not establish sessions. Submitting the code and completing any published verification issues a session credential distinct from the code. Old raw-code cookies cannot sign in and must be redeemed again. Paused, deleted or expired invitations retain their existing access restrictions, and logout revokes the current credential.
+Opening an invitation link only displays a prefilled redemption page and does not create a session on `GET`. After the guest submits the code and completes any published verification components, the host issues a distinct guest session credential (legacy raw-code cookies cannot sign in and must be redeemed again; signing out revokes the current credential, and paused, deleted or expired codes immediately deny access).

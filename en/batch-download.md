@@ -55,11 +55,9 @@ Additional filters supports content rating (All / All ages / R18+ / R-18 / R-18G
 
 ## Download profiles and multiple Cookies
 
-Administrators can save download settings and additional filters as a profile and switch profiles from the dropdown. Up to 64 profiles can be saved. Switching has the same immediate effect as editing settings: queued and newly added works use the new values; works already downloading continue their current processing. Profiles exclude Cookies, proxies, download destinations and queues.
-
-Current page settings, the profile library and scheduled tasks are stored separately. Editing page settings does not overwrite a profile; use the profile save action to do so. Editing or deleting a profile does not change saved tasks. Applying a profile while editing a task changes only its draft, which takes effect when saved, without affecting the running manual queue. Reloading restores current page settings without reapplying the selected profile.
-
-Cookie management is administrator-only and stores up to 8 entries. Select the Cookies to use, then move them up or down to set the preferred and fallback order. The server encrypts the library; the page reads only names and status. A legacy page Cookie is removed only after storage and read-back verification succeed. Binding saved credentials to a task copies the candidates. Later library edits or page selections do not alter that copy; bind again to update it. When no candidate is available, the queue pauses. Correct the credentials and resume manually.
+- **Download profiles (administrator only, up to 64)**: save current download settings and additional filters as a profile and switch via the dropdown (profiles exclude Cookies, proxies, download destinations and queues). Switching applies immediately to queued and newly added works, while in-flight downloads continue with their original parameters.
+- **State isolation**: current page settings, the profile library and scheduled tasks are stored separately. Editing page parameters does not overwrite a profile unless you explicitly save it in the profile menu, and reloading the page restores only current page settings. Editing or deleting a profile does not alter saved scheduled tasks; applying a profile while editing a scheduled task updates only the draft until saved.
+- **Multiple Cookies (administrator only, up to 8)**: select active Cookies and move them up or down to set the preferred and fallback order. The server encrypts the credential store; the page reads only names and statuses (legacy single-Cookie entries are cleared only after storage and read-back verification succeed). Binding saved credentials to a scheduled task copies the candidates at that moment, so later library or page-selection changes require rebinding on the task. If all candidates become unavailable, the queue pauses automatically until you fix the credentials and resume manually.
 
 ## Troubleshooting and related guides
 

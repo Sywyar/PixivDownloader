@@ -2,11 +2,13 @@
 
 Start a third-party plugin from an independent project template in the SDK development package. You need only JDK 25, Node.js, and the build tools and runtime manifest included in the package; cloning the main repository is unnecessary.
 
-SDK 2.x uses JDK 25, Spring Framework 7, Servlet 6.1 and Jackson 3 with a Spring Boot 4 host. SDK 1.x plugins are rejected during installation or startup checks. Changing only `plugin.requires` is insufficient: adapt to the new interfaces and recompile.
+SDK 2.x is built on JDK 25, Spring Framework 7, Servlet 6.1 and Jackson 3 for the Spring Boot 4 host; SDK 1.x plugins are rejected during installation and startup checks.
 
-When migrating from SDK 1.x, replace `PluginDataSource` with `PluginDatabase`, SQL strings with neutral `TableSpec.check` expressions, and `DesktopUiHost.resolveDatabasePath` with the database-target contract. Supply an explicit `LocaleBundlePolicy` for resource bundles. Use `X-Acquisition-Credential` for acquisition credentials and the general `POST` / `DELETE /api/schedule/tasks/{id}/credential` endpoints to bind/revoke scheduled-task credentials, retaining their activation-token and authorization requirements. Jackson databinding classes move to `tools.jackson.*`; annotations remain in `com.fasterxml.jackson.annotation`. Use `HttpHeaders.asMultiValueMap()` when Spring headers need a Map view.
-
-`ScheduleTaskView` removes `type`, `lastStatus`, `lastMessage`, `runStartedTime` and `pendingRetryArmed`. Read the source from `sourceType`, execution state from `runState`, the result from `lastOutcome`, and suspension from `suspendReason` / `suspendCode`. Use `outcomeCode` / `outcomeMessage` for result messages and `lastRunTime` for the latest execution time.
+- **Key migration items from SDK 1.x to 2.x** (changing only `plugin.requires` is not enough; adapt to the new contracts and recompile):
+  - **Child context and descriptor**: `PixivPluginProvider` retains only `featurePlugin()`; declare Spring child-context `@Bean` configuration classes via `pixiv.configuration-classes` in `plugin.properties`.
+  - **Database and UI contracts**: replace `PluginDataSource` with dialect-neutral `PluginDatabase` and SQL check strings with neutral `TableSpec.check` expressions; replace `DesktopUiHost.resolveDatabasePath` with the database-target contract; pass an explicit `LocaleBundlePolicy` for resource bundles.
+  - **Credentials and scheduled-task views**: pass acquisition credentials in `X-Acquisition-Credential` and bind/revoke scheduled-task credentials via `POST` / `DELETE /api/schedule/tasks/{id}/credential` (satisfying activation-token and authorization checks). `ScheduleTaskView` removes `type`, `lastStatus`, `lastMessage`, `runStartedTime` and `pendingRetryArmed` in favor of `sourceType`, `runState`, `lastOutcome`, `suspendReason`/`suspendCode`, `outcomeCode`/`outcomeMessage` and `lastRunTime`.
+  - **Jackson 3 and Spring 7**: Jackson databinding classes move to `tools.jackson.*` (annotations remain in `com.fasterxml.jackson.annotation`); call `HttpHeaders.asMultiValueMap()` when a `Map` view is needed.
 
 | Development task | Sections |
 | --- | --- |
@@ -92,6 +94,9 @@ pixiv.lifecycle-policy=process-restart
 
 - `plugin.id` must exactly match `PixivFeaturePlugin.id()`. `plugin.requires` declares the required SDK version (stable versions match by `requiredMajor == hostMajor && requiredMinor <= hostMinor`; prereleases use `alpha.N` / `beta.N` / `rc.N` and require an exact match).
 - `pixiv.execution-mode` is required (`declarative-process` or `host-process-full-trust`). `pixiv.lifecycle-policy` can be `hot-reload` (default), `backend-restart` or `process-restart`; `pixiv.risk-signals` may declare risk-signal tokens.
+- `pixiv.desktop-only` defaults to `false`. Set it to `true` for a desktop-only plugin. During headless startup, the host skips the plugin unless a backend plugin requires it directly or through another required dependency. Skipped packages still appear as installed on the plugin management page.
+- `plugin.dependencies` names external PF4J packages. A required dependency on a built-in host component such as `core` is rejected before installation. Use `plugin.requires` to declare the required host SDK version.
+- Desktop UI providers can call `DesktopUiHost.stopBackend(afterStop, onFailure)` to request a backend stop. Start tools that need exclusive access to data in `afterStop`. An accepted request invokes one callback according to the outcome. A return value of `false` means the request was rejected immediately and neither callback runs.
 - The external entry point implements `PixivPluginProvider` and returns one `PixivFeaturePlugin`. Declare explicit Spring child-context `@Bean` configuration classes in the descriptor property `pixiv.configuration-classes`; do not rely on host package scanning:
 
 ```java
@@ -129,15 +134,12 @@ The same plugin contributes the parts of a download type together:
 2. **Implement the frontend behavior module**: call `PixivBatch.queueTypes.registerModule(initializer)` from `moduleUrl`. Implement `process(item, context)` (required; update state through `context.updateItem(patch)` and bind the execution UUID through `context.bindTask(taskId)` when using `DownloadTasks`), plus declared `import`, `acquisition.*`, `filters` and `settings`. Check `AbortSignal` / `isActive()` before writing back from async callbacks, and release resources in `onCleanup()`.
 3. **Resolve trusted identity in the backend**: inject the parent context's `RequestOwnerIdentityResolver` into the Controller to resolve the current request identity (never trust an owner UUID self-reported in a request body or parameter). Mark completion only after files are durably written and records committed.
 4. **Implement `QueueOperations` and real Quiesce / Drain**: `workKey` is an opaque string (passed by the host in the JSON body of `POST /api/download/queue/{queueType}/cancel`). Any queue with async or background tasks must override `prepareQuiesce`, stop new admissions and return a real `QueueDrain` with a positive generation. Complete the drain only once in-flight tasks reach zero.
-5. **UI slots and scheduled-task capabilities (optional)**: contribute `WebUiSlotContribution` through `uiSlots()` (use host `PixivVue.mountUiSlot`; do not bundle the Vue runtime). Contribute scheduling support through `scheduledSourceDescriptors()` and child-context `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Beans (the host manages scheduling, locks, credentials and watermark commits). A source can call `context.workSink().drain()` before requesting the next page or switching work types. After it returns, use `context.isPending(key)` to check whether a work on the current page still needs a retry.
-
-To accept this work type through `POST /api/download/tasks`, register a `DownloadSubmissionHandler` bean in the plugin’s child context. Return the type ID from `workType()`. To include the submission schema in OpenAPI, return its absolute classpath path from `inputSchemaResource()`. In `submit`, validate the options and register the host-supplied `DownloadAttempt` with `DownloadLifecycle.track` before returning successfully.
-
-If the source returns 404 when looking up the requested work’s metadata, throw `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` from `submit`. The host calls the SDK’s default `submitAndReportFailure` method to carry the reason code across the plugin proxy. The initial submission returns `404 WORK_NOT_FOUND`. If only a page or attachment is missing, report the failure for that resource. Existing handlers can continue implementing `submit`.
-
-If a submission option is invalid, throw `InputFieldException` with a JSON Pointer and a stable reason, for example `/options/pages` and `out_of_range`. The default `submitAndReportFailure` carries the field and reason through the plugin proxy. Omit received credentials and input values from diagnostics.
-
-For measurable work, call `DownloadLifecycle.reportProgress(attempt, task, progress)` with the queue handle registered for that attempt. `DownloadTaskProgress` accepts `PAGES`, `IMAGES` or `BYTES`, a completed count, and a positive total in the same unit. Report the current step only when the total is known. The terminal event still reports the outcome.
+5. **UI slots and scheduled-task capabilities (optional)**: contribute `WebUiSlotContribution` through `uiSlots()` (use host `PixivVue.mountUiSlot`; do not bundle the Vue runtime). Contribute scheduling support through `scheduledSourceDescriptors()` and child-context `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Beans (the host manages scheduling, locks, credentials and watermark commits). When a source executor needs to wait for the current batch before advancing pages or switching work categories, call `context.workSink().drain()`, then check `context.isPending(key)` to see whether any work on the current page is still awaiting retry.
+6. **Integrate with unified task submission `POST /api/download/tasks` (`DownloadSubmissionHandler`)**: register a `DownloadSubmissionHandler` Bean in the plugin child context:
+   - Return the work-type identifier from `workType()` and optionally the absolute classpath path of a JSON Schema from `inputSchemaResource()` for OpenAPI generation.
+   - Validate options in `submit` and register the host-supplied `DownloadAttempt` via `DownloadLifecycle.track` before returning.
+   - **Structured error and reason propagation**: the host calls the SDK default method `submitAndReportFailure` to propagate failure reasons across the plugin proxy (existing handlers can continue overriding `submit`). Throw `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` when upstream metadata lookup returns 404 so initial submission returns `404 WORK_NOT_FOUND` (keep resource-level failure semantics when only a single page or attachment is missing); throw `InputFieldException` with a JSON Pointer and stable reason code (such as `/options/pages` and `out_of_range`, without raw input values or credentials) when options are invalid.
+   - **Progress reporting**: when the total for the current step is known and greater than `0`, call `DownloadLifecycle.reportProgress(attempt, task, progress)` using the queue handle registered for that attempt (`DownloadTaskProgress` supports `PAGES`, `IMAGES` or `BYTES` with matching completed/total units; final outcome is still determined by the terminal event).
 
 ## Add a plugin-owned gallery
 
@@ -179,6 +181,7 @@ SDK 2.x supports cross-plugin typed services (see the `typed-service-plugin` tem
 
 - Contract-carrier plugins declare an original pure-JDK API JAR through `pixiv.contract-api` and `pixiv.contract-sha256` (using `process-restart`). Providers export implementations through `serviceExports()`, while consumers declare dependencies in `serviceImports()` and inject `PluginServices`.
 - Call `find(key)`, `require(key)`, `findAll(key)`, or lifecycle bindings `bind(keys, activation)` / `bindAll(keys, activation)` to obtain proxies bound to an exact publication.
+- Check the upstream capability through the host API at the point of use and handle a missing capability or a rejected call within the operations that depend on it, so independent operations can continue.
 - Use `sdk-tools.jar` to generate JSON Schema and remote-call adapters, and check binary compatibility:
 
 ```text
@@ -200,7 +203,7 @@ Annotate large-integer record fields with `@ValueProperty(encoding = ValueEncodi
 
 ### Declare a fixed HTTP target with an annotation
 
-SDK 2.x supports `@HttpHook` on a plugin callback method. Register this `StatusObserver` with `@Bean` in the plugin child context so the host discovers it. The target controller needs no changes. This example counts successful local health-probe requests; `/api/download/status` does not mean a work download has completed.
+SDK 2.x supports `@HttpHook` on a singleton `@Bean` method in the plugin child context without modifying the target Controller. The example below counts successful requests to the local health probe `GET /api/download/status` (note that this endpoint is a status probe, not a work-download completion event):
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;
@@ -223,16 +226,10 @@ public final class StatusObserver {
 }
 ```
 
-In Plugin management, open the plugin details and HTTP Hook declarations. Choose Preview approval, review the target, phase, field permissions and affected pages, then Confirm and publish. The same declaration resumes when the plugin is enabled again. Changes to the declaration, data contract or target mapping require approval again. Approval only updates the selected declaration. Disabling or unloading a plugin retains approved before requirements; an administrator must preview and publish their removal to release the guard.
-
-Use a public synchronous instance method on a singleton Bean with one `OperationHook.Invocation` parameter. Before callbacks return `Decision`; after callbacks may return void. `@Async` and callbacks that return before their work ends are unsupported. Host logs identify the actual callback class and method. Each plugin can provide at most 16 interface or annotated Hooks in total.
-
-`targetOwner/method/path` selects a handler from the actual catalog. For multiple candidates at the same path, specify the complete catalog conditions using `params/headers/consumes/produces`. Nonempty lists match the exact condition sets; empty lists leave that condition unfiltered. Missing or ambiguous targets cannot be approved. All route aliases of the selected handler share the binding.
-
-Ordinary methods receive metadata only and use `{}` configuration. For fields, configuration schemas, resources or interactive challenges, implement `OperationHook` and annotate its `invoke` method, keeping `id()` equal to the annotation ID. Declared `fields` still require approval, sensitive-field checks and budgets. Dynamic configuration and page-editor bindings remain available without annotations.
-
-The management API is `GET /api/web/operation-hooks/declarations?provider=<pluginId>` and `POST /api/web/operation-hooks/declarations/prepare`. The latter accepts `{revision, provider, id, fingerprint, remove}`. Submit its plan to the existing `publish` endpoint. Refresh plans after catalog, plugin or publication changes.
-
+- **Method signature and limits**: callbacks must be `public` synchronous instance methods on a singleton Bean taking a single `OperationHook.Invocation` parameter (`BEFORE_INVOKE` returns `Decision`; `AFTER_COMPLETION` may return `void`; `@Async` or continuing work asynchronously after returning is unsupported). Each plugin may declare up to 16 interface or annotated Hooks in total; host logs record the callback class and method.
+- **Target resolution**: `targetOwner`, `method` and `path` select a handler from the live route catalog; if multiple candidates share the same path, specify exact condition sets via `params`, `headers`, `consumes` and `produces` (empty lists leave that dimension unfiltered; missing or ambiguous targets cannot be approved, and all route aliases of the resolved handler share the binding).
+- **Field extraction and interactive challenges**: plain annotated methods receive metadata only (with `{}` configuration). To read request/response fields, declare a configuration schema, attach resources or issue interactive challenges, implement `OperationHook` and annotate its `invoke` method with `@HttpHook` (keeping `id()` identical to the annotation `id`; declared `fields` still require administrator approval, sensitive-field filtering and budget checks). Dynamic bindings and page-editor bindings continue using the interface directly.
+- **Administrator approval and API**: administrators preview and approve declarations under [Plugin management → Plugin details → HTTP Hook declarations](/en/plugin-management#approve-a-plugin39s-http-hook) (or call `GET /api/web/operation-hooks/declarations?provider=<pluginId>` and `POST /api/web/operation-hooks/declarations/prepare` with `{revision, provider, id, fingerprint, remove}`, then submit the resulting plan to `publish`; never reuse stale plans across catalog, plugin or revision changes).
 
 ## Ordinary slots and page components
 

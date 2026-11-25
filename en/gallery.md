@@ -4,8 +4,6 @@ The artwork gallery lets you browse, filter, organize and batch-export illustrat
 
 Address: `http://localhost:6999/pixiv-gallery.html`
 
-Choose File management in the illustration gallery filters. Imported illustrations show “Imported artwork” on their detail page.
-
 ## Find, filter and sort works
 
 Use the left sidebar to switch views (All images, By author, By manga series), manage local collections and open feature pages. Buttons along its right edge collapse navigation or open the administrator's Task list to show background packaging progress and expiry. The top toolbar provides a gallery-type switcher for illustrations, novels and other enabled gallery plugins, a search box, filters and sorting.
@@ -17,7 +15,7 @@ Use the left sidebar to switch views (All images, By author, By manga series), m
 | Work ID / Author ID | Exact numeric ID matching |
 | Tags (fuzzy / exact) | Tags containing the keyword or matching the full tag name |
 
-Filters supports content rating (All / All ages / R-18 / R-18G), AI generation (All / Exclude AI / AI only), image format, collection and upload-date range. The range includes its end date and uses the browser's time zone; works with unknown upload times are excluded from date-range results. Tags and authors support three-state combinations:
+Filters supports content rating (All / All ages / R-18 / R-18G), AI generation (All / Exclude AI / AI only), image format, collection, file management mode (application-managed / external read-only reference) and upload-date range. The range includes its end date and uses the browser's time zone; works with unknown upload times are excluded from date-range results. Illustrations registered via external or local import are labeled "Imported artwork" on their detail page. Tags and authors support three-state combinations:
 
 | State | Rule |
 | --- | --- |
@@ -64,4 +62,4 @@ Administrators can click Invite guests at the top right of the gallery, set an e
 
 If expected works are missing, clear search and filters first, especially the upload-date range and three-state tags. Check the invitation allowlist, connected database, download directory and deletion markers. Moving files on disk alone does not update another database; see [storage and backup](/en/storage) for relocation and recovery.
 
-`GET /api/downloaded/statistics` returns current artworks and registered pages in `libraryArtworks` and `libraryImages`, including imports and excluding deleted works. For administrators, `totalArtworks` and `totalImages` count cumulative downloads. With `gallery-tools` enabled, administrators can view both sets at `http://localhost:6999/pixiv-stats.html`. The monthly chart groups current artworks and novels by registration month. Select an author or tag to open its gallery filter.
+With `gallery-tools` enabled, administrators can open `http://localhost:6999/pixiv-stats.html` to view library and cumulative download counts, monthly registration charts for illustrations and novels, top authors and tag clouds (clicking an author or tag opens the corresponding gallery filter). In `GET /api/downloaded/statistics`, `libraryArtworks` and `libraryImages` report current non-deleted artworks and registered pages (including local imports), while `totalArtworks` and `totalImages` report cumulative historical downloads for administrators.

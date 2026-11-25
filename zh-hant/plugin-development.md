@@ -2,11 +2,13 @@
 
 第三方外掛從 SDK 開發包的獨立專案範本起步，只需 JDK 25、Node.js 及套件內附的建置工具與執行清單，無需複製主儲存庫。
 
-SDK 2.x 使用 JDK 25、Spring Framework 7、Servlet 6.1 與 Jackson 3，對應 Spring Boot 4 宿主。SDK 1.x 外掛會在安裝或啟動檢查時遭到拒絕；只修改 `plugin.requires` 無法完成升級，必須調整新介面並重新編譯。
+SDK 2.x 基於 JDK 25、Spring Framework 7、Servlet 6.1 與 Jackson 3，對應 Spring Boot 4 宿主；宿主在安裝與啟動檢查時會直接拒絕 SDK 1.x 外掛。
 
-從 SDK 1.x 遷移時，將 `PluginDataSource` 改為 `PluginDatabase`，以 `TableSpec.check` 的中性運算式取代 SQL 字串；`DesktopUiHost.resolveDatabasePath` 改為資料庫目標契約。資源 bundle 必須明確傳入 `LocaleBundlePolicy`。取得憑證統一使用 `X-Acquisition-Credential`，排程工作憑證綁定/撤回使用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`；呼叫端仍須滿足該介面的啟用權杖與驗證要求。Jackson 資料繫結類別移至 `tools.jackson.*`，註解仍用 `com.fasterxml.jackson.annotation`；Spring `HttpHeaders` 需要 Map 檢視時呼叫 `asMultiValueMap()`。
-
-`ScheduleTaskView` 已移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime` 和 `pendingRetryArmed`。來源使用 `sourceType`；執行、結果和暫停狀態分別讀取 `runState`、`lastOutcome`、`suspendReason` / `suspendCode`；結果文字使用 `outcomeCode` / `outcomeMessage`，最近執行時間使用 `lastRunTime`。
+- **SDK 1.x 升級至 2.x 的主要調整項目**（僅修改 `plugin.requires` 無法載入，須調整契約並重新編譯）：
+  - **子上下文與描述檔**：`PixivPluginProvider` 僅保留 `featurePlugin()`；Spring 子上下文 `@Bean` 設定類別改由 `plugin.properties` 的 `pixiv.configuration-classes` 宣告。
+  - **資料庫與 UI 契約**：`PluginDataSource` 替換為與方言無關的 `PluginDatabase`，資料表限制使用 `TableSpec.check` 中性運算式取代 SQL 字串；`DesktopUiHost.resolveDatabasePath` 改為資料庫目標契約；資源 bundle 須明確傳入 `LocaleBundlePolicy`。
+  - **憑證與排程工作檢視**：請求標頭取得憑證統一為 `X-Acquisition-Credential`，排程工作憑證綁定/解除綁定改用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`（須符合啟用權杖與驗證要求）。`ScheduleTaskView` 移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed`，改用 `sourceType`、`runState`、`lastOutcome`、`suspendReason`/`suspendCode`、`outcomeCode`/`outcomeMessage` 與 `lastRunTime`。
+  - **Jackson 3 與 Spring 7**：Jackson 資料繫結類別移至 `tools.jackson.*`（註解保留 `com.fasterxml.jackson.annotation`）；Spring `HttpHeaders` 需 Map 檢視時呼叫 `asMultiValueMap()`。
 
 | 開發任務 | 對應章節 |
 | --- | --- |
@@ -92,6 +94,9 @@ pixiv.lifecycle-policy=process-restart
 
 - `plugin.id` 必須與 `PixivFeaturePlugin.id()` 完全一致；`plugin.requires` 宣告所需 SDK 版本（穩定版依 `requiredMajor == hostMajor && requiredMinor <= hostMinor` 比對，預先發行版採用 `alpha.N` / `beta.N` / `rc.N` 並要求精確符合）。
 - `pixiv.execution-mode` 必填（`declarative-process` 或 `host-process-full-trust`）；`pixiv.lifecycle-policy` 可選 `hot-reload`（預設）、`backend-restart` 或 `process-restart`；`pixiv.risk-signals` 可宣告風險訊號 token。
+- `pixiv.desktop-only` 預設為 `false`。僅供桌面使用的外掛可設為 `true`。無頭啟動時，主程式會略過這類外掛，除非後端外掛直接或間接將它列為必要相依項目。略過的套件仍會在外掛管理頁顯示為已安裝。
+- `plugin.dependencies` 用來宣告外部 PF4J 套件之間的相依關係。將 `core` 等宿主內建元件列為必要相依項目，會在寫入安裝目錄前遭到拒絕。請使用 `plugin.requires` 宣告所需的宿主 SDK 版本。
+- 桌面介面提供者可用 `DesktopUiHost.stopBackend(afterStop, onFailure)` 要求停止後端。需要獨占資料的工具應在 `afterStop` 中啟動。要求獲接受後，成功與失敗只會觸發其中一個回呼。傳回 `false` 表示要求立即遭拒，不會觸發回呼。
 - 外部入口實作 `PixivPluginProvider`，只回傳唯一的 `PixivFeaturePlugin`；Spring 子上下文的明確 `@Bean` 設定類別由描述符 `pixiv.configuration-classes` 宣告，禁止依賴宿主套件掃描：
 
 ```java
@@ -129,15 +134,12 @@ public List<WebRouteContribution> routes() {
 2. **實作前端行為模組**：在 `moduleUrl` 中呼叫 `PixivBatch.queueTypes.registerModule(initializer)`，實作 `process(item, context)`（必填，透過 `context.updateItem(patch)` 更新狀態，使用 `DownloadTasks` 時透過 `context.bindTask(taskId)` 綁定執行 UUID）及已宣告的 `import`、`acquisition.*`、`filters`、`settings`。非同步回呼寫回前，須檢查 `AbortSignal` / `isActive()`，並在 `onCleanup()` 釋放資源。
 3. **後端解析可信身分**：Controller 注入父上下文提供的 `RequestOwnerIdentityResolver` 以解析目前請求身分（嚴禁信任請求主體或參數自行宣稱的 owner UUID），並在檔案持久寫入磁碟且紀錄提交後，才標示完成。
 4. **實作 `QueueOperations` 與確實排空（Quiesce / Drain）**：`workKey` 為不透明字串（由宿主透過 `POST /api/download/queue/{queueType}/cancel` 的 JSON 請求主體傳遞）。凡有非同步或背景任務的佇列，必須覆寫 `prepareQuiesce` 以停止接納新請求，並回傳具有正世代編號的真實 `QueueDrain`，待進行中任務歸零後完成 drain。
-5. **UI 插槽與排程工作能力（選用）**：透過 `uiSlots()` 貢獻 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；透過 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 貢獻排程工作支援（宿主負責排程、鎖、憑證與進度水位提交）。來源若要在翻頁或切換作品類別前等候，可呼叫 `context.workSink().drain()`。等待結束後，可透過 `context.isPending(key)` 檢查本頁是否有作品待重試。
-
-若要讓 `POST /api/download/tasks` 接受這個作品類型，請在外掛的子上下文註冊 `DownloadSubmissionHandler` Bean。`workType()` 回傳類型識別碼，`inputSchemaResource()` 可回傳外掛內 JSON Schema 的絕對 classpath 路徑，供主程式產生 OpenAPI。實作 `submit` 時請驗證選項，並在成功回傳前用 `DownloadLifecycle.track` 登記主程式傳入的 `DownloadAttempt`。
-
-查詢目標作品的中繼資料時，若來源明確回傳 404，請在 `submit` 中拋出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`。主程式呼叫 SDK 的預設方法 `submitAndReportFailure`，透過外掛代理取得原因碼，首次送出會收到 `404 WORK_NOT_FOUND`。若只缺少某一頁或附件，應保留該資源的失敗原因。現有處理器可以繼續實作 `submit`。
-
-提交選項無效時，拋出帶有 JSON Pointer 和穩定原因碼的 `InputFieldException`，例如 `/options/pages` 和 `out_of_range`。預設的 `submitAndReportFailure` 會透過外掛代理傳遞欄位和原因。診斷資訊請勿包含輸入原值或憑證。
-
-可測量工作量時，使用該次嘗試登記的佇列控制代碼呼叫 `DownloadLifecycle.reportProgress(attempt, task, progress)`。`DownloadTaskProgress` 的單位可為 `PAGES`、`IMAGES` 或 `BYTES`。完成數和總數使用相同單位，僅在目前步驟總數已知且大於零時回報。最終結果仍由終態事件提供。
+5. **UI 插槽與排程工作能力（選用）**：透過 `uiSlots()` 貢獻 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；透過 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 貢獻排程工作支援（宿主負責排程、鎖、憑證與進度水位提交）。當來源執行器需在翻頁或切換作品類別前等待本批完成時，可呼叫 `context.workSink().drain()`，返回後再透過 `context.isPending(key)` 檢查目前頁面是否仍有待重試作品。
+6. **接入統一提交入口 `POST /api/download/tasks`（`DownloadSubmissionHandler`）**：在外掛子上下文註冊 `DownloadSubmissionHandler` Bean：
+   - `workType()` 回傳作品類型識別碼，`inputSchemaResource()` 可回傳外掛內 JSON Schema 的絕對 classpath 路徑供宿主產生 OpenAPI。
+   - 在 `submit` 中驗證輸入選項，並在成功回傳前呼叫 `DownloadLifecycle.track` 登記宿主傳入的 `DownloadAttempt`。
+   - **錯誤與原因碼回傳**：宿主透過 SDK 預設方法 `submitAndReportFailure` 跨越外掛代理傳遞結構化失敗原因（既有實作可繼續只覆寫 `submit`）。若上游查詢作品中繼資料時明確回傳 404，拋出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` 使首次提交直接回傳 `404 WORK_NOT_FOUND`（僅缺單頁或附件時保留對應資源失敗語意）；若提交選項無效，拋出帶 JSON Pointer 與穩定原因碼的 `InputFieldException`（如 `/options/pages` 與 `out_of_range`，診斷中嚴禁包含輸入原值或憑證）。
+   - **進度回報**：目前步驟總量已知且大於 `0` 時，使用該次嘗試登記的佇列控制代碼呼叫 `DownloadLifecycle.reportProgress(attempt, task, progress)`（`DownloadTaskProgress` 單位可選 `PAGES`、`IMAGES` 或 `BYTES`，完成數與總數須同單位；最終狀態仍由終態事件決定）。
 
 ## 新增外掛自有畫廊
 
@@ -179,6 +181,7 @@ SDK 2.x 支援跨外掛型別化服務（參考 `typed-service-plugin` 範本）
 
 - 契約載體外掛透過 `pixiv.contract-api` 與 `pixiv.contract-sha256` 宣告原始純 JDK API JAR（採用 `process-restart`）；提供者在 `serviceExports()` 匯出實作，消費者在 `serviceImports()` 宣告相依性並注入 `PluginServices`。
 - 呼叫 `find(key)`、`require(key)`、`findAll(key)` 或生命週期綁定 `bind(keys, activation)` / `bindAll(keys, activation)`，取得綁定精確 publication 的代理。
+- 外掛應在呼叫時透過宿主介面確認所需的上游能力是否可用，並僅在依賴該能力的操作中處理能力缺少或呼叫遭拒的情況。
 - 使用 `sdk-tools.jar` 產生 JSON Schema、遠端呼叫配接器與檢查二進位相容性：
 
 ```text
@@ -200,7 +203,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 以註解宣告固定 HTTP 目標
 
-SDK 2.x 可在外掛回呼方法上使用 `@HttpHook`。將下例的 `StatusObserver` 透過外掛子上下文的 `@Bean` 註冊，宿主就會探索宣告；目標控制器不需修改。本例計算成功的本機健康探針請求；`/api/download/status` 不代表作品下載完成。
+SDK 2.x 支援在外掛子上下文的單例 `@Bean` 方法上標註 `@HttpHook` 宣告固定 HTTP 回呼，無需修改目標 Controller。下例統計本機健康探針 `GET /api/download/status` 的成功請求（注意該介面僅代表狀態探針，不代表作品下載完成）：
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;
@@ -223,16 +226,10 @@ public final class StatusObserver {
 }
 ```
 
-管理員在「外掛管理 → 外掛詳細資料 → HTTP Hook 宣告」選擇「預覽核准」，核對目標、時機、欄位權限及受影響頁面，再「確認並發布」。相同宣告在外掛重新啟用後自動恢復；宣告、資料契約或目標映射變更時需重新核准。核准只更新目前選取的宣告，不會自動更新其他宣告。停用或卸載不會刪除已核准的前置要求；管理員須明確預覽撤銷並發布，才會解除保護。
-
-方法須為單例 Bean 的 public 同步實例方法，唯一參數為 `OperationHook.Invocation`。前置回傳 `Decision`，後置可回傳 void；不支援 `@Async` 或提早回傳後繼續工作的回呼。宿主日誌會記錄實際回呼類別與方法。每個外掛合計最多 16 個介面或註解 Hook。
-
-`targetOwner/method/path` 從實際目錄選擇 handler；相同路徑有多個候選時，以 `params/headers/consumes/produces` 指定目錄中的完整條件。非空清單精確匹配條件集合，空清單不篩選該條件；找不到或仍有歧義時不能核准。同一 handler 的所有路由別名共用綁定。
-
-一般方法僅接收中繼資料，設定為 `{}`。需要欄位、設定 schema、資源或互動挑戰時，實作 `OperationHook` 並在 `invoke` 方法加註解，保持 `id()` 與註解 id 相同。`fields` 仍須核准並通過敏感欄位及預算檢查。動態設定與頁面編輯器綁定仍使用原介面，不依賴註解。
-
-管理 API 為 `GET /api/web/operation-hooks/declarations?provider=<pluginId>` 與 `POST /api/web/operation-hooks/declarations/prepare`；後者接收 `{revision, provider, id, fingerprint, remove}`。回傳的計畫仍提交至原 `publish`；目錄、外掛或正式修訂變更後須重新取得計畫。
-
+- **方法簽章與上限**：回呼方法必須是單例 Bean 的 `public` 同步實例方法，唯一參數為 `OperationHook.Invocation`（`BEFORE_INVOKE` 回傳 `Decision`，`AFTER_COMPLETION` 可回傳 `void`；不支援 `@Async` 或提早回傳後非同步繼續工作）。每個外掛最多宣告 16 個一般或註解 Hook，宿主日誌會記錄實際回呼類別與方法。
+- **目標比對**：`targetOwner`、`method`、`path` 指定真實路由目錄中的 handler；同一路徑存在多個候選時，透過 `params`、`headers`、`consumes`、`produces` 精確匹配完整條件集合（空清單不篩選該維度；找不到或仍有歧義時禁止核准，同一 handler 的所有路由別名共用綁定）。
+- **欄位讀取與互動挑戰**：一般註解方法僅接收中繼資料（設定固定為 `{}`）。若需讀取請求/回應欄位、宣告設定 schema、掛載資源或發起互動挑戰，請實作 `OperationHook` 並在其 `invoke` 方法上標註 `@HttpHook`（保持 `id()` 與註解 `id` 一致；`fields` 仍須經管理員核准並通過敏感欄位與預算檢查）。動態設定與頁面編輯器綁定繼續使用原介面。
+- **管理員審批與 API**：管理員在[外掛管理 → 外掛詳細資料 → HTTP Hook 宣告](/zh-hant/plugin-management#核准外掛的-http-hook)中預覽並核准發布（或呼叫 `GET /api/web/operation-hooks/declarations?provider=<pluginId>` 與 `POST /api/web/operation-hooks/declarations/prepare` 提交 `{revision, provider, id, fingerprint, remove}` 產生計畫後交由 `publish` 發布；切勿跨目錄、外掛或修訂變更重用舊計畫）。
 
 ## 一般插槽與頁面元件
 

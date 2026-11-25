@@ -1,60 +1,49 @@
-# HTTP API 與程式權限
+# OpenAPI 與程式金鑰
+
+PixivDownloader 內建互動式 OpenAPI 文件與細粒度**程式存取金鑰**（Program Key），供指令碼、自動化工具或 AI Agent 安全呼叫下載、批次、畫廊、翻譯與維護介面（本程式僅提供 HTTP API，不內建獨立 MCP 服務；開發新介面的規範見[撰寫 HTTP API 與權限宣告](/zh-hant/http-api-development)）。
 
 ## 使用指令碼或 Agent 存取 API
 
-1. 在執行 PixivDownloader 的主機上開啟 `/openapi`（本機預設為 `http://localhost:6999/openapi`）。以管理員身分登入後，即可查看目前可用的介面、請求範例及各項操作所需的權限。
-2. 在桌面「設定 → 存取控制 → 程式存取金鑰」建立金鑰，指定來源 IP 與工作所需權限。指令碼或 Agent 若要自行讀取 API 文件，請一併勾選 `core:api-reference.read`。沒有桌面環境時，管理員可透過已登入的工作階段呼叫 `/api/security/program-keys`。
-3. 指令碼可在 `GET /api/openapi.json` 請求中帶上 `Authorization: Bearer <程式金鑰>`，取得機器可讀的 OpenAPI 文件。使用 Agent 時，可在建立金鑰後點選「複製提示詞」，將執行個體的文件網址交給 Agent，金鑰另外設定。若金鑰無權讀取文件，請由管理員提供所需的介面說明。
+1. **查看互動文件**：啟動執行個體後在瀏覽器開啟 `/openapi`（本機預設 `http://localhost:6999/openapi`）。存取說明公開可讀；以管理員登入後可瀏覽完整介面清單、請求範例、所需權限，並透過回應下方的「相關介面」連結（`links` / `x-related-operations` / `externalDocs`）在關聯操作與使用指南間跳轉。
+2. **建立程式存取金鑰**：在桌面「設定 → 存取控制 → 程式存取金鑰」中建立金鑰（無桌面環境可由管理員登入工作階段呼叫 `/api/security/program-keys`），設定允許的來源 IP/網段並勾選所需權限。若指令碼或 Agent 需自行取得介面定義，請同時勾選 `core:api-reference.read`。
+3. **呼叫介面或產生 Agent 提示詞**：用戶端透過請求標頭 `Authorization: Bearer <程式金鑰>` 請求 `GET /api/openapi.json`（或以 `HEAD /api/openapi.json` 探測權限）取得機器可讀的 OpenAPI 文件；搭配 Agent 使用時，可在建立金鑰後點選「複製提示詞」將文件網址交給 Agent，再將金鑰單獨設定至 Agent 執行環境。
 
-任何人都可以開啟 `/openapi` 的存取說明。讀取 JSON 文件需要管理員工作階段或具備文件讀取權限的程式金鑰。`HEAD /api/openapi.json` 可用相同身分檢查權限。
+### 金鑰安全、來源限制與 CSRF 規則
 
-建議使用 HTTPS。來自本機或區域網路以外的 HTTP 程式請求預設被拒絕。如需例外，先檢視該金鑰的風險，再確認允許公網 HTTP。修改權限或來源後會恢復 HTTPS 要求。即使伺服器拒絕請求，已用明文送出的金鑰仍可能遭攔截。
-
-完整金鑰只在建立成功時顯示一次，伺服器只儲存摘要。金鑰預設不過期，可編輯權限與來源範圍，也可撤銷。選取整個外掛只包含目前列出的權限。
-
-來源限制接受數值 IPv4、IPv6 及 CIDR 網段。受限模式至少填寫一項；「任何來源」需要明確選擇。使用反向代理前先設定可信代理。不要同時傳送程式金鑰、管理員工作階段、邀請碼或 GUI 憑證。擷取憑證仍透過獨立的 `X-Acquisition-Credential` 傳遞。
-
-管理員工作階段仍可透過 `X-Session-Token` 使用原有介面。程式金鑰只能存取權限目錄明確列出的方法及路徑，其他介面保留人類管理員或本機流程。金鑰管理及管理員憑證修改僅允許人類管理員。此 API 不提供 MCP 服務。
-
-單獨傳送有效金鑰存取未宣告 `programKey` 的操作，會收到 `403 auth.program.unsupported`，包括允許匿名存取的操作。金鑰無效或混用憑證時，可能收到 `401 auth.program.invalid`。
-
-使用 Cookie 的寫入請求須通過同源檢查；瀏覽器跨來源請求會被拒絕，外掛管理與計畫任務等入口還要求明確的同源訊號。`/api/gui/**` 保留本機與 GUI token 限制，遠端程式使用下列業務介面。外掛須處於活動狀態且依賴可用。
-
-呼叫 `GET /api/security/program-keys/self` 可查看目前金鑰的 `id` 和 `permissions`，權限清單可以為空。使用 Bearer 傳送寫入請求時也要查看 `x-csrf-origin`。`POST /api/schedule/tasks` 要求同源的 Origin 或 Referer。沒有瀏覽器憑證的原生 Bearer 用戶端呼叫 `POST /api/download/tasks` 或 `/api/download/batches` 時可省略兩者。
-
-輪換金鑰時，管理員在桌面安全頁或透過管理員工作階段建立新金鑰。用戶端切換後，以 `GET /api/security/program-keys/self` 核對新金鑰的身分和權限，再由管理員撤銷舊金鑰。新金鑰無法讀取舊金鑰提交的任務，可在撤銷前輪詢至終態，或以管理員工作階段追蹤。
+- **一次性金鑰與配額**：完整金鑰僅在建立成功時顯示一次，伺服器端只儲存摘要（金鑰預設不過期，可隨時修改權限、來源範圍或撤銷；勾選整個外掛僅包含目前已列出的權限，不會自動授予未來新增權限）。每個安裝執行個體最多建立 128 個金鑰（名稱最長 80 個字元，單一金鑰最多 512 項權限與 64 個來源網段，管理請求主體上限 128 KiB）。
+- **HTTPS 與來源 IP 限制**：來自本機或區域網路以外的明文 HTTP 程式金鑰請求預設被拒絕（確需公網 HTTP 時須逐把金鑰明確確認風險，後續編輯權限或來源會自動恢復 HTTPS 要求；即使請求遭拒，明文傳輸的金鑰仍可能已外洩，請立即撤銷）。來源限制支援 IPv4、IPv6 與 CIDR 網段（受限模式至少填一項，「任何來源」需明確選擇；反向代理部署須先設定 `server.trusted-proxy-cidrs`）。
+- **驗證隔離與狀態碼**：請勿在同一請求中混用程式金鑰、管理員工作階段（`X-Session-Token` / Cookie）、邀請碼或本機 GUI token（擷取憑證仍透過 `X-Acquisition-Credential` 或 `X-Acquisition-Credentials` 獨立傳遞）。
+  - 持有效程式金鑰存取未開放程式權限的介面（含匿名介面）回傳 `403 auth.program.unsupported`（可查看文件中的 `x-program-alternative` 改用程式專用介面）；無效金鑰或混用憑證回傳 `401 auth.program.invalid`。
+  - `/api/gui/**`、金鑰管理與管理員密碼修改僅限本機 GUI 或人類管理員工作階段。
+- **同源訊號（`x-csrf-origin`）**：攜帶 Cookie 的寫入請求必須通過同源檢查。原生 Bearer 用戶端也需留意介面的 `x-csrf-origin` 宣告：例如 `POST /api/schedule/tasks`（`origin-or-referer`）要求傳送同源 `Origin` 或 `Referer`；而無瀏覽器 Cookie 的原生 Bearer 用戶端呼叫 `POST /api/download/tasks` 與 `POST /api/download/batches` 時可省略這兩個請求標頭。
+- **自檢、管理 API 與金鑰輪換**：
+  - 呼叫 `GET /api/security/program-keys/self` 可無需額外業務權限核對目前金鑰的 `id` 與 `permissions`（權限清單可為空）。
+  - 管理員工作階段可透過 `GET /api/security/program-keys`（清單，不含秘密或摘要）、`GET /api/security/program-keys/permissions`（目前安裝的權威權限目錄）、`POST /api/security/program-keys`（傳入 `name`、`permissions`、`anyIp`、`networks` 建立，回傳 `key` 與一次性 `secret`）、`PUT /api/security/program-keys/{id}`（傳入 `{"revision": 1, "policy": {...}}` 修改）與 `DELETE /api/security/program-keys/{id}`（傳入 `{"revision": 1}` 撤銷）管理金鑰。
+  - **輪換流程**：建立新金鑰 → 用戶端切換並以 `/self` 核對 → 撤銷舊金鑰。新金鑰無法查看舊金鑰建立的下載任務或批次；請在撤銷前輪詢舊任務至終態，或改用管理員工作階段追蹤（撤銷僅阻止新請求，不會自動取消已接納的進行中任務）。
 
 ## 介面索引
 
-| 功能 | 入口 |
-| --- | --- |
-| 設定欄位、預設值與脫敏目前值 | GET `/api/settings`；GET `/api/settings/presets` |
-| 驗證與儲存設定 | POST `/api/settings/validate`；POST `/api/settings` |
-| 外掛儲存庫設定 | GET / PUT `/api/settings/repositories` |
-| 資料庫設定與連線測試 | GET `/api/settings/database`、`/providers`、`/status`；POST `/check` |
-| 資料庫遷移 | POST `/api/settings/database/migration-previews`、`/migrations`；GET `/migration` |
-| 環境封存 | POST `/api/settings/environment/preview`、`/restore`、`/exports`；GET `/restore`、`/exports`、`/exports/{id}/archive`、`/installation` |
-| 中繼資料回填 | GET `/api/tools/backfill/defaults`、`/tasks/current`、`/tasks/{id}`；POST `/candidates`、`/tasks`、`/tasks/{id}/cancel` |
-| 媒體維護與記錄檔匯入 | GET `/api/tools/media`、`/api/tools/file-import`；各入口下 POST `/previews`、`/tasks`、`/tasks/cancel`，GET `/tasks/current` |
-| 媒體能力與匯入完成確認 | POST `/api/tools/media/capabilities`；POST `/api/tools/file-import/completion/acknowledge` |
-| 工具歷史與日誌附件 | GET `/api/tools/history`、`/api/tools/logs/{fileName}` |
-| 目錄參照檢查與修正 | GET / POST `/api/tools/directories` |
-| 路徑前綴 | `/api/tools/path-prefixes` |
-| 圖片分類 | `/api/tools/classifier/settings`、`/folders`、`/images`、`/image`、`/moves` |
-| FFmpeg 狀態與安裝 | GET `/api/tools/ffmpeg`；POST `/api/tools/ffmpeg/tasks` |
-| 系統與控制中心 | `/api/admin/system`、`/api/admin/control-center` |
-| AI、郵件與推播測試 | `/api/admin/ai/test`、`/models`；`/api/admin/mail/test`、`/test-all`；`/api/admin/push/test`、`/test-all` |
-| 軟體更新 | `/api/admin/update/check`、`/last`、`/download`、`/download/progress`、`/install` |
-| 單項下載與歷史 | `/api/download/tasks`、`/api/download/tasks/history` |
-| 背景手動批次 | `/api/download/batches` |
+下表中同一列的短路徑接在首個完整路徑前綴之後；翻譯（`/api/translation/**`）、術語表、朗讀、畫廊、收藏夾、排程工作、維護與外掛市場完整路徑見下方[程式權限清單](#程式權限清單)或執行個體 `/openapi` 頁面。
 
-同一列的簡寫路徑使用該 API 功能的共同前綴。翻譯已有 `/api/translation/**`；術語表、朗讀、畫廊、收藏夾、計畫、維護與外掛市場沿用各自介面。桌面視窗、檔案選擇器與開啟本機瀏覽器屬於用戶端操作。
+| 功能 | 主要入口 |
+| --- | --- |
+| 設定欄位、預設值、脫敏目前值與預設 | `GET /api/settings`、`GET /api/settings/presets` |
+| 驗證與儲存設定 | `POST /api/settings/validate`、`POST /api/settings` |
+| 外掛儲存庫設定 | `GET` / `PUT /api/settings/repositories` |
+| 資料庫設定、連線測試與遷移 | `GET /api/settings/database`、`/providers`、`/status`、`/migration`；`POST /check`、`/migration-previews`、`/migrations` |
+| 環境封存匯出與還原 | `POST /api/settings/environment/preview`、`/restore`、`/exports`；`GET /restore`、`/exports`、`/exports/{id}/archive`、`/installation` |
+| 中繼資料回填 | `GET /api/tools/backfill/defaults`、`/tasks/current`、`/tasks/{id}`；`POST /candidates`、`/tasks`、`/tasks/{id}/cancel` |
+| 媒體維護與記錄檔匯入 | `GET /api/tools/media`、`/api/tools/file-import`（各前綴下 `POST /previews`、`/tasks`、`/tasks/cancel`、`GET /tasks/current`）；`POST /api/tools/media/capabilities`；`POST /api/tools/file-import/completion/acknowledge` |
+| 本地作品匯入與啟動快取 | `GET /api/local-import/presets`、`POST /previews`、`POST /tasks`；`GET /api/tools/startup-cache`、`POST /tasks`、`POST /tasks/{id}/cancel` |
+| 目錄參照、路徑前綴與圖片分類 | `GET` / `POST /api/tools/directories`；`/api/tools/path-prefixes`；`/api/tools/classifier/settings`、`/folders`、`/images`、`/image`、`/moves` |
+| FFmpeg 狀態、安裝與工具歷史/日誌 | `GET /api/tools/ffmpeg`、`POST /api/tools/ffmpeg/tasks`；`GET /api/tools/history`、`/api/tools/logs/{fileName}` |
+| 系統、控制中心與更新 | `/api/admin/system`、`/api/admin/control-center`；`/api/admin/update/check`、`/last`、`/download`、`/download/progress`、`/install` |
+| AI、郵件、推播與站內信測試 | `/api/admin/ai/test`、`/models`；`/api/admin/mail/test`、`/test-all`；`/api/admin/push/test`、`/test-all`；`/api/admin/notifications/test`、`/test-all` |
+| 單項下載、歷史與背景手動批次 | `/api/download/tasks`、`/api/download/tasks/history`；`/api/download/batches` |
 
 ## 儲存設定
 
-先讀取欄位目錄，再按傳回的 `owner`、`packageId`、`generation` 與 `key` 提交變更。宿主欄位的 owner/packageId 為 null、generation 為 0。敏感欄位只回傳 `stored` 標記，不回傳明文或預設秘密；以 `KEEP`、`SET`、`CLEAR` 保留、替換或清除。預設是欄位值集合，使用相同儲存介面套用。`effect` 表示生效方式，儲存不代表後端或程序已重新啟動。
-
-POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
+先呼叫 `GET /api/settings` 讀取欄位目錄，再依傳回的 `owner`、`packageId`、`generation` 與 `key` 提交修改（宿主欄位的 `owner` 與 `packageId` 為 `null`、`generation` 為 `0`）。敏感欄位僅回傳 `stored` 布林標記，不回傳明文或預設秘密；提交時透過 `action`（`KEEP`、`SET`、`CLEAR`）明確保留、替換或清除。傳回結果中的 `effect` 標示生效方式（儲存成功不代表已自動重新啟動後端或處理程序）：
 
 ```json
 {
@@ -71,147 +60,120 @@ POST `/api/settings/validate` 或 `/api/settings` 的範例本文：
 }
 ```
 
-儲存庫編輯須帶上 GET 傳回的 `revision`；新增儲存庫或變更信任、位址與網路策略時須傳 `trustConfirmed:true`。修訂衝突時重新讀取，不覆寫其他編輯。連線測試與工具暫時參數不儲存設定。
+預設透過同一儲存介面套用。修改外掛儲存庫（`PUT /api/settings/repositories`）須攜帶 `GET` 傳回的 `revision`，新增儲存庫或修改信任、位址及網路策略時須明確傳入 `"trustConfirmed": true`（修訂衝突時需重讀，不會覆寫他人修改）。資料庫連線測試與工具單次執行參數僅當次有效，不會寫回設定檔。
 
 ## 背景手動批次
 
-1. GET `/api/schedule/sources` 取得目前的 `sourceType` 與 `activationToken`，定義格式由來源外掛解釋。
-2. POST `/api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definition` 與可選 `proxy`。 將 `definition` 作為 JSON 物件傳送，序列化為 UTF-8 後上限為 1 MiB，整個請求上限為 8 MiB。
-3. 以傳回的 UUID 查詢 GET `/api/download/batches/{id}` 與 `/{id}/items?offset=0&limit=100`。逐項身分是批次 UUID 加 `workType` 與 `id`，不是單項下載的執行 UUID。
-4. POST `/{id}/pause`、`/cancel`、`/resume`、`/retry` 分別暫停、取消、恢復掃描或只重試失敗項。停止中的狀態須等實際執行退出後才終結。重試已發現的失敗項不會補掃尚未完成的來源。
-5. 閒置時 DELETE `/{id}` 移除記錄。一個程序只保留一個批次，建立新批次前須刪除舊批次；結果不跨程序恢復。
+每個處理程序同一時間僅保留一個手動批次（用戶端斷線後仍在背景繼續執行，但不跨處理程序重新啟動恢復；建立新批次前必須先刪除已閒置的舊批次）：
 
-提交時收到 403，可從 `programPermission` 讀取已知的缺少權限。收到 `auth.program.unsupported` 時，查看操作的 `x-program-alternative`。收到 202 後，以 `core:batches.read` 存取 `Location`。若背景執行缺少權限，批次結果會在 `programPermission` 中給出權限 ID。
+1. **查詢可用來源**：`GET /api/schedule/sources` 取得目前 `sourceType` 與 `activationToken`（來源定義由所屬外掛解釋，支援單一作品清單 `explicit-list`、作者投稿、約稿、搜尋、系列、收藏、關注新作和珍藏集）。
+2. **建立批次**：`POST /api/download/batches` 提交 `name`、`sourceType`、`activationToken`、`definition`（JSON 物件，UTF-8 序列化上限 1 MiB，整請求上限 8 MiB）及選用 `proxy`。若提交時回傳 `403`，可從回應主體 `programPermission` 讀取缺少的權限 ID；回傳 `202` 後持 `core:batches.read` 存取 `Location`（背景執行若缺權，批次結果同樣在 `programPermission` 中標示）。
+3. **輪詢狀態與項目**：`GET /api/download/batches/{id}` 查看整體狀態（以 `state` 判斷階段；`code` 為選用原因碼，如 `batch.work-failed` 可進一步查 `items`，作者批次 `schedule.pixiv.discovery-not-found` 需核對作者 ID），`GET /api/download/batches/{id}/items?offset=0&limit=100` 分頁讀取項目（單頁最多 200 項；逐項識別為批次 UUID + `workType` + `id`，不同於單項下載的執行 UUID）。
+4. **控制與恢復**：`POST /api/download/batches/{id}/pause`、`/cancel`、`/resume`、`/retry` 分別暫停、取消、恢復掃描或僅重試已發現的失敗項（停止中狀態須等待進行中執行實際退出後才進入終態；已完成和因篩選略過的作品在恢復時不會重複執行）。
+5. **替換憑證、處理待確認項與刪除**：
+   - 在批次閒置時呼叫 `PUT /api/download/batches/{id}/credentials`（主體 `{"expectedRun": 1}`，上限 16 KiB；透過請求標頭傳入新憑證，省略請求標頭表示清除，恢復前會重新探測）。
+   - 呼叫 `POST /api/download/batches/{id}/resolve` 處理待確認項（主體含 `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun`，上限 16 KiB；原因與輪次須符合目前紀錄）。
+   - 閒置時呼叫 `DELETE /api/download/batches/{id}` 刪除批次紀錄。
 
-搜尋來源可在 `download.pageDelayMs` 指定兩次分頁請求開始時間的最短間隔，單位為毫秒。省略時，固定頁數預設為 0，`maxPages=-1` 預設為 10000。填 0 可取消額外等待。手動批次將下列物件放入 `definition`，排程任務則將它序列化為 `definitionJson` 字串。共用下載設定檔使用 `settings.pageDelayMs`，可填 `null` 表示採用預設值。
+單一批次最多接納 5,000 項作品，並受 64 MiB 編碼內容預留預算限制（先達到者生效）。篩選支援內容分級、AI、標籤、插畫類型、頁數、小說字數和最低收藏數（啟用收藏數篩選時，未知收藏數不予通過）。
 
-```json
-{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
-```
+- **搜尋翻頁間隔（`pageDelayMs`）**：搜尋來源可在 `download.pageDelayMs` 指定相鄰兩次請求開始時間的最短間隔（毫秒；省略時固定頁數預設 `0`、`maxPages = -1` 預設 `10000`，明確填 `0` 取消額外等待）。手動批次將其作為 JSON 物件放入 `definition`（排程工作則序列化為 `definitionJson` 字串；共用下載方案使用 `settings.pageDelayMs`，填 `null` 採用預設值）：
 
-`explicit-list` 支援混合插畫與小說。將下列物件放入 `definition`。作品 ID 須為正整數十進位字串，同類型不得重複：
+  ```json
+  {"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+  ```
 
-```json
-{
-  "kind": "mixed",
-  "source": {
-    "acquisitionMode": "single-import",
-    "works": [
-      {
-        "kind": "illust",
-        "id": "123"
-      },
-      {
-        "kind": "novel",
-        "id": "456"
-      }
-    ]
-  },
-  "filters": {
-    "content": "safe",
-    "aiFilter": "exclude",
-    "tagsExact": [],
-    "tagsFuzzy": []
-  },
-  "download": {
-    "concurrent": 1,
-    "intervalMs": 1000,
-    "bookmark": false
+- **混合作品清單（`explicit-list`）`definition` 範例**（作品 ID 須為正整數十進位字串，同類型不可重複；請將示範 ID 替換為實際作品，缺少 `/definition/source/acquisitionMode` 會在建立前傳回 400）：
+
+  ```json
+  {
+    "kind": "mixed",
+    "source": {
+      "acquisitionMode": "single-import",
+      "works": [
+        {"kind": "illust", "id": "123"},
+        {"kind": "novel", "id": "456"}
+      ]
+    },
+    "filters": {
+      "content": "safe",
+      "aiFilter": "exclude",
+      "tagsExact": [],
+      "tagsFuzzy": []
+    },
+    "download": {
+      "concurrent": 1,
+      "intervalMs": 1000,
+      "bookmark": false
+    }
   }
-}
-```
+  ```
 
-範例作品 ID 請替換為目標作品。其他來源包含作者投稿、約稿、搜尋、系列、收藏、關注新作與珍藏集。篩選支援分級、AI、標籤、插畫類型、頁數、小說字數與收藏數；啟用收藏數篩選時，未知收藏數不能通過。恢復時不重複執行已完成或因篩選略過的作品。
+## 工具、圖庫批次操作與重新啟動操作
 
-批次最多 5,000 項，編碼內容預留預算為 64 MiB，先達到的限制生效；這不是 JVM 堆積記憶體保證。每頁最多 200 項。PUT `/{id}/credentials` 以 `{"expectedRun":1}` 替換請求標頭中的憑據，未提供標頭表示清除；只允許目前輪次已閒置的批次，恢復前重新探測憑據。POST `/{id}/resolve` 包含 `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun`；原因與輪次須符合待處理記錄。兩種請求本文上限均為 16 KiB。
+所有工具介面中的路徑參數均指**執行後端的伺服器本地路徑**，而非遠端用戶端路徑：
 
-## 工具與重新啟動操作
+- **媒體維護與記錄檔匯入**：先 `GET` 工具清單，再提交清單中的精確 `identity`（`pluginId`、`packageId`、`generation`、`publication`）與 `options` 執行預覽；啟動任務須攜帶同一 `identity` 與預覽 `token`，取消須同時攜帶 `executionId`（外掛換代或桌面啟動替代任務後舊 token/UUID 自動失效）。
+- **中繼資料回填與手動恢復**：`POST /api/tools/backfill/tasks`（請求主體上限 4 KiB，`limit: 0` 表示全量，`202` 僅代表已接納）：
 
-媒體維護與記錄檔匯入須先取清單，使用精確 `identity`（pluginId/packageId/generation/publication）和 `options` 預覽；啟動須帶相同身分與預覽 `token`，取消還須帶 `executionId`。外掛換代或桌面啟動替代任務後，舊 token/UUID 不會作用於新任務。路徑指伺服器檔案系統，不是遠端用戶端的本機路徑。
+  ```json
+  {
+    "delayMs": 0,
+    "artworkIds": [12345],
+    "dryRun": true,
+    "alwaysNetwork": false
+  }
+  ```
 
-回填 POST `/api/tools/backfill/tasks` 範例：
+  單一插畫也可呼叫 `POST /api/library/artworks/{artworkId}/recover-metadata` 直接提交欄位補缺（保留既有非空值；請求主體缺失或無可用欄位回傳 400；需從 Pixiv 取得標籤和系列時請依作品 ID 啟動回填，見[匯入後補齊作品資料](/zh-hant/local-import?id=metadata-backfill)）。
+- **畫廊檔案管理篩選與批次匯出/刪除**：
+  - `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 可篩選外部唯讀參照作品（刪除僅移除登記，保留原檔）；`MANAGED` 表示應用程式管理檔案（刪除時連同檔案清理，並在資料庫中保留 `deleted=true` 供查重）。
+  - 插畫與小說的批次介面支援 `"mode": "filter"`（涵蓋所有相符頁，要求 `filter` 為 JSON 物件）或依 ID 陣列選擇（僅接受正整數如 `42`，小數、字串、零或負數均傳回 HTTP 400 及對應 `field`）。當明確傳入 `"filter": {}` 或僅含分頁參數的 `filter` 時會選取全庫該類作品，執行刪除或「匯出後刪除」必須同時傳入 `"confirmAll": true` 且金鑰須具備對應刪除權限。
+  - 匯出傳回 `archiveToken` 後，持 `core:archives.read` 輪詢 `GET /api/archive/status/{token}`，狀態變為 `ready` 後持 `core:archives.download` 請求 `GET /api/archive/download/{token}`。
+- **圖片分類、啟動快取、資料庫遷移與環境封存**：
+  - 圖片分類移動會分別回傳複製結果、來源目錄刪除狀態與資料庫登記結果，部分完成時請先核對回傳狀態，勿盲目重試。
+  - 啟動快取訓練呼叫 `POST /api/tools/startup-cache/tasks`（請求主體 `{}`），回傳接納後輪詢 `GET /api/tools/startup-cache`。
+  - 資料庫遷移與環境還原均使用預覽傳回的 `token` 確認（環境還原傳回 `RESTORE_PENDING` 後由替代處理程序完成）。環境匯出（`POST /api/settings/environment/exports`）須提供伺服器絕對路徑 `destination`（不覆寫既有檔案）與 `"confirmRestart": true`，包含憑證、資料庫或狀態時必須設定 `password`（勾選 `includeResources` 須同時勾選 `includeDatabases`）；匯出會停止後端並請求完整處理程序重新啟動，重新啟動失敗時需在伺服器手動啟動。安裝線上更新須提交已驗證安裝包的 SHA-256。
 
-```json
-{
-  "delayMs": 0,
-  "artworkIds": [12345],
-  "dryRun": true,
-  "alwaysNetwork": false
-}
-```
+## 錯誤處理、輪詢與分頁
 
-`limit:0` 表示全部候選，本文最多 4 KiB。202 只表示接納，須繼續查詢執行狀態。分類移動分別回傳複製、刪除來源與資料庫登記結果；部分完成後先檢查結果，不盲目重試移動。
+錯誤回應統一包含機器碼 `code` 與本地化說明 `error`（`400` 參數無效、`401`/`403` 驗證或權限拒絕、`404` 物件不存在、`409` 任務忙碌/修訂衝突/狀態不允許、`413` 請求主體超限、`503` 外掛或資料庫能力不可用）。請依業務狀態處理，不要對所有非 2xx 回應無條件重試。
 
-資料庫遷移以預覽 token 確認。環境恢復傳入預覽 token、選取欄位、路徑映射與密碼，`RESTORE_PENDING` 表示由替代程序執行。匯出須給伺服器絕對 `destination` 與 `confirmRestart:true`，可選 `password`、`includeCredentials`、`includeDatabases`、`includeState`、`includeResources`。資源須同時包含資料庫；憑據、資料庫或狀態須設密碼。已有目標不會覆寫。後端停止、匯出後請求完整重新啟動，用戶端重新連線查詢；重新啟動失敗時須手動啟動應用程式。更新安裝須提交目前已驗證安裝包的 SHA-256。
+- **單項下載提交與輪詢（`POST /api/download/tasks`）**：
+  - 從 OpenAPI `x-download-submissions` 中選擇已啟用的 `workType`（未啟用類型傳回 `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`；上游明確回傳作品不存在時首次提交傳回 `404 WORK_NOT_FOUND`；依工作 ID 查詢不到屬於目前呼叫端的任務時傳回 `404 DOWNLOAD_TASK_NOT_FOUND`）。
+  - 參數驗證失敗傳回 `in`、`field`（請求主體為 JSON Pointer 如 `/options/pages`，查詢/路徑/標頭/multipart 為宣告參數名）與 `reason`（如 `out_of_range`）。
+  - 傳回 `202` 後依 `Location`（路徑參數 `taskId` 取回執中的 `task.attempt.attemptId`）輪詢：建議初始間隔 **2 秒**，`revision` 連續不變時逐步退避至 **10 秒**，有更新時恢復 2 秒，直至 `phase` 進入 `COMPLETED`、`FAILED` 或 `CANCELLED`（收到 `Retry-After` 時至少等待指定時長）。當 `progress` 非空時可讀取同一單位（`PAGES`、`IMAGES` 或 `BYTES`）的 `progress.unit`、`completed` 與 `total`。
+  - **冪等與任務歷史**：同一呼叫端在目前處理程序冪等紀錄有效期內（終態儲存後約 5 分鐘到期），以相同 `requestId` 重試相同命令會傳回原回執；`GET /api/download/tasks/history` 僅列舉已儲存的終態紀錄（預設每頁 50 項，上限 200 項），不恢復進行中下載。
 
-`POST /api/library/artworks/{artworkId}/recover-metadata` 會以呼叫端提供的值補齊缺漏欄位。本文缺失、無法讀取或沒有可用欄位時回傳 `400`。要由後端取得標籤和系列，可依匯入的作品 ID 啟動回填。 [匯入後補齊作品資料](/zh-hant/local-import?id=metadata-backfill)
-
-使用 `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 篩選參照外部檔案的作品。`MANAGED` 表示檔案由應用程式管理，刪除作品時一併清理。`EXTERNAL_REFERENCE` 表示目前的登錄參照外部檔案，刪除作品時保留原檔。刪除後，作品庫保留 `deleted=true` 的記錄以供查重。
-
-在 `/openapi` 開啟操作後，可點選回應清單下方「相關介面」中的連結前往其他操作，例如從本機匯入預設清單開啟掃描預覽。伺服器會依語言快取文件與連結。外掛新增路由等變更反映在目錄後，重新整理頁面即可看到更新。
-
-操作的 `externalDocs` 指向使用指南。回應的 `links` 提供後續請求，並說明如何從回應取得參數。`x-related-operations` 優先列出宣告的替代入口與回應連結，接著列出說明中提到的路由，以及同資源或同組操作。呼叫前請確認目標操作的參數和權限。`x-related-guides` 列出這些操作的指南。
-
-插畫與小說的批次篩選涵蓋所有符合條件的頁面。`"mode":"filter"` 要求 `filter` 是 JSON 物件。ID 陣列只接受正的 JSON 整數，例如 `42`。小數 `42.9`、字串 `"42"`、零和負數都會傳回 HTTP 400，可依回應中的 `field` 修正。明確傳入 `"filter":{}` 或只含分頁參數的 `filter` 時，會選取此類型的全部作品。刪除或匯出後清理來源作品時，須透過 `"confirmAll":true` 確認這項選取。程式金鑰還須具備對應圖庫的刪除權限。匯出傳回 `archiveToken` 後，以 `core:archives.read` 輪詢 `GET /api/archive/status/{token}`。狀態為 `ready` 時，以 `core:archives.download` 呼叫 `GET /api/archive/download/{token}`。
-
-## 錯誤與歷史
-
-查詢插畫或小說的中繼資料，或透過 `POST /api/download/tasks` 送出下載時，`404 WORK_NOT_FOUND` 表示來源以目前身分找不到該作品。請核對作品 ID 和可見範圍。依工作 ID 查詢時，`404 DOWNLOAD_TASK_NOT_FOUND` 表示目前的呼叫者查不到該工作。
-
-輪詢手動批次時，請用 `state` 判斷狀態。`code` 可以是 null，也可能是來源或帳號原則外掛提供的原因碼。遇到 `batch.work-failed` 可在批次的 `items` 查看失敗項目；作者批次回傳 `schedule.pixiv.discovery-not-found` 時，請核對作者 ID。遇到未知碼時仍依 `state` 處理。
-
-錯誤包含機器 `code` 與本地化 `error`。400 為非法參數，401/403 為身分或權限拒絕，404 為身分不存在，409 為忙碌、衝突或狀態不允許，413 為本文超限，503 為能力不可用。按業務狀態處理，不將所有非 2xx 自動重試。
-
-`POST /api/download/tasks` 傳回 202 時，可輪詢 `Location`。路徑參數 `taskId` 取回執中的 `task.attempt.attemptId`。
-
-建議每 2 秒讀取一次。`revision` 持續不變時逐步延長至 10 秒，有更新時恢復到 2 秒。`phase` 為 `COMPLETED`、`FAILED` 或 `CANCELLED` 時停止。收到 `Retry-After` 時，至少等候指定時間再請求。
-
-從 `x-download-submissions` 選擇 `workType`。未發布的類型會傳回 `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`。請求本文欄位出錯時，`field` 是 JSON Pointer。查詢、路徑、標頭與 multipart 參數的 `field` 是介面宣告中的名稱。呼叫端可依 `in`、`field` 和 `reason` 定位問題。例如 `/options/pages` 搭配 `out_of_range` 表示頁碼超出作品範圍。`explicit-list` 批次缺少 `/definition/source/acquisitionMode` 時，會在建立批次前傳回 400。
-
-有進度時，一併讀取 `progress.unit`、`completed` 和 `total`。這些值描述本次嘗試的目前步驟，最終結果以 `phase` 為準。`progress` 為空表示沒有測量值。
-
-| 值 | 讀取與提交方式 |
+| 資料項 | 讀取與提交格式約定 |
 | --- | --- |
-| Pixiv 作品 ID | 圖庫的 `artworkId`、匯出的 `ids[]` 是 JSON 整數。Pixiv 搜尋 `id`、任務 `workId` 與批次 `key.id` 是字串。轉換時請保留整數精度。其他提供者自行定義 `workId`。 |
-| 下載設定 | 單一任務 `options` 使用 `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`。批次 `definition.download` 使用 `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`。 |
-| 時間與檔案 | 任務 `updatedAt` 使用 ISO 8601。批次 `createdTime`、圖庫 `time`、排程 `nextRunTime` 使用 Unix 毫秒。`outputPath` 是本次任務預定的伺服器目錄，圖庫 `folder` 是作品登記的位置。請用作品 ID 比對。 |
-| 回應結構 | `GET /api/authors` 傳回陣列，`GET /api/authors/paged` 傳回含 `content` 的分頁物件，`GET /api/downloaded/statistics` 傳回含 `success` 和計數的物件。 |
+| Pixiv 作品 ID | 畫廊 `artworkId`、匯出 `ids[]` 使用 JSON 整數；Pixiv 搜尋 `id`、下載任務 `workId`、手動批次 `key.id` 使用十進位字串（轉換時須保留 64 位元整數精度，第三方下載外掛自行定義 `workId` 格式） |
+| 下載選項型別 | 單一任務 `options` 使用字串值（如 `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`）；手動批次 `definition.download` 使用原生 JSON 型別（如 `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`） |
+| 時間戳記與路徑 | 下載任務 `updatedAt` 為 ISO 8601 字串；手動批次 `createdTime`、畫廊 `time`、排程工作 `nextRunTime` 為 Unix 毫秒時間戳記。任務 `outputPath` 為預定伺服器目錄，畫廊 `folder` 為實際登記目錄，兩者依作品 ID 關聯 |
+| 常見回應結構 | `GET /api/authors` 傳回 JSON 陣列；`GET /api/authors/paged` 傳回含 `content` 的分頁物件；`GET /api/downloaded/statistics` 傳回含 `success` 與各統計計數的物件 |
 
-| 端點 | 分頁參數 | 如何取得下一頁 |
+| 分頁端點 | 分頁參數 | 翻頁方式 |
 | --- | --- | --- |
-| `GET /api/gallery/artworks` | `page`, `size` | 首頁傳入 `page=0`，之後將 `page` 加一。 |
-| `GET /api/download/batches/{id}/items` | `offset`, `limit` | 從 `offset=0` 開始，按本頁實際傳回的項目數增加位移。 |
-| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 首頁省略兩個游標欄位，續頁時原樣傳回上一頁的兩個值。 |
-| `GET /api/pixiv/search` | `page` | 從第 1 頁開始，小於 1 會取第 1 頁。 |
-| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 將 `nextCursor` 原樣傳為 `cursor`。外掛版本清單使用 `nextVersionCursor`。 |
-
-下載工作歷史記錄預設每頁 50 項，最多 200 項。只列出已儲存終態，不恢復在途下載。同一呼叫身分在目前程序仍保有冪等記錄時，以相同 `requestId` 重試相同命令可取得原回執。終態結果儲存後，冪等記錄可在任務結束五分鐘後到期，再次提交可能建立新任務。工具歷史與批次結果各有保留規則。
+| `GET /api/gallery/artworks` | `page`, `size` | 首頁傳 `page=0`，後續每次將 `page` 加 `1` |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | 從 `offset=0` 開始，每次依本頁實際傳回項目數累加 `offset` |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | 首頁省略兩個游標參數；續頁時原樣傳回上一頁末尾的 `beforeTime` 與 `beforeId` |
+| `GET /api/pixiv/search` | `page` | 從 `page=1` 開始（小於 `1` 時依第 1 頁處理） |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | 將回應中的 `nextCursor` 原樣傳為下一頁 `cursor`（外掛版本清單續頁使用 `nextVersionCursor`） |
 
 ## 程式權限清單
 
-管理員可呼叫 GET `/api/security/program-keys/permissions` 取得目前安裝的權威目錄。下表列出內建宣告，外部外掛以目前目錄為準。`*` 表示一個路徑段。金鑰只儲存明確權限，不支援外掛或路徑萬用授權。
-
-共用設定、媒體工具及檔案匯入同時要求 `core` 入口權限和目標外掛的同名權限，目錄會依權限篩選目標。單項下載需要 `core:downloads.create` 及實際下載類型所屬外掛的 `downloads.create`。批次需要 `core:batches.create` 或 `core:batches.resume`，以及來源與完整執行計畫中每個作品外掛的 `batches.execute`。來源目錄使用 `core:schedule.sources.read`。
-
-程式只能查詢、取消及管理自己建立的下載任務和批次；管理員仍可管理整個安裝。每個程序仍共用一個批次，不會因金鑰增加而增加批次名額。翻譯、工具、設定、日誌、資料庫及環境權限作用於對應外掛或整個安裝，不是各金鑰的私有副本。資料庫遷移與環境封存包含整套安裝中選定的內容。
-
-金鑰管理僅供管理員工作階段：GET `/api/security/program-keys` 取得清單、GET `/permissions` 取得目錄、POST 根路徑建立、PUT `/{id}` 編輯、DELETE `/{id}` 撤銷。建立內容為 `name`、`permissions`、`anyIp`、`networks`；編輯使用 `{"revision":1,"policy":{...}}`，撤銷使用 `{"revision":1}`。請使用讀取時取得的修訂號；衝突後重新讀取，不覆蓋他人的修改。建立成功回傳 `key` 與一次性的 `secret`；清單不回傳秘密或摘要。
-
-每個安裝最多 128 個金鑰，每個名稱最多 80 個字元、512 項權限及 64 個來源網段；管理寫入內容最多 128 KiB。最近使用時間只記錄目前程序觀察到的成功驗證。撤銷會阻止新請求，不會自動取消已接納的任務。
-
-啟動快取使用 GET `/api/tools/startup-cache`、POST `/api/tools/startup-cache/tasks` 及 POST `/api/tools/startup-cache/tasks/{id}/cancel`；開始內容為 `{}`。接納不代表訓練成功，請繼續查詢狀態。
+目前安裝執行個體的即時權限目錄由管理員呼叫 `GET /api/security/program-keys/permissions` 取得。金鑰僅接受精確權限 ID，不支援外掛或路徑萬用字元（下表路由中的 `*` 代表單一路徑區段）：
 
 ### 權限範圍與專用入口
 
-排程任務使用 `core:schedule.*` 中對應動作的精確權限，並要求來源外掛的 `schedule.manage`；帳號策略動作要求策略 owner 的同名權限。清單依來源授權篩選。此處的 `*` 只是文件分組，不是可儲存的權限。排程屬於安裝的持久設定，授權包含該來源的完整排程業務；撤銷建立金鑰不會刪除或停用排程。需要取消後續執行時，請先停用或刪除排程。
-
-外掛生命週期、啟用狀態及信任操作同時要求對應的 `core:plugins.*` 動作與目標的 `<plugin>:plugins.manage`；存在依賴消費者時，也檢查消費者授權。已安裝但尚未載入的可管理外掛也會列於目標目錄。安裝權限允許套件及其依賴在伺服器執行程式碼；全域 Hook 發布權限允許修改安全策略，請依此實際影響授權。
-
-共用憑證分為 `core:credentials.read`、`core:credentials.write` 及 `core:credentials.use`。讀取只回傳資訊，不回傳秘密；使用 `X-Acquisition-Credentials` 引用已儲存憑證時，除了業務權限，還需要 `credentials.use`。直接提供當次取得憑證仍使用 `X-Acquisition-Credential`。
-
-圖庫、小說庫、收藏夾、站內信、封存、頁面編輯、更新及維護權限作用於共用安裝，不會自動限制為該金鑰建立的資料。下載任務與手動批次仍依金鑰身分隔離。本機維護、復原及舊中繼資料遷移仍要求本機來源；權限不會取代來源、確認、修訂或租約檢查。
-
-身分建立與金鑰管理、GUI token、驗證碼、瀏覽器擷取票據、匿名配額及頁面組裝保留專用流程。程式下載與進度使用 `/api/download/tasks`，檔案匯入使用 `/api/tools/file-import`，作品管理使用 `/api/library/artworks/{id}`，頁面業務使用 `/api/page-editor`。站內信測試使用 `/api/admin/notifications/test` 或 `/test-all`。舊瀏覽器相容路由不另授予程式權限。
+- **複合權限核驗**：
+  - **共用設定、媒體維護與檔案匯入**：須同時具備 `core` 入口權限與目標外掛的同名權限（讀取清單僅傳回已獲授權的目標）。
+  - **單項下載與手動批次**：單項下載需 `core:downloads.create` + 目標下載類型外掛的 `<plugin>:downloads.create`；手動批次需 `core:batches.create`（或 `core:batches.resume`）+ 來源外掛與執行計畫涉及的每個作品外掛的 `<plugin>:batches.execute`（查詢來源目錄需 `core:schedule.sources.read`）。
+  - **持久排程工作**：需 `core:schedule.*` 對應動作權限 + 來源外掛的 `<plugin>:schedule.manage`（帳號策略動作需策略 owner 的同名權限；排程屬於安裝層級持久設定，撤銷建立該排程的金鑰不會刪除或停用排程）。
+  - **外掛生命週期與安全策略**：需 `core:plugins.*` 對應動作權限 + 目標外掛的 `<plugin>:plugins.manage`（有反向依賴消費者時還須具備消費者權限；`core:plugins.install` 與 `plugin-market:install` 允許在伺服器執行程式碼，`core:hooks.publish` 允許修改全域操作保護策略，請謹慎授權）。
+  - **擷取憑證**：`core:credentials.read` 僅傳回憑證名稱與狀態、不傳回秘密；請求標頭透過 `X-Acquisition-Credentials` 引用已儲存共用憑證時，除業務權限外還需 `core:credentials.use`（單次直接傳入憑證仍用 `X-Acquisition-Credential`）。
+- **資料隔離與安裝層級作用域**：下載任務與手動批次依金鑰身分隔離（每把金鑰只能查詢、取消和管理自己建立的任務與批次，管理員仍可查看全域；多把金鑰仍共用單一處理程序唯一手動批次名額）。畫廊、小說庫、收藏夾、翻譯、站內信、封存、頁面編輯、設定、日誌、更新、維護、資料庫遷移與環境封存均直接作用於共用安裝執行個體，不為每把金鑰維護私有副本；本機專屬維護與復原介面仍強制核驗本機迴路來源。
+- **程式專用入口**：身分建立、金鑰管理、GUI token、驗證碼互動、瀏覽器擷取票據、匿名配額與頁面組裝保留專用流程，舊瀏覽器相容路由不開放程式權限。程式呼叫請使用 `/api/download/tasks`（下載與進度）、`/api/tools/file-import`（記錄檔匯入）、`/api/library/artworks/{id}`（作品管理）、`/api/page-editor`（頁面編輯）以及 `/api/admin/notifications/test`、`/test-all`（站內信測試）。
 
 | 權限 | 用途 | 方法與路徑 |
 | --- | --- | --- |

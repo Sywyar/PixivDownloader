@@ -1,42 +1,16 @@
 # 编写 HTTP API 与权限声明
 
-Spring MVC 提供方法、路径和参数。说明可来自编译时保留的 Javadoc。用 `@Operation`、`@Schema` 和 OpenAPI 请求体注解说明示例、手动解析的 JSON 与返回状态。程序权限来自有效路由声明。在 `/openapi` 核对输入、成功状态、目标插件限制与主要错误，异步操作应写清如何查询结果。
+新增或修改 Web、Swing、Compose、CLI 的业务功能时，应同步检查是否需要提供配套的 HTTP API、程序密钥权限声明与多语言 OpenAPI 文档。客户端调用方式与完整权限清单见 [OpenAPI 与程序密钥](/zh-cn/http-api)，插件扩展契约见 [第三方插件 SDK](/zh-cn/plugin-development)。
 
-新增或修改 Web、Swing、Compose、CLI 的业务功能时，同时检查是否需要配套 HTTP API。调用方式与接口清单见 [HTTP API](/zh-cn/http-api)，插件契约见 [第三方插件 SDK](/zh-cn/plugin-development)。
+## 什么时候需要配套 HTTP API
 
-在接口所属的 HTTP 多语言资源里，用 `guide` 设置整组操作共用的指南，用 `<Controller>.<method>.<VERB>.guide` 为单个操作指定更具体的页面或章节。生成的操作把直接指南放在 `externalDocs`，把相关操作引用的指南去重放在 `x-related-guides`。有明确后续调用且能从响应取到参数时，在相应的 `@ApiResponse` 上声明 `links`。
+- **业务能力统一暴露 HTTP 接口**：查询业务状态、读取与保存设置、应用预设、下载、翻译、导入、导出、数据库迁移、维护和系统管理均应能通过 HTTP 完成。已有等价接口时直接复用同一业务服务，不为不同 GUI 复制执行逻辑。
+- **分离客户端表现与服务端业务**：窗口大小、焦点、主题预览、剪贴板、系统文件选择器和打开本机浏览器属于客户端表现，无需服务端模拟。流程中包含文件操作时，远程客户端文件必须通过上传传输，服务端路径参数始终指向服务器本地文件系统，两者不得混用。
+- **长任务生命周期**：异步长任务须提供启动（`202 Accepted`）、状态查询、按执行身份取消及结果查询接口，并在文档中写明取消收尾语义（请求取消不代表已立即停止，查不到任务不代表可安全重投）、进程重启后的状态以及幂等范围。
 
-从 `x-program-permission` 读取路由权限。有附加检查时，`x-program-permissions.route` 给出同一个值。`discovery` 指出获取来源令牌的接口，`submit` 数组逐项列出固定权限、请求头触发的权限或目录查询条件。在 `x-schedule-sources` 中，管理定时任务查 `schedulePermission`，提交批次查 `batchSubmitPermission`。插件接口若代为提交固定来源的手动批次，用 `x-manual-batch-source` 声明来源类型，调用方可以直接提交。 实例导出的 OpenAPI 在顶层 `x-program-permission-conditions` 中列出各阶段、字段和 `request#`、`task#`、`batch#`、`item#` 的解析规则。
+## 声明路由与程序权限
 
-条件授权使用 `when.keyFrom` 读取 JSON 字段，再与 `when.value` 的字面值比较。例如图库导出仅在 `request#/deleteAfter` 为布尔值 `true` 时额外要求删除权限。
-
-`execution` 通过 `executePermissionsByWorkType` 列出执行器权限，按本次计划需要的作品类型授权。后台还会复核来源权限。缺失的权限 ID 位于 `reportedIn.pointer` 指定的 JSON Pointer。提交时读 HTTP 403 响应体，受理后持 `core:batches.read` 访问 202 响应的 `Location`，读取批次结果。下载提交异常可通过 `DownloadTaskException.programPermission()` 取得已知权限。收到 `auth.program.unsupported` 时，可从 `x-program-alternative` 查找替代接口。
-
-`x-csrf-origin` 为 `origin-or-referer` 时，原生客户端须发送同源 Origin 或 Referer。`origin-required` 的具体限制见 Origin 参数。`conditional` 按参数说明区分浏览器来源信号与 Cookie。
-
-发布具名 JSON SSE 事件时，在 `text/event-stream` 的 content 上用事件 DTO 声明 schema，并将 content 扩展 `x-sse-data-event` 设为事件名。生成的媒体类型保留字符串传输格式，`x-sse-events` 按事件名给出 DTO schema。浏览器操作可用 `x-program-alternative` 指向程序密钥入口，值为方法和路径，例如 `POST /api/download/tasks`。
-
-## 填写接口说明与可选的「详细信息」
-
-控制器上的 `@HttpApiGroup("core-batch")` 指定了资源文件 `src/main/resources/i18n/http/core-batch.properties`。接口作者在控制器所属模块填写文案，在同目录的语言文件（如 `core-batch_en.properties`）中提供译文。宿主生成 OpenAPI 时按文档语言读取这些键。
-
-键的前缀由控制器类名（不含包名）、Java 方法名和大写 HTTP 方法组成。方法映射没有指定唯一 HTTP 方法时，最后一段用 `ANY`。例如，`POST /api/download/batches` 的 `ManualBatchController.create.POST.summary` 是操作标题，`.description` 是简介，`ManualBatchController.create.POST.details` 是可选的 Markdown 正文。
-
-宿主把正文追加到 OpenAPI 操作的 `description`，`/openapi` 默认收起「详细信息」，点击标题可展开全文。对于 `POST /api/download/tasks`，已启用的下载提供方还可以用 `schema.DownloadSubmission.<workType>.description` 补充各类型的说明。操作和提供方都没有正文时，页面省略整个章节。
-
-填写前须从 HTTP 入口通读完整调用链，包括适用的鉴权、校验、提供方、异步执行、落盘、结果查询和失败恢复分支。写清哪些结果提交时可知、哪些要等任务结束。逐个语言核对 `/api/openapi.json`，再打开 `/openapi` 中对应的方法和路径，确认初次打开时章节收起，并用键盘展开核对正文。
-
-## 什么时候需要配套接口
-
-查询业务状态、读取与保存设置、应用预设、下载、翻译、导入、导出、迁移、维护和系统管理，都应能通过 HTTP 完成。已有等价接口时复用同一业务服务，不为每种 GUI 复制执行逻辑。
-
-窗口大小、焦点、主题预览、剪贴板、系统文件选择器和打开本机浏览器属于客户端表现，不要求服务器模拟。业务流程包含这些操作时，把业务部分独立出来：远程客户端文件需要上传，服务器路径指向服务器文件系统，不能混用。
-
-长任务提供开始、状态、按执行身份取消和必要的结果查询。202 表示接纳，取消请求不表示已经结束；查询不到任务不表示可以安全重投。接口应说明重启后的状态和幂等范围。
-
-## 声明权限
-
-路由由实际功能 owner 的 `PixivFeaturePlugin.routes()` 声明。原有 `AccessPolicy` 管理人员、访客及本机流程；程序访问使用 `WebRouteContribution.programPermissions` 按 HTTP 方法显式声明。未声明的程序调用会被拒绝，不继承管理员权限。
+路由由功能所属 owner 在 `PixivFeaturePlugin.routes()` 中声明。`AccessPolicy` 控制人员登录、访客与本机 GUI 流程；程序密钥访问则通过 `WebRouteContribution.withProgramPermissions(...)` 按 HTTP 方法显式声明（未声明的操作默认拒绝程序密钥，不继承管理员权限）：
 
 ```java
 WebRouteContribution.admin("/api/example/items")
@@ -46,41 +20,50 @@ WebRouteContribution.admin("/api/example/items")
     ));
 ```
 
-示例中的 owner 由宿主注册身份确定；若 owner 为 `example`，完整权限为 `example:items.read` 和 `example:items.create`。标签 key 放在 owner 展示命名空间的 i18n 资源中。程序权限只用于明确的 `/api/` 路由和方法，不接受 `**`、OPTIONS 或 GUI/LOCAL 专用流程。完整路径段 `*` 可表示资源 ID。
+- **权限 ID 与适用路径**：完整权限 ID 由宿主按插件注册身份自动拼为 `<owner>:<permission>`（如 `example:items.read`），展示文案 key 放入该 owner 的展示 i18n 资源中。程序权限仅支持明确的 `/api/` 路由与具体 HTTP 方法（支持单路径段 `*` 表示资源 ID，不接受 `**`、`OPTIONS` 或 GUI/LOCAL 专用路由）。
+- **权限粒度与目标复核**：同一权限下的接口应具有一致的业务目的与数据范围；插件分组勾选仅批量选择当前明确列出的权限，不生成面向未来权限的通配符。共享接口（设置、媒体维护、文件导入、插件生命周期、计划任务等）除校验 `core` 入口权限外，还必须在产生任何副作用前校验目标插件或来源的权限，并按已获授权范围裁剪读取列表（各业务域的组合规则与专用入口见 [OpenAPI 与程序密钥：权限范围与专用入口](/zh-cn/http-api#权限范围与专用入口)）。
 
-| 业务 | 分开的权限 | 额外检查 |
+| 业务域 | 权限拆分原则 | 附加安全校验 |
 | --- | --- | --- |
-| 设置和预设 | 读取、校验与保存 | 每个字段的实际 owner；敏感值不回传 |
-| 媒体维护、文件导入 | 读取、预览、执行、取消、完成确认 | 精确插件 publication、预览 token 和执行 ID |
-| 下载、翻译 | 查询、创建或恢复、取消、删除记录 | 数据范围、凭据和任务归属 |
-| 数据库、环境 | 查询、检查、预览、迁移、导出、恢复 | 全安装范围、副作用、确认和停写窗口 |
-| 插件、系统 | 查询、安装、启停、删除、重启 | 可执行代码与进程影响 |
-| 密钥及管理员凭据 | 人员管理员专用 | 程序不得创建密钥或提升自己的权限 |
+| 设置与预设 | 读取、校验与保存分离 | 校验每个字段的实际 owner；敏感值只返回 `stored` 标志、绝不回传明文 |
+| 媒体维护与文件导入 | 读取、预览、执行、取消、完成确认分离 | 校验精确插件 publication、预览 token 与执行 ID |
+| 下载与翻译 | 查询、创建/恢复、取消、删除记录分离 | 校验数据范围、采集凭据与任务创建者归属 |
+| 数据库与环境归档 | 查询、检查、预览、迁移、导出、恢复分离 | 作用于整套安装，须校验显式确认、预览 token 与停写窗口 |
+| 插件与系统管理 | 查询、安装、启停、删除、重启分离 | 涉及可执行代码加载与进程重启，须同时校验目标插件与反向消费者权限 |
+| 密钥与管理员凭据 | 仅限人类管理员会话 | 严禁程序密钥创建/修改密钥或提升自身权限 |
 
-同一权限下的接口应有一致的业务目的和数据范围。插件分组只批量选择当前明确列出的权限，不保存对未来权限的通配授权。权限目录从当前声明和能力生成；管理员会话可通过 GET `/api/security/program-keys/permissions` 读取实际 ID、owner、标签和端点。
+## 多语言文档与 OpenAPI 扩展字段
 
-共享接口还须检查目标资源。设置、媒体和文件导入同时要求 core 入口权限及目标插件的相应权限；读取列表按目标裁剪，批量写入在任何副作用前检查全部目标。数据库迁移和环境归档作用于整个安装，不能解释为单个插件的数据操作。插件撤回或换代后不得调用旧 publication，也不能借另一个 owner 的同名路由授权。
+Spring MVC 提供基础方法、路径与参数定义；编译期保留的 Javadoc、`@Operation`、`@Schema` 与请求体注解用于补充示例、手动解析的 JSON 结构及返回状态。
 
-## 输入、错误和验收
+### 多语言接口说明与折叠「详细信息」
 
-接口说明列出方法、路径、权限、目标范围、请求字段与预算、异步状态和主要错误。路径、凭据和 JSON 在信任边界校验；程序密钥只走 `Authorization: Bearer`，不写入 URL、日志或浏览器持久存储。来源 IP 使用可信代理处理后的客户端地址，不能自行信任转发头。既有 CSRF、恢复模式和插件租约继续生效。
+在 Controller 上标注 `@HttpApiGroup("core-batch")`，即可绑定所属模块下的 `src/main/resources/i18n/http/core-batch.properties` 及各语言资源文件（如 `core-batch_en.properties`）。键名前缀为 `<Controller类名>.<Java方法名>.<大写HTTP方法>`（未限定单一 HTTP 方法时用 `ANY`）：
 
-错误保留稳定 `code` 与本地化 `error`。区分参数错误、拒绝、对象缺失、修订冲突、超限、能力不可用和结果不确定。网络中断后先查询结果，不自动重放写操作。
+| 资源键 | 作用 |
+| --- | --- |
+| `guide` / `<前缀>.guide` | 整组共用或单个操作专属的使用指南路径（生成到操作的 `externalDocs`，关联操作引用的指南去重汇总到 `x-related-guides`） |
+| `<前缀>.summary` / `<前缀>.description` | 操作标题与概要说明 |
+| `<前缀>.details` | 可选的 Markdown 详细说明（追加到 `description`，在 `/openapi` 页面默认折叠为「详细信息」，点击或按键盘展开） |
+| `schema.DownloadSubmission.<workType>.description` | 为 `POST /api/download/tasks` 补充各已启用下载类型的专属说明（操作与提供方均无正文时自动省略折叠区） |
 
-插件在 HTTP 入口手动校验参数时，可使用 SDK 中 `top.sywyar.pixivdownload.core.web.HttpParameterException`。这项契约位于仅依赖 JDK 的 `pixivdownload-core-api`。例如，已确认查询参数 `order` 不在允许枚举中时，抛出 `new HttpParameterException("query", "order", "invalid_value")`。宿主返回 HTTP 400、`code=error.request.param.invalid`、本地化的 `error` 及 `in`、`field`、`reason`。已有插件可以继续使用原有错误响应。 在会抛出这个异常的操作上标注 `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")`，实例的 OpenAPI 就会列出这项错误及其字段。
+撰写说明前须通读从 HTTP 入口到鉴权、校验、提供方、异步执行、落盘、结果查询与失败恢复的完整调用链，区分提交时立即可知的结果与异步终态。完成后逐语言核对 `/api/openapi.json` 及 `/openapi` 页面的折叠展开与键盘可访问性。
 
-`in` 取 `query`、`path`、`header`、`part` 或 `body`。前四种的 `field` 填接口声明中的参数名或表单部分名，JSON 请求体则填 JSON Pointer，例如 `/options/pages`。`reason` 使用稳定的机器值，如 `required`、`type` 或 `invalid_value`。这三个字段只描述位置和原因，不包含调用方提交的值。Spring 已经处理的缺参或类型转换错误由宿主定位。
+### OpenAPI 扩展元数据
 
-测试经过真实过滤器或 HTTP 入口，证明权限不足时没有业务副作用，并覆盖方法差异、目标插件、来源网段、撤销、换代和保存失败。修改接口时同步权限目录、调用方、五语言文档和相关回归；源码声明或编译通过不能代替交互与运行验证。
+| 扩展字段 | 语义与声明方式 |
+| --- | --- |
+| `x-program-permission` / `x-program-permissions` | 单一路由权限写入 `x-program-permission`；含附加校验时在 `x-program-permissions` 中同时列出 `route`、`discovery`（获取来源令牌的接口）、`submit`（固定权限、请求头触发权限或目录查询条件）和 `execution`（如 `executePermissionsByWorkType`）。顶层 `x-program-permission-conditions` 定义 `request#`、`task#`、`batch#`、`item#` 的解析规则与 `when.keyFrom` / `when.value` 条件（如导出仅在 `request#/deleteAfter == true` 时附加删除权限）及 `reportedIn.pointer` 缺权字段位置 |
+| `x-schedule-sources` / `x-manual-batch-source` | `x-schedule-sources` 列出各来源的 `schedulePermission` 与 `batchSubmitPermission`；代为提交固定来源手动批次的插件接口用 `x-manual-batch-source` 声明来源类型 |
+| `x-csrf-origin` | 标识写请求的来源校验策略：`origin-or-referer`（原生客户端亦须发送同源 `Origin` 或 `Referer`）、`origin-required` 或 `conditional`（按是否携带 Cookie 等浏览器信号区分） |
+| `x-program-alternative` | 在不支持程序密钥的浏览器接口上指向对应的程序接口（格式为 `<METHOD> <path>`，如 `POST /api/download/tasks`） |
+| `links`（`@ApiResponse`） | 有明确后续调用且可从响应提取参数时声明响应链接，供 `/openapi` 生成「相关接口」跳转 |
+| `x-sse-data-event` / `x-sse-events` | 发布具名 JSON SSE 事件时，在 `text/event-stream` 的 content 上声明事件 DTO schema 与 `x-sse-data-event` 事件名；生成文档保留字符串传输格式并在 `x-sse-events` 中按事件名导出 DTO schema |
 
-## 权限范围与专用入口
+## 参数校验、错误契约与测试验收
 
-计划任务使用 `core:schedule.*` 中对应动作的精确权限，并要求来源插件的 `schedule.manage`；账号策略动作要求策略 owner 的同名权限。列表按来源授权裁剪。这里的 `*` 只是文档分组，不是可保存的权限。计划属于安装的持久配置，授权包含该来源的完整调度业务；撤销创建密钥不会删除或停用计划。需要取消后续运行时，先停用或删除计划。
-
-插件生命周期、启用状态和信任操作同时要求对应 `core:plugins.*` 动作与目标的 `<plugin>:plugins.manage`；有依赖消费者时，还检查消费者授权。尚未加载但已安装的可管理插件也会出现在目标目录中。安装权限允许安装包及其依赖在服务器执行代码；全局 Hook 发布权限允许修改安全策略，应按这一实际影响授权。
-
-共享凭据分为 `core:credentials.read`、`core:credentials.write` 和 `core:credentials.use`。读取只返回信息，不返回秘密；使用 `X-Acquisition-Credentials` 引用已保存凭据时，除业务权限外还需要 `credentials.use`。直接提供当次取得凭据仍使用 `X-Acquisition-Credential`。
-
-画廊、小说库、收藏夹、站内信、归档、页面编辑、更新与维护权限作用于共享安装，不自动限制为该密钥创建的数据。下载任务与手动批次继续按密钥身份隔离。本机维护、恢复和旧元数据迁移仍要求本机来源；权限不会替代来源、确认、修订或租约检查。
-
-身份建立与密钥管理、GUI token、验证码、浏览器采集票据、匿名配额及页面装配保留专用流程。程序下载与进度使用 `/api/download/tasks`，文件导入使用 `/api/tools/file-import`，作品管理使用 `/api/library/artworks/{id}`，页面业务使用 `/api/page-editor`。站内信测试使用 `/api/admin/notifications/test` 或 `/test-all`。旧浏览器兼容路由不另授予程序权限。
+- **信任边界与错误结构**：路径、凭据和 JSON 在入口边界严格校验；程序密钥仅通过 `Authorization: Bearer` 传递，禁止写入 URL、日志或浏览器持久存储；来源 IP 仅信任经 `server.trusted-proxy-cidrs` 校验后的客户端地址。错误响应统一保留稳定机器码 `code` 与本地化 `error`（下载提交缺权可通过 `DownloadTaskException.programPermission()` 暴露缺失权限 ID）。
+- **结构化参数错误（`HttpParameterException`）**：插件在 HTTP 入口手动校验参数时，可抛出 `pixivdownload-core-api` 中的 `top.sywyar.pixivdownload.core.web.HttpParameterException(in, field, reason)`（例如查询参数枚举非法时抛出 `new HttpParameterException("query", "order", "invalid_value")`），并在方法上标注 `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")` 以导出到 OpenAPI：
+  - 宿主统一返回 HTTP 400、`code = "error.request.param.invalid"`、本地化 `error` 以及 `in`、`field`、`reason` 三个定位字段（严禁在字段中回显调用方提交的原始值或凭据；Spring 自身的缺参或类型转换错误由宿主自动定位）。
+  - `in` 取 `query`、`path`、`header`、`part` 或 `body`；前四者的 `field` 填声明的参数名或表单分块名，`body` 填 JSON Pointer（如 `/options/pages`）；`reason` 使用稳定机器码（如 `required`、`type`、`invalid_value`、`out_of_range`）。
+- **真实验收**：测试必须经过真实安全过滤器或 HTTP 入口，验证缺权请求无任何业务副作用，并覆盖 HTTP 方法差异、目标插件裁剪、来源网段限制、密钥撤销、插件换代及保存失败回滚；接口或权限变更时同步更新权限目录、调用方、五语言文档与回归测试。

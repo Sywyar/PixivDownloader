@@ -120,42 +120,36 @@ npm run test:i18n
 
 ## Optional JDK 25 AOT Cache
 
-The repository's `scripts/aot-cache.mjs` prepares and uses a JVM startup cache for the final boot JAR. It requires Node.js and an existing JDK 25. It does not download a JDK or enable Spring AOT. Installers keep their existing launch path; CI artifact verification trains a real cache and checks strict startup. Train only trusted JARs: training executes the application with isolated temporary configuration and does not read the current instance's user data.
+`scripts/aot-cache.mjs` trains and uses a JDK 25 AOT startup cache for the final boot JAR (requires Node.js and a local JDK 25; it does not auto-download a JDK or enable Spring AOT). Installers keep their normal launch path, while CI artifact verification runs real cache training and `--strict` hit checks.
 
-Run the shared `AOT Prepare` and `AOT Packaged Run` configurations in that order; no separate packaging command is needed. IntelliJ IDEA uses `.run`, VS Code provides matching tasks, and Eclipse uses the launch configurations in `eclipse/`. Prepare uses the JDK 25 selected by Maven Toolchains to build the host and official plugins, assemble a separate runtime, and prepare its cache. Windows uses system PowerShell; Linux / macOS requires PowerShell 7 (`pwsh`) on PATH. Equivalent commands:
+- **Safety and applicability boundaries**: train only trusted JARs (training runs the application using isolated temporary configuration without reading the current instance's user data). JDK 25 AOT Cache cannot train with non-empty class directories and does not support JDWP breakpoint debugging—continue using `Developer Mode` for running from source and debugging. Unit tests, JaCoCo, Maven and Gradle build processes do not use the application AOT cache; weigh training time against repeated launches.
+- **One-step prepare and run via shared IDE configs or Maven**: run the shared `AOT Prepare` and `AOT Packaged Run` configurations without manual pre-packaging (IntelliJ IDEA `.run/`, VS Code tasks, Eclipse `eclipse/` launches; even if started under IDE Debug, the entry point strips JDWP and IDEA debugger-agent flags from AOT child processes while keeping heap, proxy and certificate flags), or run the equivalent commands (system PowerShell on Windows; `pwsh` on Linux / macOS):
 
-```powershell
-.\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-.\mvnw.cmd -N -Paot validate
-```
+  ```powershell
+  .\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
+  .\mvnw.cmd -N -Paot validate
+  ```
 
-The default directory is `target/aot-runtime`; choose another with `-Daot.runtime.directory=...`. `artifacts/` holds the host and full official distribution plugin set, including optional plugins but excluding the recovery test probe. `cache/` separates caches by JAR and JDK contents. `instance/` is the application working directory and holds independent configuration and data. `mvn clean` removes this default runtime under `target/`; use a directory outside `target/` for data you need to retain, with the same override for Prepare and Run. Complete normal setup on the first Run; the repository root instance is not read or overwritten. After changing code, run Prepare again. It switches to new artifacts only after success and preserves configuration and data. Matching artifacts are verified and reused; a plugin-only change can reuse the host cache if the host and JDK remain unchanged. The single-instance lock lives in `instance/ipc/` inside this runtime, separate from other development or installed instances. Concurrent instances still need different server ports.
+  - **Runtime directory layout**: defaults to `target/aot-runtime` (removed by `mvn clean`; pass `-Daot.runtime.directory=...` outside `target/` to both Prepare and Run for persistent data). Inside it, `artifacts/` holds the host and full official plugin set (including optional plugins, excluding the recovery test probe, staged under the local unsigned development policy and never for official signed distribution), `cache/` stores caches keyed by JAR and JDK contents, and `instance/` is the isolated working directory (single-instance lock at `instance/ipc/`; configure a different port if running alongside another instance).
+  - **Incremental reuse and locking**: `Prepare` builds with the JDK 25 selected by Maven Toolchains (skipping unit tests) and switches artifacts atomically only on success while preserving `instance/` data; plugin-only changes reuse the host cache when the host JAR and JDK are unchanged. Concurrent Prepare/Run on the same directory is rejected (stopping Prepare on Windows terminates child processes and releases the lock; if locked, stop the active task rather than deleting `.lock`). Old caches are not auto-pruned; delete unused directories after stopping processes.
 
-The Prepare build skips unit tests; tests and CI gates still run separately. Plugins use the existing unsigned local upload policy and are for local development only, not official signed distribution. Run does not rebuild. Concurrent preparation or execution in the same directory is rejected. Failure preserves the previous runnable record; damaged contents are rejected, and a new runtime directory can be prepared instead. Old artifacts and caches are retained and consume disk space. After stopping related processes, remove unused contents while preserving any needed data in `instance/`.
+- **Low-level CLI (for an existing boot JAR and CI reuse)**: does not build or stage plugins (a core JAR without plugins enters recovery mode only). Run from the repository root (replace `<version>`, JDK 25 path and initialized instance directory):
 
-Use ordinary Run for `AOT Prepare` and `AOT Packaged Run`. If launched through IDE Debug, the entry point removes JDWP and IDEA debugger-agent options only from the AOT child process environment, preserving heap, proxy, certificate and other options. Use `Developer Mode` for application breakpoints. On Windows, stopping Prepare or its launcher also ends that operation's build and training children and releases the lock; other application instances are unaffected. If the lock is held, stop the Prepare or Run task using the same runtime directory, then retry. Do not delete `.lock`. For other lock errors, check the underlying cause shown in the output.
+  ```powershell
+  $repo = (Get-Location).Path
+  $jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
+  $jdk = 'C:/path/to/jdk-25'
+  $cache = Join-Path $repo 'target/aot-cache'
+  node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
 
-Use `Developer Mode` for source execution and breakpoint debugging. JDK 25 AOT Cache cannot train with nonempty class directories, and the linked cache cannot be used with JDWP debugging. Unit tests, JaCoCo, Maven and Gradle build processes do not use the application's AOT cache. Assess training cost against the actual number of repeated launches.
+  Set-Location 'C:/path/to/initialized-instance'
+  node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
+  if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
+  ```
 
-The low-level CLI below consumes an existing JAR and is also used directly by CI. It does not build or stage plugins. Run it from the repository root, replacing `<version>`, the JDK path and the initialized instance directory. Use a new directory for a new cache; an existing valid cache can be verified and reused. Execution uses the selected instance configuration, plugins and data. A core JAR without plugins provides recovery mode only.
-
-```powershell
-$repo = (Get-Location).Path
-$jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
-$jdk = 'C:/path/to/jdk-25'
-$cache = Join-Path $repo 'target/aot-cache'
-node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-
-Set-Location 'C:/path/to/initialized-instance'
-node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
-if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
-```
-
-The low-level tool prints `AOT prepare: ready` for a new cache or `AOT prepare: reusing verified cache` when reusing a valid one. Before launch it checks SHA-256 hashes of the source JAR, extracted dependencies, JDK and cache. A damaged or incomplete cache is preserved; choose a new directory with `--cache-dir`. Temporary training data is removed afterwards. The manifest checks local consistency and does not replace release signatures or plugin admission.
-
-Normal execution preserves the current environment and lets the JVM fall back when the cache is incompatible. To verify a cache hit, add `--strict` before the `run` command's `--` and check the JVM's `Using AOT-linked classes: true` diagnostics; successful exit alone does not prove a hit. Repeated startup savings must offset training cost. Measure with the same JAR, JDK, plugins, data and startup target before deployment. See [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html).
+  First preparation prints `AOT prepare: ready`; reusing a valid cache prints `AOT prepare: reusing verified cache` (verifies SHA-256 digests of the source JAR, extracted dependencies, JDK and cache before launch; corrupted caches are preserved in place—specify a new `--cache-dir`). Normal runs fall back automatically if the cache is incompatible; pass `--strict` before `--` on `run` and check for `Using AOT-linked classes: true` to verify a cache hit. See [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html).
 
 ## Local Windows packaging
 

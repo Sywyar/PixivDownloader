@@ -60,6 +60,4 @@ Changing the username, password or Keep me signed in clears the current proof. V
 | `HOSTNAME_MISMATCH` | Check that the browser address-bar hostname, provider's allowed hostname and plugin's Expected hostname all match |
 | A policy is still unavailable after adding ALTCHA | Check whether the form still contains unconfigured Turnstile or reCAPTCHA components; remove unwanted components and republish |
 
-Disabling or uninstalling `captcha` does not bypass a published page's verification requirements; protected operations remain rejected. To remove CAPTCHA, remove the components in the page editor and republish the page.
-
-Login and invitation redemption share the host challenge and submission protocol. Direct API calls must satisfy the same published requirements. Configure only the online schemes you use; unused Turnstile or reCAPTCHA schemes require no test keys. See [Page editor](/en/page-editor) for configuring new form actions.
+Disabling or uninstalling `captcha` does not bypass a published page's verification requirements; protected operations remain rejected. To remove CAPTCHA, remove the components in the page editor and republish the page. Login and invitation redemption share the same host challenge and submission protocol, and direct API calls must also satisfy published verification requirements. Configure only the online schemes you actually use (unused Turnstile or reCAPTCHA components do not need test keys); see [Page editor](/en/page-editor) for binding new form actions.

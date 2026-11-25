@@ -23,6 +23,7 @@ PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説を�
 | スクリプトやエージェントからダウンロードを開始し、進捗を確認する | [OpenAPI とプログラムキー](/ja/http-api) |
 | Pixiv のページからダウンロード支援機能を呼び出す | [ユーザースクリプト](/ja/userscripts) |
 | PixivBatchDownloader のダウンロードをギャラリーに登録する | [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import) |
+| パステンプレートで既存のローカル画像をギャラリーに登録する | [ローカル作品インポート](/ja/local-import) |
 | 登録済み作品の閲覧、絞り込み、エクスポート、削除を行う | [作品ギャラリー](/ja/gallery) |
 | 設定、プロキシ、データベース、メディア形式を変更する | [設定リファレンス](/ja/configuration) |
 | 作品とデータディレクトリをバックアップ、復元、移動する | [ストレージとバックアップ](/ja/storage) |
@@ -37,6 +38,7 @@ PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説を�
 
 - [サードパーティープラグイン SDK](/ja/plugin-development)：テンプレートからのプロジェクト作成、拡張契約の利用、署名、投稿を説明します。
 - [主リポジトリの開発](/ja/development)：環境の準備、ビルド、テスト、PR の提出を説明します。
+- [HTTP API と権限宣言の実装](/ja/http-api-development)：機能に対応する HTTP エンドポイント、プログラムキー権限、多言語 OpenAPI 説明を追加します。
 - [SDK ダウンロード](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [バージョン別 API リファレンス](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## バージョンと問い合わせ

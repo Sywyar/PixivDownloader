@@ -4,10 +4,11 @@ Administrators browse and install plugins at `/plugin-market.html`, and use `/pl
 
 ## Approve a plugin's HTTP Hook
 
-In plugin details, HTTP Hook declarations shows each callback, target endpoint, phase and requested fields. Choose Preview approval, review permissions and affected pages, then Confirm and publish. Cancel leaves the published configuration unchanged. New declarations do not run by default.
+Plugins can declare pre-invoke or post-completion HTTP callbacks via `@HttpHook` or `OperationHook` (inactive by default). Open "HTTP Hook declarations" in a plugin's details on the plugin management page:
 
-Approved, unchanged declarations resume when the plugin is enabled again. Target or contract changes require approval again; missing or ambiguous targets cannot be approved. Disabling a plugin retains approved before guards and blocks the protected business requests. To remove a guard, choose Preview removal and confirm publication. Each action updates only the selected declaration. See [Plugin development](/en/plugin-development) for the SDK contract.
-
+1. Inspect the callback entry, target endpoint, execution phase and requested fields; click "Preview approval" to verify permissions and affected pages, then click "Confirm and publish" (cancelling leaves published configuration unchanged, and each action updates only the selected declaration).
+2. Approved, unchanged declarations resume automatically when the plugin is re-enabled; target mapping or data contract changes require re-approval, and missing or ambiguous targets cannot be approved.
+3. **Disabling or uninstalling a plugin does not remove approved pre-invoke guards** (protected endpoints remain blocked while a required pre-invoke provider is absent); to lift protection, select "Preview removal" and confirm publication. For SDK implementation details, see [Third-party plugin SDK](/en/plugin-development#declare-a-fixed-http-target-with-an-annotation).
 
 ## Install plugins and add custom repositories
 

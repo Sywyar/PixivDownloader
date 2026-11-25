@@ -23,6 +23,7 @@ PixivDownloader 将 Pixiv 插画、漫画、动图和小说下载到本地电脑
 | 用脚本或 Agent 提交下载、查询进度 | [OpenAPI 与程序密钥](/zh-cn/http-api) |
 | 在 Pixiv 网页直接调用下载辅助 | [油猴脚本](/zh-cn/userscripts) |
 | 将 PixivBatchDownloader 的下载登记到画廊 | [导入外部下载](/zh-cn/pixiv-batch-downloader-import) |
+| 按路径模板将已有本地图片登记到画廊 | [本地作品导入](/zh-cn/local-import) |
 | 浏览、筛选、导出与删除已登记作品 | [作品画廊](/zh-cn/gallery) |
 | 修改配置、代理、数据库与媒体格式 | [配置参考](/zh-cn/configuration) |
 | 备份、恢复或搬迁作品与数据目录 | [存储与备份](/zh-cn/storage) |
@@ -37,6 +38,7 @@ PixivDownloader 将 Pixiv 插画、漫画、动图和小说下载到本地电脑
 
 - [第三方插件 SDK](/zh-cn/plugin-development)：使用模板创建工程、接入扩展契约、签名与投稿。
 - [主仓库开发](/zh-cn/development)：准备环境、构建、测试与提交 PR。
+- [编写 HTTP API 与权限声明](/zh-cn/http-api-development)：为功能补充 HTTP 接口、程序密钥权限与 OpenAPI 说明。
 - [SDK 下载](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [版本化 API 参考](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## 版本与求助

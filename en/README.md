@@ -23,6 +23,7 @@ Compose is the default desktop interface, and distributions also include Swing. 
 | Submit downloads and check progress from a script or agent | [OpenAPI and program keys](/en/http-api) |
 | Use download helpers directly on Pixiv pages | [Userscripts](/en/userscripts) |
 | Register PixivBatchDownloader downloads in the gallery | [Import external downloads](/en/pixiv-batch-downloader-import) |
+| Register existing local images in the gallery using path templates | [Local artwork import](/en/local-import) |
 | Browse, filter, export or delete registered works | [Artwork gallery](/en/gallery) |
 | Change configuration, proxy, database or media formats | [Configuration reference](/en/configuration) |
 | Back up, restore or relocate work and data directories | [Storage and backup](/en/storage) |
@@ -37,6 +38,7 @@ Compose is the default desktop interface, and distributions also include Swing. 
 
 - [Third-party plugin SDK](/en/plugin-development): create a project from a template, use extension contracts, sign packages and submit them.
 - [Main repository development](/en/development): prepare the environment, build, test and submit a PR.
+- [Writing HTTP APIs and permission declarations](/en/http-api-development): add HTTP endpoints, program-key permissions and localized OpenAPI descriptions.
 - [SDK downloads](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [Versioned API reference](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## Releases and help

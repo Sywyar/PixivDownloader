@@ -12,22 +12,21 @@
 
 ## 認証情報の鍵とバックアップ
 
-インストールごとに独立したランダムなマスターキーを生成し、保護した状態で `config/credentials.key` に保存します。Windows では既定で現在のユーザーの DPAPI を使うため、サービスは常に同じアカウントで実行してください。Windows ユーザーや PC を変更する前に、認証情報を含むパスワード付き `.pdbackup` をエクスポートし、移行先でインポートしてください。設定ディレクトリのコピーだけでは復元できません。
+インストールごとに独立したランダムなマスターキーを生成し、保護された形式で `config/credentials.key` に保存します。
 
-Linux、macOS、Docker では、認証情報を初めて保存または更新する前に、別の保護用鍵ファイルが必要です。32 バイトの乱数を標準 Base64 でエンコードした内容を保存し、実行アカウントだけが読み取れるようにして、設定ディレクトリとそのバックアップの外に置いてください。OpenSSL があれば、初回に Bash で次を実行してファイルと起動用の環境変数を用意できます。既存ファイルは上書きしません。
+- **Windows**：既定で現在の OS ユーザーの DPAPI を使用するため、バックグラウンドサービスも常に同じユーザーアカウントで実行してください。Windows ユーザーや PC を変更する場合、`config/` のコピーだけでは復号できないため、移行元で認証情報を含むパスワード付き `.pdbackup` をエクスポートし、移行先でインポートしてください。
+- **Linux / macOS / Docker**：認証情報を初めて保存または更新する前に、保護用鍵ファイルを `config/` とそのバックアップの外に作成し（32 バイトの乱数を標準 Base64 でエンコードした内容、実行アカウントのみ読み取り可）、環境変数 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` または JVM 引数 `-Dpixivdownload.credential-key-file=/絶対パス` で指定します。初回作成例（`set -C` で既存鍵の上書きを防止）：
 
-```bash
-umask 077
-mkdir -p "$HOME/.config/pixivdownload-secrets"
-( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
-export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
-```
+  ```bash
+  umask 077
+  mkdir -p "$HOME/.config/pixivdownload-secrets"
+  ( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+  export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+  ```
 
-同じターミナルからアプリを起動してください。バックグラウンドサービスではサービスの環境に変数を設定します。Docker ではファイルを `/run/secrets/pixivdownload-credentials` に読み取り専用でマウントし、変数をそのコンテナ内パスに設定します。Java 起動引数 `-Dpixivdownload.credential-key-file=/絶対パス` も使えます。保護用の鍵は別途安全にバックアップし、起動のたびに生成し直さないでください。鍵がない、または一致しない場合、元の認証情報を保持して復号を拒否します。
-
-通常の読み書き時に旧形式を自動更新し、無効なプラグインの認証情報も移行します。旧鍵はこの更新にのみ使い、全ファイルの移行後は旧形式の再投入を拒否します。破損ファイルは修復と再試行のために保持し、他のプラグインは引き続き使えます。既存のオフラインバックアップの保護方式は変わりません。環境間の移行には暗号化した `.pdbackup` を使い、インポート時に移行先の鍵で再暗号化します。
-
-リポジトリの Compose テンプレートは保護用鍵を自動でマウントします。ホストの環境変数にはホスト側のファイルパスを設定し、未設定の場合は起動を拒否します。Linux ホストではコンテナのアカウント UID/GID `10001:10001` だけが読み取れるようにしてください。生成後に `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` と `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` を実行する方法があります。ファイルを使う Compose secret はホスト側の権限を引き継ぎます。
+  - 同じターミナルから起動するか、バックグラウンドサービスの環境変数に設定します。保護用鍵は別途安全にバックアップし、起動のたびに再生成しないでください（鍵の紛失や不一致時は元の認証情報ファイルを保持したまま復号を拒否します）。
+  - **Docker / Compose**：ホストの鍵ファイルを `/run/secrets/pixivdownload-credentials` に読み取り専用でマウントし、変数をそのコンテナ内パスに設定します。リポジトリの Compose テンプレートは `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` を自動マウントし、未設定時は起動を拒否します。Linux ホストではコンテナアカウント `10001:10001` だけが読み取れるよう権限を設定してください（`sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE" && sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`）。
+- **旧形式の自動アップグレード**：通常の読み書き時に旧形式の認証情報（無効なプラグインの分を含む）を自動移行し、全ファイルの移行完了後は旧形式の再投入を拒否します。破損ファイルは修復と再試行のため保持され、他のプラグインは継続動作します。環境間の移行には暗号化 `.pdbackup` を使用してください（インポート時に移行先のマスターキーで再暗号化されます）。
 
 ## 設定と環境の移行
 
@@ -209,28 +208,22 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 ## 作品の保存先ディレクトリテンプレート :id=directory-templates
 
-「設定 → ダウンロード」でイラストと小説の保存先を個別に編集します。展開後のパスが作品の保存先になり、作者名や作品 ID の階層は追加されません。相対パスはアプリの作業ディレクトリを基準に解決され、絶対パスも使えます。保存後、アプリを再起動すると反映されます。
+デスクトップの「設定 → ダウンロード」でイラストと小説の保存先ディレクトリテンプレートを個別に設定します（アプリの作業ディレクトリ基準の相対パスまたは絶対パスに対応、保存後にアプリを再起動すると反映）。展開後のパスが最終的な作品ディレクトリとなり、作者名や作品 ID の階層がさらに自動追加されることはありません。変更は以降の新規ダウンロードにのみ適用されます（既存ディレクトリの移転は[ストレージとバックアップ](/ja/storage)を参照）。
 
-作品の種類ごとに既定のテンプレートを設定します。「モードを追加」で単一作品、User、シリーズ、検索、クイック取得の保存先全体を上書きできます。未追加、削除済み、空欄のモードは、その種類の既定値を使います。モードは今回の取得方法を表し、作品がシリーズに属しているだけではシリーズモードになりません。
+- **既定テンプレートとモード別上書き**：作品種別ごとに既定テンプレートを 1 つ持ち、「モードを追加」で取得元モード（`<mode>` は `single-import`、`user`、`series`、`search`、`quick`。シリーズ所属作品でもシリーズモード取得でなければ `series` にはなりません）ごとに保存先全体を上書きできます。未追加・削除済み・空欄のモードは既定テンプレートを使います：
+  - **イラスト（ホスト `config/config.yaml`）**：`download.root-folder`（既定）と `download.mode-templates.<mode>`。
+  - **小説（`novel` プラグイン `config/plugins/novel.properties`）**：`download.novel-directory-template`（既定）と `download.novel-mode-templates.<mode>`。
+- **使用可能な変数とパスの制約**：
+  - `{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`（取得元のユーザー名）、`{R18}` をサポートします（表記は完全一致が必要。ローカルインポート用の `{page}`、`{extension}`、`{name}` は使用不可）。
+  - テンプレートには**変数が `{artwork_id}` だけのパス区間が必須**です（`novel-{artwork_id}` のように同一区間に固定文字を付けることは可能ですが、他の変数は同居できません。数字のみの小説 ID をイラストと区別するため `novel-` の付与を推奨します）。
+  - コレクション、シリーズ、`{R18}` の値がない場合は空文字に展開されます（区間全体が空になった階層は自動省略され、同一区間の固定文字は残ります）。それ以外の必須値が欠けている場合はダウンロードを拒否します。
+- **コレクション保存先によるプレフィックス置換**：専用ディレクトリを持つローカルコレクションを選択すると、テンプレート内で「最初に変数を含むディレクトリ区間」より前の固定パスがそのコレクション保存先に置き換わり、変数を含む区間以降は固定文字も含めて維持されます（例：`pixiv-download/novel-{artwork_id}` とコレクション保存先 `D:/Favorites` の組み合わせは `D:/Favorites/novel-{artwork_id}` に展開）。
+- **ローカルインポート用テンプレートとの違い**：保存先テンプレートは常にディレクトリを指すため末尾の `/` は不要ですが、[ローカル作品インポート](/ja/local-import)では末尾の `/` の有無でフォルダーテンプレートと単一ファイルテンプレートを区別します。
 
-イラストのテンプレートはホストの `config/config.yaml` にある `download.root-folder` と `download.mode-templates.<mode>`、小説のテンプレートは `novel` プラグインの `config/plugins/novel.properties` にある `download.novel-directory-template` と `download.novel-mode-templates.<mode>` に保存されます。`<mode>` は `single-import`、`user`、`series`、`search`、`quick` です。
-
-使用できる変数：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。表記は完全に一致させてください。
-
-テンプレートには、変数が `{artwork_id}` だけのパス区間が必要です。`novel-{artwork_id}` のように固定文字を加えることはできますが、同じ区間に別の変数は置けません。小説 ID も数字のみなので、イラストと区別するには `novel-` などを付けます。
-
-`{username}` は取得元のユーザー名です。コレクション、シリーズ、`R18` の値がなければ空文字になります。展開後に空になった階層は省略され、同じ階層の固定文字は残ります。その他の必須値が不足するとダウンロードは拒否されます。ローカルインポート用の `{page}`、`{extension}`、`{name}` などは保存先には使えません。
-
-既定のテンプレートと、モード別の設定例：
-
-| 用途 | テンプレート |
+| 用途 | テンプレート例 |
 | --- | --- |
 | イラストの既定値 | `pixiv-download/{artwork_id}` |
 | イラストの User モード | `pixiv-download/{username}/{R18}/{artwork_id}` |
 | 小説の既定値 | `pixiv-download/novel-{artwork_id}` |
 | 小説の User モード | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
 | シリーズモードの例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
-
-選択したコレクションに保存先がある場合、最初に変数を含むディレクトリ区間より前の固定パスを、その保存先に置き換えます。その区間から後は、固定文字も含めて残ります。たとえば `pixiv-download/novel-{artwork_id}` とコレクションの保存先 `D:/Favorites` を組み合わせると、`D:/Favorites/novel-{artwork_id}` として展開されます。
-
-このテンプレートは常にダウンロード先のディレクトリを指定するため、末尾の `/` は不要です。ローカルインポートでは末尾が `/` ならフォルダー、なければファイルを指定します。[ローカル作品インポート](/ja/local-import)を参照してください。変更は今後のダウンロードに適用され、既存ファイルは移動しません。移転方法は[ストレージとバックアップ](/ja/storage)を参照してください。

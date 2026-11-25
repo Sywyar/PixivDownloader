@@ -50,25 +50,25 @@ PixivDownloader 将下载作品、宿主运行期文件与外置插件包分目�
 
 ## 下载作品目录布局
 
-插画与小说的目录由[作品保存目录模板](/zh-cn/configuration?id=directory-templates)决定。默认插画路径为 `pixiv-download/{artwork_id}`，默认小说路径为 `pixiv-download/novel-{artwork_id}`；User 等模式可单独覆盖。下表的 `{root}` 指默认插画模板在首个变量之前的固定前缀。
+插画与小说的保存路径由[作品保存目录模板](/zh-cn/configuration?id=directory-templates)决定（默认插画为 `pixiv-download/{artwork_id}`，默认小说为 `pixiv-download/novel-{artwork_id}`，User 等取得模式可单独覆盖）。下表中的 `{root}` 指默认插画模板在首个变量之前的固定前缀：
 
 | 默认路径 | 内容 |
 | --- | --- |
 | `pixiv-download/{artwork_id}/` | 单作品、URL 批量、搜索等插画 / 漫画 / 动图（含合成的 `_p0.webp` 与 `_p0_thumb.jpg`） |
-| `pixiv-download/{username}/{R18}/{artwork_id}/` | 插画 User |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | 画师批量下载（插画 User 模式默认模板） |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫画系列封面 |
 | `pixiv-download/novel-{artwork_id}/` | 单篇小说的 TXT / HTML / EPUB 与内嵌图片 |
 | `{root}/novel-series-{seriesId}/` | 小说系列封面与合订本 |
 | `{root}/douyin/{owner}/...` | Douyin 插件默认下载目录（或该插件配置的自定义目录） |
 | `{root}/_archives/{token}.zip` | 批量导出与多人模式配额的短期压缩包 |
 
-第三方下载类型插件同样应将作品保存在 `{root}/{pluginId}/` 或用户在插件设置中指定的作品目录。工具页「旧数据与元数据导入」可从已登记作品目录导入历史 `<作品 ID>.meta.json` 快照。没有快照但路径中包含作品 ID 时，可使用[本地作品导入](/zh-cn/local-import)重新登记文件引用；路径不能恢复的元数据仍需补全。
+第三方下载类型插件同样应将作品保存在 `{root}/{pluginId}/` 或用户在插件设置中指定的作品目录。工具页「旧数据与元数据导入」可从已登记作品目录导入历史 `<作品 ID>.meta.json` 快照；若无快照但路径中包含作品 ID，可使用[本地作品导入](/zh-cn/local-import)重新登记文件引用并配合数据回填补齐元数据。
 
 ## 数据库路径前缀与目录搬迁
 
 数据库将文件路径保存为 `{N}/relative/path`：
 
-- **`{0}` 符号根**：默认插画模板的固定前缀为相对路径时（如 `pixiv-download/{artwork_id}` 的 `pixiv-download`），该前缀内的文件可记录为 `{0}/...`；启动时按当前工作目录解析。整体搬迁应用和该目录时，无需手动修改这些数据库路径。
+- **`{0}` 符号根**：当默认插画模板的固定前缀为相对路径（如 `pixiv-download/{artwork_id}` 中的 `pixiv-download`）时，该前缀下的文件记录为 `{0}/...`，启动时按「当前工作目录 + 相对前缀」动态解析。**整体搬迁整个程序目录及该相对下载目录时，无需手动修改数据库路径。**
 - **普通 `{N}` 前缀**：当下载根或收藏夹使用绝对路径时，记录引用 `path_prefixes` 表中的绝对路径前缀。
 
 只搬移作品下载根目录时：

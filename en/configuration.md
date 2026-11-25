@@ -12,22 +12,21 @@ The default `config/config.yaml` is generated on first startup. Upgrades append 
 
 ## Credential keys and backups
 
-Each installation generates an independent random master key, stored in protected form at `config/credentials.key`. Windows uses the current user's DPAPI by default; run a service under the same account each time. Before changing Windows users or computers, export a password-protected `.pdbackup` that includes credentials, then import it on the target. Copying the configuration directory alone is insufficient.
+Each installation generates an independent random master key stored in protected form at `config/credentials.key`:
 
-Linux, macOS and Docker require a separate protection key file before credentials are first saved or upgraded. It must contain the standard Base64 encoding of 32 random bytes, be readable only by the application account, and stay outside the configuration directory and its backups. With OpenSSL installed, run this once in Bash to create the file and set the launch environment. An existing file will not be overwritten:
+- **Windows**: protected by the current OS user's DPAPI by default; background services must consistently run under the same user account. When moving to another Windows user or machine, copying `config/` alone cannot decrypt existing credentials—export a password-protected `.pdbackup` including credentials from the source environment and import it on the target.
+- **Linux / macOS / Docker**: before saving or upgrading credentials for the first time, provide a separate protection key file outside `config/` and its backup directories (standard Base64 encoding of 32 random bytes, readable only by the runtime user) via the `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` environment variable or JVM argument `-Dpixivdownload.credential-key-file=/absolute/path`. One-time creation example (`set -C` prevents overwriting an existing key):
 
-```bash
-umask 077
-mkdir -p "$HOME/.config/pixivdownload-secrets"
-( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
-export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
-```
+  ```bash
+  umask 077
+  mkdir -p "$HOME/.config/pixivdownload-secrets"
+  ( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+  export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+  ```
 
-Start the application from the same terminal; background services need the variable in their service environment. For Docker, mount the file read-only at `/run/secrets/pixivdownload-credentials` and set the variable to that container path. Java also accepts `-Dpixivdownload.credential-key-file=/absolute/path`. Keep a separate secure backup of the protection key; do not regenerate it at each startup. If the key is lost or does not match, the application preserves the credentials and refuses to decrypt them.
-
-Normal credential reads and writes automatically upgrade legacy files, including credentials for disabled plugins. Legacy keys are used only for this upgrade; once every file has migrated, replayed legacy files are rejected. Damaged files remain for repair and retry while other plugins can continue. Migration does not change the protection of existing offline backups. Use an encrypted `.pdbackup` for transfers between environments; import re-encrypts credentials with the target installation key.
-
-The repository's Compose template mounts the protection key automatically. Keep the host variable set to the host file path; Compose refuses to start if it is unset. On a Linux host, give only the container account, UID/GID `10001:10001`, read access. After generating the file, for example, run `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` and `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`. File-based Compose secrets retain host permissions.
+  - Start the application from the same terminal or configure the variable in your service environment. Back up the protection key separately and never regenerate it on startup; if the key is lost or mismatched, the application preserves existing credential files and refuses decryption.
+  - **Docker / Compose**: mount the host key file read-only at `/run/secrets/pixivdownload-credentials` and point the container variable to that path. The repository's Compose template mounts `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` automatically and refuses to start if unset; on Linux hosts, restrict read access exclusively to container UID/GID `10001:10001` (`sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE" && sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`).
+- **Automatic legacy credential upgrade**: normal reads and writes automatically migrate legacy credentials (including those of disabled plugins); once all files have migrated, replayed legacy formats are rejected. Corrupted files remain in place for repair and retry without blocking other plugins. For cross-environment restore, use an encrypted `.pdbackup`, which re-encrypts credentials with the target installation's master key upon import.
 
 ## Configuration and environment migration
 
@@ -209,28 +208,22 @@ With `server.trusted-proxy-cidrs` empty, the server runs in direct-access mode a
 
 ## Work directory templates :id=directory-templates
 
-In Settings → Downloads, edit the illustration and novel directories separately. The expanded path is the final work directory; no author or artwork ID levels are appended. Relative paths resolve from the application working directory, and absolute paths are also supported. Save and restart the application to apply changes.
+Configure illustration and novel save directory templates separately under desktop "Settings → Downloads" (supports paths relative to the working directory or absolute paths; takes effect after restarting the application). The expanded path is the final work directory—no extra author or artwork ID subdirectories are appended. Changes apply only to new downloads; see [Storage and backup](/en/storage) to relocate existing directories.
 
-Each work type has one default template. Use Add mode to override the entire directory for individual works, User, series, search or quick acquisition. Modes that are absent, removed or blank use that work type's default. The mode describes how the current download was requested; belonging to a series does not select series mode.
+- **Default templates and mode overrides**: each work type has one default template. Click "Add mode" to override the full directory per acquisition source (`<mode>` is `single-import`, `user`, `series`, `search` or `quick`; belonging to a series does not select `series` mode unless downloaded via series mode). Blank or removed modes fall back to the default template:
+  - **Illustrations (host `config/config.yaml`)**: `download.root-folder` (default) and `download.mode-templates.<mode>`.
+  - **Novels (`novel` plugin `config/plugins/novel.properties`)**: `download.novel-directory-template` (default) and `download.novel-mode-templates.<mode>`.
+- **Variables and path constraints**:
+  - Supported variables: `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}` (username from the acquisition source) and `{R18}` (exact spelling required; local-import variables such as `{page}`, `{extension}` and `{name}` are not supported).
+  - Every template **must include a path segment whose sole variable is `{artwork_id}`** (fixed text in the same segment is allowed, such as `novel-{artwork_id}`, which is recommended to keep numeric novel IDs separate from illustrations).
+  - Empty collection, series or `{R18}` values expand to empty strings (entirely empty directory segments are omitted, while fixed text in the same segment is kept); missing any other required value rejects the download.
+- **Custom collection directory prefix replacement**: when downloading into a collection with its own directory, that directory replaces the fixed prefix before the first variable-bearing segment, keeping that segment and all following segments (including fixed text). For example, `pixiv-download/novel-{artwork_id}` with collection directory `D:/Favorites` expands to `D:/Favorites/novel-{artwork_id}`.
+- **Difference from local-import templates**: save directory templates always denote directories and need no trailing `/`, whereas [local artwork import](/en/local-import) uses a trailing `/` to distinguish folder templates from single-file templates.
 
-Illustration templates are stored in the host's `config/config.yaml` under `download.root-folder` and `download.mode-templates.<mode>`. The `novel` plugin stores novel templates in `config/plugins/novel.properties` under `download.novel-directory-template` and `download.novel-mode-templates.<mode>`. `<mode>` is `single-import`, `user`, `series`, `search` or `quick`.
-
-Available variables: `{artwork_id}`, `{artwork_title}`, `{author_id}`, `{author_name}`, `{collection_name}`, `{collection_id}`, `{series_id}`, `{series_name}`, `{series_title}`, `{series_order}`, `{username}` and `{R18}`. Use these exact spellings.
-
-A template must contain a path segment whose only variable is `{artwork_id}`. Fixed text is allowed in that segment, as in `novel-{artwork_id}`. Novel IDs remain numeric; use a prefix such as `novel-` to keep novel and illustration directories separate.
-
-`{username}` is the username from the acquisition source. Missing collection, series and `R18` values expand to empty strings. Entirely empty directory levels are omitted, while fixed text in the same level remains. Missing other required values rejects the download. Local-import variables such as `{page}`, `{extension}` and `{name}` are unavailable in save directories.
-
-Default templates and examples of optional mode overrides:
-
-| Use | Template |
+| Purpose | Template example |
 | --- | --- |
 | Illustration default | `pixiv-download/{artwork_id}` |
-| Illustration User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| Illustration User mode | `pixiv-download/{username}/{R18}/{artwork_id}` |
 | Novel default | `pixiv-download/novel-{artwork_id}` |
-| Novel User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
-| Series-mode example | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
-
-When the selected collection has a custom directory, it replaces the fixed path before the first directory segment containing a variable. That segment and everything after it are retained, including fixed text. For example, `pixiv-download/novel-{artwork_id}` with a collection directory of `D:/Favorites` expands using `D:/Favorites/novel-{artwork_id}`.
-
-These templates always specify download directories and do not require a trailing `/`. Local import uses a separate rule: a trailing `/` matches folders, while no trailing `/` matches files. See [local artwork import](/en/local-import). Template changes affect future downloads and do not move existing files; see [storage and backups](/en/storage) for moving directories.
+| Novel User mode | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| Series mode example | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |

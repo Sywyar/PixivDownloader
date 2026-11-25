@@ -1,60 +1,49 @@
-# HTTP API and program permissions
+# OpenAPI and program keys
+
+PixivDownloader includes an interactive OpenAPI reference and fine-grained **program access keys** (Program Keys) so scripts, automation tools or AI agents can call download, batch, gallery, translation and maintenance endpoints safely (this application provides an HTTP API only, not a standalone MCP server; for guidelines on adding new endpoints, see [Writing HTTP APIs and permission declarations](/en/http-api-development)).
 
 ## Connect a script or agent
 
-1. Open `/openapi` on your PixivDownloader instance (locally, the default is `http://localhost:6999/openapi`). Sign in as an administrator to see the available endpoints, request examples and permissions for each operation.
-2. In desktop **Settings → Access control → Program access keys**, create a key for the client’s source IP and the operations it needs. Grant `core:api-reference.read` if the script or agent will read the API reference itself. On a headless server, an administrator can manage keys through `/api/security/program-keys` using a signed-in session.
-3. A script can request `GET /api/openapi.json` with `Authorization: Bearer <program-key>` to read the OpenAPI document. For an agent, choose **Copy prompt** after creating the key to share your instance’s documentation URL. Configure the key separately. If the key lacks permission to read the document, provide the relevant operation descriptions yourself.
+1. **Browse the interactive reference**: open `/openapi` on your running instance (default `http://localhost:6999/openapi`). Access instructions are public; signing in as an administrator reveals the live endpoint catalog, request examples, required permissions, and "Related operations" links (`links` / `x-related-operations` / `externalDocs`) below each response list for jumping between follow-up calls and user guides.
+2. **Create a program access key**: under desktop **Settings → Access control → Program access keys** (or via `/api/security/program-keys` in an administrator session on headless servers), create a key, configure allowed source IPs/CIDRs and select the required permissions. Grant `core:api-reference.read` as well if the script or agent will fetch the OpenAPI specification itself.
+3. **Call endpoints or copy the agent prompt**: send `Authorization: Bearer <program-key>` to `GET /api/openapi.json` (or `HEAD /api/openapi.json` to probe access) to retrieve the machine-readable OpenAPI document. When working with an agent, click **Copy prompt** after creating the key to hand the instance documentation URL to the agent, and configure the secret key separately in the agent's environment.
 
-Anyone can open the access instructions at `/openapi`. Reading the JSON document requires an administrator session or a program key with reference access. Use `HEAD /api/openapi.json` with the same credentials to check access.
+### Key security, source restrictions and CSRF rules
 
-Use HTTPS. By default the server rejects program keys sent over HTTP from outside the local network. To allow an exception, review the risk for the individual key, then confirm public HTTP access. Editing its permissions or sources restores the HTTPS requirement. A server rejection cannot protect a key already sent in plaintext.
-
-The full key appears once at creation. The server stores its digest. Keys have no default expiry. You can change a key’s permissions and allowed sources or revoke it. Selecting a whole plugin grants only the permissions currently listed.
-
-Source restrictions accept numeric IPv4, IPv6 and CIDR networks. Restricted mode requires at least one entry; **Any source** is an explicit choice. Configure trusted proxies before using a reverse proxy. Do not combine a program key with administrator sessions, invitations or GUI credentials. Send acquisition credentials separately in `X-Acquisition-Credential`.
-
-Administrator sessions can still use existing endpoints through `X-Session-Token`. Program keys can access only methods and paths explicitly listed in the permission catalog. Other endpoints retain their human-administrator or local workflows. Key management and administrator credential changes require a human administrator. This API does not provide an MCP server.
-
-A valid Bearer key sent on its own to an operation without `programKey` receives `403 auth.program.unsupported`, even when anonymous access is allowed. An invalid key or mixed credentials can return `401 auth.program.invalid`.
-
-Cookie-authenticated writes require a same-origin check. Cross-origin browser requests are rejected; plugin management and scheduled-task endpoints also require an explicit same-origin signal. `/api/gui/**` retains its local-machine and GUI-token restrictions. Remote programs use the business endpoints below. Plugin capabilities require an active plugin and available dependencies.
-
-Use `GET /api/security/program-keys/self` to read the current key’s `id` and `permissions`, including an empty grant list. For writes, check `x-csrf-origin` even when using Bearer authentication. `POST /api/schedule/tasks` requires a same-origin Origin or Referer. `POST /api/download/tasks` and `/api/download/batches` allow a native Bearer client without browser credentials to omit both.
-
-To rotate a key, an administrator creates its replacement on the desktop Security page or through an administrator session. Switch the client, verify the new identity and grants with `GET /api/security/program-keys/self`, then have the administrator revoke the old key. Tasks submitted with the old key remain scoped to it. Finish polling them before revocation or follow them with an administrator session.
+- **One-time secret and quotas**: the full key is shown only once upon creation while the server stores only its digest (keys do not expire by default and can be edited or revoked at any time; selecting an entire plugin grants only its currently listed permissions, never a wildcard for future permissions). Each installation supports up to 128 keys (names up to 80 characters, up to 512 permissions and 64 source networks per key, and a 128 KiB management request limit).
+- **HTTPS and source IP restrictions**: plaintext HTTP requests carrying a program key from outside localhost or the local network are rejected by default (allowing public HTTP requires reviewing and confirming the risk per key, and editing permissions or sources later restores the HTTPS requirement; if a key was already sent over plaintext HTTP, treat it as exposed and revoke it). Source restrictions accept IPv4, IPv6 and CIDR ranges (restricted mode requires at least one entry, while **Any source** must be chosen explicitly; configure `server.trusted-proxy-cidrs` before running behind a reverse proxy).
+- **Authentication isolation and status codes**: never combine a program key with an administrator session (`X-Session-Token` / Cookie), invitation code or local GUI token in the same request (acquisition credentials are still passed separately via `X-Acquisition-Credential` or `X-Acquisition-Credentials`).
+  - Calling an operation that does not support program keys (including anonymous endpoints) with a valid Bearer key returns `403 auth.program.unsupported` (check `x-program-alternative` for the program-key endpoint); invalid keys or mixed credentials return `401 auth.program.invalid`.
+  - `/api/gui/**`, key management and administrator credential changes are restricted to the local GUI or human administrator sessions.
+- **Same-origin signals (`x-csrf-origin`)**: Cookie-authenticated writes must pass same-origin checks. Native Bearer clients should also check an operation's `x-csrf-origin`: for example, `POST /api/schedule/tasks` (`origin-or-referer`) requires a same-origin `Origin` or `Referer`, whereas native Bearer clients without browser Cookies may omit both headers when calling `POST /api/download/tasks` and `POST /api/download/batches`.
+- **Self-inspection, management API and key rotation**:
+  - Call `GET /api/security/program-keys/self` without extra business permissions to inspect the current key's `id` and `permissions` (which may be empty).
+  - Administrator sessions manage keys via `GET /api/security/program-keys` (list without secrets or digests), `GET /api/security/program-keys/permissions` (authoritative permission catalog for the current installation), `POST /api/security/program-keys` (create with `name`, `permissions`, `anyIp`, `networks`; returns `key` and one-time `secret`), `PUT /api/security/program-keys/{id}` (edit with `{"revision": 1, "policy": {...}}`) and `DELETE /api/security/program-keys/{id}` (revoke with `{"revision": 1}`).
+  - **Rotation workflow**: create a replacement key → switch the client and verify via `/self` → revoke the old key. Because download tasks and batches are isolated by key identity, finish polling tasks created by the old key before revocation or track them with an administrator session (revocation blocks new requests without cancelling already accepted in-flight tasks).
 
 ## Endpoint index
 
-| Feature | Endpoint |
-| --- | --- |
-| Settings, defaults and redacted values | GET `/api/settings`; GET `/api/settings/presets` |
-| Validate and save settings | POST `/api/settings/validate`; POST `/api/settings` |
-| Plugin repositories | GET / PUT `/api/settings/repositories` |
-| Database settings and connection test | GET `/api/settings/database`, `/providers`, `/status`; POST `/check` |
-| Database migration | POST `/api/settings/database/migration-previews`, `/migrations`; GET `/migration` |
-| Environment archives | POST `/api/settings/environment/preview`, `/restore`, `/exports`; GET `/restore`, `/exports`, `/exports/{id}/archive`, `/installation` |
-| Metadata backfill | GET `/api/tools/backfill/defaults`, `/tasks/current`, `/tasks/{id}`; POST `/candidates`, `/tasks`, `/tasks/{id}/cancel` |
-| Media maintenance and record-file import | GET `/api/tools/media`, `/api/tools/file-import`; under each endpoint: POST `/previews`, `/tasks`, `/tasks/cancel`, GET `/tasks/current` |
-| Media capabilities and import acknowledgement | POST `/api/tools/media/capabilities`; POST `/api/tools/file-import/completion/acknowledge` |
-| Tool history and log attachments | GET `/api/tools/history`, `/api/tools/logs/{fileName}` |
-| Directory references | GET / POST `/api/tools/directories` |
-| Path prefixes | `/api/tools/path-prefixes` |
-| Image classification | `/api/tools/classifier/settings`, `/folders`, `/images`, `/image`, `/moves` |
-| FFmpeg status and installation | GET `/api/tools/ffmpeg`; POST `/api/tools/ffmpeg/tasks` |
-| System and control center | `/api/admin/system`, `/api/admin/control-center` |
-| AI, mail and push tests | `/api/admin/ai/test`, `/models`; `/api/admin/mail/test`, `/test-all`; `/api/admin/push/test`, `/test-all` |
-| Application updates | `/api/admin/update/check`, `/last`, `/download`, `/download/progress`, `/install` |
-| Individual downloads and history | `/api/download/tasks`, `/api/download/tasks/history` |
-| Background manual batches | `/api/download/batches` |
+Short paths in the same row share the first path's prefix. See the [Program permission list](#program-permission-list) below or `/openapi` for full paths covering translation (`/api/translation/**`), glossaries, narration, galleries, collections, schedules, maintenance and the plugin market.
 
-Short paths in a row share that API family's prefix. Translation already uses `/api/translation/**`; glossary, narration, galleries, collections, schedules, maintenance and the plugin market retain their own endpoints. Desktop windows, file pickers and opening a local browser are client operations.
+| Feature | Main endpoints |
+| --- | --- |
+| Settings, defaults, redacted values and presets | `GET /api/settings`, `GET /api/settings/presets` |
+| Validate and save settings | `POST /api/settings/validate`, `POST /api/settings` |
+| Plugin repositories | `GET` / `PUT /api/settings/repositories` |
+| Database settings, connection check and migration | `GET /api/settings/database`, `/providers`, `/status`, `/migration`; `POST /check`, `/migration-previews`, `/migrations` |
+| Environment archive export and restore | `POST /api/settings/environment/preview`, `/restore`, `/exports`; `GET /restore`, `/exports`, `/exports/{id}/archive`, `/installation` |
+| Metadata backfill | `GET /api/tools/backfill/defaults`, `/tasks/current`, `/tasks/{id}`; `POST /candidates`, `/tasks`, `/tasks/{id}/cancel` |
+| Media maintenance and record-file import | `GET /api/tools/media`, `/api/tools/file-import` (`POST /previews`, `/tasks`, `/tasks/cancel`, `GET /tasks/current` under each); `POST /api/tools/media/capabilities`; `POST /api/tools/file-import/completion/acknowledge` |
+| Local artwork import and startup cache | `GET /api/local-import/presets`, `POST /previews`, `POST /tasks`; `GET /api/tools/startup-cache`, `POST /tasks`, `POST /tasks/{id}/cancel` |
+| Directory references, path prefixes and image classification | `GET` / `POST /api/tools/directories`; `/api/tools/path-prefixes`; `/api/tools/classifier/settings`, `/folders`, `/images`, `/image`, `/moves` |
+| FFmpeg status/install and tool history/logs | `GET /api/tools/ffmpeg`, `POST /api/tools/ffmpeg/tasks`; `GET /api/tools/history`, `/api/tools/logs/{fileName}` |
+| System, control center and updates | `/api/admin/system`, `/api/admin/control-center`; `/api/admin/update/check`, `/last`, `/download`, `/download/progress`, `/install` |
+| AI, mail, push and inbox notification tests | `/api/admin/ai/test`, `/models`; `/api/admin/mail/test`, `/test-all`; `/api/admin/push/test`, `/test-all`; `/api/admin/notifications/test`, `/test-all` |
+| Individual downloads, history and manual batches | `/api/download/tasks`, `/api/download/tasks/history`; `/api/download/batches` |
 
 ## Save settings
 
-Read the field catalog first, then submit the returned `owner`, `packageId`, `generation` and `key`. Host fields use null owner/packageId and generation 0. Sensitive fields return only a `stored` flag, never the value or a secret default. `KEEP`, `SET` and `CLEAR` retain, replace and remove values. Presets are field-value maps applied through the same save endpoint. `effect` describes when a setting takes effect; saving does not itself restart the backend or process.
-
-Example body for POST `/api/settings/validate` or `/api/settings`:
+Read the field catalog with `GET /api/settings` first, then submit changes using each field's `owner`, `packageId`, `generation` and `key` (host fields use `null` for `owner`/`packageId` and `0` for `generation`). Sensitive fields return only a boolean `stored` flag, never plaintext or default secrets; use `action` (`KEEP`, `SET` or `CLEAR`) to retain, replace or clear them. The response's `effect` indicates how changes take effect (saving does not automatically restart the backend or process):
 
 ```json
 {
@@ -71,147 +60,120 @@ Example body for POST `/api/settings/validate` or `/api/settings`:
 }
 ```
 
-Repository edits must carry the `revision` returned by GET. Adding a repository or changing its trust, address or network policy requires `trustConfirmed:true`. Refresh after a revision conflict instead of overwriting another edit. Connection tests and temporary tool options do not save configuration.
+Apply presets through the same save endpoint. Repository edits (`PUT /api/settings/repositories`) must carry the `revision` from `GET` and include `"trustConfirmed": true` when adding a repository or changing trust, URLs or network policies (reload on revision conflict rather than overwriting concurrent edits). Database connection checks and per-run tool options apply only to that operation and do not write configuration files.
 
 ## Background manual batches
 
-1. GET `/api/schedule/sources` for the current `sourceType` and `activationToken`. The source plugin defines its input format.
-2. POST `/api/download/batches` with `name`, `sourceType`, `activationToken`, `definition` and optional `proxy`. Send `definition` as a JSON object, up to 1 MiB after serialization to UTF-8. The entire request is limited to 8 MiB.
-3. Query the returned UUID with GET `/api/download/batches/{id}` and `/{id}/items?offset=0&limit=100`. An item is identified by batch UUID plus `workType` and `id`, not an individual download execution UUID.
-4. POST `/{id}/pause`, `/cancel`, `/resume` or `/retry` to pause, cancel, resume discovery or retry only failed items. Stopping is terminal only after execution really exits. Retrying discovered failures does not finish an incomplete source scan.
-5. DELETE `/{id}` while idle to remove the record. A process retains one batch; delete it before creating another. Batch results do not survive process restarts.
+Each process retains at most one manual batch at a time (execution continues in the background if the client disconnects, but does not survive a process restart; delete an idle batch before creating a new one):
 
-On submission, a 403 response includes `programPermission` when the required grant is known. For `auth.program.unsupported`, consult the operation’s `x-program-alternative`. After a 202, follow `Location` with `core:batches.read`. A failed batch can report the missing executor grant in `programPermission`.
+1. **Discover sources**: `GET /api/schedule/sources` returns available `sourceType` values and their `activationToken` (interpreted by the source plugin; supports `explicit-list`, artist posts, commissions, search, series, bookmarks, followed new works and collections).
+2. **Create a batch**: `POST /api/download/batches` with `name`, `sourceType`, `activationToken`, `definition` (JSON object, up to 1 MiB serialized in UTF-8; 8 MiB total request limit) and optional `proxy`. A `403` response reports any known missing grant in `programPermission`; after `202`, follow `Location` with `core:batches.read` (if background execution lacks a grant, the batch result likewise reports `programPermission`).
+3. **Poll status and items**: `GET /api/download/batches/{id}` returns batch status (use `state` for lifecycle phase; `code` is an optional reason code such as `batch.work-failed`—inspect `items`—or `schedule.pixiv.discovery-not-found` when an author ID should be checked), and `GET /api/download/batches/{id}/items?offset=0&limit=100` pages through items (up to 200 per page; each item is identified by batch UUID + `workType` + `id`, distinct from an individual download task UUID).
+4. **Control and resume**: `POST /api/download/batches/{id}/pause`, `/cancel`, `/resume` and `/retry` pause, cancel, resume discovery or retry discovered failures only (stopping states become terminal only after in-flight execution exits; completed and filter-skipped works are not re-run on resume).
+5. **Replace credentials, resolve pending items and delete**:
+   - While idle, call `PUT /api/download/batches/{id}/credentials` (`{"expectedRun": 1}`, up to 16 KiB; pass new credentials via request header or omit the header to clear them—credentials are re-probed before resuming).
+   - Call `POST /api/download/batches/{id}/resolve` with `expectedRun`, `workType`, `workId`, `reasonCode`, `userAction` and `rememberForRun` (up to 16 KiB; reason and run must match the pending record).
+   - While idle, call `DELETE /api/download/batches/{id}` to remove the batch record.
 
-For the `search` source, `download.pageDelayMs` sets the minimum time in milliseconds between the starts of successive page requests. The default is 0 for a fixed page count and 10000 for `maxPages=-1`. Set 0 to skip the extra wait. Send the object below as `definition` in a manual batch, or serialize it as the `definitionJson` string in a scheduled task. Shared download profiles use `settings.pageDelayMs` and accept `null` for the default.
+A batch accepts at most 5,000 items and a 64 MiB encoded-content reservation budget (whichever is reached first). Filters support content rating, AI, tags, illustration type, page count, novel word count and minimum bookmark count (works with unknown bookmark counts do not pass an active bookmark filter).
 
-```json
-{"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
-```
+- **Search page delay (`pageDelayMs`)**: search sources accept `download.pageDelayMs` for the minimum interval in milliseconds between the starts of consecutive page requests (defaults to `0` for fixed page counts and `10000` for `maxPages = -1`; pass `0` explicitly to skip the extra wait). Pass the JSON object in `definition` for manual batches (scheduled tasks serialize it into `definitionJson`; shared download profiles use `settings.pageDelayMs`, where `null` selects the default):
 
-`explicit-list` accepts mixed artwork and novel entries. Put this object in `definition`. Work IDs must be positive decimal integer strings, with no duplicate ID within a type:
+  ```json
+  {"source":{"word":"landscape","maxPages":3},"download":{"pageDelayMs":5000}}
+  ```
 
-```json
-{
-  "kind": "mixed",
-  "source": {
-    "acquisitionMode": "single-import",
-    "works": [
-      {
-        "kind": "illust",
-        "id": "123"
-      },
-      {
-        "kind": "novel",
-        "id": "456"
-      }
-    ]
-  },
-  "filters": {
-    "content": "safe",
-    "aiFilter": "exclude",
-    "tagsExact": [],
-    "tagsFuzzy": []
-  },
-  "download": {
-    "concurrent": 1,
-    "intervalMs": 1000,
-    "bookmark": false
+- **Mixed work list (`explicit-list`) `definition` example** (work IDs must be positive decimal integer strings without duplicates within the same type; replace the sample IDs with actual works—omitting `/definition/source/acquisitionMode` returns 400 before batch creation):
+
+  ```json
+  {
+    "kind": "mixed",
+    "source": {
+      "acquisitionMode": "single-import",
+      "works": [
+        {"kind": "illust", "id": "123"},
+        {"kind": "novel", "id": "456"}
+      ]
+    },
+    "filters": {
+      "content": "safe",
+      "aiFilter": "exclude",
+      "tagsExact": [],
+      "tagsFuzzy": []
+    },
+    "download": {
+      "concurrent": 1,
+      "intervalMs": 1000,
+      "bookmark": false
+    }
   }
-}
-```
+  ```
 
-Replace the example work IDs with your targets. Other sources cover author posts, requests, search, series, bookmarks, followed works and collections. Filters cover content rating, AI, tags, artwork type, pages, novel word count and bookmark count. An unknown bookmark count cannot pass an active bookmark filter. Resuming does not rerun completed or filtered-out items.
+## Tools, gallery bulk operations and restart operations
 
-A batch accepts at most 5,000 items and reserves at most 64 MiB of encoded content, whichever limit is reached first; this is not a JVM heap guarantee. Pages contain at most 200 items. PUT `/{id}/credentials` with `{"expectedRun":1}` replaces credentials from the request header; omitting the header clears them. The batch must be idle at that run number, and credentials are probed again before resuming. POST `/{id}/resolve` takes `expectedRun`, `workType`, `workId`, `reasonCode`, `userAction` and `rememberForRun`. The reason and run must match the pending record. Both bodies are limited to 16 KiB.
+All path parameters in tool endpoints refer to the **server's local filesystem**, not the remote client machine:
 
-## Tools and restart operations
+- **Media maintenance and record-file import**: `GET` the tool catalog first, then preview with the exact `identity` (`pluginId`, `packageId`, `generation`, `publication`) and `options`; start execution with the same `identity` and preview `token`, and include `executionId` when cancelling (old tokens/UUIDs are invalidated if a plugin generation changes or the desktop starts a replacement task).
+- **Metadata backfill and manual recovery**: `POST /api/tools/backfill/tasks` (4 KiB body limit; `limit: 0` selects all candidates; `202` indicates acceptance):
 
-For media maintenance and record-file import, read the catalog, then preview using its exact `identity` (pluginId/packageId/generation/publication) and `options`. Start with the same identity and preview `token`; cancellation also requires `executionId`. Old tokens or UUIDs cannot affect a replacement plugin or a new task started by the desktop. Paths refer to the server filesystem, not the remote client's machine.
+  ```json
+  {
+    "delayMs": 0,
+    "artworkIds": [12345],
+    "dryRun": true,
+    "alwaysNetwork": false
+  }
+  ```
 
-Example for POST `/api/tools/backfill/tasks`:
+  To patch missing fields on a single illustration directly, call `POST /api/library/artworks/{artworkId}/recover-metadata` (preserves existing non-empty values and returns 400 on missing/empty payloads; to fetch tags and series from Pixiv, run a backfill scoped to the artwork IDs—see [fill in metadata after import](/en/local-import?id=metadata-backfill)).
+- **Gallery file-management filter and bulk export/delete**:
+  - `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` filters works referencing external read-only files (deletion removes only the database record while keeping source files); `MANAGED` indicates application-managed files (deleted along with the record, retaining `deleted=true` for duplicate checks).
+  - Illustration and novel bulk endpoints support `"mode": "filter"` (across all matching pages; `filter` must be a JSON object) or an `ids` array of positive JSON integers such as `42` (decimals, strings, zero or negative numbers return HTTP 400 with the offending `field`). Passing an unrestricted `"filter": {}` (or pagination-only fields) selects all works of that type—deleting or exporting with source cleanup then requires `"confirmAll": true` and the corresponding gallery delete permission.
+  - When export returns `archiveToken`, poll `GET /api/archive/status/{token}` (`core:archives.read`) until `ready`, then download via `GET /api/archive/download/{token}` (`core:archives.download`).
+- **Image classification, startup cache, database migration and environment archives**:
+  - Classifier moves report file copying, source directory removal and database registration separately—inspect partial outcomes before retrying.
+  - Train the startup cache with `POST /api/tools/startup-cache/tasks` (`{}`) and poll `GET /api/tools/startup-cache`.
+  - Database migration and environment restore both confirm execution using their preview `token` (`RESTORE_PENDING` delegates restoration to a replacement process). Environment export (`POST /api/settings/environment/exports`) requires an absolute server `destination` (never overwrites existing files) and `"confirmRestart": true`, plus a `password` whenever credentials, databases or state are included (`includeResources` also requires `includeDatabases`); export stops the backend and requests a full process restart (start the application manually if automatic restart fails). Installing an online update requires the verified installer package's SHA-256.
 
-```json
-{
-  "delayMs": 0,
-  "artworkIds": [12345],
-  "dryRun": true,
-  "alwaysNetwork": false
-}
-```
+## Error handling, polling and pagination
 
-`limit:0` means all candidates; the body limit is 4 KiB. A 202 response means accepted, so keep querying that execution. Classification moves report copying, source removal and database registration separately. Inspect partial results before retrying a move.
+Error responses return a stable machine `code` and localized `error` (`400` invalid input, `401`/`403` authentication or permission denied, `404` target not found, `409` busy/revision conflict/disallowed state, `413` payload too large, `503` plugin or database capability unavailable). Handle errors by business state rather than blindly retrying all non-2xx responses.
 
-Confirm database migration with the preview token. Environment restore takes a preview token, selected fields, path mappings and password; `RESTORE_PENDING` means a replacement process will perform the restore. Export requires an absolute server `destination` and `confirmRestart:true`, with optional `password`, `includeCredentials`, `includeDatabases`, `includeState` and `includeResources`. Resources require databases; credentials, databases or state require a password. An existing destination is never overwritten. The backend stops, exports and requests a full restart; reconnect to query the result. If restart fails, start the application manually. Update installation requires the verified package's current SHA-256.
+- **Single-work download submission and polling (`POST /api/download/tasks`)**:
+  - Choose an active `workType` from `x-download-submissions` (unregistered types return `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`; if the upstream source reports 404 during metadata lookup, initial submission returns `404 WORK_NOT_FOUND`; querying a task ID not visible to the caller returns `404 DOWNLOAD_TASK_NOT_FOUND`).
+  - Parameter errors include `in`, `field` (a JSON Pointer such as `/options/pages` for body fields, or the declared parameter name for query/path/header/multipart inputs) and `reason` (such as `out_of_range`).
+  - After receiving `202`, poll `Location` (where `taskId` is `task.attempt.attemptId` from the receipt): start at a **2-second** interval, back off gradually up to **10 seconds** while `revision` is unchanged, reset to 2 seconds on change, and stop once `phase` is `COMPLETED`, `FAILED` or `CANCELLED` (always respect `Retry-After`). When `progress` is non-null, read `progress.unit` (`PAGES`, `IMAGES` or `BYTES`), `completed` and `total` together.
+  - **Idempotency and history**: retrying the same command with the same caller and `requestId` returns the original receipt while the in-process idempotency entry remains active (entries expire about 5 minutes after a terminal result is saved); `GET /api/download/tasks/history` lists persisted terminal records only (default 50 per page, max 200) and does not resume in-flight downloads.
 
-`POST /api/library/artworks/{artworkId}/recover-metadata` fills missing fields from supplied values. A missing, unreadable or empty payload returns `400`. To fetch tags and series through the backend, start a backfill scoped to the imported artwork IDs. [Fill in metadata after import](/en/local-import?id=metadata-backfill)
-
-Use `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` to list works that reference external files. MANAGED files are removed when the work is deleted. EXTERNAL_REFERENCE means the current record references external files, which are kept on deletion. After deletion, the library keeps the record with `deleted=true` for duplicate detection.
-
-On `/openapi`, find **Related operations** directly below the list of responses and follow a link. For example, the local import presets link to the scan preview. The server caches the document and its links by language. Reload the page after the catalog changes, such as when a plugin registers new routes.
-
-Open `externalDocs` for the operation’s guide. Response `links` describe a follow-up request with parameters taken from the response. `x-related-operations` prioritizes declared alternatives and response links, then routes in the description and operations sharing resource names or a group. Check the target operation’s inputs and permissions. `x-related-guides` lists guides for these operations.
-
-An artwork or novel filter applies to all matching works across pages. With `"mode":"filter"`, supply a JSON object for `filter`. ID arrays accept positive JSON integers such as `42`. A decimal such as `42.9`, a string such as `"42"`, zero or a negative number returns HTTP 400. Use `field` to locate the error. An explicit `"filter":{}` or a `filter` containing only pagination selects all works of that type. For deletion or export with source cleanup, confirm an unrestricted selection with `"confirmAll":true`. Program keys need the corresponding delete grant for export with cleanup. When an export returns `archiveToken`, poll `GET /api/archive/status/{token}` (`core:archives.read`). Once `ready`, fetch `GET /api/archive/download/{token}` (`core:archives.download`).
-
-## Errors and history
-
-When you look up illustration or novel metadata or submit a download through `POST /api/download/tasks`, `404 WORK_NOT_FOUND` means the source could not find the work for the current identity. Check the work ID and its visibility. When you look up a task by ID, `404 DOWNLOAD_TASK_NOT_FOUND` means the caller cannot find that task.
-
-When polling a manual batch, use `state` to determine its status. The reason `code` can be null or come from a source or account policy plugin. For `batch.work-failed`, inspect the batch’s `items`. For `schedule.pixiv.discovery-not-found` in an author batch, check the author ID. Continue using `state` if you encounter an unfamiliar code.
-
-Errors contain a machine `code` and localized `error`. 400 means invalid input, 401/403 authentication or authorization failure, 404 an unknown identity, 409 busy/conflicting/disallowed state, 413 an oversized body and 503 an unavailable capability. Handle the business state rather than retrying every non-2xx response.
-
-After `POST /api/download/tasks` returns 202, poll the URL in `Location`. The path parameter `taskId` is `task.attempt.attemptId` in the receipt.
-
-Start polling every 2 seconds. If `revision` stays the same, increase the interval up to 10 seconds. Return to 2 seconds after an update. Stop when `phase` is `COMPLETED`, `FAILED` or `CANCELLED`. If a response includes `Retry-After`, wait at least that long before the next request.
-
-Use `workType` from `x-download-submissions`. An unpublished type returns `400 DOWNLOAD_TASK_UNSUPPORTED_WORK_TYPE`. For a body field, `field` is a JSON Pointer. For a query, path, header or multipart parameter, `field` is its name on the wire. Use `in`, `field` and `reason` when present to locate the problem. For example, `/options/pages` with `out_of_range` identifies a page outside the work. An `explicit-list` batch missing `/definition/source/acquisitionMode` returns 400 before the batch is created.
-
-Read `progress.unit`, `completed` and `total` together when present. They measure the current step of this attempt. Use `phase` to detect terminal success. A null `progress` means there is no measurement.
-
-| Value | Where to read or send it |
+| Data item | Read and write conventions |
 | --- | --- |
-| Pixiv work ID | Gallery `artworkId` and export `ids[]` are JSON integers. Pixiv search `id`, task `workId` and batch `key.id` are strings. Preserve integer precision when converting. Other providers define their own `workId`. |
-| Download settings | Single task `options`: `{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`. Batch `definition.download`: `{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`. |
-| Time and files | Task `updatedAt` is ISO 8601. Batch `createdTime`, gallery `time` and schedule `nextRunTime` use Unix milliseconds. `outputPath` is the server directory planned for this attempt. Gallery `folder` is the recorded library location. Match works by ID. |
-| Response shape | `GET /api/authors` returns an array. `GET /api/authors/paged` returns a page with `content`. `GET /api/downloaded/statistics` returns an object with `success` and counts. |
+| Pixiv work IDs | Gallery `artworkId` and export `ids[]` are JSON integers; Pixiv search `id`, download task `workId` and batch `key.id` are decimal strings (preserve 64-bit integer precision when converting; third-party download plugins define their own `workId` format) |
+| Download option types | Single-task `options` use string values (`{"bookmark":"true","mediaQuality":"80","mediaWebpLossless":"true"}`); batch `definition.download` uses native JSON types (`{"bookmark":true,"mediaQuality":80,"mediaWebpLossless":true}`) |
+| Timestamps and paths | Task `updatedAt` uses ISO 8601; batch `createdTime`, gallery `time` and schedule `nextRunTime` use Unix milliseconds. Task `outputPath` is the planned server directory while gallery `folder` is the registered library path; correlate works by ID |
+| Common response shapes | `GET /api/authors` returns a JSON array; `GET /api/authors/paged` returns a page object with `content`; `GET /api/downloaded/statistics` returns an object with `success` and counts |
 
-| Endpoint | Pagination | Fetching the next page |
+| Paginated endpoint | Parameters | How to fetch the next page |
 | --- | --- | --- |
-| `GET /api/gallery/artworks` | `page`, `size` | Pass `page=0` for the first page, then increment `page`. |
-| `GET /api/download/batches/{id}/items` | `offset`, `limit` | Start at `offset=0` and advance by the number of items received. |
-| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | Omit both cursor fields on the first request. Send the returned pair together for the next page. |
-| `GET /api/pixiv/search` | `page` | Start at page 1. Values below 1 select page 1. |
-| `GET /api/plugin-market/catalog` | `cursor`, `limit` | Pass `nextCursor` as `cursor` for the next page. A plugin’s version list returns `nextVersionCursor`. |
-
-Download task history defaults to 50 records per page, up to 200. It lists persisted terminal results and does not restore active downloads. An identical submission with the same caller and `requestId` returns the original receipt while the process retains its idempotency entry. Once the terminal result is saved, the entry can expire five minutes after the task ended. A later submission can start a new task. Tool history and batch results have separate retention rules.
+| `GET /api/gallery/artworks` | `page`, `size` | Pass `page=0` for the first page, then increment `page` by `1` |
+| `GET /api/download/batches/{id}/items` | `offset`, `limit` | Start at `offset=0` and advance `offset` by the number of items returned |
+| `GET /api/download/tasks/history` | `limit`, `beforeTime`, `beforeId` | Omit both cursor parameters on the first page; pass the returned `beforeTime` and `beforeId` pair for subsequent pages |
+| `GET /api/pixiv/search` | `page` | Start at `page=1` (values below `1` are treated as page 1) |
+| `GET /api/plugin-market/catalog` | `cursor`, `limit` | Pass `nextCursor` as `cursor` (plugin version lists return `nextVersionCursor`) |
 
 ## Program permission list
 
-An administrator can read the authoritative catalog for the current installation with GET `/api/security/program-keys/permissions`. The table lists built-in declarations; consult the current catalog for external plugins. `*` represents one path segment. Keys store explicit permissions, not plugin or path wildcards.
-
-Shared settings, media tools and file imports require both the `core` entry permission and the same permission for the target plugin. Catalogs filter targets by these grants. Individual downloads require `core:downloads.create` plus `downloads.create` for the actual download-type owner. Batches require `core:batches.create` or `core:batches.resume`, plus `batches.execute` for the source and every work plugin in the execution plan. Read source metadata with `core:schedule.sources.read`.
-
-Programs can query, cancel and manage only their own download tasks and batches. Administrators retain installation-wide access. There is still one batch per process; more keys do not add batch slots. Translation, tools, settings, logs, databases and environment permissions apply to the corresponding plugin or installation, not private copies per key. Database migration and environment archives cover selected content across the installation.
-
-Key management requires an administrator session: GET `/api/security/program-keys` lists keys, GET `/permissions` reads the catalog, POST the root creates a key, PUT `/{id}` edits it and DELETE `/{id}` revokes it. Creation accepts `name`, `permissions`, `anyIp` and `networks`. Edits use `{"revision":1,"policy":{...}}`; revocation uses `{"revision":1}`. Use the revision returned by a read. Refresh after a conflict instead of overwriting another edit. Creation returns `key` and a one-time `secret`; lists return neither secrets nor digests.
-
-An installation supports at most 128 keys. Each key allows an 80-character name, 512 permissions and 64 source networks. Management bodies are limited to 128 KiB. Last-used time records successful authentication observed in the current process. Revocation blocks new requests without cancelling already accepted tasks.
-
-Startup cache operations use GET `/api/tools/startup-cache`, POST `/api/tools/startup-cache/tasks` and POST `/api/tools/startup-cache/tasks/{id}/cancel`. Start with `{}`. Acceptance does not establish successful training; keep reading status.
+Query `GET /api/security/program-keys/permissions` with an administrator session for the current installation's live permission catalog. Keys accept only exact permission IDs, never plugin or path wildcards (`*` in the table below denotes a single path segment):
 
 ### Permission scope and dedicated workflows
 
-Scheduled tasks require the exact action permission under `core:schedule.*` and the source plugin's `schedule.manage`. Account-policy actions require the policy owner's same permission. Lists are filtered by authorized source. The `*` here groups permissions in documentation; it is not a grant you can save. Schedules are persistent installation settings, and authorization delegates the source's complete scheduling workflow. Revoking the creating key does not delete or disable schedules. Disable or delete a schedule to stop future runs.
-
-Plugin lifecycle, enabled-state and trust changes require both the corresponding `core:plugins.*` action and `<plugin>:plugins.manage` for the target. Dependency consumers also require authorization. Installed, manageable plugins remain selectable while unloaded. Installation grants allow packages and their dependencies to execute server-side code. Global Hook publication grants allow security-policy changes; grant them with that scope in mind.
-
-Shared credentials have separate `core:credentials.read`, `core:credentials.write` and `core:credentials.use` permissions. Reads return information, never secrets. Referencing stored credentials with `X-Acquisition-Credentials` requires `credentials.use` in addition to the business permission. Supply a credential for the current operation directly through `X-Acquisition-Credential`.
-
-Gallery, novel-library, collection, inbox, archive, page-editor, update and maintenance permissions apply to the shared installation, not just data created by the key. Download tasks and manual batches remain isolated by key identity. Local maintenance, recovery and legacy metadata migration still require a local source. Permissions do not replace origin checks, confirmations, revisions or leases.
-
-Identity setup, key management, GUI tokens, CAPTCHA, browser collection tickets, anonymous quotas and page assembly retain their dedicated workflows. Programs use `/api/download/tasks` for downloads and progress, `/api/tools/file-import` for file imports, `/api/library/artworks/{id}` for artwork management and `/api/page-editor` for page operations. Inbox tests use `/api/admin/notifications/test` or `/test-all`. Legacy browser compatibility routes do not receive separate program grants.
+- **Composite permission checks**:
+  - **Shared settings, media maintenance and file import**: require both the `core` entry permission and the target plugin's matching permission (catalogs filter targets to authorized plugins).
+  - **Individual downloads and manual batches**: individual downloads require `core:downloads.create` + `<plugin>:downloads.create` for the download-type owner; manual batches require `core:batches.create` (or `core:batches.resume`) + `<plugin>:batches.execute` for the source plugin and every work plugin in the execution plan (reading the source catalog requires `core:schedule.sources.read`).
+  - **Persistent scheduled tasks**: require the specific action under `core:schedule.*` + `<plugin>:schedule.manage` for the source plugin (account-policy actions require the policy owner's matching permission; schedules are installation-wide persistent configuration, so revoking the key that created a schedule does not delete or disable it).
+  - **Plugin lifecycle and security policies**: require the specific `core:plugins.*` action + `<plugin>:plugins.manage` for the target plugin (plus consumer authorization when reverse dependencies exist; `core:plugins.install` and `plugin-market:install` allow server-side code execution, and `core:hooks.publish` modifies global operation protection policies—grant with care).
+  - **Acquisition credentials**: `core:credentials.read` returns credential names and statuses without secrets; referencing stored shared credentials via `X-Acquisition-Credentials` requires `core:credentials.use` in addition to the business permission (supplying a one-off credential directly still uses `X-Acquisition-Credential`).
+- **Data isolation vs. installation-wide scope**: download tasks and manual batches are isolated per key identity (a key can query, cancel and manage only its own tasks and batches, while administrators retain global visibility; all keys still share the single per-process manual batch slot). Gallery, novel library, collections, translation, inbox, archives, page editor, settings, logs, updates, maintenance, database migration and environment archives operate directly on the shared installation rather than per-key copies; local-only maintenance and recovery endpoints still enforce local loopback origin checks.
+- **Dedicated program endpoints**: identity setup, key management, GUI tokens, CAPTCHA challenges, browser collection tickets, anonymous quotas and page assembly retain their dedicated flows, and legacy browser-compatibility routes do not grant program-key access. Use `/api/download/tasks` (downloads and progress), `/api/tools/file-import` (record-file import), `/api/library/artworks/{id}` (artwork management), `/api/page-editor` (page editing) and `/api/admin/notifications/test` or `/test-all` (inbox notification tests).
 
 | Permission | Purpose | Method and path |
 | --- | --- | --- |

@@ -6,23 +6,19 @@
 
 ## 运行时概览与代理路由
 
-管理员 HTTP 调用也可触发现有运行期请求：回填、来源发现、下载、AI/邮件/推送测试、FFmpeg 安装及更新检查/下载。宿主和所属插件沿用下列目标、凭据和代理规则；测试参数仅当次有效，不改变已保存设置。这些请求仅在调用时启动，可停止任务或停用对应功能以停止后续工作。HTTP 批次可在客户端断开后继续执行。
-
-- **触发原则**：AI、翻译、TTS、推送、邮件、验证码和 Douyin 仅在启用且被调用时联网；`notification` 插件启用后会在后台定期拉取签名公告索引；启用在线更新与自动检查时，宿主在启动就绪后检查 GitHub Releases；桌面与无头服务在就绪后按需后台回填缺失的已登记作品元数据。
+- **触发原则**：AI、翻译、TTS、推送、邮件、验证码和 Douyin 仅在启用且被调用时联网；管理员或程序密钥调用 HTTP API（数据回填、来源发现、下载与后台批次、AI/邮件/推送测试、FFmpeg 安装、更新检查与下载）同样按需触发对应插件请求（测试参数仅当次有效，HTTP 批次可在客户端断开后继续执行，停止任务或停用功能即停止后续请求）。`notification` 插件启用后在后台定期拉取签名公告索引；启用在线更新与自动检查时，宿主在启动就绪后检查 GitHub Releases；桌面与无头服务在就绪后按需后台回填缺失的已登记作品元数据。
 - **插件市场**：`plugin-catalog.enabled`、官方仓库与社区仓库默认开启，但应用启动本身不拉取远程清单；仅在管理员页面检查插件更新、打开/刷新市场、预览仓库、安装插件或手动刷新撤销信息时请求对应仓库。
 - **PostHog 调查**：布局调查（`download-workbench`）与多人模式调查（`multi-mode-decision-survey`）的公开参数保存在插件源码的 `posthog-config.js`；普通源码与 fork 构建生成的 `release-activation.js` 默认为 `false`，默认不连接 PostHog。
-- **出站代理路由**：
+- **出站代理路由与重试边界**：
   - Pixiv、在线更新、FFmpeg 自动下载、官方/社区插件仓库、服务端验证码校验与公告同步沿用宿主或任务级代理设置。
   - AI、翻译、TTS 和 Douyin 支持功能级或任务级的直连 / 代理选择；`direct-strict` 自定义插件仓库强制直连。
   - SMTP 使用 `mail` 插件自有连接与可选 SOCKS 代理；PostgreSQL JDBC 直连目标数据库服务器，不走 HTTP 代理。
   - 浏览器同源 API、介绍页 Google Fonts、浏览器端 Web Speech API、验证码前端控件、PostHog 与油猴脚本由浏览器直接发起，不经过 Java 后端代理。
-
-插件使用宿主管理的 HTTP 客户端时，传输层不因限流、服务不可用或连接错误自动重发请求。需要重试的功能自行控制次数与等待，具体策略见对应功能说明。
+  - 插件使用宿主受管 HTTP 客户端时，传输层不会对限流、服务不可用或连接错误自动重发请求；需重试的功能在业务层按各自策略控制次数与退避。
 
 ## 核心宿主与默认请求
 
-- **本地导入指南**：只有点击设置页或工具页的「使用说明与示例」才由系统浏览器打开 `https://sywyar.github.io/PixivDownloader/`。页面从 `cdn.jsdelivr.net` 加载 docsify 资源，从 `raw.githubusercontent.com` 加载项目图标；链接仅指定界面语言，不附带作品 ID、目录、文件内容或应用凭据。访问使用浏览器网络设置，不经过 Java 后端代理；不点击就不会由此入口发起请求。
-
+- **本地导入在线指南**：仅当用户在设置页或工具页点击「使用说明与示例」时，才由系统浏览器打开 `https://sywyar.github.io/PixivDownloader/`（页面从 `cdn.jsdelivr.net` 加载 docsify 资源、从 `raw.githubusercontent.com` 加载项目图标；URL 仅带界面语言路径，不附带作品 ID、目录、文件内容或凭据，走浏览器网络设置而非 Java 后端代理）。
 - **同源认证与国际化**：登录页通过同源 `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` 检查会话与提交认证（回跳地址仅接受同源站内路径）。前端页面通过 `/api/i18n/meta`、`/api/i18n/messages/{namespace}` 与同源 `i18n-static/` 加载词典（单次超时 10 秒，缺失词典最多重试 3 轮：1.5、5、15 秒），不连接外部翻译服务。
 - **本机 GUI 通道**：桌面模式通过 `http://127.0.0.1:{随机端口}/api/gui/**` 轮询状态与提交操作，携带后端生成的 GUI token，强制本机直连并拒绝代理、重定向与转发头；`--no-gui` 模式不创建该端口。
 - **外部链接确认**：在应用 Web 页面点击外部 HTTP(S) 链接时，会先弹出目标地址确认框，确认后才由浏览器打开。
@@ -118,14 +114,13 @@ AI 插件使用 OpenAI 兼容协议：连接测试、小说翻译和多角色分
 
 | 工程环节 | 访问目标与用途 |
 | --- | --- |
-| JDK 与容器运行环境 | CI 的 `actions/setup-java` 按配置从 `api.adoptium.net` 查询 Temurin，下载 GitHub Release 资产及重定向 CDN 上的 JDK、校验文件和签名；ProGuard 任务另取同版本 JMOD。请求包含版本、操作系统和架构，GitHub API 可使用该 job 的令牌，不发送应用 Cookie 或作品数据。Docker 构建默认从 Docker Hub 的认证、镜像 registry 及其 CDN 拉取 `eclipse-temurin:25-jre`；代理、镜像和认证由 runner / Docker 配置决定，应用内代理不控制这些请求。可修改 workflow 的 JDK 选择或 Dockerfile 的基础镜像来替换来源；普通客户端启动不触发下载。SDK 工程的 `Plugin candidate` 工作流还从相同 Docker Hub 服务获取摘要固定的 Temurin 25 JDK 容器；可在工程的 `candidate.yml` 中更新镜像或停用该工作流。 |
-| Maven / Gradle / sbt 与 npm 依赖解析 | Maven Wrapper 与 Java 模块从配置的 Maven 仓库/镜像（默认 `https://repo.maven.apache.org/maven2`、`https://repo1.maven.org/maven2`、`https://plugins.gradle.org`）下载构建工具与依赖（如 Tink、PostgreSQL/SQLite/H2 JDBC、Hutool/Tianai/ALTCHA、Cupertino、WebP/JSON Schema/JCS、sbt-launch 等）；前端检查与插件资源构建从锁文件配置的 npm 源（当前为 `https://registry.npmmirror.com`，维护 Web 资源时偶用 `https://registry.npmjs.org`）下载依赖 |
-| 本机 JDK 选择 | Maven 从上述仓库 / 镜像解析 `org.apache.maven.plugins:maven-toolchains-plugin`，沿用 Maven 的代理、认证与离线设置；请求的是构建插件及其依赖，不是 JDK。Toolchains 只发现或读取已有本机 JDK，Compose 禁止自动下载 JDK。CI 的 `setup-java` 下载仍由上一行所述配置控制。 |
-| AOT 开发准备 | 显式运行 `AOT Prepare` 会调用上述 Maven / Gradle 构建与维护者资源生成，沿用其仓库、镜像、代理及认证规则；请求包含依赖坐标和构建资源标识，不上传实例配置或下载内容。外层 Maven 的离线模式传给嵌套构建；依赖未缓存时离线构建失败。缓存训练本身保持隔离，已有产物的 CI 验收不重复构建 |
+| JDK 与容器运行环境 | CI 的 `actions/setup-java` 从 `api.adoptium.net` 查询并经 GitHub Releases / CDN 下载 Temurin 25 JDK、校验文件与签名（ProGuard 任务使用 `jdk+jmods` 同时拉取同版本 JMOD；请求仅含版本与平台标识，可带 job 令牌，不发应用数据）。Docker 构建与 SDK 工程 `Plugin candidate` 工作流从 Docker Hub registry / CDN 拉取 `eclipse-temurin:25-jre` 或固定摘要的 Temurin 25 JDK 镜像（走 runner / Docker 代理配置，可通过 workflow 或 `Dockerfile` 替换来源；客户端运行不触发下载） |
+| Maven / Gradle / sbt 与 npm 依赖解析 | Maven Wrapper 与 Java 模块从配置的 Maven 仓库/镜像（默认 `https://repo.maven.apache.org/maven2`、`https://repo1.maven.org/maven2`、`https://plugins.gradle.org`）下载构建工具与依赖（含 `maven-toolchains-plugin`、Tink、PostgreSQL/SQLite/H2 JDBC、Hutool/Tianai/ALTCHA、Cupertino、WebP/JSON Schema/JCS、sbt-launch 等；Toolchains 与 Compose 仅使用本机已安装的 JDK 25，不自动下载 JDK）；前端检查与插件资源构建从锁文件配置的 npm 源（当前为 `https://registry.npmmirror.com`，维护 Web 资源时偶用 `https://registry.npmjs.org`）下载依赖 |
+| AOT 开发准备 | 显式运行 `AOT Prepare` 时调用上述 Maven / Gradle 构建与维护者资源生成（沿用 Maven 仓库、镜像、代理与离线 `-o` 设置，仅发送依赖坐标，不上传实例配置或作品数据；缓存训练本身在本机隔离目录执行，已有产物的 CI 验收不重复构建） |
 | 浏览器与数据库集成验收 | Playwright 浏览器安装从 `cdn.playwright.dev` / `playwright.download.prss.microsoft.com` 下载 Chromium；显式运行 `page-editor-acceptance.mjs` 验证码验收时使用官方公开测试密钥访问 Cloudflare Turnstile 与 Google reCAPTCHA 测试端点；PostgreSQL 容器验收拉取 Docker `postgres:17` 并只连接 `PIXIV_TEST_POSTGRES_URL` 隔离库 |
 | 维护者目录、许可证与本地打包脚本 | 构建应用资源时通过 GitHub API（`api.github.com/repos/Sywyar/PixivDownloader`）与 `avatars.githubusercontent.com` 获取白名单贡献者资料与头像（遵循系统/环境 HTTP(S) 代理，30 秒超时，离线构建自动跳过）；许可证维护脚本按需读取 `spdx/license-list-data`；`package-local.ps1` 构建离线包时下载并验签 `ffmpeg-stable` 资产；`package-installer-with-plugins.ps1 -PluginSource Catalog` 从官方插件仓库下载签名清单与插件包 |
-| CI 依赖缓存与验收产物传输 | `actions/cache` 与 `gradle/actions/setup-gradle` 通过 runner 提供的 GitHub Actions 缓存地址读写 Maven 第三方依赖、Gradle 依赖、构建脚本及输入匹配的编译和 ProGuard 输出；主线构建配置、SDK 或 Compose 源码及 ProGuard 规则变化时，在 Linux 与 Windows 上预取依赖，并通过 Maven 构建 Compose 以预热编译和 ProGuard 输出。其他分支可以恢复主线缓存，具体任务仍按输入校验是否复用；预热不替代 PR 测试。只有实际使用 Gradle 的任务才初始化其缓存，并访问官方 Wrapper 校验和服务；仅用 Maven 的 SDK 模板、增量生成和服务验收不执行这一步。SDK 构建任务通过 GitHub Actions artifact 服务上传冻结输入，下游验收按本次运行的 artifact ID 下载并校验 SHA-256；不上传 Build Scan 或依赖图 |
-| SDK 验证、发布与跨仓 Pages 构建 | `sdk-legacy-plugin.mjs` 下载固定 `gui-swing-v1.0.2` 资产，验证 SDK 2.x 在加载前拒绝 SDK 1.x 插件；主仓库只验证通用 SDK 消费者；Douyin 仓库的 `Host compatibility` 在 push、PR 或手动触发时，通过 `github.com/Sywyar/PixivDownloader` 获取固定宿主提交，按 Maven 配置的仓库/镜像解析依赖，验证插件兼容性；该 CI 只有仓库读取权限，不发送用户 Cookie，也不发布插件，可停用该 workflow 或更新 `HOST_REVISION` 调整基线；SDK 发布工作流向 Sonatype Central Portal 发布 5 个 SDK Maven 坐标、向 `Sywyar/PixivDownloader-Plugin-SDK` 创建签名 Release 并构建 Javadoc GitHub Pages；开发者在 SDK 工程首次执行 `sdk-prepare` / `sdk-run` 时从 SDK Release 下载固定运行包并缓存到 `~/.cache/pixivdownloader-sdk/` |
+| CI 依赖缓存与验收产物传输 | `actions/cache` 与 `gradle/actions/setup-gradle` 通过 runner 的 GitHub Actions 缓存服务读写 Maven/Gradle 依赖及输入匹配的 Compose 编译与 ProGuard 输出（主线构建配置、SDK/Compose 源码或 ProGuard 规则变化时在 Linux/Windows 预热缓存，仅实际运行 Gradle 的任务才初始化 Gradle 缓存并校验官方 Wrapper 摘要；不上传 Build Scan 或依赖图）。SDK 构建 job 通过 Actions artifact 服务上传冻结产物，下游验收按同次 run 的 artifact ID 下载并校验 SHA-256 |
+| SDK 验证、发布与跨仓 Pages 构建 | `sdk-legacy-plugin.mjs` 下载固定 `gui-swing-v1.0.2` 资产验证 SDK 2.x 在加载前拒绝 SDK 1.x 插件；主仓库仅验证通用 SDK 消费者；独立仓库 `Sywyar/PixivDownloader-Plugin-Douyin` 的 `Host compatibility` CI 拉取主仓库固定宿主提交并按 Maven 源解析依赖以验证插件兼容（只读权限、不发用户凭据、不发布插件，可停用 workflow 或更新 `HOST_REVISION`）；SDK 发布工作流向 Sonatype Central Portal 发布 5 个 SDK Maven 坐标、向 `Sywyar/PixivDownloader-Plugin-SDK` 创建签名 Release 并构建 Javadoc GitHub Pages；开发者在 SDK 工程首次执行 `sdk-prepare` / `sdk-run` 时从 SDK Release 下载固定运行包并缓存到 `~/.cache/pixivdownloader-sdk/` |
 | 主仓库 CI、Gate Checks、Release 与公告续签 | GitHub Actions 运行 Quality Gate、发行包 E2E、签名插件发布与 `Gate Checks`（通过 GitHub API 与 App token 为开放 PR 签发必需检查）；`PixivDownloader-Remote-Content` 的定时工作流检查并续签 `announcements/index.json.sig` 及触发 Pages 部署 |
-| 官方插件下载统计 | `publish-plugins.yml` 默认每日 18:33 UTC 触发，完整 Quality Gate 通过后，使用 `release` Environment 的跨仓库令牌，按每页 100 条读取 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases`，汇总正式版各版本与每夜版当前附件的下载数，再通过 Git HTTPS 向该仓库 `master` 提交两份清单及签名。插件发布脚本在替换附件前通过同仓库的 `releases/{release_id}` 接口把累计值和附件 ID 写入 Release 说明，供失败重试去重；每日刷新本身不替换附件。请求包含仓库与 Release 标识、下载统计、公开清单及认证信息，私钥留在 runner。沿用 runner 的 Git/GitHub CLI 代理配置；移除该 workflow 的 `schedule` 可停止每日刷新 |
+| 官方插件下载统计与发布结转 | `publish-plugins.yml` 默认每日 18:33 UTC 在完整 Quality Gate 通过后，用 `release` Environment 跨仓令牌分页读取 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases`（每页 100 条），汇总正式版各版本与 nightly 当前附件下载量，并通过 Git HTTPS 向该仓库 `master` 提交签名清单（私钥留在 runner，移除 `schedule` 即可停用每日刷新；插件发布脚本替换附件前会经 `releases/{release_id}` 将累计下载量与附件 ID 写入 Release 说明供重试去重） |
 | 社区插件投稿向导、隔离构建与审核发布 | 投稿入口 `irm https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1 \| iex` 下载已签名的 `submission-channel.json` 与固定提交工具，按 `no_proxy` → `https_proxy` / `all_proxy` → Windows 系统代理解析网络（单文件 60 秒、最多 3 次尝试），通过 GitHub CLI / Git 访问社区仓库与投稿者 fork、上传候选 Release 资产与文档图片；社区 CI 在受控 Squid 代理容器内仅从批准的 Maven / Gradle 源预取依赖，在断网容器内重建插件，并通过 GitHub Actions OIDC / Sigstore（`fulcio.sigstore.dev`、`rekor.sigstore.dev`、`tuf-repo.github.com`）生成归档证明、执行审核合并与撤销清单续签 |

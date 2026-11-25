@@ -23,6 +23,7 @@ PixivDownloader 將 Pixiv 插畫、漫畫、動圖和小說下載到本機電腦
 | 以指令碼或 Agent 提交下載並查詢進度 | [OpenAPI 與程式金鑰](/zh-hant/http-api) |
 | 在 Pixiv 網頁直接呼叫下載輔助 | [使用者腳本](/zh-hant/userscripts) |
 | 將 PixivBatchDownloader 的下載登記到畫廊 | [匯入外部下載](/zh-hant/pixiv-batch-downloader-import) |
+| 依路徑範本將既有本機圖片登記到畫廊 | [本地作品匯入](/zh-hant/local-import) |
 | 瀏覽、篩選、匯出與刪除已登記作品 | [作品畫廊](/zh-hant/gallery) |
 | 修改設定、代理、資料庫與媒體格式 | [設定參考](/zh-hant/configuration) |
 | 備份、還原或搬遷作品與資料目錄 | [儲存與備份](/zh-hant/storage) |
@@ -37,6 +38,7 @@ PixivDownloader 將 Pixiv 插畫、漫畫、動圖和小說下載到本機電腦
 
 - [第三方外掛 SDK](/zh-hant/plugin-development)：使用範本建立專案、接入擴充契約、簽署與投稿。
 - [主儲存庫開發](/zh-hant/development)：準備環境、建置、測試與提交 PR。
+- [撰寫 HTTP API 與權限宣告](/zh-hant/http-api-development)：為功能補充 HTTP 介面、程式金鑰權限與 OpenAPI 說明。
 - [SDK 下載](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [版本化 API 參考](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## 版本與求助

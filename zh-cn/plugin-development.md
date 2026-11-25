@@ -2,11 +2,13 @@
 
 第三方插件从 SDK 开发包的独立工程模板起步，只需 JDK 25、Node.js 及包内自带的构建工具与运行清单，无需克隆主仓库。
 
-SDK 2.x 使用 JDK 25、Spring Framework 7、Servlet 6.1 和 Jackson 3，对应 Spring Boot 4 宿主。SDK 1.x 插件会在安装或启动检查时被拒绝；仅修改 `plugin.requires` 不能完成升级，必须适配新接口并重新编译。
+SDK 2.x 基于 JDK 25、Spring Framework 7、Servlet 6.1 与 Jackson 3，对应 Spring Boot 4 宿主；宿主在安装与启动检查时会直接拒绝 SDK 1.x 插件。
 
-从 SDK 1.x 迁移时，将 `PluginDataSource` 改为 `PluginDatabase`，用 `TableSpec.check` 的中性表达式代替 SQL 字符串；`DesktopUiHost.resolveDatabasePath` 改为数据库目标契约。资源 bundle 必须显式传入 `LocaleBundlePolicy`。取得凭据统一使用 `X-Acquisition-Credential`，定时任务凭据绑定/撤回使用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`；调用方仍须满足该接口的激活令牌与鉴权要求。Jackson 数据绑定类迁到 `tools.jackson.*`，注解仍用 `com.fasterxml.jackson.annotation`；Spring `HttpHeaders` 需要 Map 视图时调用 `asMultiValueMap()`。
-
-`ScheduleTaskView` 已移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime` 和 `pendingRetryArmed`。来源使用 `sourceType`；执行、结果和暂停状态分别读取 `runState`、`lastOutcome`、`suspendReason` / `suspendCode`；结果文案使用 `outcomeCode` / `outcomeMessage`，最近执行时间使用 `lastRunTime`。
+- **SDK 1.x 升级到 2.x 的主要适配项**（仅修改 `plugin.requires` 无法加载，须适配契约并重新编译）：
+  - **子上下文与描述符**：`PixivPluginProvider` 仅保留 `featurePlugin()`；Spring 子上下文 `@Bean` 配置类改由 `plugin.properties` 的 `pixiv.configuration-classes` 声明。
+  - **数据库与 UI 契约**：`PluginDataSource` 替换为方言无关的 `PluginDatabase`，表约束使用 `TableSpec.check` 中性表达式代替 SQL 字符串；`DesktopUiHost.resolveDatabasePath` 改为数据库目标契约；资源 bundle 须显式传入 `LocaleBundlePolicy`。
+  - **凭据与计划任务视图**：请求头取得凭据统一为 `X-Acquisition-Credential`，定时任务凭据绑定/解绑改用通用 `POST` / `DELETE /api/schedule/tasks/{id}/credential`（须满足激活令牌与鉴权要求）。`ScheduleTaskView` 移除 `type`、`lastStatus`、`lastMessage`、`runStartedTime`、`pendingRetryArmed`，改用 `sourceType`、`runState`、`lastOutcome`、`suspendReason`/`suspendCode`、`outcomeCode`/`outcomeMessage` 与 `lastRunTime`。
+  - **Jackson 3 与 Spring 7**：Jackson 数据绑定类迁至 `tools.jackson.*`（注解保留 `com.fasterxml.jackson.annotation`）；Spring `HttpHeaders` 需 Map 视图时调用 `asMultiValueMap()`。
 
 | 开发任务 | 对应章节 |
 | --- | --- |
@@ -92,6 +94,9 @@ pixiv.lifecycle-policy=process-restart
 
 - `plugin.id` 必须与 `PixivFeaturePlugin.id()` 完全一致；`plugin.requires` 声明所需 SDK 版本（稳定版按 `requiredMajor == hostMajor && requiredMinor <= hostMinor` 匹配，预发布版采用 `alpha.N` / `beta.N` / `rc.N` 并要求精确匹配）。
 - `pixiv.execution-mode` 必填（`declarative-process` 或 `host-process-full-trust`）；`pixiv.lifecycle-policy` 可选 `hot-reload`（默认）、`backend-restart` 或 `process-restart`；`pixiv.risk-signals` 可声明风险信号 token。
+- `pixiv.desktop-only` 默认为 `false`。纯桌面插件可以设为 `true`。无头启动时，宿主会跳过这类插件，除非后端插件直接或间接将它列为必需依赖。跳过的包仍在插件管理页显示为已安装。
+- `plugin.dependencies` 声明外置 PF4J 包之间的依赖。将 `core` 等宿主内置组件列为必需依赖会在写入安装目录前被拒绝。宿主 SDK 版本要求通过 `plugin.requires` 声明。
+- 桌面界面提供方可用 `DesktopUiHost.stopBackend(afterStop, onFailure)` 请求停止后端。需要独占数据的工具应在 `afterStop` 中启动。请求被接受后，成功和失败只触发其中一个回调。返回 `false` 表示请求立即被拒绝，不会触发回调。
 - 外置入口实现 `PixivPluginProvider`，仅返回唯一 `PixivFeaturePlugin`；Spring 子上下文的显式 `@Bean` 配置类由描述符 `pixiv.configuration-classes` 声明，禁止依赖宿主包扫描：
 
 ```java
@@ -129,15 +134,12 @@ public List<WebRouteContribution> routes() {
 2. **实现前端行为模块**：在 `moduleUrl` 中调用 `PixivBatch.queueTypes.registerModule(initializer)`，实现 `process(item, context)`（必填，通过 `context.updateItem(patch)` 更新状态，使用 `DownloadTasks` 时通过 `context.bindTask(taskId)` 绑定执行 UUID）及已声明的 `import`、`acquisition.*`、`filters`、`settings`。异步回调写回前须检查 `AbortSignal` / `isActive()`，并在 `onCleanup()` 释放资源。
 3. **后端解析可信身份**：Controller 注入父上下文提供的 `RequestOwnerIdentityResolver` 解析当前请求身份（严禁信任请求体或参数自报的 owner UUID），并在文件耐久落盘且记录提交后才标记完成。
 4. **实现 `QueueOperations` 与真实排空（Quiesce / Drain）**：`workKey` 为不透明字符串（由宿主通过 `POST /api/download/queue/{queueType}/cancel` 的 JSON 请求体传递）。凡有异步或后台任务的队列，必须覆写 `prepareQuiesce` 停止新接纳并返回正代际的真实 `QueueDrain`，待在途任务归零后完成 drain。
-5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。来源需要在翻页或切换作品类别前等候时，可以调用 `context.workSink().drain()`。等待返回后，仍可通过 `context.isPending(key)` 检查本页是否有作品待重试。
-
-要让 `POST /api/download/tasks` 接纳这个作品类型，在插件子上下文注册 `DownloadSubmissionHandler` Bean。`workType()` 返回类型标识，`inputSchemaResource()` 可返回插件内 JSON Schema 的绝对 classpath 路径，供宿主生成 OpenAPI。实现 `submit` 时校验选项，并在成功返回前用 `DownloadLifecycle.track` 登记宿主传入的 `DownloadAttempt`。
-
-如果来源在查询目标作品元数据时明确返回 404，在 `submit` 中抛出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`。宿主调用 SDK 的默认方法 `submitAndReportFailure`，将原因码传过插件代理，首次提交返回 `404 WORK_NOT_FOUND`。仅缺少某一页或附件时，应保留该资源的失败语义。已有处理器可以继续实现 `submit`。
-
-提交选项无效时，抛出带 JSON Pointer 和稳定原因码的 `InputFieldException`，例如 `/options/pages` 和 `out_of_range`。默认的 `submitAndReportFailure` 会把字段和原因传过插件代理。诊断中不要包含输入原值或凭证。
-
-工作量可测时，使用该尝试登记的队列句柄调用 `DownloadLifecycle.reportProgress(attempt, task, progress)`。`DownloadTaskProgress` 的单位可为 `PAGES`、`IMAGES` 或 `BYTES`，已完成数和总数使用同一单位。仅在当前步骤总量已知且大于零时报告，最终结果仍由终态事件给出。
+5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。当来源执行器需在翻页或切换作品类别前等待本批完成时，可调用 `context.workSink().drain()`，返回后再通过 `context.isPending(key)` 检查当前页是否仍有待重试作品。
+6. **接入统一提交入口 `POST /api/download/tasks`（`DownloadSubmissionHandler`）**：在插件子上下文注册 `DownloadSubmissionHandler` Bean：
+   - `workType()` 返回作品类型标识，`inputSchemaResource()` 可返回插件内 JSON Schema 的绝对 classpath 路径供宿主生成 OpenAPI。
+   - 在 `submit` 中校验输入选项，并在成功返回前调用 `DownloadLifecycle.track` 登记宿主传入的 `DownloadAttempt`。
+   - **错误与原因码回传**：宿主通过 SDK 默认方法 `submitAndReportFailure` 跨越插件代理传递结构化失败原因（已有实现可继续只覆写 `submit`）。若上游查询作品元数据时明确返回 404，抛出 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)` 使首次提交直接返回 `404 WORK_NOT_FOUND`（仅缺单页或附件时保留对应资源失败语义）；若提交选项非法，抛出带 JSON Pointer 与稳定原因码的 `InputFieldException`（如 `/options/pages` 与 `out_of_range`，诊断中严禁包含输入原值或凭据）。
+   - **进度报告**：当前步骤总量已知且大于 `0` 时，使用该尝试登记的队列句柄调用 `DownloadLifecycle.reportProgress(attempt, task, progress)`（`DownloadTaskProgress` 单位可选 `PAGES`、`IMAGES` 或 `BYTES`，已完成数与总数须同单位；最终状态仍由终态事件决定）。
 
 ## 新增插件自有画廊
 
@@ -179,6 +181,7 @@ SDK 2.x 支持跨插件类型化服务（参考 `typed-service-plugin` 模板）
 
 - 契约载体插件通过 `pixiv.contract-api` 与 `pixiv.contract-sha256` 声明原始纯 JDK API JAR（采用 `process-restart`）；提供者在 `serviceExports()` 导出实现，消费者在 `serviceImports()` 声明依赖并注入 `PluginServices`。
 - 调用 `find(key)`、`require(key)`、`findAll(key)` 或生命周期绑定 `bind(keys, activation)` / `bindAll(keys, activation)` 获取绑定精确 publication 的代理。
+- 插件应在调用时通过宿主接口确认所需的上游能力是否可用，把能力缺席或调用被拒的影响限定在依赖该能力的操作上。
 - 使用 `sdk-tools.jar` 生成 JSON Schema、远程调用适配器与检查二进制兼容性：
 
 ```text
@@ -200,7 +203,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 用注解声明固定 HTTP 目标
 
-SDK 2.x 可在插件回调方法上使用 `@HttpHook`。把下例的 `StatusObserver` 通过插件子上下文的 `@Bean` 注册，宿主会发现声明；目标控制器不需要修改。这个例子统计成功的本机健康探针请求，`/api/download/status` 不表示一次作品下载完成。
+SDK 2.x 支持在插件子上下文的单例 `@Bean` 方法上标注 `@HttpHook` 声明固定 HTTP 回调，无需修改目标 Controller。下例统计本机健康探针 `GET /api/download/status` 的成功请求（注意该接口仅代表状态探针，不代表作品下载完成）：
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;
@@ -223,16 +226,10 @@ public final class StatusObserver {
 }
 ```
 
-管理员在「插件管理 → 插件详情 → HTTP Hook 声明」选择「预览并批准」，核对目标、时机、字段权限及受影响页面，再「确认并发布」。相同声明在插件重新启用后自动恢复；声明、数据合同或目标映射变化时需重新批准。只批准当前选择，不自动更新其它声明。停用或卸载不会删除已批准的前置要求；要解除保护，管理员须显式预览撤销并发布。
-
-方法必须是单例 Bean 的 public 同步实例方法，唯一参数为 `OperationHook.Invocation`。前置返回 `Decision`，后置可返回 void；不支持 `@Async` 或提前返回后继续工作的回调。宿主日志记录实际回调类与方法。每个插件合计最多 16 个普通或注解 Hook。
-
-`targetOwner/method/path` 选择真实目录中的 handler；同一路径有多个候选时，用 `params/headers/consumes/produces` 指定目录中的完整条件。非空条件列表按集合精确匹配，空列表不筛选该条件；未找到或仍歧义时不能批准。同一 handler 的多个路由别名共享绑定。
-
-普通方法仅接收元数据，配置为 `{}`。需要字段、配置 schema、资源或交互挑战时，实现 `OperationHook` 并在其 `invoke` 方法上加注解，保持 `id()` 与注解 id 相同；`fields` 声明仍须批准并通过敏感字段和预算检查。动态配置和页面编辑器绑定继续使用原接口，不依赖注解。
-
-管理 API 为 `GET /api/web/operation-hooks/declarations?provider=<pluginId>`，以及 `POST /api/web/operation-hooks/declarations/prepare`，后者接收 `{revision, provider, id, fingerprint, remove}`。返回的计划仍提交到原 `publish`；不要持有旧计划跨越目录、插件或正式修订变化。
-
+- **方法签名与上限**：回调方法必须是单例 Bean 的 `public` 同步实例方法，唯一参数为 `OperationHook.Invocation`（`BEFORE_INVOKE` 返回 `Decision`，`AFTER_COMPLETION` 可返回 `void`；不支持 `@Async` 或提前返回后异步继续工作）。每个插件最多声明 16 个普通或注解 Hook，宿主日志记录实际回调类与方法。
+- **目标匹配**：`targetOwner`、`method`、`path` 指定真实路由目录中的 handler；同一路径存在多个候选时，通过 `params`、`headers`、`consumes`、`produces` 精确匹配完整条件集合（空列表不筛选该维度；未找到或仍有歧义时禁止批准，同一 handler 的多个路由别名共享绑定）。
+- **字段读取与交互挑战**：普通注解方法仅接收元数据（配置固定为 `{}`）。若需读取请求/响应字段、声明配置 schema、挂载资源或发起交互挑战，请实现 `OperationHook` 并在其 `invoke` 方法上标注 `@HttpHook`（保持 `id()` 与注解 `id` 一致；`fields` 仍须经管理员批准并通过敏感字段与预算校验）。动态配置与页面编辑器绑定继续使用原接口。
+- **管理员审批与 API**：管理员在[插件管理 → 插件详情 → HTTP Hook 声明](/zh-cn/plugin-management#批准插件的-http-hook)中预览并批准发布（或调用 `GET /api/web/operation-hooks/declarations?provider=<pluginId>` 与 `POST /api/web/operation-hooks/declarations/prepare` 提交 `{revision, provider, id, fingerprint, remove}` 生成计划后交 `publish` 发布；切勿跨目录、插件或修订变化复用旧计划）。
 
 ## 普通槽位与页面组件
 

@@ -120,42 +120,36 @@ npm run test:i18n
 
 ## 선택 사항: JDK 25 AOT Cache
 
-저장소의 `scripts/aot-cache.mjs`는 최종 boot JAR의 JVM 시작 캐시를 만들고 사용합니다. Node.js와 설치된 JDK 25가 필요합니다. JDK를 내려받거나 Spring AOT를 활성화하지 않습니다. 설치 프로그램은 기존 시작 방식을 유지합니다. CI 산출물 검증에서는 실제 캐시 학습과 strict 시작 검사를 수행합니다. 신뢰할 수 있는 JAR만 학습시키세요. 학습 과정에서 애플리케이션을 실행하지만 격리된 임시 설정을 사용하므로 현재 인스턴스의 사용자 데이터를 읽지 않습니다.
+저장소의 `scripts/aot-cache.mjs`는 최종 boot JAR의 JDK 25 AOT 시작 캐시를 학습하고 사용합니다(Node.js와 로컬 JDK 25가 필요하며 JDK 자동 다운로드나 Spring AOT 활성화는 하지 않음). 설치 프로그램은 기존 시작 방식을 유지하고, CI 산출물 검증에서는 실제 캐시 학습과 `--strict` 적중 검사를 수행합니다.
 
-별도로 패키징할 필요 없이 공유 설정 `AOT Prepare`와 `AOT Packaged Run`을 순서대로 실행하세요. IntelliJ IDEA는 `.run`, VS Code는 같은 이름의 작업, Eclipse는 `eclipse/`의 launch 설정을 사용합니다. Prepare는 Maven Toolchains가 선택한 JDK 25로 본체와 공식 플러그인을 빌드하고 별도 실행 디렉터리를 구성한 다음 캐시를 준비합니다. Windows에서는 시스템 PowerShell을 사용하며, Linux / macOS에서는 PATH에 PowerShell 7(`pwsh`)이 있어야 합니다. 해당 명령은 다음과 같습니다.
+- **안전 및 적용 경계**: 신뢰할 수 있는 JAR만 학습시키세요(학습 중 앱을 실행하지만 격리된 임시 설정을 사용하므로 현재 인스턴스의 사용자 데이터를 읽지 않음). JDK 25 AOT Cache는 비어 있지 않은 클래스 디렉터리로 생성할 수 없고 링크된 캐시는 JDWP 중단점 디버깅을 지원하지 않으므로, 소스 실행과 디버깅에는 계속 `Developer Mode`를 사용하세요. 단위 테스트, JaCoCo, Maven과 Gradle 빌드 프로세스는 앱 AOT 캐시를 사용하지 않으므로 반복 실행 횟수에 맞춰 학습 비용을 판단하세요.
+- **IDE 공유 설정 또는 Maven으로 한 번에 준비 및 실행**: 별도 수동 패키징 없이 공유 설정 `AOT Prepare`와 `AOT Packaged Run`을 순서대로 실행합니다(IntelliJ IDEA `.run/`, VS Code 동일 이름 작업, Eclipse `eclipse/` launch 설정. IDE Debug로 실행해도 AOT 자식 프로세스 환경에서는 JDWP와 IDEA 디버거 에이전트 옵션만 제거하고 힙 크기, 프록시, 인증서 옵션은 유지). 터미널의 동등한 명령(Windows는 시스템 PowerShell, Linux / macOS는 `pwsh` 필요):
 
-```powershell
-.\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-.\mvnw.cmd -N -Paot validate
-```
+  ```powershell
+  .\mvnw.cmd -N -Paot '-Daot.command=prepare' validate
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
+  .\mvnw.cmd -N -Paot validate
+  ```
 
-기본 디렉터리는 `target/aot-runtime`이며 `-Daot.runtime.directory=...`로 다른 경로를 지정할 수 있습니다. `artifacts/`에는 본체와 공식 배포 플러그인 전체(선택 플러그인 포함, 복구 테스트용 프로브 제외), `cache/`에는 JAR와 JDK 내용별 캐시, `instance/`는 애플리케이션 작업 디렉터리이며 독립적인 설정과 데이터를 저장합니다. `mvn clean`은 `target/` 아래의 기본 실행 디렉터리도 삭제합니다. 데이터를 보존하려면 `target/` 밖의 디렉터리를 지정하고 Prepare와 Run에 같은 값을 사용하세요. 처음 Run을 실행하면 일반 초기 설정을 진행합니다. 저장소 루트의 기존 인스턴스를 읽거나 덮어쓰지 않습니다. 코드 변경 후 Prepare를 다시 실행하면 성공했을 때만 새 산출물로 전환하며 설정과 데이터는 유지합니다. 동일한 산출물은 검증 후 재사용하고, 본체와 JDK가 그대로라면 플러그인만 변경되어도 본체 캐시를 재사용합니다. 단일 인스턴스 잠금은 이 실행 디렉터리의 `instance/ipc/`에 저장되므로 다른 개발용 또는 설치된 인스턴스와 분리됩니다. 동시에 실행하려면 서버 포트도 서로 다르게 설정해야 합니다.
+  - **실행 디렉터리 구조**: 기본 경로는 `target/aot-runtime`입니다(`mvn clean` 시 삭제되므로 데이터를 장기 보존하려면 Prepare와 Run 모두에 `target/` 외부의 `-Daot.runtime.directory=...`를 지정). 하위 `artifacts/`는 본체와 공식 배포 플러그인 전체(선택 플러그인 포함, 복구 테스트 프로브 제외. 로컬 무서명 개발 규칙으로 배치되므로 공식 서명 배포물로 배포 금지), `cache/`는 JAR 및 JDK 내용별 캐시, `instance/`는 독립 작업 디렉터리입니다(단일 인스턴스 잠금은 `instance/ipc/`에 위치하며 저장소 루트의 기존 인스턴스를 읽거나 덮어쓰지 않음. 다른 인스턴스와 동시에 실행하려면 서버 포트를 다르게 설정).
+  - **증분 재사용 및 잠금 관리**: `Prepare`는 Maven Toolchains가 선택한 JDK 25로 빌드(단위 테스트 생략)하고 성공했을 때만 새 산출물로 원자적 전환하며 `instance/` 설정과 데이터를 보존합니다. 플러그인만 바뀌고 본체 JAR와 JDK가 그대로면 본체 캐시를 재사용합니다. 같은 실행 디렉터리에 대한 동시 `Prepare` / `Run`은 거부됩니다(Windows에서 Prepare를 중지하면 자식 프로세스도 함께 종료되고 잠금이 해제됨. 잠금 충돌 시 `.lock` 파일을 삭제하지 말고 해당 작업을 먼저 종료한 뒤 재시도하세요). 이전 캐시는 자동 정리되지 않으므로 프로세스 종료 후 불필요한 캐시 폴더를 수동 삭제하세요.
 
-Prepare 빌드는 단위 테스트를 건너뛰며 테스트와 CI 검증은 별도로 실행합니다. 플러그인은 기존의 서명되지 않은 로컬 업로드 정책에 따라 구성하므로 로컬 개발 전용이며 공식 서명 배포물로 배포할 수 없습니다. Run은 다시 빌드하지 않습니다. 같은 디렉터리에서 준비 또는 실행이 진행 중이면 동시 작업을 거부합니다. 실패 시 이전 실행 가능 기록을 보존하며 손상된 내용은 재사용하지 않습니다. 새 실행 디렉터리를 지정해 준비할 수 있습니다. 이전 산출물과 캐시는 자동 삭제되지 않아 디스크 공간을 사용합니다. 관련 프로세스가 종료된 후 불필요한 내용은 삭제할 수 있지만 필요한 `instance/` 데이터는 보존하세요.
+- **저수준 CLI(기존 boot JAR 및 CI 재사용)**: 자동 빌드나 플러그인 배치를 수행하지 않습니다(플러그인이 없는 코어 JAR는 복구 모드만 제공). 저장소 루트에서 실행합니다(`<version>`, JDK 25 경로, 초기 설정된 인스턴스 디렉터리를 실제 값으로 치환):
 
-`AOT Prepare`와 `AOT Packaged Run`은 일반 Run으로 실행할 수 있습니다. IDE Debug로 시작해도 AOT 자식 프로세스의 환경에서 JDWP와 IDEA 디버거 에이전트 옵션만 제거하며, 힙 크기, 프록시, 인증서 등 다른 옵션은 유지합니다. 애플리케이션 중단점 디버깅에는 `Developer Mode`를 사용하세요. Windows에서 Prepare 또는 실행기를 종료하면 해당 작업이 시작한 빌드와 학습 자식 프로세스도 종료되고 잠금이 해제됩니다. 다른 애플리케이션 인스턴스에는 영향을 주지 않습니다. 잠금이 사용 중이면 같은 실행 디렉터리를 사용하는 Prepare 또는 Run 작업을 종료한 뒤 다시 시도하세요. `.lock` 파일은 삭제하지 마세요. 그 밖의 잠금 오류는 출력에 표시된 원인을 확인하세요.
+  ```powershell
+  $repo = (Get-Location).Path
+  $jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
+  $jdk = 'C:/path/to/jdk-25'
+  $cache = Join-Path $repo 'target/aot-cache'
+  node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
+  if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
 
-소스 실행과 중단점 디버깅에는 `Developer Mode`를 사용하세요. JDK 25 AOT Cache는 비어 있지 않은 클래스 디렉터리에서 만들 수 없고 현재 연결 캐시는 JDWP 디버깅과 함께 사용할 수 없습니다. 단위 테스트, JaCoCo, Maven과 Gradle 빌드 프로세스는 애플리케이션 AOT 캐시를 사용하지 않습니다. 학습 비용은 실제 반복 실행 횟수를 기준으로 평가하세요.
+  Set-Location 'C:/path/to/initialized-instance'
+  node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
+  if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
+  ```
 
-아래 저수준 CLI는 기존 JAR를 처리하며 CI에서도 직접 사용합니다. 빌드나 플러그인 배치를 수행하지 않습니다. 저장소 루트에서 실행하고 `<version>`, JDK 경로, 초기 설정을 마친 인스턴스 디렉터리를 바꾸세요. 새 캐시는 아직 없는 디렉터리에 만들며 유효한 기존 캐시는 검증 후 재사용할 수 있습니다. 실행에는 선택한 인스턴스의 설정, 플러그인과 데이터를 사용합니다. 플러그인이 없는 코어 JAR는 복구 모드만 제공합니다.
-
-```powershell
-$repo = (Get-Location).Path
-$jar = (Resolve-Path 'pixivdownload-app/target/PixivDownload-<version>-boot.jar').Path
-$jdk = 'C:/path/to/jdk-25'
-$cache = Join-Path $repo 'target/aot-cache'
-node "$repo/scripts/aot-cache.mjs" prepare --jar $jar --java-home $jdk --cache-dir $cache
-if ($LASTEXITCODE -ne 0) { throw 'AOT preparation failed' }
-
-Set-Location 'C:/path/to/initialized-instance'
-node "$repo/scripts/aot-cache.mjs" run --jar $jar --java-home $jdk --cache-dir $cache -- --no-gui
-if ($LASTEXITCODE -ne 0) { throw 'AOT application failed' }
-```
-
-저수준 도구는 새 캐시를 준비하면 `AOT prepare: ready`, 유효한 캐시를 재사용하면 `AOT prepare: reusing verified cache`를 출력합니다. 시작 전에 원본 JAR, 압축을 푼 의존성, JDK와 캐시의 SHA-256을 확인합니다. 손상되거나 불완전한 캐시는 보존하며 `--cache-dir`로 새 디렉터리를 지정합니다. 임시 학습 데이터는 종료 후 삭제합니다. 매니페스트는 로컬 일관성 검사이며 배포 서명이나 플러그인 허용 검증을 대신하지 않습니다.
-
-일반 실행은 현재 환경을 유지하며 캐시가 호환되지 않으면 JVM이 캐시 없이 실행합니다. 캐시 사용을 검증하려면 `run`의 `--` 앞에 `--strict`를 추가하고 JVM의 `Using AOT-linked classes: true` 진단을 확인하세요. 정상 종료만으로 캐시 사용을 입증할 수는 없습니다. 학습 비용을 반복 실행의 시간 절감으로 회수할 수 있는지, 같은 JAR, JDK, 플러그인, 데이터와 시작 완료 조건으로 측정하세요. 동작 원리는 [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html)를 참고하세요.
+  새 캐시 준비가 완료되면 `AOT prepare: ready`, 유효한 캐시를 재사용하면 `AOT prepare: reusing verified cache`를 출력합니다(시작 전 원본 JAR, 압축 해제된 의존성, JDK, 캐시의 SHA-256 검증. 손상된 캐시는 보존되므로 `--cache-dir`로 새 경로 지정). 일반 실행은 캐시 비호환 시 JVM이 자동으로 폴백하며, 캐시 적중을 검증하려면 `run`의 `--` 앞에 `--strict`를 추가하고 `Using AOT-linked classes: true` 출력을 확인하세요. 자세한 원리는 [Spring Boot AOT Cache](https://docs.spring.io/spring-boot/reference/packaging/aot-cache.html)를 참고하세요.
 
 ## 로컬 Windows 패키징
 

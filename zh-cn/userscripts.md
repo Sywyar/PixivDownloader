@@ -24,11 +24,11 @@
 
 ### 方式一：从后端下载页安装（推荐）
 
-1. 启动 PixivDownloader，打开当前实例的下载页，例如 `http://localhost:6999/pixiv-batch.html`；端口以实际地址为准。
+1. 启动 PixivDownloader，打开当前实例的下载页（默认 `http://localhost:6999/pixiv-batch.html`，端口与子路径以实际访问地址为准）。
 2. 展开「油猴脚本」入口，点击目标脚本的「安装」按钮并在 Tampermonkey 中确认。
 3. 刷新下载页与已打开的 Pixiv 页面，确认脚本状态与页面浮动面板。
 
-通过后端安装时，脚本的更新链接和检测范围绑定当前地址，包含实际端口。后端下载脚本首次连接也采用该安装地址；已有手动保存的地址优先。需要远端访问的脚本会替换 `@connect YOUR_SERVER_HOST`，外部导入脚本仍限本机连接。若安装了 **All-in-One 整合包**，请禁用其中已包含的独立下载脚本，避免页面出现双面板（两者本地存储互相独立）。
+从后端安装时，宿主会自动将脚本的更新链接、下载页检测范围及首次默认连接地址绑定到当前实例地址（含实际端口与 context path；若浏览器已手动保存过连接地址，则优先保留用户设置），并将远端脚本的 `@connect YOUR_SERVER_HOST` 替换为当前主机（外部导入脚本仍仅限本机回环连接）。若安装了 **All-in-One 整合包**，请禁用其中已包含的独立下载脚本，避免页面出现双面板（两者本地存储互相独立）。
 
 ### 方式二：从源码仓库安装独立脚本
 
@@ -43,41 +43,41 @@
 
 后端部署在其他机器或非默认端口时（默认 `http://localhost:6999`）：
 
-1. 从目标后端安装后，首次连接会采用实际协议、主机和端口。若以前保存过其他地址，在脚本设置中更改。
-2. 通过该后端的 Web 页面重新安装脚本以更新 `@connect` 主机许可（手动安装的脚本需在脚本头部核对 `@connect`；仅修改 `@connect` 不会改变请求发送目标）。
+1. 直接从目标后端的 Web 下载页安装脚本（首次连接会自动采用该后端的协议、主机与端口，并写入对应的 `@connect` 主机许可）。
+2. 若此前已保存过旧地址，在 Pixiv 页面打开脚本设置将其改为目标后端地址（仅修改脚本头部的 `@connect` 不会改变实际请求目标）。
 3. 刷新 Pixiv 页面并提交一件作品，确认目标后端队列收到任务。
 
 ## 安装地址与运行检测
 
-例如从 `http://localhost:7000` 安装，更新链接与下载页检测均使用 7000；不会扫描其他端口。脚本在 Pixiv 页面上的连接设置与下载页检测分别生效，修改连接设置不会扩大检测范围。
+下载页的脚本状态检测与脚本在 Pixiv 页面上的后端连接地址彼此独立：例如从 `http://localhost:7000` 安装脚本后，更新链接与下载页检测均固定绑定 `7000` 端口，不会扫描其他端口，在 Pixiv 页面修改脚本连接地址也不会扩大检测范围。
 
-| 位置 | 用途 |
+| 脚本元数据 | 作用 |
 | --- | --- |
-| `@updateURL`、`@downloadURL` | 完整安装地址，包括协议、主机、端口和应用子路径 |
-| `@include` 与注入的 `origin` / `pages` | 限定脚本能响应检测的后端页面；`@include` 是正则，源代码中的斜杠会转义 |
-| `@connect` | 允许请求的主机；此处不填写端口，也不决定请求目标 |
+| `@updateURL`、`@downloadURL` | 指向完整安装地址（含协议、主机、端口与应用子路径） |
+| `@include` 与注入的 `origin` / `pages` | 限定脚本响应页内检测的后端页面（`@include` 为正则表达式，源码中的斜杠会自动转义） |
+| `@connect` | 声明允许跨域请求的主机名（不含端口，也不决定实际请求目标） |
 
-检测通过同一页面内的 `window.postMessage` 完成，返回脚本实际运行的版本，不向后端发送检测请求。卡片右上角合并显示检测版本与可安装版本，相同版本只显示一次；可更新版本以橙色置于首行，已检测到为绿色，多合一覆盖为蓝色，较旧版本与未检测到为中性色，同时保留状态文字。
-
-只比较同一脚本的一至三段数字版本，以及 `alpha.N`、`beta.N`、`rc.N` 预发布版本。自定义格式、多个检测版本排序冲突时，仅显示可安装版本。多合一版本不与独立脚本版本比较。
+下载页通过页内 `window.postMessage` 检测脚本实际运行版本（不向后端发起检测请求），并在卡片右上角合并展示检测版本与可安装版本（版本号相同时只显示一次）：可更新版本以橙色置顶，已检测到为绿色，由 All-in-One 覆盖为蓝色，较旧版本或未检测到为中性色，同时附带状态文字。版本比较仅针对同一脚本的 1–3 段数字版本及 `alpha.N`、`beta.N`、`rc.N` 预发布后缀；自定义版本格式、多个检测版本排序冲突时仅展示可安装版本，All-in-One 版本不与独立脚本版本交叉比较。
 
 ### 开发者：声明检测页面与默认地址
 
-脚本通过插件的 `UserscriptContribution` 声明。在 userscript 头部结束标记之前加入：
+插件通过 `UserscriptContribution` 贡献脚本时，需同时在脚本头部结束前与最外层 IIFE 的 `'use strict'` 之后声明检测页面与引导标记（两者缺一不可，仅写引导标记不会补写 `@include`；脚本在后端页面上应仅响应检测，不启动 Pixiv 页面业务）：
 
 ```javascript
+// 1. 放在 userscript 元数据头部结束标记之前：
 // @pixiv-presence-page /pixiv-batch.html
 // @pixiv-presence-page /pixiv-batch-alt.html
+
+// 2. 放在最外层 IIFE 的 'use strict' 之后、业务初始化之前：
+// @pixiv-presence-bootstrap
 ```
 
-在最外层 IIFE 的 `'use strict'` 之后、业务初始化之前加入 `// @pixiv-presence-bootstrap`。两部分缺一不可；只有引导标记时，宿主不会补写 `@include`。在后端页面上应只响应检测，不启动 Pixiv 业务。
-
-宿主 `ScriptController.buildInstallUrl` 从当前 HTTP 请求取得协议、主机、端口和 context path，重写更新链接；`UserscriptPresenceInstaller` 从同一地址生成检测范围。根目录后端脚本的 `scripts/shared/installed-server.js` 读取 `GM_info`（兼容 `GM.info`）中的 `script.downloadURL`、`script.updateURL` 或 `scriptUpdateURL`，从安装 URL 取得默认连接地址。只有没有有效后端安装地址时才回退到源码默认 `http://localhost:6999`；通过 `GM_getValue` 保留已有用户设置，不在初始化时覆盖它。
-
-共享片段通过 `scripts/sync-shared-snippets.ps1` 同步，All-in-One 在构建时生成。外部导入脚本有自己的 `installedServer()`，仍只连接无子路径的本机地址；Local Download 不需要后端默认地址。
+- **服务端重写**：`ScriptController.buildInstallUrl` 从当前 HTTP 请求解析协议、主机、端口与 context path 重写更新链接，`UserscriptPresenceInstaller` 基于同一地址注入检测范围。
+- **客户端默认地址解析**：根目录后端脚本通过 `scripts/shared/installed-server.js` 读取 `GM_info`（兼容 `GM.info`）中的 `script.downloadURL`、`script.updateURL` 或 `scriptUpdateURL` 作为默认后端地址（无有效安装地址时回退 `http://localhost:6999`，并通过 `GM_getValue` 优先保留用户已保存设置）。
+- **构建同步**：修改共享片段后运行 `scripts/sync-shared-snippets.ps1` 同步并重新生成 All-in-One（外部导入脚本使用自有 `installedServer()` 且仅连接无子路径的本机地址；`Local Download` 不连接后端）。
 
 ## 常见问题排查
 
-- **Pixiv 页面没有出现脚本面板**：确认 Tampermonkey 扩展与对应脚本均已启用、当前 URL 匹配脚本 `@match` 规则（如 User Batch 仅在 `/users/` 页面生效），并刷新页面。 Chrome 138+ 还需在扩展详情中开启「允许用户脚本」。
-- **下载页显示「未检测到」**：表示当前页面未收到脚本的页内消息响应，不代表未安装。核对脚本是否启用、站点权限及安装来源的端口；需要更新时从当前后端安装并刷新下载页。若安装响应仍没有 `@include`，需更新提供脚本的插件；重复安装相同内容不会补齐缺失的声明。
+- **Pixiv 页面没有出现脚本面板**：确认 Tampermonkey 扩展与对应脚本均已启用、当前 URL 匹配脚本 `@match` 规则（如 User Batch 仅在 `/users/` 页面生效），并刷新页面。Chrome 138+ 还需在扩展详情中开启「允许用户脚本」。
+- **下载页显示「未检测到」**：表示当前下载页未收到脚本的页内消息响应，不代表未安装。请核对脚本是否启用、站点权限及安装来源端口是否与当前下载页一致；需要更新时从当前后端重新安装并刷新下载页（若安装响应仍无 `@include`，需先更新提供该脚本的插件）。
 - **提示「后端未运行」或「连接失败」**：核对后端进程状态、单人模式登录态及脚本中的后端地址。一键导入 Cookie 失败时，按[第一次下载](/zh-cn/first-download#方式-c：油猴脚本「一键导入-cookie」)检查 Tampermonkey 的 HttpOnly Cookie 权限。

@@ -50,25 +50,25 @@ JVM 속성 `pixivdownload.plugins-dir`로 플러그인 루트 폴더를 지정�
 
 ## 다운로드 작품 폴더 구조
 
-일러스트와 소설 경로는 [작품 저장 디렉터리 템플릿](/ko/configuration?id=directory-templates)으로 결정됩니다. 기본값은 일러스트 `pixiv-download/{artwork_id}`, 소설 `pixiv-download/novel-{artwork_id}`이며 User 등의 모드별로 덮어쓸 수 있습니다. 아래 표의 `{root}`는 기본 일러스트 템플릿에서 첫 번째 변수 앞의 고정 접두사를 뜻합니다.
+일러스트와 소설의 저장 경로는 [작품 저장 디렉터리 템플릿](/ko/configuration?id=directory-templates)으로 결정됩니다(기본값은 일러스트 `pixiv-download/{artwork_id}`, 소설 `pixiv-download/novel-{artwork_id}`이며 User 등 취득 모드별로 덮어쓰기 가능). 아래 표의 `{root}`는 기본 일러스트 템플릿에서 첫 번째 변수 앞의 고정 접두사를 뜻합니다:
 
 | 기본 경로 | 내용 |
 | --- | --- |
 | `pixiv-download/{artwork_id}/` | 단일 작품, URL 일괄, 검색 등의 일러스트 / 만화 / 움짤. 합성한 `_p0.webp`와 `_p0_thumb.jpg` 포함 |
-| `pixiv-download/{username}/{R18}/{artwork_id}/` | 일러스트 User |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | 작가 일괄 다운로드(일러스트 User 모드 기본 템플릿) |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | 만화 시리즈 표지 |
 | `pixiv-download/novel-{artwork_id}/` | 개별 소설의 TXT / HTML / EPUB와 내장 이미지 |
 | `{root}/novel-series-{seriesId}/` | 소설 시리즈 표지와 합본 |
 | `{root}/douyin/{owner}/...` | Douyin 플러그인 기본 다운로드 폴더 또는 해당 플러그인에서 설정한 사용자 정의 폴더 |
 | `{root}/_archives/{token}.zip` | 일괄 내보내기와 다중 사용자 모드 할당량용 단기 압축 파일 |
 
-서드파티 다운로드 유형 플러그인도 작품을 `{root}/{pluginId}/` 또는 설정에서 지정한 작품 폴더에 저장해야 합니다. '기존 데이터 및 메타데이터 가져오기' 도구는 등록된 폴더의 이전 `<작품 ID>.meta.json` 스냅샷을 가져올 수 있습니다. 스냅샷이 없어도 경로에 작품 ID가 있으면 [로컬 작품 가져오기](/ko/local-import)로 파일 참조를 다시 등록할 수 있습니다. 경로에 없는 메타데이터는 별도로 보완해야 합니다.
+서드파티 다운로드 유형 플러그인도 작품을 `{root}/{pluginId}/` 또는 설정에서 지정한 작품 폴더에 저장해야 합니다. 도구 페이지의 '기존 데이터 및 메타데이터 가져오기'는 등록된 폴더의 이전 `<작품 ID>.meta.json` 스냅샷을 가져올 수 있으며, 스냅샷이 없어도 경로에 작품 ID가 포함되어 있으면 [로컬 작품 가져오기](/ko/local-import)로 파일 참조를 다시 등록하고 데이터 보완으로 메타데이터를 채울 수 있습니다.
 
 ## 데이터베이스 경로 접두사 및 폴더 이전
 
 데이터베이스는 파일 경로를 `{N}/relative/path`로 저장합니다.
 
-- **`{0}` 기호 루트**: 기본 일러스트 템플릿의 고정 접두사가 상대 경로이면(`pixiv-download/{artwork_id}`의 `pixiv-download` 등) 해당 경로 안의 파일을 `{0}/...`로 기록할 수 있으며, 시작할 때 작업 디렉터리를 기준으로 해석합니다. 앱과 해당 디렉터리를 함께 옮기면 이 데이터베이스 경로를 수동으로 수정할 필요가 없습니다.
+- **`{0}` 기호 루트**: 기본 일러스트 템플릿의 고정 접두사가 상대 경로이면(`pixiv-download/{artwork_id}`의 `pixiv-download` 등) 해당 접두사 아래 파일을 `{0}/...`로 기록하며, 시작할 때 '현재 작업 폴더 + 상대 접두사'로 동적 해석합니다. **프로그램 폴더 전체와 해당 상대 다운로드 폴더를 함께 옮길 때는 데이터베이스 경로를 수동으로 수정할 필요가 없습니다.**
 - **일반 `{N}` 접두사**: 다운로드 루트나 컬렉션이 절대 경로를 사용하면 기록은 `path_prefixes` 테이블의 절대 경로 접두사를 참조합니다.
 
 작품 다운로드 루트 폴더만 이동하려면:

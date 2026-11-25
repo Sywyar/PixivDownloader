@@ -50,25 +50,25 @@ Set the plugin root through the JVM property `pixivdownload.plugins-dir`. Never 
 
 ## Downloaded-work directory layout
 
-Illustration and novel directories follow the [work directory templates](/en/configuration?id=directory-templates). The defaults are `pixiv-download/{artwork_id}` for illustrations and `pixiv-download/novel-{artwork_id}` for novels; modes such as User can override them. In the table below, `{root}` means the fixed prefix before the first variable in the default illustration template.
+Illustration and novel save paths are controlled by [work directory templates](/en/configuration?id=directory-templates) (defaulting to `pixiv-download/{artwork_id}` for illustrations and `pixiv-download/novel-{artwork_id}` for novels, with per-mode overrides such as User mode). In the table below, `{root}` denotes the fixed prefix before the first variable in the default illustration template:
 
 | Default path | Content |
 | --- | --- |
 | `pixiv-download/{artwork_id}/` | Illustrations / manga / animations from individual-work, URL-batch, search and similar downloads, including generated `_p0.webp` and `_p0_thumb.jpg` |
-| `pixiv-download/{username}/{R18}/{artwork_id}/` | Illustration User |
+| `pixiv-download/{username}/{R18}/{artwork_id}/` | Artist batch downloads (default illustration User-mode template) |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | Manga-series cover |
 | `pixiv-download/novel-{artwork_id}/` | A single novel's TXT / HTML / EPUB and embedded images |
 | `{root}/novel-series-{seriesId}/` | Novel-series cover and compiled book |
 | `{root}/douyin/{owner}/...` | Douyin plugin's default download directory, or its configured custom directory |
 | `{root}/_archives/{token}.zip` | Short-lived archives for batch export and multi-mode quotas |
 
-Third-party download-type plugins should likewise save works under `{root}/{pluginId}/` or the work directory specified in their settings. Legacy data and metadata import on the Tools page can import historical `<work ID>.meta.json` snapshots from registered directories. Without a snapshot, paths containing artwork IDs can be used to [import local artworks](/en/local-import) and rebuild file references; metadata absent from the paths still needs to be filled in.
+Third-party download-type plugins should likewise save works under `{root}/{pluginId}/` or the work directory specified in their settings. Legacy data and metadata import on the Tools page can import historical `<work ID>.meta.json` snapshots from registered directories; if no snapshot exists but paths contain artwork IDs, use [local artwork import](/en/local-import) to re-register file references and backfill metadata.
 
 ## Database path prefixes and relocation
 
 The database stores file paths as `{N}/relative/path`:
 
-- **`{0}` symbolic root**: when the default illustration template has a relative fixed prefix, such as `pixiv-download` in `pixiv-download/{artwork_id}`, files within that prefix can be recorded as `{0}/...` and resolved against the working directory at startup. Moving the application and that directory together requires no manual changes to those database paths.
+- **`{0}` symbolic root**: when the fixed prefix of the default illustration template is a relative path (such as `pixiv-download` in `pixiv-download/{artwork_id}`), files under that prefix are recorded as `{0}/...` and resolved dynamically against the current working directory at startup. **Moving the entire application directory together with that relative download folder requires no manual database path edits.**
 - **Ordinary `{N}` prefixes**: when the download root or a collection uses an absolute path, records refer to an absolute prefix in the `path_prefixes` table.
 
 To move only the work download root:

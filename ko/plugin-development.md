@@ -2,11 +2,13 @@
 
 서드파티 플러그인은 SDK 개발 패키지의 독립 프로젝트 템플릿에서 시작합니다. JDK 25, Node.js 및 패키지에 포함된 빌드 도구와 실행 매니페스트만 있으면 되며 주 저장소를 복제할 필요가 없습니다.
 
-SDK 2.x는 JDK 25, Spring Framework 7, Servlet 6.1, Jackson 3를 사용하며 Spring Boot 4 호스트에 대응합니다. SDK 1.x 플러그인은 설치 또는 시작 검사에서 거부됩니다. `plugin.requires`만 변경해서는 업그레이드할 수 없으며 새 인터페이스에 맞게 수정한 뒤 다시 컴파일해야 합니다.
+SDK 2.x는 JDK 25, Spring Framework 7, Servlet 6.1, Jackson 3를 기반으로 하며 Spring Boot 4 호스트에 대응합니다. SDK 1.x 플러그인은 설치 및 시작 검사에서 즉시 거부됩니다.
 
-SDK 1.x에서 이전할 때 `PluginDataSource`를 `PluginDatabase`로, SQL 문자열을 `TableSpec.check`의 중립 표현식으로, `DesktopUiHost.resolveDatabasePath`를 데이터베이스 대상 계약으로 바꾸세요. 리소스 bundle에는 `LocaleBundlePolicy`를 명시해야 합니다. 취득 자격 증명은 `X-Acquisition-Credential`을 사용하고 예약 작업 자격 증명의 연결/해제는 공통 `POST` / `DELETE /api/schedule/tasks/{id}/credential`을 사용합니다. 해당 API의 활성화 토큰 및 권한 요구 사항도 충족해야 합니다. Jackson 데이터 바인딩 클래스는 `tools.jackson.*`로 이동하지만 어노테이션은 `com.fasterxml.jackson.annotation`을 유지합니다. Spring 헤더를 Map으로 다룰 때는 `HttpHeaders.asMultiValueMap()`을 사용하세요.
-
-`ScheduleTaskView`에서 `type`, `lastStatus`, `lastMessage`, `runStartedTime`, `pendingRetryArmed`가 제거되었습니다. 소스는 `sourceType`, 실행 상태는 `runState`, 결과는 `lastOutcome`, 일시 중단 상태는 `suspendReason` / `suspendCode`에서 읽으세요. 결과 메시지는 `outcomeCode` / `outcomeMessage`, 최근 실행 시각은 `lastRunTime`을 사용합니다.
+- **SDK 1.x에서 2.x로 이전할 때의 주요 변경 사항**(`plugin.requires`만 바꿔서는 로드할 수 없으며 새 계약에 맞게 수정한 뒤 다시 컴파일해야 함):
+  - **자식 컨텍스트 및 설명자**: `PixivPluginProvider`는 `featurePlugin()`만 유지하며, Spring 자식 컨텍스트 `@Bean` 설정 클래스는 `plugin.properties`의 `pixiv.configuration-classes`로 선언합니다.
+  - **데이터베이스 및 UI 계약**: `PluginDataSource`를 방언 독립적인 `PluginDatabase`로, SQL 문자열을 `TableSpec.check`의 중립 표현식으로, `DesktopUiHost.resolveDatabasePath`를 데이터베이스 대상 계약으로 교체합니다. 리소스 bundle에는 `LocaleBundlePolicy`를 명시해야 합니다.
+  - **자격 증명 및 예약 작업 뷰**: 취득 자격 증명 헤더는 `X-Acquisition-Credential`로 통일되었으며, 예약 작업 자격 증명 연결/해제는 공통 `POST` / `DELETE /api/schedule/tasks/{id}/credential`을 사용합니다(활성화 토큰과 권한 요구 사항 충족 필요). `ScheduleTaskView`에서 `type`, `lastStatus`, `lastMessage`, `runStartedTime`, `pendingRetryArmed`가 제거되고 `sourceType`, `runState`, `lastOutcome`, `suspendReason`/`suspendCode`, `outcomeCode`/`outcomeMessage`, `lastRunTime`을 사용합니다.
+  - **Jackson 3 및 Spring 7**: Jackson 데이터 바인딩 클래스는 `tools.jackson.*`로 이동했으며(어노테이션은 `com.fasterxml.jackson.annotation` 유지), Spring `HttpHeaders`의 `Map` 뷰가 필요할 때는 `asMultiValueMap()`을 호출합니다.
 
 | 개발 작업 | 관련 절 |
 | --- | --- |
@@ -92,6 +94,9 @@ pixiv.lifecycle-policy=process-restart
 
 - `plugin.id`는 `PixivFeaturePlugin.id()`와 정확히 같아야 합니다. `plugin.requires`는 필요한 SDK 버전을 선언합니다. 안정 버전은 `requiredMajor == hostMajor && requiredMinor <= hostMinor`로 일치 여부를 판단합니다. 프리릴리스는 `alpha.N` / `beta.N` / `rc.N`을 사용하고 정확히 일치해야 합니다.
 - `pixiv.execution-mode`는 필수이며 `declarative-process` 또는 `host-process-full-trust`입니다. `pixiv.lifecycle-policy`는 `hot-reload`(기본값), `backend-restart`, `process-restart`를 선택할 수 있습니다. `pixiv.risk-signals`에는 위험 신호 token을 선언할 수 있습니다.
+- `pixiv.desktop-only`의 기본값은 `false`입니다. 데스크톱 전용 플러그인은 이 값을 `true`로 설정할 수 있습니다. 헤드리스 모드에서는 백엔드 플러그인이 직접 또는 간접적으로 이 플러그인을 필수로 요구할 때만 로드합니다. 건너뛴 패키지도 플러그인 관리 페이지에 설치된 상태로 표시됩니다.
+- `plugin.dependencies`에는 의존하는 외부 PF4J 패키지를 지정합니다. `core` 같은 호스트 내장 구성 요소를 필수 의존성으로 지정하면 설치 디렉터리에 쓰기 전에 거부됩니다. 필요한 호스트 SDK 버전은 `plugin.requires`로 선언하세요.
+- 데스크톱 UI 제공자는 `DesktopUiHost.stopBackend(afterStop, onFailure)`로 백엔드 중지를 요청할 수 있습니다. 데이터에 독점 접근해야 하는 도구는 `afterStop`에서 시작하세요. 요청이 수락되면 결과에 따라 콜백 하나만 호출됩니다. `false`가 반환되면 요청이 즉시 거부된 상태이며 콜백은 호출되지 않습니다.
 - 외부 진입점은 `PixivPluginProvider`를 구현하고 유일한 `PixivFeaturePlugin`을 반환합니다. Spring 자식 컨텍스트의 명시적 `@Bean` 설정 클래스는 설명자의 `pixiv.configuration-classes`로 선언하며 호스트 패키지 스캔에 의존하면 안 됩니다.
 
 ```java
@@ -129,15 +134,12 @@ public List<WebRouteContribution> routes() {
 2. **프런트엔드 동작 모듈 구현**: `moduleUrl`에서 `PixivBatch.queueTypes.registerModule(initializer)`를 호출합니다. 필수 `process(item, context)`를 구현하고 `context.updateItem(patch)`로 상태를 갱신합니다. `DownloadTasks`를 사용하면 `context.bindTask(taskId)`로 실행 UUID를 연결합니다. 선언한 `import`, `acquisition.*`, `filters`, `settings`도 구현합니다. 비동기 콜백이 값을 쓰기 전에 `AbortSignal` / `isActive()`를 확인하고 `onCleanup()`에서 리소스를 해제해야 합니다.
 3. **백엔드에서 신뢰할 수 있는 신원 해석**: Controller에 부모 컨텍스트의 `RequestOwnerIdentityResolver`를 주입하여 현재 요청의 신원을 해석합니다. 요청 본문이나 인수가 스스로 제공한 owner UUID를 신뢰해서는 안 됩니다. 파일을 내구성 있게 저장하고 기록을 커밋한 후에만 완료로 표시합니다.
 4. **`QueueOperations` 및 실제 Quiesce / Drain 구현**: `workKey`는 불투명 문자열이며 호스트가 `POST /api/download/queue/{queueType}/cancel`의 JSON 요청 본문으로 전달합니다. 비동기나 백그라운드 작업이 있는 대기열은 `prepareQuiesce`를 재정의하여 새 작업 수락을 중지하고 양의 세대를 가진 실제 `QueueDrain`을 반환해야 합니다. 진행 중인 작업이 0이 된 후 drain을 완료합니다.
-5. **UI 슬롯 및 예약 작업 기능(선택 사항)**: `uiSlots()`로 `WebUiSlotContribution`을 제공합니다. 호스트 `PixivVue.mountUiSlot`을 사용하며 Vue runtime을 패키징하지 않습니다. `scheduledSourceDescriptors()`와 자식 컨텍스트의 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean으로 예약 작업을 지원합니다. 호스트는 스케줄링, 잠금, 자격 증명과 워터마크 커밋을 담당합니다. 다음 페이지를 요청하거나 작품 유형을 바꾸기 전에 소스에서 `context.workSink().drain()`을 호출할 수 있습니다. 대기가 끝난 뒤 `context.isPending(key)`로 현재 페이지에 재시도할 작품이 남았는지 확인하세요.
-
-`POST /api/download/tasks`에서 이 작품 유형을 받으려면 플러그인의 자식 컨텍스트에 `DownloadSubmissionHandler` 빈을 등록하세요. `workType()`은 유형 ID를 반환합니다. OpenAPI에 입력 스키마를 표시하려면 `inputSchemaResource()`에서 플러그인에 포함된 JSON Schema의 절대 클래스패스 경로를 반환하세요. `submit`에서 옵션을 검증하고 정상적으로 반환하기 전에 호스트가 전달한 `DownloadAttempt`를 `DownloadLifecycle.track`으로 등록하세요.
-
-대상 작품의 메타데이터를 조회할 때 원본 사이트가 404를 반환하면 `submit`에서 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`를 던지세요. 호스트는 SDK의 기본 메서드 `submitAndReportFailure`를 호출해 플러그인 프록시를 통해 사유 코드를 받습니다. 최초 제출 응답은 `404 WORK_NOT_FOUND`입니다. 특정 페이지나 첨부 파일만 없다면 해당 리소스의 오류로 처리하세요. 기존 처리기는 계속 `submit`을 구현하면 됩니다.
-
-제출 옵션이 잘못되면 JSON Pointer와 안정적인 사유 코드를 담은 `InputFieldException`을 던지세요. 예를 들어 `/options/pages`와 `out_of_range`를 사용합니다. 기본 `submitAndReportFailure`는 플러그인 프록시를 통해 필드와 사유를 전달합니다. 진단에 입력값이나 자격 증명을 포함하지 마세요.
-
-작업량을 측정할 수 있으면 해당 시도에 등록한 큐 핸들로 `DownloadLifecycle.reportProgress(attempt, task, progress)`를 호출하세요. `DownloadTaskProgress`는 `PAGES`, `IMAGES`, `BYTES` 단위를 지원합니다. 현재 단계의 전체 수가 알려진 양수일 때 같은 단위로 완료 수와 전체 수를 보고하세요. 최종 결과는 종료 이벤트로 알립니다.
+5. **UI 슬롯 및 예약 작업 기능(선택 사항)**: `uiSlots()`로 `WebUiSlotContribution`을 제공합니다(호스트 `PixivVue.mountUiSlot`을 사용하며 Vue runtime은 패키징하지 않음). `scheduledSourceDescriptors()`와 자식 컨텍스트의 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean으로 예약 작업을 지원합니다(호스트가 스케줄링, 잠금, 자격 증명과 워터마크 커밋을 담당). 다음 페이지를 요청하거나 작품 유형을 바꾸기 전에 현재 배치 완료를 기다리려면 `context.workSink().drain()`을 호출하고, 반환된 뒤 `context.isPending(key)`로 현재 페이지에 재시도 대기 작품이 남아 있는지 확인할 수 있습니다.
+6. **통합 작업 제출 진입점 `POST /api/download/tasks` 연결(`DownloadSubmissionHandler`)**: 플러그인 자식 컨텍스트에 `DownloadSubmissionHandler` Bean을 등록합니다:
+   - `workType()`에서 작품 유형 ID를 반환하고, OpenAPI에 입력 스키마를 포함하려면 `inputSchemaResource()`에서 플러그인 내 JSON Schema의 절대 클래스패스 경로를 반환합니다.
+   - `submit`에서 옵션을 검증하고 정상 반환 전에 호스트가 전달한 `DownloadAttempt`를 `DownloadLifecycle.track`으로 등록합니다.
+   - **오류 및 사유 코드 전달**: 호스트는 SDK 기본 메서드 `submitAndReportFailure`를 호출해 플러그인 프록시 너머로 실패 사유를 전달합니다(기존 처리기는 계속 `submit`만 구현 가능). 원본 메타데이터 조회에서 명확히 404가 반환되면 `new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND)`를 던져 최초 제출이 `404 WORK_NOT_FOUND`를 반환하게 하고(특정 페이지나 첨부 파일만 누락된 경우 해당 리소스 실패 의미 유지), 제출 옵션이 잘못된 경우 JSON Pointer와 안정적인 사유 코드를 담은 `InputFieldException`(예: `/options/pages`와 `out_of_range`, 진단 정보에 입력 원본값이나 자격 증명 포함 금지)을 던집니다.
+   - **진행률 보고**: 현재 단계의 전체 작업량이 알려진 양수일 때 해당 시도에 등록한 큐 핸들로 `DownloadLifecycle.reportProgress(attempt, task, progress)`를 호출합니다(`DownloadTaskProgress` 단위는 `PAGES`, `IMAGES`, `BYTES` 중 하나이며 완료 수와 전체 수는 같은 단위 사용. 최종 결과는 종료 이벤트로 결정).
 
 ## 플러그인 자체 갤러리 추가
 
@@ -179,6 +181,7 @@ SDK 2.x는 플러그인 간 타입 서비스를 지원합니다. `typed-service-
 
 - 계약 전달 플러그인은 `pixiv.contract-api`와 `pixiv.contract-sha256`으로 원본 순수 JDK API JAR을 선언하며 `process-restart`를 사용합니다. 제공자는 `serviceExports()`에서 구현을 내보내고 소비자는 `serviceImports()`에서 의존성을 선언하며 `PluginServices`를 주입합니다.
 - `find(key)`, `require(key)`, `findAll(key)` 또는 수명 주기 바인딩 `bind(keys, activation)` / `bindAll(keys, activation)`을 호출하여 정확한 publication에 연결된 프록시를 얻습니다.
+- 호출 시점에 호스트 API를 통해 상위 플러그인의 기능을 사용할 수 있는지 확인하고, 기능이 없거나 호출이 거부되면 해당 기능에 의존하는 작업에서만 처리하세요.
 - `sdk-tools.jar`로 JSON Schema, 원격 호출 어댑터를 생성하고 바이너리 호환성을 검사합니다.
 
 ```text
@@ -200,7 +203,7 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ### 어노테이션으로 고정 HTTP 대상 선언하기
 
-SDK 2.x에서는 플러그인의 콜백 메서드에 `@HttpHook`을 사용할 수 있습니다. 아래 `StatusObserver`를 플러그인 자식 컨텍스트에 `@Bean`으로 등록하면 호스트가 선언을 발견합니다. 대상 컨트롤러는 수정할 필요가 없습니다. 이 예제는 성공한 로컬 상태 확인 요청을 셉니다. `/api/download/status`는 작품 다운로드 완료를 뜻하지 않습니다.
+SDK 2.x에서는 플러그인 자식 컨텍스트의 싱글턴 `@Bean` 메서드에 `@HttpHook`을 붙여 고정 HTTP 콜백을 선언할 수 있으며 대상 Controller는 수정할 필요가 없습니다. 아래 예제는 로컬 상태 확인 프로브 `GET /api/download/status`의 성공 요청을 집계합니다(이 엔드포인트는 상태 프로브이며 작품 다운로드 완료를 뜻하지 않음):
 
 ```java
 import java.util.concurrent.atomic.AtomicLong;
@@ -223,16 +226,10 @@ public final class StatusObserver {
 }
 ```
 
-플러그인 관리에서 상세 정보를 열고 HTTP Hook 선언의 '승인 내용 미리 보기'를 선택합니다. 대상, 단계, 필드 권한과 영향받는 페이지를 검토한 뒤 '확인 후 게시'를 누릅니다. 동일한 선언은 플러그인을 다시 활성화하면 복구됩니다. 선언, 데이터 계약 또는 대상 매핑이 바뀌면 재승인이 필요합니다. 선택한 선언만 갱신하며 다른 선언은 자동 갱신하지 않습니다. 비활성화나 언로드 후에도 승인된 사전 보호는 유지됩니다. 해제하려면 관리자가 해제 내용을 미리 보고 게시해야 합니다.
-
-싱글턴 Bean의 public 동기 인스턴스 메서드를 사용하고, 유일한 매개변수는 `OperationHook.Invocation`이어야 합니다. 사전 콜백은 `Decision`을 반환하며 완료 콜백은 void도 가능합니다. `@Async`나 작업 완료 전에 반환하는 콜백은 지원하지 않습니다. 호스트 로그에는 실제 클래스와 메서드가 기록됩니다. 인터페이스 방식과 어노테이션 방식을 합쳐 플러그인당 최대 16개 Hook을 제공합니다.
-
-`targetOwner/method/path`는 실제 카탈로그에서 handler를 선택합니다. 같은 경로에 후보가 여러 개이면 `params/headers/consumes/produces`에 카탈로그의 전체 조건을 지정합니다. 비어 있지 않은 목록은 조건 집합과 정확히 일치해야 하며, 빈 목록은 해당 조건을 필터링하지 않습니다. 대상이 없거나 모호하면 승인할 수 없습니다. 같은 handler의 모든 경로 별칭은 바인딩을 공유합니다.
-
-일반 메서드는 메타데이터만 받으며 설정은 `{}`입니다. 필드, 설정 schema, 리소스 또는 대화형 챌린지가 필요하면 `OperationHook`을 구현하고 `invoke`에 어노테이션을 추가합니다. `id()`는 어노테이션 ID와 같아야 합니다. `fields`에는 승인, 민감 필드 검사와 예산이 적용됩니다. 동적 설정과 페이지 편집기 바인딩은 어노테이션 없이도 사용할 수 있습니다.
-
-관리 API는 `GET /api/web/operation-hooks/declarations?provider=<pluginId>`와 `POST /api/web/operation-hooks/declarations/prepare`입니다. 후자는 `{revision, provider, id, fingerprint, remove}`를 받고 반환한 계획은 기존 `publish`에 제출합니다. 카탈로그, 플러그인 또는 게시 리비전이 바뀌면 계획을 다시 받아야 합니다.
-
+- **메서드 형식 및 한도**: 콜백은 싱글턴 Bean의 `public` 동기 인스턴스 메서드여야 하며 유일한 매개변수는 `OperationHook.Invocation`입니다(`BEFORE_INVOKE`는 `Decision`을 반환하고 `AFTER_COMPLETION`은 `void`도 가능. `@Async`나 반환 후 비동기로 작업을 이어가는 콜백은 미지원). 플러그인당 인터페이스 방식과 어노테이션 방식을 합쳐 최대 16개까지 선언할 수 있으며 호스트 로그에 실제 클래스와 메서드가 기록됩니다.
+- **대상 매칭**: `targetOwner`, `method`, `path`로 실제 라우트 카탈로그의 handler를 선택하며, 같은 경로에 여러 후보가 있으면 `params`, `headers`, `consumes`, `produces`로 전체 조건 집합을 정확히 지정합니다(빈 목록은 해당 조건을 필터링하지 않으며, 대상이 없거나 모호하면 승인 불가. 같은 handler의 모든 경로 별칭이 바인딩을 공유).
+- **필드 추출 및 대화형 챌린지**: 일반 어노테이션 메서드는 메타데이터만 받으며 설정은 `{}`로 고정됩니다. 요청/응답 필드 추출, 설정 schema, 리소스 또는 대화형 챌린지가 필요하면 `OperationHook`을 구현하고 그 `invoke` 메서드에 `@HttpHook`을 붙이되 `id()`와 어노테이션 `id`를 일치시키세요(`fields`는 관리자 승인, 민감 필드 검사 및 예산 제한 적용). 동적 설정과 페이지 편집기 바인딩은 계속 기존 인터페이스를 사용합니다.
+- **관리자 승인 및 API**: 관리자는 [플러그인 관리 → 플러그인 상세 정보 → HTTP Hook 선언](/ko/plugin-management#플러그인의-http-hook-승인하기)에서 미리 보고 승인하여 게시합니다(API로는 `GET /api/web/operation-hooks/declarations?provider=<pluginId>`와 `POST /api/web/operation-hooks/declarations/prepare`에 `{revision, provider, id, fingerprint, remove}`를 보내 계획을 생성한 뒤 `publish`에 제출. 카탈로그, 플러그인 또는 게시 리비전이 바뀐 뒤에는 이전 계획을 재사용하지 말 것).
 
 ## 일반 슬롯 및 페이지 컴포넌트
 

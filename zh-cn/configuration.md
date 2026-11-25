@@ -12,22 +12,21 @@
 
 ## 凭据密钥与备份
 
-每个安装实例生成独立随机主密钥，以受保护的形式保存在 `config/credentials.key`。Windows 默认使用当前用户的 DPAPI；服务应始终以同一账号运行。更换 Windows 用户或电脑时，先导出包含凭据且设有密码的 `.pdbackup`，再在目标环境导入，仅复制配置目录不足以恢复凭据。
+每个安装实例生成独立的随机主密钥，以受保护形式保存在 `config/credentials.key`：
 
-Linux、macOS 和 Docker 必须在首次保存或升级凭据前提供独立的保护密钥文件。文件内容是 32 个随机字节的标准 Base64 编码，只允许运行账号读取，放在配置目录及其备份之外。安装 OpenSSL 后，可在 Bash 中首次创建文件并为启动进程设置环境变量；已有文件不会被覆盖：
+- **Windows**：默认使用当前操作系统用户的 DPAPI 保护；后台服务应始终以同一用户账号运行。更换 Windows 用户或电脑时，仅复制 `config/` 目录无法解密原凭据，需先在原环境导出包含凭据且设密保护的 `.pdbackup`，再导入目标环境。
+- **Linux / macOS / Docker**：必须在首次保存或升级凭据前，将独立的保护密钥文件放在 `config/` 及其备份目录之外（文件内容为 32 个随机字节的标准 Base64 编码，仅允许运行账号读取），并通过环境变量 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` 或 JVM 参数 `-Dpixivdownload.credential-key-file=/绝对路径` 指定。首次创建示例（使用 `set -C` 防止覆盖已有密钥）：
 
-```bash
-umask 077
-mkdir -p "$HOME/.config/pixivdownload-secrets"
-( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
-export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
-```
+  ```bash
+  umask 077
+  mkdir -p "$HOME/.config/pixivdownload-secrets"
+  ( set -C; openssl rand -base64 32 > "$HOME/.config/pixivdownload-secrets/credentials.key" )
+  export PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE="$HOME/.config/pixivdownload-secrets/credentials.key"
+  ```
 
-在同一终端启动应用；后台服务需在服务环境中设置该变量。Docker 将此文件只读挂载到 `/run/secrets/pixivdownload-credentials`，并把变量设为该容器内路径。也可在 Java 启动参数中使用 `-Dpixivdownload.credential-key-file=/绝对路径`。保护密钥应单独安全备份，不要每次启动重新生成；密钥丢失或不匹配时，应用保留原凭据并拒绝解密。
-
-旧版凭据会在普通读写时自动升级，停用插件的凭据也参与迁移。旧密钥只用于旧格式升级；全部文件迁移完成后拒绝旧格式重放。损坏文件保留以便修复重试，其他插件仍可使用。迁移不会改变已有离线备份的保护方式；跨环境恢复使用加密 `.pdbackup`，导入后由目标安装密钥重新加密。
-
-仓库的 Compose 模板会自动挂载保护密钥，宿主环境变量仍填写宿主文件路径，未设置时拒绝启动。Linux 宿主需让容器账号 UID/GID `10001:10001` 独占读取该文件，例如在生成后执行 `sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"` 和 `sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`；文件型 Compose secret 沿用宿主权限。
+  - 在同一终端启动应用，或将该环境变量写入后台服务配置。保护密钥须单独安全备份，切勿每次启动重新生成；密钥丢失或不匹配时，应用会保留原凭据文件并拒绝解密。
+  - **Docker / Compose**：将宿主机密钥文件只读挂载到容器内 `/run/secrets/pixivdownload-credentials` 并设置对应环境变量。仓库自带的 Compose 模板会自动挂载宿主 `PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE` 指定的文件（未设置时拒绝启动）；Linux 宿主机需将该文件设为容器账号 `10001:10001` 独占只读（`sudo chown 10001:10001 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE" && sudo chmod 400 "$PIXIVDOWNLOAD_CREDENTIAL_KEY_FILE"`）。
+- **旧版凭据自动升级**：旧版凭据在普通读写时自动迁移至新格式（含已停用插件的凭据）；全部文件完成迁移后将拒绝旧格式重放。损坏的凭据文件会保留在原位供修复重试，不影响其他插件运行。跨环境恢复请使用加密 `.pdbackup`，导入时由目标环境主密钥重新加密。
 
 ## 配置与环境迁移
 
@@ -209,28 +208,22 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 ## 作品保存目录模板 :id=directory-templates
 
-在「设置 → 下载」中分别编辑插画和小说的保存目录。展开后的路径就是最终作品目录，不会再自动追加作者或作品 ID 层级。相对路径从应用工作目录解析，也可填写绝对路径；保存后重启应用生效。
+在桌面「设置 → 下载」中分别配置插画与小说的保存目录模板（支持基于应用工作目录的相对路径或绝对路径，保存后重启应用生效）。模板展开后的路径即为最终作品目录，不会再额外追加作者或作品 ID 子目录；修改模板仅作用于后续新下载，搬迁已有目录见[存储与备份](/zh-cn/storage)。
 
-每类作品保留一个默认模板。点击「添加模式」可为单作品、User、系列、搜索或快捷模式设置完整覆盖；未添加、移除或留空的模式使用该类作品的默认模板。模式表示本次取得来源，作品属于某个系列并不等于使用系列模式。
+- **默认模板与模式覆盖**：每类作品保留一个默认模板，点击「添加模式」可按本次取得来源（`<mode>` 取 `single-import`、`user`、`series`、`search`、`quick`；作品属于某系列不等于使用 `series` 模式）单独覆盖完整目录，留空或移除则回退默认模板：
+  - **插画（宿主 `config/config.yaml`）**：`download.root-folder`（默认模板）与 `download.mode-templates.<mode>`。
+  - **小说（`novel` 插件 `config/plugins/novel.properties`）**：`download.novel-directory-template`（默认模板）与 `download.novel-mode-templates.<mode>`。
+- **可用变量与路径约束**：
+  - 支持 `{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`（取得来源的用户名）、`{R18}`（均须按小写下划线或 `R18` 精确匹配；不支持 `{page}`、`{extension}`、`{name}` 等本地导入变量）。
+  - 模板**必须包含独占一个路径段的 `{artwork_id}`**（允许同段带固定文字前缀，如 `novel-{artwork_id}`，但同一路径段内不得包含其他变量；建议小说保留 `novel-` 前缀以区分纯数字 ID）。
+  - 收藏夹、系列和 `{R18}` 变量无值时展开为空（整段为空的目录层自动省略，同段有固定文字则保留），其余必需变量缺失时拒绝本次下载。
+- **收藏夹自定义目录替换**：当下载指定了绑定独立目录的本地收藏夹时，收藏夹目录会替换模板中「首个含变量的目录层」之前的固定前缀，该变量层及后续层级（含段内固定文字）完整保留。例如模板 `pixiv-download/novel-{artwork_id}` 配合收藏夹目录 `D:/Favorites`，展开为 `D:/Favorites/novel-{artwork_id}`。
+- **与本地导入模板的区别**：保存目录模板始终指向目录，末尾无需加 `/`；而[本地作品导入](/zh-cn/local-import)以末尾是否带 `/` 区分文件夹模板与单文件模板。
 
-插画模板保存在宿主 `config/config.yaml` 的 `download.root-folder` 与 `download.mode-templates.<mode>`；小说模板由 `novel` 插件保存在 `config/plugins/novel.properties` 的 `download.novel-directory-template` 与 `download.novel-mode-templates.<mode>`。`<mode>` 为 `single-import`、`user`、`series`、`search` 或 `quick`。
-
-可用变量：`{artwork_id}`、`{artwork_title}`、`{author_id}`、`{author_name}`、`{collection_name}`、`{collection_id}`、`{series_id}`、`{series_name}`、`{series_title}`、`{series_order}`、`{username}`、`{R18}`。变量名按这里的拼写精确匹配。
-
-模板必须包含独占一个路径段的 `{artwork_id}`，该段可以带固定文字，例如 `novel-{artwork_id}`，但不能同时包含其他变量。小说 ID 仍是纯数字，建议用 `novel-` 区分插画和小说。
-
-`{username}` 是取得来源的用户名。收藏夹、系列和 `R18` 变量缺值时展开为空；展开后完全为空的目录层会省略，同层的固定文字保留。其他必需值缺失会拒绝本次下载。`{page}`、`{extension}`、`{name}` 等本地导入变量不能用于保存目录。
-
-以下为默认模板和可选的模式模板示例：
-
-| 用途 | 模板 |
+| 用途 | 模板示例 |
 | --- | --- |
 | 插画默认 | `pixiv-download/{artwork_id}` |
-| 插画 User | `pixiv-download/{username}/{R18}/{artwork_id}` |
+| 插画 User 模式 | `pixiv-download/{username}/{R18}/{artwork_id}` |
 | 小说默认 | `pixiv-download/novel-{artwork_id}` |
-| 小说 User | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
+| 小说 User 模式 | `pixiv-download/{username}/{R18}/novel-{artwork_id}` |
 | 系列模式示例 | `pixiv-download/{series_id}/{series_order}/{artwork_id}` |
-
-选中配置了目录的收藏夹时，收藏夹目录替换模板中首个含变量的目录层之前的固定路径；该目录层及其后续部分完整保留，包括固定文字。例如 `pixiv-download/novel-{artwork_id}` 配合收藏夹目录 `D:/Favorites`，会按 `D:/Favorites/novel-{artwork_id}` 展开。
-
-这些模板始终指定下载目录，末尾不要求 `/`。本地导入采用另一套规则：以 `/` 结尾匹配文件夹，不以 `/` 结尾匹配文件，见[本地作品导入](/zh-cn/local-import)。修改模板只影响后续下载，不会移动已有文件；搬迁已有目录见[存储与备份](/zh-cn/storage)。
