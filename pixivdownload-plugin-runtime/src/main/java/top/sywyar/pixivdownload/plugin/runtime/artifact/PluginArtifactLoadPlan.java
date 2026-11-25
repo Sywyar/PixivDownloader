@@ -112,10 +112,14 @@ public final class PluginArtifactLoadPlan {
 
     /** PF4J 启动 wrapper 时会跟随已存在的可选依赖。只检查入选的 wrapper。 */
     public PluginArtifactLoadPlan forStartup(boolean headless, java.util.function.Predicate<String> enabled) {
-        var selected = headless ? headlessEntries(enabled) : orderedEntries;
+        var selected = headless ? headlessStartupEntries(enabled) : orderedEntries;
         // 仅包含必需依赖的图已经无环。
         var cycles = selected.stream().anyMatch(e -> e.descriptor().dependencies().stream().anyMatch(PluginDependencyRef::optional))
                 ? pf4jCycleIds(selected) : Set.<String>of();
+        if (headless && cycles.stream().anyMatch(id -> !enabled.test(id))) {
+            var activeCycles = pf4jCycleIds(headlessEntries(enabled));
+            cycles.removeIf(id -> enabled.test(id) && !activeCycles.contains(id));
+        }
         if (cycles.isEmpty()) return new PluginArtifactLoadPlan(selected, failures, skippedPluginIds);
         var blocked = new LinkedHashSet<>(skippedPluginIds);
         var reasons = new LinkedHashMap<String, String>();
@@ -126,7 +130,21 @@ public final class PluginArtifactLoadPlan {
         propagateBlockedRequiredDependencies(selected, all, blocked, reasons, diagnostics);
         var surviving = new PluginArtifactLoadPlan(selected.stream().filter(e -> !blocked.contains(e.pluginId())).toList(),
                 diagnostics, blocked);
-        return headless ? new PluginArtifactLoadPlan(surviving.headlessEntries(), diagnostics, blocked) : surviving;
+        return headless ? new PluginArtifactLoadPlan(surviving.headlessStartupEntries(enabled), diagnostics, blocked) : surviving;
+    }
+
+    private List<Entry> headlessStartupEntries(java.util.function.Predicate<String> enabled) {
+        Set<String> selected = new LinkedHashSet<>();
+        headlessEntries(enabled).forEach(entry -> selected.add(entry.pluginId()));
+        // 禁用的后端插件仍贡献 schema，但不能为此额外加载桌面依赖。
+        for (Entry entry : orderedEntries) {
+            if (!enabled.test(entry.pluginId()) && !entry.descriptor().desktopOnly()
+                    && entry.descriptor().dependencies().stream()
+                    .allMatch(edge -> edge.optional() || selected.contains(edge.pluginId()))) {
+                selected.add(entry.pluginId());
+            }
+        }
+        return orderedEntries.stream().filter(entry -> selected.contains(entry.pluginId())).toList();
     }
 
     public List<Entry> orderedEntries() {

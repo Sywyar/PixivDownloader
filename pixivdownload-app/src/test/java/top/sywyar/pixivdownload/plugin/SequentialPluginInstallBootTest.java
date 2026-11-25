@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.push.PushChannelId;
 import top.sywyar.pixivdownload.push.RenderedMessage;
 import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
@@ -502,7 +503,8 @@ class SequentialPluginInstallBootTest {
             for (String id : List.of("provider", "waiting-middle", "waiting-leaf")) {
                 var waiting = entry(app, id);
                 assertThat(waiting.effectiveAfterRestart()).as(id).isTrue();
-                assertThat(waiting.loadedVersion()).as(id).isNull();
+                assertThat(waiting.runtimePhase()).as(id).isNull();
+                assertThat(waiting.loadedVersion()).as(id).isEqualTo(id.equals("provider") ? "2.0.0" : null);
             }
             System.setProperty("test.plugin.fail-init", "fail-load@1.0.0");
             System.setProperty("test.plugin.fail-start", "fail-start@1.0.0");
@@ -517,7 +519,9 @@ class SequentialPluginInstallBootTest {
         assertThat(uploads.probeVersion("healthy", 200)).isEqualTo("1.1.0");
         for (String id : List.of("cancel-enable", "fail-load", "fail-start")) {
             assertThat(entry(app, id).configuredEnabled()).as(id).isFalse();
-            assertThat(app.getBean(PluginRuntimeManager.class).loadedDescriptor(id)).as(id).isEmpty();
+            assertThat(entry(app, id).runtimePhase()).as(id).isIn(null, PluginRuntimePhase.UNLOADED);
+            assertThat(app.getBean(PluginRuntimeManager.class).loadedDescriptor(id).isPresent())
+                    .as(id).isEqualTo(id.equals("cancel-enable") || phase.equals("toggles-again-restart"));
             uploads.probeVersion(id, 404);
         }
         assertThat(app.getBean(ExternalPluginInstaller.class).listInstalled()).noneMatch(p -> p.id().equals("backend-remove"));

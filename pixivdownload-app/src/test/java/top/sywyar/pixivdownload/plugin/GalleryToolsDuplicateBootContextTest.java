@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsHotReloadJar;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -266,7 +266,7 @@ class GalleryToolsDuplicateBootContextTest {
             deleteRecursivelyQuietly(PLUGINS_DIR);
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-tools-plugin.jar");
-            zipDirectoryAsJar(duplicateClasses, jar);
+            zipDirectoryAsHotReloadJar(duplicateClasses, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException | RuntimeException ex) {

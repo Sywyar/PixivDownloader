@@ -38,6 +38,36 @@ class PluginArtifactLoadPlanTest {
     }
 
     @Test
+    void disabledBackendPackagesKeepSchemaWithoutExtendingActiveDependencies() throws IOException {
+        var schema = entry("schema", false, "");
+        var disabledBackend = entry("disabled-backend", false, "schema");
+        var activeConsumer = entry("active-consumer", false, "schema");
+        var desktop = entry("desktop", true, "");
+        var disabledDesktopConsumer = entry("disabled-desktop-consumer", false, "desktop");
+        var enabledBackend = entry("enabled-backend", false, "");
+        var plan = PluginArtifactLoadPlan.createInspected(List.of(
+                disabledBackend, activeConsumer, disabledDesktopConsumer, schema, desktop, enabledBackend));
+
+        var startup = plan.forStartup(true, id -> id.equals("active-consumer") || id.equals("enabled-backend"));
+
+        assertThat(startup.failures()).isEmpty();
+        assertThat(startup.orderedEntries()).containsExactlyInAnyOrder(schema, disabledBackend, enabledBackend)
+                .containsSubsequence(schema, disabledBackend);
+    }
+
+    @Test
+    void disabledSchemaPackageCannotBlockActivePluginThroughOptionalCycle() throws IOException {
+        var enabled = entry("backend", false, "schema?");
+        var disabled = entry("schema", false, "backend");
+        var plan = PluginArtifactLoadPlan.createInspected(List.of(enabled, disabled));
+
+        var startup = plan.forStartup(true, id -> !id.equals("schema"));
+
+        assertThat(startup.orderedEntries()).containsExactly(enabled);
+        assertThat(startup.skippedPluginIds()).containsExactly("schema");
+    }
+
+    @Test
     void physicalCyclesAreCheckedAfterHeadlessSelectionInEitherOrder() throws IOException {
         var backend = entry("backend", false, "desktop");
         var desktop = entry("desktop", true, "backend?");

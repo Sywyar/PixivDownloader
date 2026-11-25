@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -37,6 +38,15 @@ final class ExternalPluginRuntimeController {
 
     boolean isLoaded(String packageId) {
         return runtimeManager.packagePhases().containsKey(packageId);
+    }
+
+    boolean loadedInactiveAtBoot(String packageId) {
+        return inactiveBootRegistration(packageId).isPresent();
+    }
+
+    private Optional<PluginRegistry.RegisteredPlugin> inactiveBootRegistration(String packageId) {
+        return runtimeManager.generation(packageId)
+                .flatMap(generation -> lifecycleService.inactiveBootRegistration(packageId, generation));
     }
 
     boolean isDevelopmentArtifact(String packageId) {
@@ -144,6 +154,24 @@ final class ExternalPluginRuntimeController {
             return new UnloadedPluginPackage(packageId, installed.path(), installed.version(), 0L);
         }
         requireNoActiveDependents(packageId);
+        var inactive = inactiveBootRegistration(packageId);
+        if (inactive.isPresent()) {
+            var registration = inactive.get();
+            lifecycleService.unregisterInactiveBootPackage(registration);
+            try {
+                return runtimeManager.unloadPlugin(packageId);
+            } catch (Throwable failure) {
+                var failures = new PluginLifecycleFailureAccumulator(failure);
+                try {
+                    if (runtimeManager.generation(packageId).orElse(0L) == registration.generation()) {
+                        lifecycleService.restoreInactiveBootPackage(registration);
+                    }
+                } catch (Throwable rollbackFailure) {
+                    failures.record(rollbackFailure);
+                }
+                throw failures.propagate("failed to unload inactive plugin '" + packageId + "'");
+            }
+        }
         var packagePhase = runtimeManager.packagePhases().get(packageId);
         if (!lifecycleService.managedPluginIds().contains(packageId) && phase(packageId) == null
                 && lifecycleService.generation(packageId).isEmpty()
@@ -192,6 +220,7 @@ final class ExternalPluginRuntimeController {
     }
 
     void load(String packageId, Path artifact) {
+        if (loadedInactiveAtBoot(packageId)) unload(packageId);
         adopt(packageId, runtimeManager.loadPlugin(artifact));
     }
 
@@ -241,7 +270,7 @@ final class ExternalPluginRuntimeController {
         if (!isLoaded(packageId)) {
             return true;
         }
-        if (lifecycleService.managedPluginIds().contains(packageId)) {
+        if (lifecycleService.managedPluginIds().contains(packageId) || loadedInactiveAtBoot(packageId)) {
             unload(packageId);
         } else {
             runtimeManager.unloadPlugin(packageId);
@@ -250,7 +279,24 @@ final class ExternalPluginRuntimeController {
     }
 
     void restoreOldRuntime(String packageId, Path previousArtifact, PluginRuntimeManager.RollbackArtifact retained,
-                           PluginRuntimePhase previousPhase) {
+                           PluginRuntimePhase previousPhase, boolean inactiveAtBoot) {
+        if (inactiveAtBoot && !isLoaded(packageId)) {
+            var loaded = retained != null ? retained.load() : runtimeManager.loadPlugin(previousArtifact);
+            try {
+                var initialized = runtimeManager.initializePlugin(loaded.packageId());
+                runtimeManager.startPlugin(loaded.packageId());
+                lifecycleService.restoreInactiveBootPackage(initialized);
+            } catch (Throwable failure) {
+                var failures = new PluginLifecycleFailureAccumulator(failure);
+                try {
+                    runtimeManager.unloadPlugin(loaded.packageId());
+                } catch (Throwable cleanupFailure) {
+                    failures.record(cleanupFailure);
+                }
+                throw failures.propagate("failed to restore inactive plugin '" + packageId + "'");
+            }
+            return;
+        }
         if (isLoaded(packageId)) {
             if (phase(packageId) == PluginRuntimePhase.UNLOADED) {
                 lifecycleService.load(packageId);

@@ -533,20 +533,11 @@ public class PluginLifecycleService {
             if (managed.containsKey(packageId)) {
                 throw new PluginLifecycleException("plugin package is already managed: " + packageId);
             }
-            List<PluginInstallation> registrable = loaded.inventory().installations().stream()
-                    .filter(PluginInstallation::registrable).toList();
-            if (registrable.size() != 1 || !packageId.equals(registrable.get(0).id())) {
-                throw new PluginLifecycleException("external package '" + packageId
-                        + "' must contribute exactly one feature plugin with the same id");
-            }
             if (loaded.contextModules().size() > 1) {
                 throw new PluginLifecycleException("external package '" + packageId
                         + "' declared multiple context modules");
             }
-            PluginInstallation installation = registrable.get(0);
-            PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
-                    installation.plugin(), PluginSource.EXTERNAL, installation.classLoader(),
-                    packageId, loaded.generation(), installation.id());
+            PluginRegistry.RegisteredPlugin registered = packageRegistration(loaded);
             PluginContextModule module = loaded.contextModules().isEmpty() ? null : loaded.contextModules().get(0);
             ManagedPlugin record = new ManagedPlugin(packageId, loaded.generation(), module, registered);
             Optional<PluginRuntimePhase> previousPhase = lifecycleState.phase(packageId);
@@ -576,6 +567,41 @@ public class PluginLifecycleService {
                         "failed to adopt new generation for '" + packageId + "'", failure, cleanupFailure);
             }
         }
+    }
+
+    private static PluginRegistry.RegisteredPlugin packageRegistration(LoadedPluginPackage loaded) {
+        List<PluginInstallation> registrable = loaded.inventory().installations().stream()
+                .filter(PluginInstallation::registrable).toList();
+        if (registrable.size() != 1 || !loaded.packageId().equals(registrable.getFirst().id())) {
+            throw new PluginLifecycleException("external package '" + loaded.packageId()
+                    + "' must contribute exactly one feature plugin with the same id");
+        }
+        PluginInstallation installation = registrable.getFirst();
+        return new PluginRegistry.RegisteredPlugin(installation.plugin(), PluginSource.EXTERNAL,
+                installation.classLoader(), loaded.packageId(), loaded.generation(), installation.id());
+    }
+
+    Optional<PluginRegistry.RegisteredPlugin> inactiveBootRegistration(String packageId, long generation) {
+        synchronized (lock) {
+            if (managed.containsKey(packageId)) return Optional.empty();
+            return pluginRegistry.allRegisteredPlugins().stream()
+                    .filter(registration -> registration.source() == PluginSource.EXTERNAL
+                            && registration.packageId().equals(packageId) && registration.generation() == generation
+                            && !pluginRegistry.isActiveIdentity(registration))
+                    .findFirst();
+        }
+    }
+
+    void unregisterInactiveBootPackage(PluginRegistry.RegisteredPlugin registration) {
+        pluginRegistry.unregister(registration);
+    }
+
+    void restoreInactiveBootPackage(PluginRegistry.RegisteredPlugin registration) {
+        pluginRegistry.registerInactive(registration);
+    }
+
+    void restoreInactiveBootPackage(LoadedPluginPackage loaded) {
+        restoreInactiveBootPackage(packageRegistration(loaded));
     }
 
     /** 物理卸载成功后删除本代全部强引用；仅留下 PluginLifecycleState 中的纯值 UNLOADED 状态。 */

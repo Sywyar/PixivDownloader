@@ -274,6 +274,15 @@ public class PluginRegistry implements SmartLifecycle {
 
     /** 注册一条带包身份和 generation 的完整运行时记录。 */
     public void register(RegisteredPlugin candidate) {
+        register(candidate, false);
+    }
+
+    /** 恢复启用状态尚未生效的启动期安装身份。 */
+    public void registerInactive(RegisteredPlugin candidate) {
+        register(candidate, true);
+    }
+
+    private void register(RegisteredPlugin candidate, boolean inactive) {
         String pluginId = candidate.id();
         if (!PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
             throw new IllegalStateException("invalid plugin id: " + pluginId);
@@ -283,7 +292,7 @@ public class PluginRegistry implements SmartLifecycle {
             if (containsId(current.installed(), pluginId) || containsId(current.active(), pluginId)) {
                 throw new IllegalStateException("duplicate plugin id: " + pluginId);
             }
-            boolean active = isActive(candidate);
+            boolean active = !inactive && isActive(candidate);
             List<RegisteredPlugin> nextInstalled = new ArrayList<>(current.installed());
             nextInstalled.add(candidate);
             List<RegisteredPlugin> nextActive = new ArrayList<>(current.active());

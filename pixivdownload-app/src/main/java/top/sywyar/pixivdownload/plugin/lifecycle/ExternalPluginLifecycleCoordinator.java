@@ -184,7 +184,8 @@ public class ExternalPluginLifecycleCoordinator {
             Path previousArtifact = runtimeController.artifactPath(packageId)
                     .orElseGet(() -> runtimeController.installedArtifact(packageId));
             var previous = wasLoaded && !effectiveAfterRestart ? new RetiredRuntime(packageId, currentPhase(packageId),
-                    previousArtifact, runtimeManager.prepareRollbackArtifact(packageId, true)) : null;
+                    previousArtifact, runtimeManager.prepareRollbackArtifact(packageId, true),
+                    runtimeController.loadedInactiveAtBoot(packageId)) : null;
             PluginRemovalAttempt removal = new PluginRemovalAttempt(packageId);
             try {
                 if (wasLoaded && !effectiveAfterRestart) {
@@ -235,6 +236,10 @@ public class ExternalPluginLifecycleCoordinator {
         return runtimeController.isLoaded(id);
     }
 
+    public boolean loadedInactiveAtBoot(String id) {
+        return runtimeController.loadedInactiveAtBoot(id);
+    }
+
     public List<String> activeDependents(String id) {
         return runtimeManager.activeDependents(id);
     }
@@ -270,8 +275,8 @@ public class ExternalPluginLifecycleCoordinator {
 
     private boolean disabledOnPreviousStart(PluginDescriptor descriptor) {
         return descriptor.lifecyclePolicy() != PluginLifecyclePolicy.HOT_RELOAD
-                && runtimeManager.skippedDisabledAtStartup(descriptor.id())
-                && runtimeManager.loadedDescriptor(descriptor.id()).isEmpty();
+                && runtimeManager.disabledAtHeadlessStartup(descriptor.id())
+                && runtimeController.phase(descriptor.id()) == null;
     }
 
     private boolean retainsGeneration(PluginDescriptor descriptor) {
@@ -716,7 +721,7 @@ public class ExternalPluginLifecycleCoordinator {
 
     private RetiredRuntime retainRuntime(String id, Path artifact) {
         return new RetiredRuntime(id, runtimeController.phase(id), artifact,
-                runtimeManager.prepareRollbackArtifact(id, false));
+                runtimeManager.prepareRollbackArtifact(id, false), runtimeController.loadedInactiveAtBoot(id));
     }
 
     private String rollbackVersion(boolean rolledBack, String previousVersion, List<RetiredRuntime> retired) {
@@ -765,7 +770,8 @@ public class ExternalPluginLifecycleCoordinator {
         }
     }
 
-    private record RetiredRuntime(String packageId, PluginRuntimePhase phase, Path artifact, PluginRuntimeManager.RollbackArtifact retained)
+    private record RetiredRuntime(String packageId, PluginRuntimePhase phase, Path artifact,
+                                  PluginRuntimeManager.RollbackArtifact retained, boolean inactiveAtBoot)
             implements AutoCloseable {
         @Override
         public void close() {
@@ -802,7 +808,8 @@ public class ExternalPluginLifecycleCoordinator {
 
     private boolean restoreOldRuntime(RetiredRuntime previous, PluginLifecycleFailureAccumulator failures) {
         try {
-            runtimeController.restoreOldRuntime(previous.packageId(), previous.artifact(), previous.retained(), previous.phase());
+            runtimeController.restoreOldRuntime(previous.packageId(), previous.artifact(), previous.retained(),
+                    previous.phase(), previous.inactiveAtBoot());
             return true;
         } catch (Throwable rollbackFailure) {
             failures.record(rollbackFailure);

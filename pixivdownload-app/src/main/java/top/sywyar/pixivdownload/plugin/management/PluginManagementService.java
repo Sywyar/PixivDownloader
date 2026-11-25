@@ -704,7 +704,8 @@ public class PluginManagementService {
         return retained || policy == PluginLifecyclePolicy.PROCESS_RESTART || status == PluginStatus.FAILED
                 || policy == PluginLifecyclePolicy.HOT_RELOAD && status == PluginStatus.DISABLED
                 || policy == PluginLifecyclePolicy.BACKEND_RESTART && (status == PluginStatus.DISABLED || status == PluginStatus.INSTALLED)
-                && (phase == null || phase == PluginRuntimePhase.UNLOADED) && !coordinator.isLoaded(id);
+                && (phase == null || phase == PluginRuntimePhase.UNLOADED)
+                && (!coordinator.isLoaded(id) || coordinator.loadedInactiveAtBoot(id));
     }
 
     /** 校验 id 是受管外置插件；否则按「内置 / 未激活外置 / 未知」分别给出明确拒绝（附尝试的动词 token 供诊断）。 */
@@ -734,6 +735,10 @@ public class PluginManagementService {
             return;
         }
         if (pluginLifecycleService.phase(id).orElse(null) == PluginRuntimePhase.UNLOADED) {
+            return;
+        }
+        if (action == LifecycleAction.LOAD && coordinator != null && pluginToggles.isEnabled(id)
+                && coordinator.loadedInactiveAtBoot(id)) {
             return;
         }
         if (diagnostic.isPresent()

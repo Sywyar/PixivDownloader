@@ -54,7 +54,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsHotReloadJar;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config-external-download-workbench",
@@ -616,7 +616,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
             deleteRecursively(PLUGINS_DIR);
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("download-workbench-plugin.jar");
-            zipDirectoryAsJar(workbenchClasses, jar);
+            zipDirectoryAsHotReloadJar(workbenchClasses, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException failure) {

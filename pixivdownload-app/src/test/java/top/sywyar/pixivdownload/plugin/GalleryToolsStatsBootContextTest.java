@@ -31,7 +31,7 @@ import java.util.Comparator;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsHotReloadJar;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -446,7 +446,7 @@ class GalleryToolsStatsBootContextTest {
             deleteRecursivelyQuietly(PLUGINS_DIR);
             Files.createDirectories(PLUGINS_DIR);
             Path jar = PLUGINS_DIR.resolve("gallery-tools-plugin.jar");
-            zipDirectoryAsJar(statsClasses, jar);
+            zipDirectoryAsHotReloadJar(statsClasses, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
             return true;
         } catch (IOException | RuntimeException ex) {

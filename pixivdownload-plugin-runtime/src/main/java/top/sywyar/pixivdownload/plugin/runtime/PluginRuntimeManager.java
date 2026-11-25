@@ -136,7 +136,7 @@ public class PluginRuntimeManager {
         disabledAtStartup = Set.copyOf(disabled);
     }
 
-    public synchronized boolean skippedDisabledAtStartup(String id) {
+    public synchronized boolean disabledAtHeadlessStartup(String id) {
         return headlessStartup() && disabledAtStartup.contains(id);
     }
 

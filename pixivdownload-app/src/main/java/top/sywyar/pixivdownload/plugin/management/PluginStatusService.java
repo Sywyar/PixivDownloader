@@ -126,7 +126,7 @@ public class PluginStatusService {
                                ExternalPluginInstaller installer, RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = runtimeManager::inspectPlugins;
-        this.configuredEnabled = id -> !runtimeManager.skippedDisabledAtStartup(id);
+        this.configuredEnabled = id -> !runtimeManager.disabledAtHeadlessStartup(id);
         this.installedArtifacts = installer::listInstalled;
         this.loadedDescriptors = runtimeManager::loadedDescriptors;
         this.runtimeLoadFailures = () -> runtimeManager.status().map(PluginRuntimeStatus::failures).orElseGet(List::of);

@@ -284,6 +284,8 @@
             && (status !== 'INSTALLED' || phase || entry.effectiveAfterRestart === true)
             && Object.prototype.hasOwnProperty.call(STATUS_META, status) && phase !== 'QUIESCED'
             ? t(configuredEnabled ? 'state.pending-enable' : 'state.pending-disable') : null;
+        var pendingVersion = entry.loadedVersion
+            && (running || !pendingToggleLabel || entry.loadedVersion !== entry.version);
         return {
             id: entry.id,
             entry: entry,
@@ -332,7 +334,7 @@
             sdk: entry.sdkRequirement || null,
             deps: entry.dependencies || [],
             messages: (entry.messages || []).concat(stopHint ? [t(stopHint)] : entry.operationDiagnostic ? [entry.operationDiagnostic] : [])
-                .concat(entry.effectiveAfterRestart && (entry.loadedVersion || !pendingToggleLabel) ? [entry.loadedVersion
+                .concat(entry.effectiveAfterRestart && (pendingVersion || !pendingToggleLabel) ? [pendingVersion
                     ? t('state.pending-restart', '', { version: entry.loadedVersion })
                     : t('state.pending-enable')] : []),
             // 非热重载策略只展示后端明确允许的安装包移除。
