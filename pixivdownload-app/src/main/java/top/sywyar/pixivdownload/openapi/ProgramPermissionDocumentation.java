@@ -3,9 +3,11 @@ package top.sywyar.pixivdownload.openapi;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.Paths;
+import top.sywyar.pixivdownload.setup.ProgramKeyService;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -24,7 +26,7 @@ final class ProgramPermissionDocumentation {
                 "phases", terms(labels, "phase", "route", "discovery", "submit", "execution"),
                 "expression", Map.of("syntax", "<context>#<json-pointer>",
                         "description", labels.get("permissionGrammar.expression"),
-                        "contexts", terms(labels, "context", "request", "task", "batch", "item")),
+                        "contexts", terms(labels, "context", "request", "query", "task", "batch", "item")),
                 "fields", terms(labels, "field", "permission", "ownerFrom", "permissionId", "header", "effect",
                         "catalog", "key", "keyFrom", "value", "when", "field", "keyedBy", "recheckField",
                         "reportedIn", "operation", "status", "pointer", "codePointer")));
@@ -44,6 +46,7 @@ final class ProgramPermissionDocumentation {
             var stages = new LinkedHashMap<String, Object>();
             var submit = new ArrayList<Map<String, Object>>();
             stages.put("route", route);
+            describeToolOwner(path, route, submit);
             boolean post = method == PathItem.HttpMethod.POST;
             boolean scheduleDefinition = post && path.equals(SCHEDULE)
                     || method == PathItem.HttpMethod.PUT && path.equals(SCHEDULE + "/{id}");
@@ -51,13 +54,18 @@ final class ProgramPermissionDocumentation {
             Object fixedSource = extensions.get("x-manual-batch-source");
             boolean retryBatch = post && (path.equals(BATCH + "/{id}/resume") || path.equals(BATCH + "/{id}/retry"));
 
-            if (scheduleDefinition || createBatch || post && path.equals("/api/pixiv/user/{userId}/meta/schedule")) {
+            boolean scheduleMetadata = post && path.equals(ProgramKeyService.SCHEDULE_AUTHOR_METADATA);
+            if (scheduleDefinition || createBatch || scheduleMetadata) {
                 endpoint(paths, "/api/schedule/sources", PathItem.HttpMethod.GET).ifPresent(link -> stages.put("discovery", link));
             }
             if (path.equals(SCHEDULE) && method == PathItem.HttpMethod.GET) {
                 submit.add(Map.of("ownerFrom", "item#/sourceOwnerPluginId", "permissionId", "schedule.manage", "effect", "filter"));
             } else if (path.startsWith(SCHEDULE + "/{id}")) {
                 submit.add(Map.of("ownerFrom", "task#/sourceOwnerPluginId", "permissionId", "schedule.manage", "reportedIn", DENIAL));
+            }
+            if (scheduleMetadata) {
+                submit.add(Map.of("when", Map.of("keyFrom", ProgramKeyService.TASK_ID_POINTER), "ownerFrom", "task#/sourceOwnerPluginId",
+                        "permissionId", "schedule.manage", "reportedIn", DENIAL));
             }
             if (scheduleDefinition) submit.add(sourceGrant("schedulePermission", "key", "sourceType"));
             if (post && path.equals("/api/schedule/credential-policies/actions")) {
@@ -103,6 +111,23 @@ final class ProgramPermissionDocumentation {
                 operation.addExtension("x-program-permissions", stages);
             }
         }));
+    }
+
+    private static void describeToolOwner(String path, String route, List<Map<String, Object>> submit) {
+        String owner = switch (path) {
+            case "/api/tools/media", "/api/tools/file-import" -> "item#/identity/pluginId";
+            case "/api/tools/media/tasks/current", "/api/tools/file-import/tasks/current" -> "query#/pluginId";
+            case "/api/tools/media/capabilities" -> "request#/pluginId";
+            case "/api/tools/media/previews", "/api/tools/media/tasks", "/api/tools/media/tasks/cancel",
+                 "/api/tools/file-import/previews", "/api/tools/file-import/tasks", "/api/tools/file-import/tasks/cancel",
+                 "/api/tools/file-import/completion/acknowledge" -> "request#/identity/pluginId";
+            default -> null;
+        };
+        if (owner == null) return;
+        String permission = route.substring(route.indexOf(':') + 1);
+        submit.add(owner.startsWith("item#")
+                ? Map.of("ownerFrom", owner, "permissionId", permission, "effect", "filter")
+                : Map.of("ownerFrom", owner, "permissionId", permission, "reportedIn", DENIAL));
     }
 
     private static Map<String, Object> sourceGrant(String field, String selector, String value) {

@@ -43,11 +43,11 @@ class SettingsOfficialCatalogTest {
             var registry = new PluginRegistry(List.of(new CorePlugin()), new PluginToggleProperties(), discovery);
             var snapshots = GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry));
             var host = new AppDesktopUiHost(0, new String[0], session, mock(DatabaseTarget.class));
-            var service = new SettingsApiService(host, () -> snapshots, mock(DatabaseSettingsService.class, RETURNS_DEEP_STUBS));
+            var service = new SettingsApiService(host, () -> snapshots, registry, mock(DatabaseSettingsService.class, RETURNS_DEEP_STUBS));
             var expected = new HashSet<String>();
             snapshots.forEach(plugin -> plugin.configContributions().forEach(contribution -> contribution.fields()
                     .forEach(field -> expected.add(plugin.id() + "/" + field.key()))));
-            var fields = service.fields();
+            var fields = service.fields(owner -> true);
             assertThat(fields.stream().filter(field -> field.owner() != null)
                     .map(field -> field.owner() + "/" + field.key()).toList()).containsExactlyInAnyOrderElementsOf(expected);
             assertThat(fields.stream().filter(SettingsApiService.Field::sensitive)).allMatch(field -> field.value() == null);

@@ -28,6 +28,16 @@ public record ArtworkRecord(
         Long reuploadTime,
         FileManagement fileManagement
 ) {
+    /** {@return whether the effective artwork directory is stored in move_folder} */
+    public static boolean usesMoveFolder(String moveFolder) {
+        return moveFolder != null && !moveFolder.isBlank();
+    }
+
+    /** {@return the directory selected by the artwork's stored path references} */
+    public String effectiveFolder() {
+        return usesMoveFolder(moveFolder) ? moveFolder : folder;
+    }
+
     public ArtworkRecord(long artworkId,
         String title,
         String folder,

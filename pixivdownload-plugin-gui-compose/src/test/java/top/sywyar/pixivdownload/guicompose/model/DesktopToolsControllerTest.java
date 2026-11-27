@@ -261,12 +261,28 @@ class DesktopToolsControllerTest {
         }
     }
 
+    // 直接测试留存的分类工作区，无需恢复工具页入口。
+    static void openRetainedClassifier(ComposeDesktopUiModel model) {
+        try {
+            var field = ComposeDesktopUiModel.class.getDeclaredField("tools");
+            field.setAccessible(true);
+            synchronized (model) {
+                ((DesktopToolsController) field.get(model)).openToolDialog(DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER);
+            }
+        } catch (ReflectiveOperationException inaccessible) {
+            throw new AssertionError(inaccessible);
+        }
+    }
+
     @Test
     @DisplayName("分类器设置在工具工作区中打开、编辑并关闭时端点保持唯一")
     void classifierSettingsKeepUniqueEndpoints() throws Exception {
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>())) {
             awaitMediaReady(model);
-            activate(model, "tools.image-classifier.open");
+            var actions = DesktopUiEventProtocol.index(model.snapshot().document());
+            assertFalse(actions.containsKey("tools.image-classifier.open"));
+            assertTrue(actions.containsKey("tools.folder-checker.open"));
+            openRetainedClassifier(model);
             activate(model, "classifier.settings");
             var document = model.snapshot().document();
             assertEquals(1, document.dialogs().size());

@@ -22,15 +22,20 @@ import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.gui.SettingsApiService;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -47,6 +52,8 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 
 import static acceptance.OpenApiGetProbe.validator;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -89,10 +96,17 @@ public class OpenApiResponseAcceptance {
         System.setProperty("update.enabled", "false");
         System.setProperty("pixivdownload.plugin-dev.enabled", "true");
         System.setProperty("pixivdownload.plugin-dev.root", repo.toString());
+        Path config = root.resolve("config/config.yaml");
+        Files.createDirectories(config.getParent());
+        String downloadTemplate = root.resolve(DownloadConfig.DEFAULT_TEMPLATE).toString();
+        new ConfigFileEditor(config).write("download.root-folder", downloadTemplate);
         try (var app = PixivDownloadApplication.start(new String[]{"--server.address=127.0.0.1", "--server.port=0",
+                "--spring.config.import=optional:" + config.toUri(), "--download.root-folder=" + downloadTemplate,
                 "--setup.browser.auto-open=false", "--update.enabled=false", "--update.auto-check=false",
                 "--spring.main.sources=" + CatalogFixture.class.getName(), "--plugin-catalog.manifest-url=https://fixture.invalid/catalog.json"});
              var client = HttpClient.newHttpClient()) {
+            if (!Path.of(app.getBean(DownloadConfig.class).getRootFolder()).toAbsolutePath().normalize().startsWith(root))
+                throw new AssertionError("Expected archive and artwork paths inside the test directory");
             var setup = app.getBean(SetupService.class);
             setup.init("contract-test", UUID.randomUUID().toString(), "solo");
             var base = URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort());
@@ -153,6 +167,10 @@ public class OpenApiResponseAcceptance {
             var updates = validatedGet(client, request, base, spec, "/api/plugins/updates");
             if (updates.required("enabled").asBoolean() || !updates.required("checkedAt").isNull())
                 throw new AssertionError("Expected a disabled market with no update check timestamp");
+            verifyMetadataFailures(client, request, base, app.getBean("pixivCredentialRestTemplate", RestTemplate.class));
+            new ArtworkRecoveryAcceptance(client, request, base, app).verify(app, repo);
+            new NovelOwnershipAcceptance(client, request, base, app).verify(app);
+            new DirectoryHashRecoveryAcceptance(client, request, base, app).verify(app);
             System.out.println("OpenAPI response acceptance passed");
         }
     }
@@ -466,6 +484,12 @@ public class OpenApiResponseAcceptance {
         var paths = spec.required("paths");
         paths.required("/api/pixiv/user/{userId}/downloads").required("post").required("responses").required("202");
         paths.required("/api/library/artworks/{artworkId}/partial").required("get").required("responses").required("200");
+        for (String route : List.of("/api/downloaded/{artworkId}/recover-metadata", "/api/library/artworks/{artworkId}/recover-metadata")) {
+            var operation = paths.required(route).required("post");
+            if (!operation.requiredAt("/responses/400/description").asString().contains("directory-template.occupied"))
+                throw new AssertionError("Missing directory ownership conflict on " + route);
+            operation.requiredAt("/responses/400/content/application~1json/schema");
+        }
         var artworkSubmission = spec.required("x-download-submissions").required("artwork");
         var sample = paths.required("/api/download/tasks").requiredAt("/post/responses/202/content/application~1json/example/task");
         var types = get(client, admin.copy().uri(base.resolve("/api/download/extensions"))).required("downloadTypes");
@@ -490,20 +514,51 @@ public class OpenApiResponseAcceptance {
                 case "zh-CN" -> chinese;
                 default -> get(client, admin.copy().uri(base.resolve("/api/openapi.json?lang=" + locale.getKey())));
             };
+            var operations = document.required("paths");
+            var cancel = operations.required("/api/tools/ffmpeg/tasks/{executionId}/cancel").required("post");
+            String repairColumn = document.requiredAt("/components/schemas/top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.FolderArtwork/properties/moved/description").asString();
+            if (!repairColumn.contains("move_folder") || !repairColumn.contains("true") || !repairColumn.contains("false"))
+                throw new AssertionError("Missing directory repair column contract: " + locale.getKey());
+            var pinFailure = document.required("paths").required("/api/tools/path-prefixes/pin").requiredAt("/post/responses/500");
+            if (!pinFailure.required("description").asString().contains("PATH_PREFIX_WRITE_FAILED")
+                    || !declaresCode(document, pinFailure.requiredAt("/content/application~1json/schema"), "PATH_PREFIX_WRITE_FAILED"))
+                throw new AssertionError("Missing symbolic root rollback contract: " + locale.getKey());
+            if (!"core:ffmpeg.cancel".equals(cancel.required("x-program-permission").asString()))
+                throw new AssertionError("FFmpeg cancellation must require the core owner's cancellation grant");
+            for (String status : List.of("200", "202", "404", "409")) cancel.required("responses").required(status);
+            verifyRetiredClassifier(document);
             verifyComparisonExamples(document);
             verifyIntegrationExamples(document);
             verifyDownloadEventContract(document);
+            for (String endpoint : List.of("rawfile", "image")) {
+                var operation = operations.required("/api/downloaded/" + endpoint + "/{artworkId}/{page}").required("get");
+                var headers = operation.required("parameters").valueStream()
+                        .filter(param -> "header".equals(param.path("in").asString("")))
+                        .map(param -> param.required("name").asString()).toList();
+                if (!headers.containsAll(List.of("Range", "If-None-Match")) || headers.contains("If-Modified-Since"))
+                    throw new AssertionError("Incorrect file request validators on " + endpoint);
+                var responses = operation.required("responses");
+                for (String status : List.of("200", "206", "304", "416")) {
+                    var declared = responses.required(status).required("headers");
+                    declared.required("ETag");
+                    if (declared.has("Last-Modified")) throw new AssertionError("Unexpected date validator on " + endpoint);
+                }
+            }
             var metadata = document.required("paths").required("/api/pixiv/user/{userId}/meta/schedule").required("post");
             if (!"core:schedule.sources.read".equals(metadata.at("/x-program-permissions/discovery/permission").asString())
                     || !metadata.required("x-related-operations").valueStream().anyMatch(v -> "GET /api/schedule/sources".equals(v.asString())))
                 throw new AssertionError("Missing scheduled author metadata discovery instructions");
+            if (!metadata.at("/x-program-permissions/submit").valueStream().anyMatch(grant ->
+                    "request#/taskId".equals(grant.at("/when/keyFrom").asString(""))
+                    && "task#/sourceOwnerPluginId".equals(grant.path("ownerFrom").asString(""))
+                    && "schedule.manage".equals(grant.path("permissionId").asString(""))))
+                throw new AssertionError("Missing task owner grant for scheduled author metadata");
             verifyPermissionStages(document);
             verifyOperationDetails(document, locale.getValue());
             verifyBatchAndSearchDocs(document);
             String pagination = document.requiredAt("/info/description").asString();
             if (!pagination.contains("`nextCursor`") || !pagination.contains("`nextVersionCursor`"))
                 throw new AssertionError("Missing market pagination cursors for " + locale.getKey());
-            var operations = document.required("paths");
             for (var entry : Map.of("/api/download/tasks", "post", "/api/pixiv/artwork/{artworkId}/meta", "get",
                     "/api/pixiv/novel/{novelId}/meta", "get").entrySet()) {
                 var response = operations.required(entry.getKey()).required(entry.getValue()).at("/responses/404");
@@ -511,7 +566,19 @@ public class OpenApiResponseAcceptance {
                         || !response.required("content").toString().contains("WORK_NOT_FOUND"))
                     throw new AssertionError("Missing work lookup failure contract for " + entry.getKey());
             }
+            var limited = operations.required("/api/download/tasks").requiredAt("/post/responses/429");
+            if (!limited.path("description").asString("").contains("DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED")
+                    || !"int64".equals(limited.at("/headers/Retry-After/schema/format").asString(""))
+                    || !limited.required("content").toString().contains("DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED"))
+                throw new AssertionError("Missing submission rate-limit contract");
             var batchCode = document.at("/components/schemas/top.sywyar.pixivdownload.schedule.batch.ManualBatchService.View/properties/code");
+            var batch = document.at("/components/schemas/top.sywyar.pixivdownload.schedule.batch.ManualBatchService.View/properties");
+            var delay = batch.required("retryAfterMillis");
+            var state = batch.required("state");
+            if (state.has("$ref")) state = document.at(state.required("$ref").asString().substring(1));
+            if (!"int64".equals(delay.path("format").asString()) || delay.path("description").asString("").isBlank()
+                    || !state.required("enum").valueStream().anyMatch(v -> "RETRY_LATER".equals(v.asString())))
+                throw new AssertionError("Missing manual batch retry state or delay");
             String codeDescription = batchCode.path("description").asString("");
             if (batchCode.has("enum") || !batchCode.path("examples").isArray()
                     || !codeDescription.contains("batch.work-failed")
@@ -653,7 +720,17 @@ public class OpenApiResponseAcceptance {
         }
         String prefix = "/api/tools/path-prefixes";
         checkRequest(spec, prefix, true, Map.of("updates", List.of(), "registerPaths", List.of("/example")));
-        checkRequest(spec, prefix, false, Map.of(), Map.of("registerPaths", List.of(), "updates", List.of()));
+        checkRequest(spec, prefix, false, Map.of(), Map.of("registerPaths", List.of(), "updates", List.of()),
+                Map.of("registerPaths", List.of(123)));
+        var changes = spec.required("paths").required(prefix).required("post").required("responses");
+        var receipt = changes.required("200").requiredAt("/content/application~1json/schema");
+        var fields = spec.requiredAt(receipt.required("$ref").asString().substring(1)).required("properties");
+        for (String count : List.of("applied", "registered", "alreadyRegistered"))
+            if (!"integer".equals(fields.required(count).required("type").asString()))
+                throw new AssertionError("Missing path prefix receipt counter: " + count);
+        if (!changes.required("500").required("description").asString().contains("PATH_PREFIX_WRITE_FAILED"))
+            throw new AssertionError("Missing path prefix rollback response");
+        checkRequest(spec, "/api/tools/directories", false, Map.of("artworkId", 1, "moved", false, "path", 123));
         String keys = "/api/security/program-keys";
         var policy = JSON.createObjectNode().put("name", "fixture");
         policy.putArray("permissions");
@@ -1131,6 +1208,26 @@ public class OpenApiResponseAcceptance {
         if (issued.statusCode() != 201) throw new AssertionError("Could not issue fixture key: " + issued.statusCode());
         var key = HttpRequest.newBuilder().timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + JSON.readTree(issued.body()).required("secret").asString());
+        for (var route : retiredClassifierRoutes().entrySet()) {
+            var uri = base.resolve(route.getKey().replace("{artworkId}", "bad-id"));
+            for (String verb : route.getValue().split(" ")) {
+                var body = verb.equals("get") ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString("{");
+                var response = client.send(admin.copy().uri(uri).setHeader("Accept", "image/png")
+                        .method(verb.toUpperCase(java.util.Locale.ROOT), body).build(), HttpResponse.BodyHandlers.ofByteArray());
+                if (response.statusCode() != 410 || response.body().length != 0)
+                    throw new AssertionError("Expected empty 410 for " + verb + " " + uri.getPath());
+                if (verb.equals("get") && client.send(admin.copy().uri(uri).method("HEAD", HttpRequest.BodyPublishers.noBody())
+                        .build(), HttpResponse.BodyHandlers.discarding()).statusCode() != 410)
+                    throw new AssertionError("Expected HEAD 410 for " + uri.getPath());
+            }
+        }
+        for (var denied : Map.of("/api/library/artworks/42/move", "core:library.move",
+                "/api/tools/classifier/moves", "core:classifier.write").entrySet())
+            expectError(post(client, key, base, denied.getKey(), Map.of()), 403, "auth.program.forbidden", denied.getValue());
+        expectError(client.send(key.copy().uri(base.resolve("/api/tools/classifier/settings")).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray()), 403, "auth.program.forbidden", "core:classifier.read");
+        expectError(post(client, key, base, "/api/tools/ffmpeg/tasks/" + UUID.randomUUID() + "/cancel", Map.of()),
+                403, "auth.program.forbidden", "core:ffmpeg.cancel");
         var self = get(client, key.copy().uri(base.resolve("/api/security/program-keys/self")));
         OpenApiGetProbe.validate(spec, "/api/security/program-keys/self", "program key", self);
         for (var route : Map.of("artworks", "gallery:delete", "novels", "novel:library.delete").entrySet()) {
@@ -1216,7 +1313,7 @@ public class OpenApiResponseAcceptance {
         throw new AssertionError("Batch failed to report its missing executor grant");
     }
 
-    private static HttpResponse<byte[]> post(HttpClient client, HttpRequest.Builder identity, URI base,
+    static HttpResponse<byte[]> post(HttpClient client, HttpRequest.Builder identity, URI base,
                                              String path, Object body) throws Exception {
         return client.send(identity.copy().uri(base.resolve(path)).header("Origin", base.toString())
                 .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(JSON.writeValueAsBytes(body))).build(),
@@ -1233,8 +1330,23 @@ public class OpenApiResponseAcceptance {
 
     private static void verifyBatchAndSearchDocs(JsonNode document) {
         var paths = document.required("paths");
-        var accepted = paths.required("/api/download/batches").required("post").at("/responses/202");
-        if (!accepted.at("/headers/Location/required").asBoolean() || !accepted.at("/links/inspectBatch").isObject())
+        for (String route : List.of("/api/download/batches/{id}/resolve", "/api/schedule/tasks/{id}/pending/resolve")) {
+            String invalidChoice = paths.required(route).at("/post/responses/400/description").asString();
+            if (!List.of("/userAction", "TRUNCATE", "DEFAULT_NAME", "CANCEL").stream().allMatch(invalidChoice::contains))
+                throw new AssertionError("Missing supported decisions in " + route);
+        }
+        var batch = paths.required("/api/download/batches").required("post");
+        String details = batch.required("description").asString();
+        int rejection = details.indexOf("`400 INVALID_TOOL_REQUEST`");
+        if (rejection < 0 || details.indexOf("`202`", rejection) < 0 || !details.contains("`/definition`"))
+            throw new AssertionError("Missing definition rejection before the batch receipt");
+        var rejected = batch.at("/responses/400");
+        if (!rejected.required("description").asString().contains("INVALID_TOOL_REQUEST")
+                || rejected.path("headers").has("Location"))
+            throw new AssertionError("Invalid batch definition must return a field error without a polling location");
+        var accepted = batch.at("/responses/202");
+        if (!accepted.required("description").asString().contains("Location")
+                || !accepted.at("/headers/Location/required").asBoolean() || !accepted.at("/links/inspectBatch").isObject())
             throw new AssertionError("Missing batch polling link");
         var author = paths.required("/api/pixiv/user/{userId}/downloads").required("post");
         if (!author.required("description").asString().contains("schedule.pixiv.discovery-not-found")
@@ -1307,12 +1419,46 @@ public class OpenApiResponseAcceptance {
         }
     }
 
+    private static Map<String, String> retiredClassifierRoutes() {
+        return Map.of("/api/tools/classifier/settings", "get put", "/api/tools/classifier/folders", "get delete",
+                "/api/tools/classifier/images", "get", "/api/tools/classifier/image", "get", "/api/tools/classifier/moves", "post",
+                "/api/downloaded/by-move-folder", "get", "/api/downloaded/move/{artworkId}", "post",
+                "/api/library/artworks/{artworkId}/move", "post");
+    }
+
+    private static void verifyRetiredClassifier(JsonNode document) {
+        var paths = document.required("paths");
+        for (var route : retiredClassifierRoutes().entrySet()) for (String verb : route.getValue().split(" ")) {
+            var op = paths.required(route.getKey()).required(verb);
+            var responses = op.required("responses");
+            if (!op.path("deprecated").asBoolean() || !responses.has("410") || responses.propertyNames().stream().anyMatch(s -> s.startsWith("2"))
+                    || op.has("requestBody") || responses.required("410").has("content"))
+                throw new AssertionError("Retired operation " + verb + " " + route.getKey() + ": " + op);
+            if (!op.required("description").asString().contains("410"))
+                throw new AssertionError("Missing retirement notice for " + route.getKey());
+            if (route.getKey().contains("{artworkId}") && op.required("parameters").valueStream().noneMatch(parameter ->
+                    parameter.path("name").asString("").equals("artworkId") && parameter.at("/schema/type").asString("").equals("string")
+                            && !parameter.path("description").asString("").isBlank()))
+                throw new AssertionError("Missing retired artwork path parameter for " + route.getKey());
+        }
+        for (var route : Map.of("/api/download/tasks/{taskId}", "get", "/api/download/tasks/{taskId}/cancel", "post").entrySet())
+            if (!paths.required(route.getKey()).required(route.getValue()).required("responses").required("503").toString()
+                    .contains("DOWNLOAD_TASK_RECEIPT_UNAVAILABLE")) throw new AssertionError("Missing receipt failure contract");
+    }
+
     private static void verifyOperationDetails(JsonNode document, String heading) {
         var operations = document.required("paths").required("/api/download/tasks");
         String receiptRef = operations.required("post").at("/responses/202/content/application~1json/schema")
                 .required("$ref").asString();
         String taskRef = document.at(receiptRef.substring(1)).at("/properties/task").required("$ref").asString();
-        var output = document.at(taskRef.substring(1)).at("/properties/outputPath");
+        var properties = document.at(taskRef.substring(1)).required("properties");
+        var reason = properties.required("failureReason");
+        var reasonSchema = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(reason);
+        if (!reason.required("description").asString().contains("OUTPUT_FILE_CONFLICT")
+                || !reasonSchema.validate(JSON.readTree("\"OUTPUT_FILE_CONFLICT\"")).isEmpty()
+                || reasonSchema.validate(JSON.readTree("\"UNKNOWN_TEST_REASON\"")).isEmpty())
+            throw new AssertionError("Missing output file conflict in failureReason for " + heading);
+        var output = properties.required("outputPath");
         if (output.path("description").asString("").isBlank())
             throw new AssertionError("Missing outputPath documentation in " + heading);
         var schema = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(output);
@@ -1340,8 +1486,40 @@ public class OpenApiResponseAcceptance {
                 throw new AssertionError("Missing " + type + " provider details for " + heading);
         }
         for (String term : List.of("core:downloads.create", "duplicate=true", "Location", "task.outputPath", "OUTPUT_ALREADY_REGISTERED",
-                "OUTPUT_LAYOUT_CONFLICT", "SHA-256", "GET /api/library/artworks/{artworkId}/partial", "autoTranslate"))
+                "OUTPUT_LAYOUT_CONFLICT", "OUTPUT_FILE_CONFLICT", "SHA-256", "GET /api/library/artworks/{artworkId}/partial", "autoTranslate"))
             if (!details.contains(term)) throw new AssertionError("Missing " + term + " in " + heading);
+    }
+
+    private static void verifyMetadataFailures(HttpClient client, HttpRequest.Builder admin, URI base, RestTemplate ajax) throws Exception {
+        var upstream = MockRestServiceServer.bindTo(ajax).build();
+        String path = "/api/download/tasks";
+        for (String type : List.of("artwork", "novel")) {
+            String uri = "https://www.pixiv.net/ajax/" + ("artwork".equals(type) ? "illust/551" : "novel/551?lang=zh");
+            upstream.expect(requestTo(uri)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", "37").body("private-upstream-fixture"));
+            upstream.expect(requestTo(uri)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+            var command = new DownloadSubmission(UUID.randomUUID(), type, "551", Map.of());
+            var limited = post(client, admin, base, path, command);
+            expectError(limited, 429, "DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED", null);
+            if (!"37".equals(limited.headers().firstValue("Retry-After").orElse(null))
+                    || JSON.readTree(limited.body()).toString().contains("private-upstream-fixture"))
+                throw new AssertionError("Lost retry delay or exposed upstream response for " + type);
+            var duplicate = post(client, admin, base, path, command);
+            var receipt = JSON.readTree(duplicate.body());
+            if (duplicate.statusCode() != 202 || !receipt.path("duplicate").asBoolean()
+                    || !"UPSTREAM_RATE_LIMITED".equals(receipt.at("/task/failureReason").asString("")))
+                throw new AssertionError("Lost rate-limit reason in duplicate receipt for " + type);
+            var missing = post(client, admin, base, path, new DownloadSubmission(UUID.randomUUID(), type, "551", Map.of()));
+            expectError(missing, 404, "WORK_NOT_FOUND", null);
+            var invalid = post(client, admin, base, path, new DownloadSubmission(UUID.randomUUID(), type, "551", Map.of("unexpected", "value")));
+            expectError(invalid, 422, "DOWNLOAD_TASK_REJECTED", null);
+            if (missing.headers().firstValue("Retry-After").isPresent() || invalid.headers().firstValue("Retry-After").isPresent()
+                    || !"/options".equals(JSON.readTree(invalid.body()).path("field").asString("")))
+                throw new AssertionError("Mixed lookup and input diagnostics for " + type);
+            upstream.verify();
+            upstream.reset();
+        }
+        System.out.println("Artwork and novel HTTP submission metadata contracts passed");
     }
 
     private static void verifyRejectedSubmission(HttpClient client, HttpRequest.Builder admin, URI base) throws Exception {
@@ -1381,7 +1559,7 @@ public class OpenApiResponseAcceptance {
         return JSON.readTree(response.body());
     }
 
-    private static LocalArtworkImports.Snapshot await(LocalArtworkImports imports, UUID id,
+    static LocalArtworkImports.Snapshot await(LocalArtworkImports imports, UUID id,
             LocalArtworkImports.Phase active, LocalArtworkImports.Phase expected) throws InterruptedException {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         var task = imports.status(id);

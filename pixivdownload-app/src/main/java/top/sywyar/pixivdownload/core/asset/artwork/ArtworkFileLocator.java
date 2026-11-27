@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
@@ -15,6 +16,10 @@ import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
+import top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,6 +28,8 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -30,7 +37,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Stream;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -45,8 +52,23 @@ public class ArtworkFileLocator {
     private final StagedFileDeletion stagedFileDeletion;
     private final top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore;
     private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
+    private final DownloadDirectories directories;
+
+    private static final List<String> READ_ORDER = List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4", "webm", "zip");
 
     public record LocatedArtworkFile(File file, String extension) {
+    }
+
+    private enum ReadUse {
+        RAW, PREVIEW, THUMBNAIL, HASH;
+
+        boolean prefersOwnedThumbnail(String extension) {
+            return switch (extension) {
+                case "mp4", "webm" -> this == THUMBNAIL || this == HASH;
+                case "webp", "apng" -> this == HASH;
+                default -> false;
+            };
+        }
     }
 
     public boolean isReadOnly(ArtworkRecord artwork) {
@@ -59,13 +81,7 @@ public class ArtworkFileLocator {
     }
 
     public String resolveArtworkDirectory(ArtworkRecord artwork) {
-        if (artwork == null) {
-            return null;
-        }
-        if (StringUtils.hasText(artwork.moveFolder())) {
-            return artwork.moveFolder();
-        }
-        return artwork.folder();
+        return artwork == null ? null : artwork.effectiveFolder();
     }
 
     public File resolveImageFile(ArtworkRecord artwork, int page) {
@@ -74,17 +90,29 @@ public class ArtworkFileLocator {
 
     /** 判重必须检查正式产物，不能以缩略图代替下载页面。 */
     public File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail) {
+        return fileOf(locatePage(artwork, page, allowThumbnail ? ReadUse.PREVIEW : ReadUse.RAW));
+    }
+
+    public File resolveThumbnailSourceFile(ArtworkRecord artwork, int page) {
+        return fileOf(locatePage(artwork, page, ReadUse.THUMBNAIL));
+    }
+
+    private static File fileOf(LocatedArtworkFile located) {
+        return located == null ? null : located.file();
+    }
+
+    private LocatedArtworkFile locatePage(ArtworkRecord artwork, int page, ReadUse use) {
         requireDatabase();
         if (artwork == null) return null;
         if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) {
             Path file = externalFiles.file(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId(), page);
-            return file == null ? null : file.toFile();
+            return file == null ? null : new LocatedArtworkFile(file.toFile(), getFileExtension(file.getFileName().toString()).toLowerCase(Locale.ROOT));
         }
         String directoryPath = resolveArtworkDirectory(artwork);
         if (!StringUtils.hasText(directoryPath)) {
             return null;
         }
-        return resolveImageFile(artwork, page, allowThumbnail, resolveStoredFileBaseName(artwork, page));
+        return locatePage(artwork, page, use, resolveStoredFileBaseName(artwork, page));
     }
 
     /** 单次作品扫描只读取、计算一次完整命名快照。 */
@@ -98,36 +126,49 @@ public class ArtworkFileLocator {
         }
         List<String> names = resolveStoredFileBaseNames(artwork, count);
         List<File> files = new ArrayList<>(count);
-        for (int page = 0; page < count; page++) files.add(resolveImageFile(artwork, page, allowThumbnail, names.get(page)));
+        ReadUse use = allowThumbnail ? ReadUse.PREVIEW : ReadUse.RAW;
+        for (int page = 0; page < count; page++) files.add(fileOf(locatePage(artwork, page, use, names.get(page))));
         return files;
     }
 
-    private File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail, String baseName) {
+    private LocatedArtworkFile locatePage(ArtworkRecord artwork, int page, ReadUse use, String baseName) {
         requireDatabase();
         String directoryPath = resolveArtworkDirectory(artwork);
         if (!StringUtils.hasText(directoryPath)) return null;
         String[] extensions = artwork.extensions() == null ? new String[0] : artwork.extensions().split(",");
         LinkedHashSet<String> priority = new LinkedHashSet<>();
-        boolean hasManifest = false;
+        ArtworkMediaManifest media = null;
         try {
-            var manifest = mediaStore.find(artwork.artworkId(), page);
-            hasManifest = manifest.isPresent();
-            manifest.filter(ArtworkMediaManifest::originalRetained)
-                    .ifPresent(saved -> priority.add(saved.originalExtension()));
+            media = mediaStore.find(artwork.artworkId(), page).orElse(null);
         } catch (IOException invalid) {
             log.debug("Cannot read media manifest for {}", artwork.artworkId(), invalid);
         }
         requireDatabase();
-        if (!hasManifest && extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
-        priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4", "webm", "zip"));
-        for (String extension : priority) {
-            if (allowThumbnail && extension.equals("zip")) continue;
-            Path file = Paths.get(directoryPath, baseName + "." + extension);
-            if (Files.isRegularFile(file)) return file.toFile();
+        if (media == null) {
+            if (extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
+            priority.addAll(READ_ORDER);
+        } else {
+            if (media.originalRetained()) priority.add(media.originalExtension());
+            READ_ORDER.stream().filter(media.extensions()::contains).forEach(priority::add);
         }
-        if (!allowThumbnail) return null;
-        Path thumbnail = Paths.get(directoryPath, baseName + "_thumb.jpg");
-        return Files.isRegularFile(thumbnail) ? thumbnail.toFile() : null;
+        Path thumbnail = use != ReadUse.RAW && media != null && media.thumbnailOwned()
+                ? Paths.get(directoryPath, baseName + "_thumb.jpg") : null;
+        for (String extension : priority) {
+            if (use != ReadUse.RAW && extension.equalsIgnoreCase("zip")) continue;
+            Path file = Paths.get(directoryPath, baseName + "." + extension);
+            if (Files.isRegularFile(file)) {
+                if (thumbnail != null && use.prefersOwnedThumbnail(extension)
+                        && Files.isRegularFile(thumbnail, LinkOption.NOFOLLOW_LINKS)) file = thumbnail;
+                return new LocatedArtworkFile(file.toFile(), extension.toLowerCase(Locale.ROOT));
+            }
+        }
+        if (thumbnail != null && Files.isRegularFile(thumbnail, LinkOption.NOFOLLOW_LINKS))
+            return new LocatedArtworkFile(thumbnail.toFile(), "jpg");
+        if (use != ReadUse.RAW && media != null && media.originalRetained() && media.originalExtension().equals("zip")) {
+            Path archive = Paths.get(directoryPath, baseName + ".zip");
+            if (Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)) return new LocatedArtworkFile(archive.toFile(), "zip");
+        }
+        return null;
     }
 
     private void requireDatabase() {
@@ -135,22 +176,112 @@ public class ArtworkFileLocator {
     }
 
     public LocatedArtworkFile resolveHashSourceFile(ArtworkRecord artwork, int page) {
-        File imageFile = resolveImageFile(artwork, page);
-        if (imageFile == null) {
-            return null;
+        var source = locatePage(artwork, page, ReadUse.HASH);
+        return source != null && HASHABLE_IMAGE_EXTENSIONS.contains(source.extension()) ? source : null;
+    }
+
+    /** 重下只替换已登记的媒体和附属产物；保留同名的其它用户文件和只读引用。 */
+    public Set<Path> managedOutputs(ArtworkRecord artwork) throws IOException {
+        if (isReadOnly(artwork)) return Set.of();
+        Path directory = resolveSafeArtworkDirectory(resolveArtworkDirectory(artwork), artwork.artworkId());
+        if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) return Set.of();
+        PlainFilePathGuard.requirePlainParent(directory.resolve(".directory-check"), false);
+        var files = recordedOutputs(directory, artwork, OutputUse.REBUILD);
+        files.removeIf(file -> Files.notExists(file, LinkOption.NOFOLLOW_LINKS));
+        return files;
+    }
+
+    /** 归档须覆盖实际待删除文件，并包含每一项必需的登记媒体。 */
+    public Set<Path> archiveSources(ArtworkRecord artwork) throws IOException {
+        Path directory = resolveSafeArtworkDirectory(resolveArtworkDirectory(artwork), artwork.artworkId());
+        PlainFilePathGuard.requirePlainParent(directory.resolve(".directory-check"), false);
+        return recordedOutputs(directory, artwork, OutputUse.ARCHIVE);
+    }
+
+    private enum OutputUse { REBUILD, DELETE, ARCHIVE, PROTECT }
+
+    private Set<Path> recordedOutputs(Path directory, ArtworkRecord artwork, OutputUse use) throws IOException {
+        List<String> names;
+        try { names = resolveStoredFileBaseNames(artwork, Math.max(artwork.count(), 1)); }
+        catch (DatabaseUnavailableException offline) { throw offline; }
+        catch (IllegalStateException unavailableNames) {
+            if (use != OutputUse.DELETE && use != OutputUse.PROTECT) throw unavailableNames;
+            var failure = incompleteOwnership(artwork);
+            failure.initCause(unavailableNames);
+            throw failure;
         }
-        String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-        if (!HASHABLE_IMAGE_EXTENSIONS.contains(extension)) {
-            return null;
+        Set<Path> files = new HashSet<>();
+        // Only a single page or a single format establishes the historical page-to-format mapping.
+        String formats = artwork.extensions();
+        List<String> legacy = formats != null && (use == OutputUse.PROTECT || names.size() == 1 || !formats.contains(","))
+                ? List.of(formats.split(",")) : List.of();
+        // Missing historical page facts can protect a matching file, but cannot authorize its deletion.
+        if (use == OutputUse.PROTECT && (legacy.isEmpty() || !HASHABLE_IMAGE_EXTENSIONS.containsAll(legacy))) legacy = READ_ORDER;
+        for (int page = 0; page < names.size(); page++) {
+            String base = names.get(page);
+            var manifest = mediaStore.find(artwork.artworkId(), page);
+            var extensions = manifest.map(ArtworkMediaManifest::extensions).orElse(legacy);
+            if (use != OutputUse.REBUILD && (extensions.isEmpty() || !HASHABLE_IMAGE_EXTENSIONS.containsAll(extensions))) {
+                requireDatabase();
+                if (use == OutputUse.DELETE) throw incompleteOwnership(artwork);
+                return Set.of();
+            }
+            addPageOutputs(files, directory, base, extensions, manifest.map(ArtworkMediaManifest::thumbnailOwned).orElse(false),
+                    manifest.isPresent() || use != OutputUse.REBUILD);
+            if (use != OutputUse.REBUILD) addExistingSidecar(files, directory.resolve(base + ".media.properties"));
         }
-        if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())
-                || !Set.of("webp", "mp4", "webm", "apng").contains(extension)) {
-            return new LocatedArtworkFile(imageFile, extension);
+        if (use != OutputUse.REBUILD) addExistingSidecar(files, directory.resolve(WorkSidecarFiles.fileName(artwork.artworkId())));
+        requireDatabase();
+        return files;
+    }
+
+    private static void addPageOutputs(Set<Path> files, Path directory, String base, List<String> extensions,
+                                       boolean thumbnail, boolean frameTiming) {
+        for (String ext : extensions) {
+            if (HASHABLE_IMAGE_EXTENSIONS.contains(ext)) files.add(directory.resolve(base + "." + ext));
         }
-        String directoryPath = resolveArtworkDirectory(artwork);
-        String baseName = resolveStoredFileBaseName(artwork, page);
-        File thumbFile = Paths.get(directoryPath, baseName + "_thumb.jpg").toFile();
-        return new LocatedArtworkFile(thumbFile.exists() ? thumbFile : imageFile, extension);
+        if (thumbnail) files.add(directory.resolve(base + "_thumb.jpg"));
+        if (frameTiming && extensions.contains("zip")) files.add(directory.resolve(base + ".frames.properties"));
+    }
+
+    /** Serializes ownership checks with imports, path corrections and competing file publications. */
+    public DownloadDirectories.DeletionReservation reserveOutputs(long artworkId, Collection<Path> files) throws IOException {
+        var byDirectory = files.stream().map(path -> path.toAbsolutePath().normalize())
+                .collect(Collectors.groupingBy(Path::getParent, Collectors.toSet()));
+        synchronized (directories) {
+            for (var entry : byDirectory.entrySet()) {
+                Path folder = entry.getKey();
+                var targets = entry.getValue();
+                // A selection can be promoted in one transaction while we read. Check the complete record last.
+                for (long id : directories.otherArtworksInDirectory(artworkId, folder, true)) {
+                    var partial = pixivDatabase.partialArtwork(id);
+                    if (partial == null) continue;
+                    for (var page : partial.media().entrySet()) {
+                        var media = page.getValue();
+                        Set<Path> outputs = new HashSet<>();
+                        addPageOutputs(outputs, folder, partial.baseNames().get(page.getKey()), media.extensions(),
+                                media.thumbnailOwned(), true);
+                        if (!Collections.disjoint(targets, outputs)) throw new DirectoryTemplateException("occupied", "");
+                    }
+                }
+                for (long id : directories.otherArtworksInDirectory(artworkId, folder, false)) {
+                    var other = pixivDatabase.getArtwork(id);
+                    if (other != null && !other.deleted()
+                            && !Collections.disjoint(targets, recordedOutputs(folder, other, OutputUse.PROTECT))) {
+                        throw new DirectoryTemplateException("occupied", "");
+                    }
+                }
+            }
+            return directories.reserveDeletion(files);
+        }
+    }
+
+    private static WorkDeletionException incompleteOwnership(ArtworkRecord artwork) {
+        return new WorkDeletionException(WorkDeletionException.Reason.INCOMPLETE_FILE_OWNERSHIP, WorkType.ARTWORK, artwork.artworkId());
+    }
+
+    private static void addExistingSidecar(Set<Path> files, Path path) {
+        if (!Files.notExists(path, LinkOption.NOFOLLOW_LINKS)) files.add(path);
     }
 
     public String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
@@ -219,7 +350,12 @@ public class ArtworkFileLocator {
 
     /** 暂存文件保留至记录事务完成，异常时由暂存器恢复。 */
     public boolean deleteArtworkFiles(ArtworkRecord artwork, Runnable commitRecord) {
+        return deleteArtworkFiles(artwork, commitRecord, null);
+    }
+
+    public boolean deleteArtworkFiles(ArtworkRecord artwork, Runnable commitRecord, java.util.Map<Path, String> archived) {
         if (artwork == null || isReadOnly(artwork)) {
+            if (archived != null) return false;
             commitRecord.run();
             return true;
         }
@@ -227,22 +363,26 @@ public class ArtworkFileLocator {
         String directoryPath = resolveArtworkDirectory(artwork);
         if (StringUtils.hasText(directoryPath)) {
             Path safeDir = resolveSafeArtworkDirectory(directoryPath, artwork.artworkId());
-            if (!Files.notExists(safeDir, LinkOption.NOFOLLOW_LINKS)) {
-                if (!PlainFilePathGuard.isPlainDirectory(safeDir)) {
-                    throw new UnsafeDeletionPathException(safeDir);
+            boolean exists = !Files.notExists(safeDir, LinkOption.NOFOLLOW_LINKS);
+            if (exists && !PlainFilePathGuard.isPlainDirectory(safeDir)) throw new UnsafeDeletionPathException(safeDir);
+            if (!exists && archived != null) return false;
+            try {
+                var files = archived == null ? recordedOutputs(safeDir, artwork, OutputUse.DELETE) : archived.keySet();
+                DownloadDirectories.DeletionReservation reservation;
+                try { reservation = reserveOutputs(artwork.artworkId(), files); }
+                catch (DirectoryTemplateException occupied) {
+                    throw incompleteOwnership(artwork);
                 }
-                try {
-                    filesDeleted = stagedFileDeletion.deleteAtomically(resolveArtworkFiles(safeDir, artwork), commitRecord);
-                } catch (IOException e) {
-                    log.warn(logMessage("download.file.log.directory-unreadable", artwork.artworkId(), safeDir));
-                    filesDeleted = false;
+                try (reservation) {
+                    if (archived != null) filesDeleted = stagedFileDeletion.deleteArchivedFiles(archived, commitRecord);
+                    else if (exists) filesDeleted = stagedFileDeletion.deleteAtomically(files, commitRecord);
+                    else commitRecord.run();
                 }
-                if (filesDeleted) {
-                    removeOwnedEmptyDirectory(safeDir, artwork.artworkId());
-                }
-            } else {
-                commitRecord.run();
+            } catch (IOException e) {
+                log.warn(logMessage("download.file.log.directory-unreadable", artwork.artworkId(), safeDir));
+                filesDeleted = false;
             }
+            if (exists && filesDeleted) removeOwnedEmptyDirectory(safeDir, artwork.artworkId());
         } else {
             throw new UnsafeDeletionPathException(directoryPath);
         }
@@ -281,40 +421,6 @@ public class ArtworkFileLocator {
         return absolute;
     }
 
-    /**
-     * 解析本作品在目录中实际留存的待删文件：逐页图片与 {@code _thumb} 缩略图、动图 {@code _thumb}，
-     * 以及作品 meta sidecar {@code {artworkId}.meta.json}。按文件名前缀（{@code stems}）枚举式匹配，
-     * 即使目录是共享分类目录也只会匹配到本作品命名空间内的文件。
-     */
-    private Set<Path> resolveArtworkFiles(Path directory, ArtworkRecord artwork) throws IOException {
-        Set<String> stems = new HashSet<>();
-        try {
-            for (String baseName : resolveStoredFileBaseNames(artwork, Math.max(artwork.count(), 1))) {
-                stems.add(baseName);
-                stems.add(baseName + "_thumb");
-                stems.add(baseName + ".media");
-                stems.add(baseName + ".frames");
-            }
-        } catch (Exception failure) {
-            throw new IOException("Cannot resolve every artwork page", failure);
-        }
-        // 作品 meta sidecar（{artworkId}.meta.json）随作品删除一并清除；按 artworkId 键的 stem，
-        // 即使目录是共享分类目录也只触本作品命名空间。
-        stems.add(getBaseName(WorkSidecarFiles.fileName(artwork.artworkId())));
-        return matchFilesByStems(directory, stems);
-    }
-
-    private Set<Path> matchFilesByStems(Path directory, Set<String> stems) throws IOException {
-        if (stems.isEmpty()) {
-            return Set.of();
-        }
-        Set<Path> matched = new LinkedHashSet<>();
-        try (Stream<Path> entries = Files.list(directory)) {
-            entries.filter(path -> stems.contains(getBaseName(path.getFileName().toString())))
-                    .forEach(matched::add);
-        }
-        return matched;
-    }
 
     /** 仅当目录名等于 artworkId（即标准的 {@code {rootFolder}/{artworkId}/} 独占目录）且为空时移除，避免误删共享/分类目录。*/
     private void removeOwnedEmptyDirectory(Path dir, long artworkId) {

@@ -20,8 +20,12 @@ public record DownloadEvent(DownloadAttempt attempt, Phase phase, FailureReason 
         OUTPUT_LAYOUT_CONFLICT,
         /** 部分覆盖会与已登记的完整作品冲突。 */
         OUTPUT_ALREADY_REGISTERED,
+        /** 创建、替换或清理输出时遇到未登记的文件、其他作品的引用或并发变更。 */
+        OUTPUT_FILE_CONFLICT,
         /** 提交期间，提供方未找到请求的作品。 */
-        WORK_NOT_FOUND
+        WORK_NOT_FOUND,
+        /** 提供方在提交时遇到来源限流。 */
+        UPSTREAM_RATE_LIMITED
     }
     /**
      * 构造没有附加失败原因的事件。

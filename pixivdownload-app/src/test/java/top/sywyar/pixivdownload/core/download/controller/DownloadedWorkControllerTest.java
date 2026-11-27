@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
-import top.sywyar.pixivdownload.core.download.ArtworkMoveService;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
@@ -50,8 +49,6 @@ class DownloadedWorkControllerTest {
     @Mock
     private DownloadStatisticsService downloadStatisticsService;
     @Mock
-    private ArtworkMoveService artworkMoveService;
-    @Mock
     private PixivDatabase pixivDatabase;
     @Mock
     private AuthorService authorService;
@@ -66,7 +63,7 @@ class DownloadedWorkControllerTest {
     void setUp() {
         DownloadedWorkController controller = new DownloadedWorkController(
                 downloadedArtworkService, artworkMetadataRecoveryService, downloadStatisticsService,
-                artworkMoveService, pixivDatabase, authorService, mangaSeriesService, guestAccessGuard, galleryRepository, APP_MESSAGES);
+                pixivDatabase, authorService, mangaSeriesService, guestAccessGuard, galleryRepository, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -225,59 +222,13 @@ class DownloadedWorkControllerTest {
                 .andExpect(jsonPath("$.totalMoved").value(30));
     }
 
-    // ========== GET /api/downloaded/by-move-folder ==========
-
-    @Nested
-    @DisplayName("GET /api/downloaded/by-move-folder")
-    class GetByMoveFolderTests {
-
-        @Test
-        @DisplayName("找到的移动路径应返回作品ID")
-        void shouldReturnArtworkId() throws Exception {
-            ArtworkRecord record = new ArtworkRecord(12345L, "test", "/path", 1, "jpg",
-                    100L, true, "/moved", 200L, null, null, null, null);
-            when(pixivDatabase.getArtworkByMoveFolder("/moved")).thenReturn(record);
-
-            mockMvc.perform(get("/api/downloaded/by-move-folder").param("path", "/moved"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.artworkId").value(12345));
-        }
-
-        @Test
-        @DisplayName("未找到应返回 404")
-        void shouldReturn404WhenNotFound() throws Exception {
-            when(pixivDatabase.getArtworkByMoveFolder("/nonexistent")).thenReturn(null);
-
-            mockMvc.perform(get("/api/downloaded/by-move-folder").param("path", "/nonexistent"))
-                    .andExpect(status().isNotFound());
-        }
-    }
-
-    // ========== POST /api/downloaded/move/{artworkId} ==========
+    // ========== POST /api/library/artworks/{artworkId}/move ==========
 
     @Test
-    @DisplayName("POST /api/downloaded/move/{artworkId} 应记录移动操作")
-    void shouldRecordMoveOperation() throws Exception {
-        mockMvc.perform(post("/api/downloaded/move/12345")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"movePath\":\"/new/path\",\"moveTime\":1700000000}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-
-        verify(artworkMoveService).moveArtWork(12345L, "/new/path", 1700000000L, null);
-    }
-
-    @Test
-    @DisplayName("POST /api/downloaded/move/{artworkId} 应透传 classifierTargetFolder")
-    void shouldForwardClassifierTargetFolder() throws Exception {
-        mockMvc.perform(post("/api/downloaded/move/12345")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"movePath\":\"/dst/0/\",\"moveTime\":1700000000,"
-                                + "\"classifierTargetFolder\":\"/dst/\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-
-        verify(artworkMoveService).moveArtWork(12345L, "/dst/0", 1700000000L, "/dst");
+    void retiredMoveIgnoresLegacyArguments() throws Exception {
+        mockMvc.perform(post("/api/library/artworks/bad-id/move").contentType("text/plain").content("{").accept("image/png"))
+                .andExpect(status().isGone()).andExpect(content().bytes(new byte[0]));
+        verifyNoInteractions(pixivDatabase, downloadedArtworkService, downloadStatisticsService);
     }
 
     // ========== GET /api/downloaded/history ==========

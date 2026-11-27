@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.core.hash;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
 
 import java.util.List;
 import java.util.OptionalInt;
@@ -75,10 +76,8 @@ public class ArtworkHashIndexAdapter implements ArtworkHashIndexQuery, ArtworkHa
     @Override
     public OptionalInt rebuildArtwork(long artworkId) {
         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork == null) {
-            return OptionalInt.empty();
+        try (var ignored = WorkFileLock.acquire(WorkType.ARTWORK, artworkId)) {
+            return artworkHashService.recordArtworkHashes(artworkId, () -> pixivDatabase.getArtwork(artworkId));
         }
-        return OptionalInt.of(artworkHashService.recordArtworkHashes(artwork));
     }
 }

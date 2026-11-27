@@ -61,7 +61,6 @@ final class DesktopToolsController {
     volatile int classifierGroupIndex;
     volatile String selectedFolderRow;
     volatile ToolDialog toolDialog;
-    String lastOpenedTool = "classifier";
     private volatile boolean folderCheckerRestartBackend;
     private volatile long classifierToolStartedAt;
     volatile String exclusiveToolName = "";
@@ -119,7 +118,6 @@ final class DesktopToolsController {
     void openToolDialog(ToolDialog value) {
         if (toolsBusy()) return;
         toolDialog = value;
-        lastOpenedTool = value == ToolDialog.FOLDER_CHECKER ? "folder" : "classifier";
         if (value == ToolDialog.IMAGE_CLASSIFIER)
             classifierToolStartedAt = System.currentTimeMillis();
         owner.rebuild();
@@ -143,7 +141,6 @@ final class DesktopToolsController {
             return;
         }
         folderCheckerRestartBackend = state == DesktopUiHost.BackendState.RUNNING;
-        lastOpenedTool = "folder";
         folderNotice = "";
         exclusiveToolName = host.message("gui.tools.card.folder-checker.title");
         exclusiveToolStartedAt = System.currentTimeMillis();
@@ -536,7 +533,7 @@ final class DesktopToolsController {
 
     void requestFolderUpdate() {
         DesktopUiHost.FolderArtwork artwork = folderArtworks.get(selectedFolderRow);
-        String newPath = form("tools.folder.new-path", "").trim();
+        String newPath = form("tools.folder.new-path", "");
         if (artwork == null) {
             folderNotice = host.message("gui.folder-checker.error.row-required");
             owner.rebuild();
@@ -1057,7 +1054,8 @@ final class DesktopToolsController {
                 }
             } catch (Exception failure) {
                 LOG.warn("Unable to classify image folder {}", source, failure);
-                classifierNotice = host.message("desktop.ui.action.failed");
+                classifierNotice = failure instanceof java.io.IOException && failure.getMessage() != null
+                        ? failure.getMessage() : host.message("desktop.ui.action.failed");
             }
         });
     }

@@ -35,8 +35,8 @@ public class StagedFileDeletion implements FileTransactionService {
                 List<FileOperationJournal.Entry> entries = journal.entries(operation);
                 boolean committed = journal.committed(operation);
                 requireDatabase();
-                cleanInstallTemporaries(entries, directory);
                 if (!committed) restore(entries, directory);
+                cleanInstallTemporaries(entries, directory);
                 cleanStaging(directory);
                 requireDatabase();
                 journal.forget(operation);
@@ -61,6 +61,24 @@ public class StagedFileDeletion implements FileTransactionService {
         }
     }
 
+    /** 仅允许删除 ZIP 中记录的路径，备份内容必须与实际写入 ZIP 的摘要相同。 */
+    public boolean deleteArchivedFiles(Map<Path, String> archived, Runnable commitRecord) {
+        if (archived.isEmpty()) throw new IllegalArgumentException("Empty archive deletion");
+        Map<Path, Path> targets = new LinkedHashMap<>();
+        archived.keySet().forEach(path -> targets.put(path, null));
+        try {
+            applyChanges(targets, Set.of(), archived, commitRecord);
+            return true;
+        } catch (IOException failure) {
+            log.warn(messages.getForLog("download.delete.log.stage-failed", failure.getMessage()));
+            return false;
+        }
+    }
+
+    public static void verifyArchivedFiles(Map<Path, String> archived) throws IOException {
+        for (var source : archived.entrySet()) requireContent(source.getKey(), source.getValue());
+    }
+
     /** 将已完成的暂存文件发布到目标路径；失败恢复旧文件，记录提交后才释放备份。 */
     public void publishFiles(Map<Path, Path> stagedByTarget, Runnable commitRecord) throws IOException {
         changeFiles(stagedByTarget, List.of(), commitRecord);
@@ -69,6 +87,18 @@ public class StagedFileDeletion implements FileTransactionService {
     @Override
     public void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions,
                             Runnable commitRecord) throws IOException {
+        changeFiles(stagedByTarget, deletions, Set.of(), commitRecord);
+    }
+
+    @Override
+    public void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions, Set<Path> createOnly,
+                            Runnable commitRecord) throws IOException {
+        changeFiles(stagedByTarget, deletions, createOnly, Map.of(), commitRecord);
+    }
+
+    @Override
+    public void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions, Set<Path> createOnly,
+                            Map<Path, String> expectedHashes, Runnable commitRecord) throws IOException {
         Map<Path, Path> targets = new LinkedHashMap<>();
         for (var file : stagedByTarget.entrySet()) {
             Path target = file.getKey().toAbsolutePath().normalize();
@@ -77,6 +107,13 @@ public class StagedFileDeletion implements FileTransactionService {
                 throw new IOException("Duplicate file publication target");
             }
             PlainFilePathGuard.requirePlainRegularFile(staged);
+        }
+        Set<Path> newTargets = new HashSet<>();
+        for (Path file : createOnly) {
+            Path target = file.toAbsolutePath().normalize();
+            if (!targets.containsKey(target)) throw new IOException("Create-only path is not a publication target");
+            if (!Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) throw new FileAlreadyExistsException(target.toString());
+            newTargets.add(target);
         }
         for (Path file : deletions) {
             if (file == null) continue;
@@ -88,10 +125,17 @@ public class StagedFileDeletion implements FileTransactionService {
             requireSafeDeleteTarget(target);
             targets.put(target, null);
         }
-        changeFiles(targets, commitRecord);
+        var expected = new HashMap<Path, String>();
+        for (var entry : expectedHashes.entrySet()) {
+            Path path = entry.getKey().toAbsolutePath().normalize();
+            if (!targets.containsKey(path) || newTargets.contains(path)) throw new IOException("Invalid verified publication target");
+            expected.put(path, Objects.requireNonNull(entry.getValue()));
+        }
+        applyChanges(targets, newTargets, expected, commitRecord);
     }
 
-    private void changeFiles(Map<Path, Path> targets, Runnable commitRecord) throws IOException {
+    private void applyChanges(Map<Path, Path> targets, Set<Path> createOnly, Map<Path, String> expectedHashes,
+                              Runnable commitRecord) throws IOException {
         requireDatabase();
         Objects.requireNonNull(commitRecord);
         if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -110,6 +154,7 @@ public class StagedFileDeletion implements FileTransactionService {
         PlainFilePathGuard.requirePlainParent(directory.resolve("check"), false);
         var entries = new ArrayList<FileOperationJournal.Entry>();
         boolean prepared = false;
+        int applied = 0;
         try {
             for (var target : targets.entrySet()) {
                 requireDatabase();
@@ -118,11 +163,13 @@ public class StagedFileDeletion implements FileTransactionService {
                 String oldHash = null;
                 int index = entries.size();
                 if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) {
+                    if (createOnly.contains(file)) throw new FileAlreadyExistsException(file.toString());
                     requireSafeDeleteTarget(file);
                     Path backup = directory.resolve(index + ".old");
                     durableCopy(file, backup);
                     oldHash = digest(backup);
                 }
+                if (expectedHashes.containsKey(file)) requireVerifiedContent(file, expectedHashes.get(file), oldHash);
                 String newHash = null;
                 if (target.getValue() != null) {
                     Path replacement = directory.resolve(index + ".new");
@@ -135,10 +182,18 @@ public class StagedFileDeletion implements FileTransactionService {
             journal.prepare(operation, entries);
             prepared = true;
             for (var entry : entries) {
-                requireContent(entry.target(), entry.oldHash());
+                boolean newTarget = entry.oldHash() == null && entry.newHash() != null;
+                Path staged = entry.newHash() == null ? null : directory.resolve(entry.index() + ".new");
+                Path temporary = staged == null ? null : prepareInstall(staged, entry.target());
                 requireDatabase();
-                if (entry.newHash() == null) deleteFile(entry.target());
-                else install(directory.resolve(entry.index() + ".new"), entry.target());
+                // 同目录临时副本已经落盘；校验失败时本条目从未改动，回退仅覆盖前面的条目。
+                if (expectedHashes.containsKey(entry.target()))
+                    requireVerifiedContent(entry.target(), entry.oldHash(), currentDigest(entry.target()));
+                else if (!newTarget) requireContent(entry.target(), entry.oldHash());
+                applied = entry.index() + 1;
+                if (staged == null) deleteFile(entry.target());
+                else if (newTarget) publishNew(staged, temporary, entry.target());
+                else Files.move(temporary, entry.target(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             }
             requireDatabase();
             journal.commit(operation, commitRecord);
@@ -147,7 +202,8 @@ public class StagedFileDeletion implements FileTransactionService {
                 // 无法读取提交事实时保留全部备份，交给下次数据库可用时恢复。
                 requireDatabase();
                 // COMMIT 响应异常时重新读取耐久标记，不能把已提交的文件复原。
-                if (prepared && !journal.committed(operation)) restore(entries, directory);
+                if (prepared && !journal.committed(operation)) restore(entries.subList(0, applied), directory);
+                if (prepared) cleanInstallTemporaries(entries, directory);
                 cleanStaging(directory);
                 requireDatabase();
                 journal.forget(operation);
@@ -158,6 +214,7 @@ public class StagedFileDeletion implements FileTransactionService {
             throw failure;
         }
         try {
+            cleanInstallTemporaries(entries, directory);
             cleanStaging(directory);
             requireDatabase();
             journal.forget(operation);
@@ -168,29 +225,57 @@ public class StagedFileDeletion implements FileTransactionService {
     }
 
     private void restore(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
-        cleanInstallTemporaries(entries, directory);
         IOException failure = null;
+        int unclaimed = 0;
         for (var entry : entries) {
             try {
                 requireDatabase();
+                if (entry.oldHash() == null) {
+                    // An old journal or an interrupted prepare cannot prove who created the target.
+                    if (entry.newHash() != null && !rollbackNewFile(entry, directory.resolve(entry.index() + ".new"))) unclaimed++;
+                    continue;
+                }
                 String current = currentDigest(entry.target());
                 if (Objects.equals(current, entry.oldHash())) continue;
                 if (current != null && !Objects.equals(current, entry.newHash())) {
                     throw new IOException("Recovery target changed: " + entry.target());
                 }
-                if (entry.oldHash() == null) {
-                    if (current != null) deleteFile(entry.target());
-                } else {
-                    Path backup = directory.resolve(entry.index() + ".old");
-                    requireContent(backup, entry.oldHash());
-                    restoreFile(backup, entry.target());
-                }
+                Path backup = directory.resolve(entry.index() + ".old");
+                requireContent(backup, entry.oldHash());
+                cleanTemporary(installTemporary(backup, entry.target()));
+                restoreFile(backup, entry.target());
             } catch (IOException | UnsafeDeletionPathException error) {
                 if (failure == null) failure = new IOException("File rollback incomplete");
                 failure.addSuppressed(error);
             }
         }
+        if (unclaimed != 0) log.warn(messages.getForLog("download.delete.log.unclaimed-targets", directory.getFileName(), unclaimed));
         if (failure != null) throw failure;
+    }
+
+    /** Returns false if a current file must be left in place. */
+    private boolean rollbackNewFile(FileOperationJournal.Entry entry, Path staged) throws IOException {
+        Path target = entry.target();
+        if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) return true;
+        if (!PlainFilePathGuard.isPlainRegularFile(target)) return false;
+        Path witness = installTemporary(staged, target);
+        if (PlainFilePathGuard.isPlainRegularFile(witness)) {
+            if (!entry.newHash().equals(digest(witness)) || !Files.isSameFile(witness, target)) return false;
+            deleteFile(target);
+            return true;
+        }
+        // A no-replace move consumed the temporary. Without a durable object identity the current target is ambiguous.
+        Path intent = moveIntent(staged);
+        if (PlainFilePathGuard.isPlainRegularFile(intent)) {
+            String identity = fileIdentity(target);
+            if (!identity.isEmpty() && Files.size(intent) == identity.length()
+                    && identity.equals(Files.readString(intent, java.nio.charset.StandardCharsets.UTF_8))
+                    && entry.newHash().equals(digest(target)) && identity.equals(fileIdentity(target))) {
+                deleteFile(target);
+                return true;
+            }
+        }
+        return false;
     }
 
     protected void deleteFile(Path original) throws IOException {
@@ -200,10 +285,18 @@ public class StagedFileDeletion implements FileTransactionService {
     }
 
     protected void restoreFile(Path staged, Path original) throws IOException {
-        install(staged, original);
+        Path temporary = prepareInstall(staged, original);
+        try {
+            requireDatabase();
+            Files.move(temporary, original, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException | RuntimeException | Error failure) {
+            try { Files.deleteIfExists(temporary); }
+            catch (IOException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+            throw failure;
+        }
     }
 
-    private void install(Path staged, Path target) throws IOException {
+    private Path prepareInstall(Path staged, Path target) throws IOException {
         PlainFilePathGuard.requirePlainRegularFile(staged);
         PlainFilePathGuard.requirePlainParent(target, true);
         Path temporary = installTemporary(staged, target);
@@ -212,12 +305,48 @@ public class StagedFileDeletion implements FileTransactionService {
         try {
             Files.copy(staged, temporary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
             force(temporary);
-            // 不支持原子替换的文件系统拒绝发布，不能退化为可能留下半个文件的覆盖复制。
-            requireDatabase();
-            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(temporary);
+            return temporary;
+        } catch (IOException | RuntimeException | Error failure) {
+            try { Files.deleteIfExists(temporary); }
+            catch (IOException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+            throw failure;
         }
+    }
+
+    private void publishNew(Path staged, Path temporary, Path target) throws IOException {
+        try {
+            // The private name remains linked to the exact published file until the transaction is resolved.
+            Files.createLink(target, temporary);
+        } catch (FileAlreadyExistsException occupied) {
+            throw targetOccupied(target, occupied);
+        } catch (IOException | UnsupportedOperationException unableToLink) {
+            // Some removable and remote volumes support same-directory moves but not hard links.
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) throw targetOccupied(target, unableToLink);
+            Path intent = moveIntent(staged);
+            Files.writeString(intent, fileIdentity(temporary), java.nio.charset.StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            force(intent);
+            requireDatabase();
+            try { Files.move(temporary, target); }
+            catch (FileAlreadyExistsException occupied) { throw targetOccupied(target, occupied); }
+            catch (IOException moveFailed) { moveFailed.addSuppressed(unableToLink); throw moveFailed; }
+        }
+    }
+
+    private static FileAlreadyExistsException targetOccupied(Path target, Exception cause) {
+        var failure = new FileAlreadyExistsException(target.toString());
+        failure.initCause(cause);
+        return failure;
+    }
+
+    private static Path moveIntent(Path staged) {
+        return staged.resolveSibling(staged.getFileName() + ".move");
+    }
+
+    private static String fileIdentity(Path file) throws IOException {
+        // Numeric Unix device/inode and birth time survive a same-directory move. Other providers need a hard-link witness.
+        if (!file.getFileSystem().supportedFileAttributeViews().contains("unix")) return "";
+        var attributes = Files.readAttributes(file, "unix:dev,ino,creationTime", LinkOption.NOFOLLOW_LINKS);
+        return attributes.get("dev") + ":" + attributes.get("ino") + ":" + attributes.get("creationTime");
     }
 
     private static Path installTemporary(Path staged, Path target) {
@@ -229,14 +358,16 @@ public class StagedFileDeletion implements FileTransactionService {
     private void cleanInstallTemporaries(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
         for (var entry : entries) {
             for (String suffix : List.of(".old", ".new")) {
-                Path file = installTemporary(directory.resolve(entry.index() + suffix), entry.target());
-                if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) {
-                    PlainFilePathGuard.requirePlainRegularFile(file);
-                    requireDatabase();
-                    Files.delete(file);
-                }
+                cleanTemporary(installTemporary(directory.resolve(entry.index() + suffix), entry.target()));
             }
         }
+    }
+
+    private void cleanTemporary(Path file) throws IOException {
+        if (Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return;
+        PlainFilePathGuard.requirePlainRegularFile(file);
+        requireDatabase();
+        Files.delete(file);
     }
 
     private void durableCopy(Path source, Path target) throws IOException {
@@ -252,6 +383,12 @@ public class StagedFileDeletion implements FileTransactionService {
 
     private static void requireContent(Path file, String expected) throws IOException {
         if (!Objects.equals(currentDigest(file), expected)) throw new IOException("File operation source changed: " + file);
+    }
+
+    private static void requireVerifiedContent(Path file, String expected, String actual) throws IOException {
+        if (Objects.equals(expected, actual)) return;
+        if (actual == null) throw new NoSuchFileException(file.toString());
+        throw new FileAlreadyExistsException(file.toString(), null, "File contents changed since verification");
     }
 
     private static String currentDigest(Path file) throws IOException {

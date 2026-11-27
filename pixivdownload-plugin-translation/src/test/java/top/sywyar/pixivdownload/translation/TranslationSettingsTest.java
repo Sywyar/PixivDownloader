@@ -49,7 +49,16 @@ class TranslationSettingsTest {
         assertThat(missing("youdao", true)).containsExactly("translation.youdao-app-key");
         assertThat(missing("libretranslate", false)).containsExactly("translation.libretranslate-url");
         assertThat(fields.stream().filter(GuiConfigFieldContribution::sensitive).map(GuiConfigFieldContribution::key))
-                .containsExactly("translation.youdao-app-secret", "translation.libretranslate-api-key");
+                .contains("translation.youdao-app-secret", "translation.libretranslate-api-key");
+        for (var provider : CloudProvider.values()) {
+            var selected = visible(provider.id);
+            for (String name : provider.fields) {
+                String key = "translation.providers." + provider.id + "." + name;
+                assertThat(selected).contains(key);
+                assertThat(fields.stream().filter(field -> field.key().equals(key)).findFirst().orElseThrow().sensitive())
+                        .isEqualTo(name.equals("secret") || name.equals("api-key"));
+            }
+        }
     }
 
     private List<String> visible(String engine) {

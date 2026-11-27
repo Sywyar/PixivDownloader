@@ -70,6 +70,56 @@ class StagedFileDeletionTest {
     }
 
     @Test
+    void changedSinceFingerprintIsPreservedBeforeAnyPublication() throws Exception {
+        Path target = Files.writeString(tempDir.resolve("p0.jpg"), "old");
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(target)));
+        Path staged = Files.writeString(tempDir.resolve("new.jpg"), "new");
+        Files.writeString(target, "own");
+        var called = new AtomicBoolean();
+        assertThrows(IOException.class, () -> deletion.changeFiles(java.util.Map.of(target, staged), List.of(),
+                java.util.Set.of(), java.util.Map.of(target, digest), () -> called.set(true)));
+        assertEquals("own", Files.readString(target));
+        assertFalse(called.get());
+        assertTrue(journal.operations().isEmpty());
+    }
+
+    @Test
+    void verifiedFileChangedDuringDestinationCopyIsPreservedAndEarlierPublicationRolledBack() throws Exception {
+        Path earlier = tempDir.resolve("p0.png");
+        Path target = Files.writeString(tempDir.resolve("p0_thumb.jpg"), "old");
+        Path staged = Files.writeString(tempDir.resolve("replacement.part"), "new");
+        String expected = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(target)));
+        var files = new LinkedHashMap<Path, Path>();
+        files.put(earlier, staged);
+        files.put(target, staged);
+        var changed = new AtomicBoolean();
+        var called = new AtomicBoolean();
+        var guardedJournal = spy(journal);
+        doAnswer(call -> {
+            if (Files.exists(earlier) && !changed.get()) {
+                try (var pending = Files.newDirectoryStream(tempDir, ".work-file-*-1.new.part")) {
+                    for (Path temporary : pending) {
+                        assertEquals("new", Files.readString(temporary));
+                        Files.writeString(target, "own");
+                        changed.set(true);
+                    }
+                }
+            }
+            return call.callRealMethod();
+        }).when(guardedJournal).isUnavailable();
+        var transaction = new StagedFileDeletion(TestI18nBeans.appMessages(), guardedJournal);
+        var conflict = assertThrows(java.nio.file.FileAlreadyExistsException.class,
+                () -> transaction.changeFiles(files, List.of(), java.util.Set.of(earlier), java.util.Map.of(target, expected), () -> called.set(true)));
+        assertEquals(target.toString(), conflict.getFile());
+        assertTrue(changed.get());
+        assertFalse(called.get());
+        assertFalse(Files.exists(earlier));
+        assertEquals("own", Files.readString(target));
+        assertTrue(journal.operations().isEmpty());
+        assertEquals(0, stagingResidueCount());
+    }
+
+    @Test
     @DisplayName("替换与旧格式删除共用主库提交，记录失败时恢复全部文件")
     void rollsBackReplacementAndDeletionTogether() throws Exception {
         Path target = Files.writeString(tempDir.resolve("reference.wav"), "old wav");
@@ -94,6 +144,64 @@ class StagedFileDeletionTest {
         assertEquals("new wav", Files.readString(target));
         assertFalse(Files.exists(obsolete));
         assertTrue(journal.operations().isEmpty());
+    }
+
+    @Test
+    void newPublicationPreservesCollisionsBeforeAndAfterJournalPreparation() throws Exception {
+        Path owned = Files.writeString(tempDir.resolve("p0.jpg"), "old");
+        Path target = Files.writeString(tempDir.resolve("p1.png"), "user");
+        Path staged = Files.writeString(tempDir.resolve("page.part"), "new");
+        var replacements = new LinkedHashMap<Path, Path>();
+        replacements.put(owned, staged);
+        replacements.put(target, staged);
+        var guardedJournal = spy(journal);
+        var transaction = new StagedFileDeletion(TestI18nBeans.appMessages(), guardedJournal);
+        var called = new AtomicBoolean();
+        Runnable commit = () -> called.set(true);
+        var newTargets = java.util.Set.of(target);
+        assertThrows(java.nio.file.FileAlreadyExistsException.class,
+                () -> transaction.changeFiles(replacements, List.of(), newTargets, commit));
+        verify(guardedJournal, never()).prepare(anyString(), anyList());
+        assertEquals("user", Files.readString(target));
+        Files.delete(target);
+        doAnswer(call -> {
+            call.callRealMethod();
+            Files.copy(staged, target); // Even identical content belongs to the racing creator.
+            return null;
+        }).when(guardedJournal).prepare(anyString(), anyList());
+        assertThrows(java.nio.file.FileAlreadyExistsException.class,
+                () -> transaction.changeFiles(replacements, List.of(), newTargets, commit));
+        assertEquals("old", Files.readString(owned));
+        assertEquals("new", Files.readString(target));
+        assertFalse(called.get());
+        assertTrue(journal.operations().isEmpty());
+    }
+
+    @Test
+    @DisplayName("无硬链接文件系统可提交新文件，回滚时保留身份不可核实的同内容替换")
+    void publishesOnAFileSystemWithoutHardLinks() throws Exception {
+        Path input = Files.writeString(tempDir.resolve("input.part"), "new image");
+        try (var volume = java.nio.file.FileSystems.newFileSystem(tempDir.resolve("no-hard-links.zip"),
+                java.util.Map.of("create", "true"))) {
+            Path folder = Files.createDirectory(volume.getPath("/output"));
+            Path target = folder.resolve("image.png");
+            assertThrows(UnsupportedOperationException.class, () -> Files.createLink(folder.resolve("probe"), target));
+            deletion.publishFiles(java.util.Map.of(target, input), () -> {});
+            assertEquals("new image", Files.readString(target));
+            Path contested = folder.resolve("other.png");
+            var failure = new IllegalStateException("record update failed");
+            assertEquals(failure, assertThrows(IllegalStateException.class, () ->
+                    deletion.publishFiles(java.util.Map.of(contested, input), () -> {
+                        try {
+                            Files.delete(contested);
+                            Files.writeString(contested, "new image");
+                        } catch (IOException problem) { throw new java.io.UncheckedIOException(problem); }
+                        throw failure;
+                    })));
+            assertEquals("new image", Files.readString(contested));
+            try (var entries = Files.list(folder)) { assertEquals(2, entries.count()); }
+            assertTrue(journal.operations().isEmpty());
+        }
     }
 
     @Test

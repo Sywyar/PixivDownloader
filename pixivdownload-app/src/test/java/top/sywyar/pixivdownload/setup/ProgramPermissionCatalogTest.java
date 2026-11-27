@@ -30,7 +30,7 @@ class ProgramPermissionCatalogTest {
         var targets = new java.util.concurrent.atomic.AtomicReference<>(List.of(target));
         var keys = new ProgramKeyService(directory.resolve("keys.json"), new RouteAccessRegistry(plugins), plugins,
                 new DesktopMediaToolRegistry(), new DesktopFileImportToolRegistry(),
-                new top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry(), Set::of, Set::of, targets::get);
+                new top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry(), List::of, targets::get);
         var policy = new ProgramKeyStore.Policy("manage inactive", Set.of("core:plugins.enabled", "inactive-provider:plugins.manage"), true, List.of());
         assertThat(keys.create(policy).key().policy().permissions()).contains("inactive-provider:plugins.manage");
         targets.set(List.of());
@@ -64,6 +64,45 @@ class ProgramPermissionCatalogTest {
         media.unregister(owner);
         assertThat(keys.permissions()).noneMatch(value -> value.id().equals("independent-tool:media.execute"));
         assertThatThrownBy(() -> keys.create(policy)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test void httpCatalogListsTheTaskConditionOnlyOnTheSourceGrant() throws Exception {
+        var provider = mock(PixivFeaturePlugin.class);
+        when(provider.id()).thenReturn("independent-source");
+        var policy = mock(PixivFeaturePlugin.class);
+        when(policy.id()).thenReturn("policy-only");
+        var plugins = new PluginRegistry(List.of(new top.sywyar.pixivdownload.plugin.CorePlugin(), provider, policy));
+        var owners = List.of(scheduleOwner(provider.id(), Set.of("illustrations"), Set.of()),
+                scheduleOwner(policy.id(), Set.of(), Set.of("account")));
+        var keys = new ProgramKeyService(directory.resolve("keys.json"), new RouteAccessRegistry(plugins), plugins,
+                new DesktopMediaToolRegistry(), new DesktopFileImportToolRegistry(),
+                new top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry(), () -> owners, List::of);
+        var setup = mock(SetupService.class);
+        when(setup.isAdminLoggedIn(any())).thenReturn(true);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new ProgramKeysController(keys, setup, null, null, null, null)).build();
+        var response = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/security/program-keys/permissions"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn().getResponse();
+        var catalog = tools.jackson.databind.json.JsonMapper.builder().build().readTree(response.getContentAsByteArray());
+        for (var grant : List.of("core:authors.refresh", "independent-source:schedule.manage", "policy-only:schedule.manage")) {
+            var entry = catalog.valueStream().filter(item -> grant.equals(item.required("id").asString())).findFirst().orElseThrow();
+            var metadata = entry.required("endpoints").valueStream().filter(endpoint -> "POST".equals(endpoint.required("method").asString())
+                    && "/api/pixiv/user/*/meta/schedule".equals(endpoint.required("path").asString())).toList();
+            if (grant.equals("policy-only:schedule.manage")) {
+                assertThat(metadata).isEmpty();
+                continue;
+            }
+            assertThat(metadata).hasSize(1);
+            if (grant.equals("core:authors.refresh")) assertThat(metadata.getFirst().has("when")).isFalse();
+            else assertThat(metadata.getFirst().requiredAt("/when/keyFrom").asString()).isEqualTo("request#/taskId");
+        }
+    }
+
+    private static top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwnerSnapshot scheduleOwner(
+            String id, Set<String> sources, Set<String> policies) {
+        var owner = new top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner(id, id, 1);
+        return new top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwnerSnapshot(
+                owner, 1, "active", sources, Set.of(), Set.of(), policies, Set.of(), List.of());
     }
 
     @Test @DisplayName("下载类型提供者的授权随提交能力发布和撤回")

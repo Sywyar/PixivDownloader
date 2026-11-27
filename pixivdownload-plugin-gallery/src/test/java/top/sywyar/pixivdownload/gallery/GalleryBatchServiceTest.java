@@ -362,6 +362,18 @@ class GalleryBatchServiceTest {
         assertThat(request.deleteAfterReady()).isNotNull();
         assertThat(request.deleteAfterReady().workType()).isEqualTo(WorkType.ARTWORK.name());
         assertThat(request.deleteAfterReady().workIds()).containsExactly(10L);
+        var members = request.entries().subList(0, request.fileCount());
+        assertThat(members).extracting(ArchiveExportEntry::entryName).doesNotHaveDuplicates();
+        var files = JsonMapper.shared().readTree(request.entries().getLast().bytes()).get(0).get("files");
+        assertThat(files.size()).isEqualTo(members.size());
+        for (int i = 0; i < members.size(); i++) {
+            assertThat(files.get(i).get("archivePath").asString()).isEqualTo(members.get(i).entryName());
+            assertThat(Path.of(files.get(i).get("originalPath").asString())).isEqualTo(members.get(i).sourcePath());
+        }
+        assertThat(members.get(0).entryName()).endsWith(".zip");
+        assertThat(members.get(1).entryName()).endsWith(".frames.properties");
+        assertThat(members.get(2).entryName()).endsWith(".webp");
+        assertThat(members.get(3).entryName()).endsWith(".webp");
     }
 
     private ArchiveExportRequest exportSingleArtwork(String groupBy, boolean deleteAfter) throws Exception {
@@ -370,9 +382,15 @@ class GalleryBatchServiceTest {
                 false, null, null, null, null, null);
         Path image = Files.createFile(tempDir.resolve("file.jpg"));
         when(workMetadataRepository.findAll(WorkType.ARTWORK, List.of(10L))).thenReturn(List.of(meta));
-        when(workAssetService.findAsset(WorkType.ARTWORK, 10L)).thenReturn(Optional.of(
-                new LocalWorkAsset(WorkType.ARTWORK, 10L, tempDir, 1,
-                        List.of(new WorkAssetFile(0, image, "jpg")))));
+        if (deleteAfter) {
+            String stem = "a".repeat(121);
+            when(workAssetService.archiveSources(WorkType.ARTWORK, 10L)).thenReturn(List.of(
+                    tempDir.resolve(stem + ".zip"), tempDir.resolve(stem + ".frames.properties"),
+                    tempDir.resolve(stem + ".webp"), tempDir.resolve(stem + "1.webp")));
+        } else {
+            when(workAssetService.findAsset(WorkType.ARTWORK, 10L)).thenReturn(Optional.of(
+                    new LocalWorkAsset(WorkType.ARTWORK, 10L, tempDir, 1, List.of(new WorkAssetFile(0, image, "jpg")))));
+        }
         ArchiveExportResult expected = new ArchiveExportResult("token-1", 3600, 1, 1);
         when(archiveExportService.normalizeFormat("zip")).thenReturn("zip");
         when(archiveExportService.export(any())).thenReturn(expected);
@@ -387,7 +405,7 @@ class GalleryBatchServiceTest {
         ArchiveExportRequest request = requestCaptor.getValue();
         assertThat(request.exportType()).isEqualTo("artworks");
         assertThat(request.workCount()).isEqualTo(1);
-        assertThat(request.fileCount()).isEqualTo(1);
+        assertThat(request.fileCount()).isEqualTo(deleteAfter ? 4 : 1);
         assertThat(request.format()).isEqualTo("zip");
         return request;
     }

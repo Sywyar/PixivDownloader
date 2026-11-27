@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.work.directory;
 
 import top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables;
 
+import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -89,15 +90,45 @@ public final class WorkDirectoryTemplate {
     /** {@return 第一个变量之前的固定路径，保留相对或绝对属性} */
     public Path fixedPrefix() { return prefix; }
 
+    /** A parent segment after a symbolic link must be resolved by the filesystem before composing a template. */
+    public static String selectedRoot(String root) throws IOException {
+        if (root == null || root.isBlank()) throw rejected("path", "");
+        Path path = Path.of(root);
+        for (Path part : path) {
+            if (part.toString().equals("..")) return path.toRealPath().toString();
+        }
+        return root;
+    }
+
+    /** Returns a portable relative root for the migration dialog when the selected directory is under the application. */
+    public static String relativeToAppRoot(String root, String appRoot) {
+        if (root == null || root.isBlank() || appRoot == null || appRoot.isBlank()) return null;
+        try {
+            Path app = Path.of(selectedRoot(appRoot)).toAbsolutePath().normalize();
+            Path target = Path.of(selectedRoot(root)).toAbsolutePath().normalize();
+            if (target.equals(app) || !target.startsWith(app)) return null;
+            return app.relativize(target).toString().replace(java.io.File.separatorChar, '/');
+        } catch (IOException | InvalidPathException unavailable) {
+            return null;
+        }
+    }
+
     /**
      * 目录迁移工具替换固定前缀，保留完整的作品模板后缀。
      * @param root 用户确认的新固定目录
      * @return 可保存的最终目录模板
      */
     public String withFixedPrefix(String root) {
-        if (root == null || root.isBlank() || root.contains("{") || root.contains("}")) throw rejected("path", "");
-        String result = Path.of(root).resolve(String.join("/", segments)).toString().replace('\\', '/');
-        parse(result);
+        if (root == null || root.isBlank()) throw rejected("path", "");
+        if (root.contains("{") || root.contains("}") || java.io.File.separatorChar == '/' && root.contains("\\")) {
+            throw rejected("literal-root", "");
+        }
+        Path selected = Path.of(root);
+        String result = selected.resolve(String.join("/", segments)).toString().replace(java.io.File.separatorChar, '/');
+        // Keep leading whitespace inside a relative path segment when the template is read back.
+        if (result.startsWith(" ")) result = "./" + result;
+        if (!parse(result).fixedPrefix().toAbsolutePath().normalize().equals(selected.toAbsolutePath().normalize()))
+            throw rejected("path", "");
         return result;
     }
 

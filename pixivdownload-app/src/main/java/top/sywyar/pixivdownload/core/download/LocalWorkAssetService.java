@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
@@ -20,6 +21,8 @@ import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
+import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
+import top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.io.File;
@@ -33,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -56,7 +60,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final AppMessages messages;
     private final StagedFileDeletion stagedFileDeletion;
     private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
-    private final top.sywyar.pixivdownload.core.asset.DownloadDirectories downloadDirectories;
+    private final DownloadDirectories downloadDirectories;
 
     @Override public boolean isReadOnly(WorkType type, long id) {
         requireDatabase();
@@ -123,6 +127,32 @@ public class LocalWorkAssetService implements WorkAssetService {
     private static void requireFileName(String name) {
         if (!StringUtils.hasText(name) || name.contains("/") || name.contains("\\")
                 || name.equals(".") || name.equals("..")) throw new UnsafeDeletionPathException(name);
+    }
+
+    @Override
+    public List<Path> archiveSources(WorkType type, long workId) {
+        requireDatabase();
+        try (var ignored = WorkFileLock.acquire(type, workId)) {
+            if (isReadOnly(type, workId)) {
+                return externalFiles.files(type, workId).stream().filter(java.util.Objects::nonNull).toList();
+            }
+            if (type == WorkType.ARTWORK) {
+                var record = pixivDatabase.getArtwork(workId);
+                return record == null ? List.of() : artworkFileLocator.archiveSources(record).stream().sorted().toList();
+            }
+            var novel = novelMetadataRepository.getNovel(workId);
+            Path dir = novel == null ? null : exclusiveNovelDirectory(novel, true);
+            if (dir == null) return List.of();
+            if (!downloadDirectories.foreignNovelDirectories(workId, dir).isEmpty()) throw incompleteNovelOwnership(workId);
+            var files = novelDeletionFiles(dir);
+            synchronized (downloadDirectories) {
+                if (!downloadDirectories.foreignNovelDirectories(workId, dir).isEmpty()
+                        || !downloadDirectories.referencedFiles(files).isEmpty()) throw incompleteNovelOwnership(workId);
+            }
+            return files;
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
     }
 
     @Override
@@ -201,10 +231,46 @@ public class LocalWorkAssetService implements WorkAssetService {
             }
             return switch (workType) {
                 case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId), commitRecord);
-                case NOVEL -> {
-                    synchronized (downloadDirectories) { yield deleteNovelFiles(workId, commitRecord); }
-                }
+                case NOVEL -> deleteNovelFiles(workId, commitRecord);
             };
+        }
+    }
+
+    public boolean deleteArchivedFiles(WorkType type, long id, Map<Path, String> archived, Runnable commitRecord) {
+        requireDatabase();
+        try (var ignored = WorkFileLock.acquire(type, id)) {
+            Set<Path> required = archiveSources(type, id).stream().map(file -> file.toAbsolutePath().normalize())
+                    .collect(java.util.stream.Collectors.toSet());
+            if (archived.isEmpty() || !archived.keySet().equals(required)) {
+                throw new IllegalStateException("Archive deletion sources changed: " + id);
+            }
+            if (isReadOnly(type, id)) {
+                StagedFileDeletion.verifyArchivedFiles(archived);
+                commitRecord.run();
+                return true;
+            }
+            Runnable checkedCommit = () -> {
+                // 登记中的必需文件仍可能出现在清单中，但本次操作已将其移出作品目录。
+                var currentSources = archiveSources(type, id);
+                if ((type == WorkType.ARTWORK && currentSources.isEmpty()) || currentSources.stream().anyMatch(file -> !archived.containsKey(file)
+                        || !Files.notExists(file, LinkOption.NOFOLLOW_LINKS))) {
+                    throw new IllegalStateException("Archive deletion sources changed: " + id);
+                }
+                commitRecord.run();
+            };
+            if (type == WorkType.ARTWORK) {
+                return artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(id), checkedCommit, archived);
+            }
+            var record = novelMetadataRepository.getNovel(id);
+            Path dir = record == null ? null : exclusiveNovelDirectory(record, true);
+            if (dir == null) return false;
+            try (var reservation = reserveNovelDeletion(id, dir)) {
+                if (!stagedFileDeletion.deleteArchivedFiles(archived, checkedCommit)) return false;
+                removeEmptyDirectoryTree(dir, record);
+                return true;
+            }
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
         }
     }
 
@@ -276,16 +342,30 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 页号是本次枚举快照内的临时序号（见接口 javadoc）。目录不可读时记日志并视为无文件。
      */
     private List<WorkAssetFile> enumerateNovelFiles(NovelMetadataRow novel, Path dir) {
-        try (var stream = Files.walk(dir)) {
-            List<Path> paths = stream
-                    .filter(Files::isRegularFile)
-                    // meta sidecar 是作品自身元数据、非可下载内容文件，排除出枚举（导出 zip 不含 *.meta.json）。
-                    .filter(p -> !WorkSidecarFiles.isSidecarFile(p))
-                    .sorted(Comparator.comparing(Path::toString))
-                    .toList();
-            List<WorkAssetFile> files = new ArrayList<>(paths.size());
-            for (int page = 0; page < paths.size(); page++) {
-                Path path = paths.get(page);
+        try {
+            var blocked = downloadDirectories.foreignNovelDirectories(novel.novelId(), dir);
+            if (blocked.contains(dir)) return List.of();
+            List<Path> paths = new ArrayList<>();
+            Files.walkFileTree(dir, new java.nio.file.SimpleFileVisitor<>() {
+                @Override public java.nio.file.FileVisitResult preVisitDirectory(Path child, java.nio.file.attribute.BasicFileAttributes attributes) {
+                    return blocked.contains(child) ? java.nio.file.FileVisitResult.SKIP_SUBTREE : java.nio.file.FileVisitResult.CONTINUE;
+                }
+                @Override public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attributes) {
+                    if (attributes.isRegularFile() && !blocked.contains(file) && !WorkSidecarFiles.isSidecarFile(file)) paths.add(file);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+            });
+            paths.sort(Comparator.comparing(Path::toString));
+            Set<Path> referenced;
+            Set<Path> currentRoots;
+            synchronized (downloadDirectories) {
+                currentRoots = downloadDirectories.foreignNovelDirectories(novel.novelId(), dir);
+                referenced = downloadDirectories.referencedFiles(paths);
+            }
+            List<WorkAssetFile> files = new ArrayList<>(paths.size() - referenced.size());
+            for (Path path : paths) {
+                if (referenced.contains(path) || insideForeignDirectory(path, currentRoots)) continue;
+                int page = files.size();
                 files.add(new WorkAssetFile(page, path, extensionOf(path.getFileName().toString())));
             }
             return files;
@@ -293,6 +373,14 @@ public class LocalWorkAssetService implements WorkAssetService {
             log.warn(logMessage("download.asset.log.novel-directory-unreadable", novel.novelId(), dir), e);
             return List.of();
         }
+    }
+
+    private static boolean insideForeignDirectory(Path file, Set<Path> roots) {
+        if (roots.isEmpty()) return false;
+        for (Path ancestor = file; ancestor != null; ancestor = ancestor.getParent()) {
+            if (roots.contains(ancestor)) return true;
+        }
+        return false;
     }
 
     /** 小说缩略图 = 封面文件 {@code {存储基名}_thumb.{coverExt}}；page 参数无意义，返回页号恒为 0。 */
@@ -357,25 +445,37 @@ public class LocalWorkAssetService implements WorkAssetService {
             return true;
         }
         Path dir = exclusiveNovelDirectory(record, true);
-        if (dir == null) {
-            commitRecord.run();
+        Path target = dir == null ? Path.of(record.folder()).toAbsolutePath().normalize() : dir;
+        try (var reservation = reserveNovelDeletion(workId, target)) {
+            if (dir == null) {
+                if (!Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) throw incompleteNovelOwnership(workId);
+                commitRecord.run();
+                return true;
+            }
+            if (!stagedFileDeletion.deleteAtomically(novelDeletionFiles(dir), commitRecord)) return false;
+            removeEmptyDirectoryTree(dir, record);
             return true;
-        }
-        List<Path> files;
-        try (var stream = Files.walk(dir)) {
-            files = stream
-                    .filter(path -> !path.equals(dir))
-                    .filter(path -> !PlainFilePathGuard.isPlainDirectory(path))
-                    .toList();
         } catch (IOException e) {
             log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
             return false;
         }
-        if (!stagedFileDeletion.deleteAtomically(files, commitRecord)) {
-            return false;
+    }
+
+    private DownloadDirectories.DeletionReservation reserveNovelDeletion(long id, Path directory) {
+        try { return downloadDirectories.reserveNovelDeletion(id, directory); }
+        catch (DirectoryTemplateException occupied) { throw incompleteNovelOwnership(id); }
+    }
+
+    private static WorkDeletionException incompleteNovelOwnership(long id) {
+        return new WorkDeletionException(WorkDeletionException.Reason.INCOMPLETE_FILE_OWNERSHIP, WorkType.NOVEL, id);
+    }
+
+    private List<Path> novelDeletionFiles(Path dir) throws IOException {
+        try (var stream = Files.walk(dir)) {
+            return stream.filter(path -> !path.equals(dir))
+                    .filter(path -> !PlainFilePathGuard.isPlainDirectory(path))
+                    .toList();
         }
-        removeEmptyDirectoryTree(dir, record);
-        return true;
     }
 
     /** 移除已清空的小说独占目录壳（子目录 + 目录本身）；可再生，删失败仅记日志、不影响删除成败。 */
@@ -397,7 +497,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      * 解析小说独占目录并执行磁盘边界守卫（避免污染的 folder 把递归操作范围扩大到 root 之外、
      * 共享目录或 OS 根）：解析后的目录必须非空、可解析、是已存在目录、非 OS / 驱动盘根、
      * 且不等于默认模板固定前缀本身；旧目录名须等于 {@code novel-{novelId}}，自定义目录须持有
-     * 本小说的下载归属且无其它资产重叠。枚举链路遇到不满足项时返回 {@code null}；删除链路只有已确认不存在的目录
+     * 本小说的下载归属；文件枚举和删除另外核对其它作品的现行目录。枚举链路遇到不满足项时返回 {@code null}；删除链路只有已确认不存在的目录
      * 视为「无可操作目录」，现存或无法判定安全的目录抛出 {@link UnsafeDeletionPathException}。
      *
      * @param logRefusals 删除链路传 {@code true}（守卫拒绝时记日志，polluted folder 行可由管理员
@@ -451,7 +551,7 @@ public class LocalWorkAssetService implements WorkAssetService {
         Path name = dir.getFileName();
         String expectedName = "novel-" + record.novelId();
         if ((name == null || !expectedName.equals(name.toString()))
-                && !downloadDirectories.owns(WorkType.NOVEL, record.novelId(), dir)) {
+                && !downloadDirectories.hasDirectoryClaim(WorkType.NOVEL, record.novelId(), dir)) {
             if (logRefusals) {
                 log.warn(logMessage("novel.gallery.log.directory-not-exclusive",
                         record.novelId(), dir, expectedName));

@@ -255,6 +255,22 @@ class LocalWorkAssetServiceTest {
                     new WorkAssetFile(2, c.toAbsolutePath().normalize(), "png")), asset.get().files());
         }
 
+        @Test @DisplayName("遍历期间迁入的作品在最终归属快照中保护，空子目录同样阻止删源")
+        void rechecksOwnershipAtTheEndOfNovelEnumeration() throws Exception {
+            Path dir = novelDir(7L);
+            Path nested = Files.createDirectory(dir.resolve("illustrations"));
+            Path body = Files.writeString(dir.resolve("body.txt"), "novel");
+            Files.writeString(nested.resolve("foreign.png"), "artwork");
+            when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, null));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            when(directories.foreignNovelDirectories(7L, dir))
+                    .thenReturn(java.util.Set.of(), java.util.Set.of(nested), java.util.Set.of(), java.util.Set.of(nested));
+            assertEquals(List.of(body), service.findAsset(WorkType.NOVEL, 7L).orElseThrow().files().stream()
+                    .map(WorkAssetFile::path).toList());
+            assertThrows(top.sywyar.pixivdownload.core.work.service.WorkDeletionException.class,
+                    () -> service.archiveSources(WorkType.NOVEL, 7L));
+        }
+
         @Test @DisplayName("自定义小说目录须有持久归属，枚举和删除仍使用登记路径")
         void customNovelDirectoryUsesOwnershipAndRecordedPath() throws Exception {
             Path dir = Files.createDirectories(tempDir.resolve("books/7/text"));
@@ -264,7 +280,7 @@ class LocalWorkAssetServiceTest {
             assertTrue(service.findAsset(WorkType.NOVEL, 7L).orElseThrow().files().isEmpty());
             assertThrows(UnsafeDeletionPathException.class, () -> service.deleteLocalFiles(WorkType.NOVEL, 7L));
             assertTrue(Files.exists(file));
-            when(directories.owns(WorkType.NOVEL, 7L, dir)).thenReturn(true);
+            when(directories.hasDirectoryClaim(WorkType.NOVEL, 7L, dir)).thenReturn(true);
             assertEquals(List.of(new WorkAssetFile(0, file, "txt")), service.findAsset(WorkType.NOVEL, 7L).orElseThrow().files());
             assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 7L));
             assertFalse(Files.exists(dir));
@@ -275,7 +291,7 @@ class LocalWorkAssetServiceTest {
         void findAssetExcludesNovelSidecar() throws Exception {
             Path dir = novelDir(7L);
             Path txt = Files.writeString(dir.resolve("7_p0.txt"), "text");
-            Files.writeString(dir.resolve("7.meta.json"), "{\"schemaVersion\":1}");
+            Path sidecar = Files.writeString(dir.resolve("7.meta.json"), "{\"schemaVersion\":1}");
             when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
             when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
 
@@ -285,6 +301,16 @@ class LocalWorkAssetServiceTest {
             assertEquals(1, asset.get().pageCount());
             assertEquals(List.of(new WorkAssetFile(0, txt.toAbsolutePath().normalize(), "txt")),
                     asset.get().files());
+            assertEquals(java.util.Set.of(txt, sidecar), java.util.Set.copyOf(service.archiveSources(WorkType.NOVEL, 7L)));
+            var archived = new java.util.LinkedHashMap<Path, String>();
+            for (Path path : List.of(txt, sidecar)) {
+                byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
+                archived.put(path, java.util.HexFormat.of().formatHex(digest));
+            }
+            var committed = new java.util.concurrent.atomic.AtomicBoolean();
+            assertTrue(service.deleteArchivedFiles(WorkType.NOVEL, 7L, archived, () -> committed.set(true)));
+            assertTrue(committed.get());
+            assertFalse(Files.exists(dir));
         }
 
         @Test

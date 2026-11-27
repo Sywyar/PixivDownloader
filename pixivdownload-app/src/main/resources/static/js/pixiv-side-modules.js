@@ -64,6 +64,12 @@
         'side-modules.works-files': '{works} 个作品 · {files} 个文件',
         'side-modules.works': '{works} 个作品',
         'side-modules.progress': '{done}/{total} 个作品',
+        'side-modules.deletion.pending': '打包后将删除 {total} 个源作品',
+        'side-modules.deletion.running': '正在删源，已删除 {done}/{total} 个作品',
+        'side-modules.deletion.not-started': '归档未完成，未开始删除源作品',
+        'side-modules.deletion.succeeded': 'ZIP 已就绪，已删除全部 {total} 个源作品',
+        'side-modules.deletion.partial': 'ZIP 可下载，删源部分完成，已删除 {done}/{total} 个作品',
+        'side-modules.deletion.failed': 'ZIP 可下载，删源失败，已删除 0/{total} 个作品',
     };
 
     const LIST_POLL_MS = 3000;
@@ -450,7 +456,22 @@
         return {done, total: task.workCount, percent: Math.round(done / task.workCount * 100)};
     }
 
+    function deletionNotice(result) {
+        if (!result) return null;
+        const counts = {done: result.deletedWorks, total: result.requestedWorks};
+        switch (result.status) {
+            case 'pending': return {text: t('side-modules.deletion.pending', counts)};
+            case 'running': return {text: t('side-modules.deletion.running', counts)};
+            case 'not_started': return {text: t('side-modules.deletion.not-started', counts), level: 'error'};
+            case 'succeeded': return {text: t('side-modules.deletion.succeeded', counts), level: 'success'};
+            case 'partial': return {text: t('side-modules.deletion.partial', counts), level: 'error'};
+            case 'failed': return {text: t('side-modules.deletion.failed', counts), level: 'error'};
+            default: return null;
+        }
+    }
+
     function taskItemHtml(task) {
+        const deletion = deletionNotice(task.sourceDeletion);
         const creating = task.status === 'pending' || task.status === 'creating';
         const failed = task.status === 'error' || task.status === 'empty';
         const meta = task.fileCount > 0
@@ -482,6 +503,7 @@
             + (failed ? ' is-error' : '') + '">' + escapeHtml(statusLabel(task.status)) + '</span>'
             + '</div>'
             + '<div class="pixiv-side-task-meta">' + escapeHtml(meta) + '</div>'
+            + (deletion ? '<div class="pixiv-side-task-meta">' + escapeHtml(deletion.text) + '</div>' : '')
             + progress
             + download
             + '</div>';
@@ -489,7 +511,7 @@
 
     function compactItemHtml(task) {
         const creating = task.status === 'pending' || task.status === 'creating';
-        const failed = task.status === 'error' || task.status === 'empty';
+        const failed = task.status === 'error' || task.status === 'empty' || deletionNotice(task.sourceDeletion)?.level === 'error';
         const cls = creating ? ' is-creating' : (failed ? ' is-error' : ' is-ready');
         const p = creating ? taskProgress(task) : null;
         const text = p ? p.done + '/' + p.total : (creating ? '…' : (failed ? '!' : '✓'));
@@ -626,10 +648,10 @@
                     if (data.status === 'ready') {
                         tracked.delete(token);
                         triggerDownload(token);
-                        if (typeof callbacks.onReady === 'function') callbacks.onReady(token);
-                    } else if (data.status === 'empty' || data.status === 'error' || data.status === 'expired') {
+                        if (typeof callbacks.onReady === 'function') callbacks.onReady(token, data.sourceDeletion, deletionNotice(data.sourceDeletion));
+                    } else if (data.status === 'empty' || data.status === 'error' || data.status === 'expired' || data.status === 'cancelled') {
                         tracked.delete(token);
-                        if (typeof callbacks.onFailed === 'function') callbacks.onFailed(data.status);
+                        if (typeof callbacks.onFailed === 'function') callbacks.onFailed(data.status, deletionNotice(data.sourceDeletion));
                     }
                 } catch (_) { /* 下一轮重试 */ }
             }

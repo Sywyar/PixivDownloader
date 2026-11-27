@@ -13,6 +13,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("Compose 配置归档交互")
 class DesktopEnvironmentTransferTest {
+    @Test void rendersRestoreReasonAndJob() throws Exception {
+        for (String failure : List.of("transfer.database-path-unrepresentable", "transfer.database-path-collision",
+                "transfer.database-page-outside-root", "transfer.target-changed", "transfer.restore-failed"))
+            assertRestoreDialog(failure);
+    }
+
+    private void assertRestoreDialog(String failure) throws Exception {
+        String job = UUID.randomUUID().toString();
+        var transfer = new Fixture() {
+            @Override public RestoreState restoreState() { return new RestoreState(Status.FAILED, failure, job); }
+        };
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of("environmentTransfer", args -> Optional.of(transfer)))) {
+            event(model, "transfer.import", null);
+            String dialog = model.snapshot().document().dialogs().toString();
+            assertTrue(dialog.contains("transfer.status.failed") && dialog.contains("transfer.restore-log-hint") && dialog.contains(job), dialog);
+            assertEquals(!failure.equals("transfer.restore-failed"), dialog.contains("transfer.restore-reason"));
+            if (!failure.equals("transfer.restore-failed")) assertTrue(dialog.contains(failure), dialog);
+        }
+    }
+
     @Test @DisplayName("导出密码不进入快照和普通表单，调用结束清除副本，目标和选项正确传递")
     void exportsWithoutPublishingPassword() throws Exception {
         var password = new AtomicReference<char[]>();

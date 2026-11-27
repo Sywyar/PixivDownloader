@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.gui.ToolApiRequests;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 
 import java.io.IOException;
 import java.net.URI;
@@ -72,7 +73,7 @@ public final class ManualBatchController {
     @KnownErrorCodes(status = "500", value = {"batch.operation-failed", "error.io"})
     @PostMapping(consumes = "application/json")
     public ResponseEntity<ManualBatchService.View> create(HttpServletRequest request) throws IOException {
-        var body = ToolApiRequests.read(request, Create.class, BODY_LIMIT);
+        var body = ToolApiRequests.readStrictStrings(request, Create.class, BODY_LIMIT);
         if (body.definition() == null) throw new InputFieldException("/definition", "required");
         String credential = AcquisitionCredentialResolver.resolve(request.getHeader(AcquisitionCredentialResolver.HEADER_NAME));
         var command = new ManualBatchService.Request(body.name(), body.sourceType(), body.activationToken(),
@@ -141,12 +142,13 @@ public final class ManualBatchController {
     @Parameter(name = AcquisitionCredentialResolver.HEADER_NAME, in = ParameterIn.HEADER,
             schema = @Schema(type = "string", maxLength = AcquisitionCredentialResolver.MAX_LENGTH))
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
-    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.InvalidRequest.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ToolApiRequests.InvalidRequest.class, ApiErrorResponse.Basic.class})))
     @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "batch.not-found"))))
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
-    @KnownErrorCodes(status = "409", value = "batch.not-idle")
+    @KnownErrorCodes(status = "400", value = {"schedule.error.credential-fixed", "schedule.error.credential-policy-unavailable"})
+    @KnownErrorCodes(status = "409", value = {"batch.not-idle", "schedule.error.credential-policy-publication-changed"})
     @PutMapping(value = "/{id}/credentials", consumes = "application/json")
     public ManualBatchService.View credentials(@PathVariable UUID id, HttpServletRequest request) throws IOException {
         authorize(id, request);
@@ -166,7 +168,7 @@ public final class ManualBatchController {
     @PostMapping(value = "/{id}/resolve", consumes = "application/json")
     public ManualBatchService.View resolve(@PathVariable UUID id, HttpServletRequest request) throws IOException {
         authorize(id, request);
-        return service.resolve(id, ToolApiRequests.read(request, ManualBatchService.Resolve.class, 16 * 1024));
+        return service.resolve(id, ToolApiRequests.readStrictStrings(request, ManualBatchService.Resolve.class, 16 * 1024));
     }
     @ApiResponse(responseCode = "204", content = @Content)
     @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
@@ -192,6 +194,13 @@ public final class ManualBatchController {
                     messages.get(locale, "tools.api.invalid-request", BODY_LIMIT), invalid.field(), invalid.reason()));
         return requests.invalid(failure, locale, path.endsWith("/credentials") || path.endsWith("/resolve") ? 16 * 1024 : BODY_LIMIT);
     }
+    @ExceptionHandler(ScheduleManagementException.class)
+    public ResponseEntity<ApiErrorResponse> credentialPolicyError(ScheduleManagementException failure, Locale locale) {
+        return ResponseEntity.status(failure.code() == ScheduleManagementException.Code.CONFLICT ? 409 : 400)
+                .body(ApiErrorResponse.of(failure.messageCode(), messages.getOrDefault(locale, failure.messageCode(),
+                        failure.defaultMessage(), failure.messageArgs())));
+    }
+
     @ExceptionHandler({IllegalStateException.class, NoSuchElementException.class})
     public ResponseEntity<ApiErrorResponse> rejected(RuntimeException failure, Locale locale) {
         String code = failure.getMessage();

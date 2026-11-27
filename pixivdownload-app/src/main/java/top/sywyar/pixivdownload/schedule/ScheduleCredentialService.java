@@ -123,7 +123,14 @@ public final class ScheduleCredentialService {
         ScheduledTask task = requireExisting(taskId);
         requireIdle(task);
         if (task.credentialPolicyOwnerPluginId() == null) return;
-        try (var lease = preparePolicyLease(task.credentialPolicyId())) {
+        withMutableBinding(capabilities, task, () -> transactions.executeWithoutResult(status ->
+                requireChanged(store.removeCredential(taskId, task.stateVersion(),
+                        task.credentialPolicyOwnerPluginId(), task.credentialPolicyId()))));
+    }
+
+    /** 只在已绑定策略仍有效且允许更换时修改凭据。 */
+    public static void withMutableBinding(ScheduleCapabilityAccess capabilities, ScheduledTask task, Runnable change) {
+        try (var lease = preparePolicyLease(capabilities, task.credentialPolicyId())) {
             if (lease == null || !task.credentialPolicyOwnerPluginId().equals(lease.owner().featurePluginId())
                     || !capabilities.activate(lease)) {
                 throw badRequest(
@@ -138,9 +145,7 @@ public final class ScheduleCredentialService {
             }
             if (fixed) throw fixedBinding();
             if (!capabilities.whileCurrentPublication(lease, () -> {
-                transactions.executeWithoutResult(status -> requireChanged(store.removeCredential(
-                        taskId, task.stateVersion(), task.credentialPolicyOwnerPluginId(),
-                        task.credentialPolicyId())));
+                change.run();
                 return true;
             }).orElse(false)) {
                 throw conflict("schedule.error.credential-policy-publication-changed", "凭证策略已更新，请刷新后重试");
@@ -161,7 +166,7 @@ public final class ScheduleCredentialService {
                     ownerPluginId, policyId, task.credentialAccountKey(), bound);
         }
         ScheduleCapabilityLease<ScheduledCredentialPolicy> lease =
-                preparePolicyLease(policyId);
+                preparePolicyLease(capabilities, policyId);
         try (lease) {
             if (lease == null
                     || !ownerPluginId.equals(lease.owner().featurePluginId())
@@ -188,7 +193,7 @@ public final class ScheduleCredentialService {
             String accountKey,
             String actionId,
             Map<String, String> parameters) {
-        ScheduleCapabilityLease<ScheduledCredentialPolicy> lease = preparePolicyLease(policyId);
+        ScheduleCapabilityLease<ScheduledCredentialPolicy> lease = preparePolicyLease(capabilities, policyId);
         try (lease) {
             if (lease == null
                     || !Objects.equals(expectedOwnerPluginId, lease.owner().featurePluginId())
@@ -375,8 +380,8 @@ public final class ScheduleCredentialService {
                 task.credentialPolicyStateJson());
     }
 
-    private ScheduleCapabilityLease<ScheduledCredentialPolicy> preparePolicyLease(
-            String policyId) {
+    private static ScheduleCapabilityLease<ScheduledCredentialPolicy> preparePolicyLease(
+            ScheduleCapabilityAccess capabilities, String policyId) {
         if (policyId == null || policyId.isBlank()) {
             return null;
         }

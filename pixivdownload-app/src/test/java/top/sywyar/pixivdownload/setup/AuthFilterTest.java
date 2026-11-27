@@ -103,6 +103,7 @@ class AuthFilterTest {
             "solo,/api/admin/update/install", "multi,/api/admin/update/install",
             "solo,/api/tools/backfill/tasks", "multi,/api/tools/backfill/tasks",
             "solo,/api/tools/media/tasks", "multi,/api/tools/media/tasks",
+            "solo,/api/tools/ffmpeg/tasks/123/cancel", "multi,/api/tools/ffmpeg/tasks/123/cancel",
             "solo,/api/tools/ffmpeg", "multi,/api/tools/ffmpeg", "solo,/api/tools/ffmpeg/tasks", "multi,/api/tools/ffmpeg/tasks",
             "solo,/api/tools/file-import/tasks", "multi,/api/tools/file-import/tasks",
             "solo,/api/settings/database/check", "multi,/api/settings/database/check",
@@ -125,7 +126,7 @@ class AuthFilterTest {
     @ParameterizedTest @ValueSource(strings = {"/api/download/batches", "/api/settings/environment/exports", "/api/settings/repositories", "/api/admin/control-center", "/api/admin/update/install", "/api/local-import/previews", "/api/tools/backfill/tasks",
             "/api/tools/media/tasks", "/api/tools/file-import/tasks", "/api/settings/database/check",
             "/api/settings", "/api/settings/validate", "/api/settings/presets",
-            "/api/tools/ffmpeg", "/api/tools/ffmpeg/tasks",
+            "/api/tools/ffmpeg", "/api/tools/ffmpeg/tasks", "/api/tools/ffmpeg/tasks/123/cancel",
             "/api/admin/system/password", "/api/admin/system/restart", "/api/tools/path-prefixes/pin",
             "/api/tools/logs/example.html", "/api/tools/history", "/api/tools/directories"})
     @DisplayName("管理员令牌可进入导入和回填 API")

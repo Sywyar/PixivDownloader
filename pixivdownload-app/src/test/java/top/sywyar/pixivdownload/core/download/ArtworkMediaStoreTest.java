@@ -44,7 +44,7 @@ class ArtworkMediaStoreTest {
             for (int page = 0; page < 24; page++) {
                 int index = page;
                 tasks.add(workers.submit(() -> {
-                    store.save(42L, index, new ArtworkMediaManifest(index % 2 == 0 ? "jpg" : "png", List.of("webp"), false));
+                    store.save(42L, index, new ArtworkMediaManifest(index % 2 == 0 ? "jpg" : "png", List.of("webp"), false, index % 2 == 0));
                     return null;
                 }));
             }
@@ -59,12 +59,20 @@ class ArtworkMediaStoreTest {
             assertEquals(page % 2 == 0 ? "jpg" : "png", saved.originalExtension());
             assertEquals(List.of("webp"), saved.extensions());
             assertFalse(saved.originalRetained());
+            assertEquals(page % 2 == 0, saved.thumbnailOwned());
         }
         reopened.save(42L, 0, new ArtworkMediaManifest("jpg", List.of("webp", "jpg"), false));
         assertFalse(reopened.find(42L, 0).orElseThrow().originalRetained());
         assertTrue(reopened.find(99L, 0).isEmpty());
         assertThrows(IllegalArgumentException.class, () -> reopened.save(0L, 0, new ArtworkMediaManifest("jpg", List.of("jpg"))));
-        new JdbcTemplate(source).execute("DROP TABLE artwork_media");
+        var jdbc = new JdbcTemplate(source);
+        jdbc.update("UPDATE artwork_media SET original_extension='webp', extensions='webp,png', original_retained=1, thumbnail_owned=NULL WHERE artwork_id=42 AND page=0");
+        jdbc.update("UPDATE artwork_media SET original_extension='zip', thumbnail_owned=NULL WHERE artwork_id=42 AND page=1");
+        jdbc.update("UPDATE artwork_media SET thumbnail_owned=NULL WHERE artwork_id=42 AND page=2");
+        assertFalse(reopened.find(42L, 0).orElseThrow().thumbnailOwned());
+        assertTrue(reopened.find(42L, 1).orElseThrow().thumbnailOwned());
+        assertTrue(reopened.find(42L, 2).orElseThrow().thumbnailOwned());
+        jdbc.execute("DROP TABLE artwork_media");
         assertThrows(java.io.IOException.class, () -> reopened.save(42L, 0, new ArtworkMediaManifest("jpg", List.of("jpg"))));
     }
 }

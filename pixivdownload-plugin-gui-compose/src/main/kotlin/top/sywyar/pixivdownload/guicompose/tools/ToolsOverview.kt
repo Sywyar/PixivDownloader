@@ -37,8 +37,8 @@ import top.sywyar.pixivdownload.guicompose.*
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 
-private val toolIds = listOf("classifier", "folder", "backfill", "migration", "startup")
-private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt, Icons.Default.Speed)
+private val toolIds = listOf("folder", "backfill", "migration", "startup")
+private val toolIcons = listOf(Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt, Icons.Default.Speed)
 
 internal val LocalOpenBackfill = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalRegisterToolsExit = staticCompositionLocalOf<(((() -> Boolean)?) -> Unit)> { {} }
@@ -81,7 +81,7 @@ internal fun ToolsOverview(
         restoreFocus = id
         openTaskResult = false
         if (id == "media") mediaSection = section
-        if (id == "classifier" || id == "folder") {
+        if (id == "folder") {
             val button = descendants(tools[toolIds.indexOf(id)]).filterIsInstance<Button>().first()
             if (button.enabled()) emit(Event(EventType.ACTIVATE, button.id(), Value.empty()))
         } else selected = id
@@ -186,7 +186,8 @@ internal fun ToolsOverview(
                         }
                     }
                     @Composable fun category(quick: Boolean) {
-                        val indices = if (quick) listOf(2, 4).filter { it < tools.size } else listOf(0, 1)
+                        val indices = (if (quick) listOf("backfill", "startup") else listOf("folder"))
+                            .map(toolIds::indexOf).filter { it in tools.indices }
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             CupertinoText(
                                 label(if (quick) "quick" else "utilities"),
@@ -207,7 +208,7 @@ internal fun ToolsOverview(
                                     ToolRow(
                                         if (id == "startup") text(tools[index].title()) else label("$id.title"),
                                         label("$id.description"),
-                                        if (id == "classifier") "" else label("$id.impact"),
+                                        label("$id.impact"),
                                         toolIcons[index],
                                         "tools.entry.$id",
                                         Modifier.width(itemWidth).focusRequester(focus),

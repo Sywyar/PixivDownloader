@@ -41,13 +41,30 @@ public final class FfmpegInstallService {
         return accepted;
     }
 
+    public synchronized Snapshot cancel(UUID id) {
+        if (snapshot == null || !snapshot.executionId().equals(id)) return null;
+        if (worker == null || !snapshot.state().equals("RUNNING")) return snapshot;
+        // Once the verified binaries are being published, let the complete installation finish.
+        if (snapshot.stage() == FfmpegInstaller.ProgressStage.INSTALLING
+                || snapshot.stage() == FfmpegInstaller.ProgressStage.COMPLETED) return snapshot;
+        snapshot = new Snapshot(id, "CANCEL_REQUESTED", snapshot.stage(), snapshot.current(), snapshot.total(), "", null);
+        worker.interrupt();
+        LOG.info("FFmpeg installation cancellation requested executionId={}", id);
+        return snapshot;
+    }
+
+    private synchronized void progress(FfmpegInstaller.ProgressStage stage, long current, long total) {
+        if (snapshot.state().equals("CANCEL_REQUESTED")) throw new java.util.concurrent.CancellationException();
+        snapshot = new Snapshot(snapshot.executionId(), "RUNNING", stage, current, total, "", null);
+    }
+
     private void run(UUID id, FfmpegInstaller.ProxySettings proxy) {
         String state = "FAILED";
         String code = "FFMPEG_INSTALL_FAILED";
         var explanation = top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("ffmpeg.api.failed");
         LOG.info("FFmpeg installation started executionId={}", id);
         try {
-            installer.install(proxy, (stage, current, total) -> snapshot = new Snapshot(id, "RUNNING", stage, current, total, "", null));
+            installer.install(proxy, this::progress);
             state = "COMPLETED";
             code = "";
             explanation = null;
@@ -57,12 +74,19 @@ public final class FfmpegInstallService {
         } catch (FfmpegInstaller.BusyException busy) {
             code = "FFMPEG_INSTALL_BUSY";
             explanation = top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("gui.message.backend-busy");
-        } catch (InterruptedException interrupted) {
-            code = "FFMPEG_INSTALL_INTERRUPTED";
-            explanation = top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("ffmpeg.api.interrupted");
-            Thread.currentThread().interrupt();
         } catch (Exception failure) {
-            LOG.warn("FFmpeg installation failed executionId={} failureType={}", id, failure.getClass().getName());
+            if (interrupted(failure)) {
+                if (snapshot.state().equals("CANCEL_REQUESTED")) {
+                    state = "CANCELLED";
+                    code = "";
+                    explanation = null;
+                } else {
+                    code = "FFMPEG_INSTALL_INTERRUPTED";
+                    explanation = top.sywyar.pixivdownload.plugin.api.gui.DesktopUiText.key("ffmpeg.api.interrupted");
+                }
+            } else {
+                LOG.warn("FFmpeg installation failed executionId={} failureType={}", id, failure.getClass().getName());
+            }
         } finally {
             synchronized (this) {
                 var last = snapshot;
@@ -73,12 +97,24 @@ public final class FfmpegInstallService {
         }
     }
 
+    private static boolean interrupted(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException || cause instanceof java.util.concurrent.CancellationException
+                    || cause instanceof java.nio.channels.ClosedByInterruptException) return true;
+        }
+        return false;
+    }
+
     @PreDestroy
     public void close() {
         Thread running;
-        synchronized (this) { closed = true; running = worker; }
-        if (running == null) return;
-        running.interrupt();
+        synchronized (this) {
+            closed = true;
+            running = worker;
+            if (running == null) return;
+            if (snapshot.stage() != FfmpegInstaller.ProgressStage.INSTALLING
+                    && snapshot.stage() != FfmpegInstaller.ProgressStage.COMPLETED) running.interrupt();
+        }
         boolean interrupted = false;
         while (running.isAlive()) {
             try { running.join(); }

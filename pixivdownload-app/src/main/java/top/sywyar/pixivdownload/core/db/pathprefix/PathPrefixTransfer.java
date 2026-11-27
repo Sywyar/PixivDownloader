@@ -56,26 +56,42 @@ public final class PathPrefixTransfer {
         if (!source.prefixes().keySet().containsAll(selected.keySet())) throw invalid();
         Map<Long, String> result = new TreeMap<>(source.prefixes());
         result.putAll(selected);
-        Set<String> unique = new HashSet<>();
+        boolean compareRealPaths = selected.entrySet().stream().anyMatch(entry -> entry.getKey() != 0
+                && !Objects.equals(entry.getValue(), source.prefixes().get(entry.getKey())));
+        Map<String, Boolean> originalDestinations = new HashMap<>();
         result.replaceAll((id, value) -> {
             if (value == null || value.length() > 32768 || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) throw invalid();
             Path path = Path.of(value);
             if (!path.isAbsolute()) throw invalid();
-            String normalized = PathPrefixCodec.stripTrailingSeparators(path.normalize().toString());
-            if (id != 0 && !unique.add(normalized.replace('\\', '/').toLowerCase(Locale.ROOT))) throw invalid();
-            return normalized;
+            if (id == 0) return value;
+            String original = source.prefixes().get(id);
+            boolean unchanged = PathPrefixCodec.comparisonKey(value).equals(PathPrefixCodec.comparisonKey(original));
+            String key = destinationKey(path, compareRealPaths);
+            Boolean previousUnchanged = originalDestinations.putIfAbsent(key, unchanged);
+            if (previousUnchanged != null && !(previousUnchanged && unchanged)) throw invalid();
+            // Historical aliases have distinct literal UNIQUE values and separately referenced IDs.
+            return unchanged ? original : value;
         });
         return Map.copyOf(result);
+    }
+
+    private static String destinationKey(Path path, boolean compareRealPaths) {
+        if (compareRealPaths) {
+            try {
+                return PathPrefixCodec.comparisonKey(path.toRealPath().toString());
+            } catch (java.io.IOException unavailable) {
+                // Offline destinations retain the lexical collision check. Never persist this key.
+            }
+        }
+        return PathPrefixCodec.comparisonKey(path.normalize().toString());
     }
 
     public static BiFunction<TableSpec, List<Object>, List<Object>> mapper(MigrationSchema schema, Paths source,
             Map<Long, String> selected) {
         var destination = destinations(source, selected);
         String root = destination.get(0L);
-        var from = PathPrefixCodec.snapshot(root, source.prefixes().entrySet().stream()
-                .map(entry -> new PathPrefix(entry.getKey(), entry.getValue())).toList());
-        var to = PathPrefixCodec.snapshot(root, destination.entrySet().stream()
-                .map(entry -> new PathPrefix(entry.getKey(), entry.getValue())).toList());
+        var encodeSource = PathPrefixCodec.archiveEncoder(source.prefixes());
+        Map<String, Long> archiveRows = new HashMap<>();
         Map<String, Set<String>> columns = new HashMap<>();
         for (var reference : schema.references()) if (reference.encoding() == MigrationSchema.Encoding.BRACED_PREFIX
                 && reference.targetTable().equals("path_prefixes") && reference.targetColumn().equals("id"))
@@ -91,13 +107,19 @@ public final class PathPrefixTransfer {
             }
             var declared = columns.get(table.name());
             if (declared == null) return row;
+            long ordinal = archiveRows.merge(table.name(), 1L, Long::sum);
             var result = new ArrayList<>(row);
             for (String name : declared) {
                 int index = column(table, name);
                 String value = (String) row.get(index);
-                String encoded = from.encode(value);
+                String encoded;
+                try {
+                    encoded = encodeSource.apply(value);
+                } catch (java.nio.file.InvalidPathException unrepresentable) {
+                    throw new UnrepresentablePath(table.name(), name, ordinal);
+                }
                 if (encoded != null && (encoded.equals("{0}") || encoded.startsWith("{0}/") || encoded.startsWith("{0}\\")))
-                    encoded = to.resolve(encoded);
+                    encoded = PathPrefixCodec.resolve(encoded, root, destination::get);
                 result.set(index, encoded);
             }
             return result;
@@ -107,6 +129,13 @@ public final class PathPrefixTransfer {
     private static int column(TableSpec table, String name) {
         for (int i = 0; i < table.columns().size(); i++) if (table.columns().get(i).name().equals(name)) return i;
         throw invalid();
+    }
+    /** The archive row is one-based. Path values can be private and are excluded from diagnostics. */
+    public static final class UnrepresentablePath extends IllegalArgumentException {
+        public static final String CODE = "transfer.database-path-unrepresentable";
+        private UnrepresentablePath(String table, String column, long ordinal) {
+            super("table=" + table + ", column=" + column + ", archiveRow=" + ordinal);
+        }
     }
     private static IllegalArgumentException invalid() { return new IllegalArgumentException("transfer.database-path-invalid"); }
 }

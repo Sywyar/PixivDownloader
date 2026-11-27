@@ -33,6 +33,7 @@ import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadTaskExcep
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskProgress;
+import top.sywyar.pixivdownload.core.download.DownloadTaskResultStore.ReceiptUnavailable;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
@@ -94,6 +95,9 @@ public final class DownloadTasksController {
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_INVALID"))))
     @ApiResponse(responseCode = "422", content = @Content(mediaType = "application/json", schema = @Schema(allOf = RequestFieldError.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_REJECTED"))))
+    @ApiResponse(responseCode = "429", headers = @Header(name = "Retry-After", schema = @Schema(type = "integer", format = "int64", minimum = "1")),
+            content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+                    schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED"))))
     @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", examples = {"DOWNLOAD_TASK_UNAVAILABLE", "DOWNLOAD_TASK_CAPACITY_EXCEEDED", "auth.maintenance", "auth.setup-required", "auth.program.unavailable"}))))
     @Parameter(name = AcquisitionCredentialResolver.HEADER_NAME, in = ParameterIn.HEADER,
@@ -136,6 +140,8 @@ public final class DownloadTasksController {
     @io.swagger.v3.oas.annotations.Operation(operationId = "getDownloadTask")
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = HttpParameterError.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_INVALID"))))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", examples = {"DOWNLOAD_TASK_RECEIPT_UNAVAILABLE", "auth.maintenance", "auth.setup-required", "auth.program.unavailable"}))))
     @GetMapping("/{taskId}")
     public ResponseEntity<?> find(@PathVariable UUID taskId, HttpServletRequest request) {
         var value = tasks.find(taskId, authorizedOwner(request));
@@ -151,6 +157,8 @@ public final class DownloadTasksController {
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = HttpParameterError.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_INVALID"))))
     @Parameter(name = "beforeTime", in = ParameterIn.QUERY, schema = @Schema(type = "string", format = "date-time"))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", examples = {"DOWNLOAD_TASK_RECEIPT_UNAVAILABLE", "auth.maintenance", "auth.setup-required", "auth.program.unavailable"}))))
     @GetMapping("/history")
     public ResponseEntity<HistoryView> history(@RequestParam(defaultValue = "50") int limit,
                                               @RequestParam(required = false) String beforeTime,
@@ -183,6 +191,8 @@ public final class DownloadTasksController {
     @io.swagger.v3.oas.annotations.Operation(operationId = "cancelDownloadTask")
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = HttpParameterError.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DOWNLOAD_TASK_INVALID"))))
+    @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", examples = {"DOWNLOAD_TASK_RECEIPT_UNAVAILABLE", "auth.maintenance", "auth.setup-required", "auth.program.unavailable"}))))
     @PostMapping("/{taskId}/cancel")
     public ResponseEntity<?> cancel(@PathVariable UUID taskId, HttpServletRequest request) {
         var result = tasks.cancel(taskId, authorizedOwner(request));
@@ -200,6 +210,11 @@ public final class DownloadTasksController {
         return owner;
     }
 
+    @ExceptionHandler(ReceiptUnavailable.class)
+    public ResponseEntity<ApiErrorResponse> receiptUnavailable(ReceiptUnavailable failure) {
+        return failure(503, "DOWNLOAD_TASK_RECEIPT_UNAVAILABLE", "download.tasks.receipt-unavailable");
+    }
+
     @ExceptionHandler(DownloadTaskException.class)
     public ResponseEntity<ApiErrorResponse> rejected(DownloadTaskException failure) {
         int status = switch (failure.code()) {
@@ -208,6 +223,7 @@ public final class DownloadTasksController {
             case UNSUPPORTED_WORK_TYPE -> 400;
             case UNAVAILABLE, CAPACITY_EXCEEDED -> 503;
             case WORK_NOT_FOUND -> 404;
+            case UPSTREAM_RATE_LIMITED -> 429;
             case REJECTED -> 422;
         };
         if (failure.code() == DownloadTaskException.Code.UNSUPPORTED_WORK_TYPE)
@@ -218,6 +234,12 @@ public final class DownloadTasksController {
         if (failure.programPermission() != null)
             return ResponseEntity.status(status).cacheControl(CacheControl.noStore()).body(new ProgramCredentialError(
                     "DOWNLOAD_TASK_FORBIDDEN", messages.get("auth.program.forbidden.permission", failure.programPermission()), failure.programPermission()));
+        if (failure.code() == DownloadTaskException.Code.UPSTREAM_RATE_LIMITED) {
+            var response = ResponseEntity.status(status).cacheControl(CacheControl.noStore());
+            long delay = failure.failure().retryAfterMillis();
+            if (delay > 0) response.header("Retry-After", Long.toString(Math.ceilDiv(delay, 1000L)));
+            return response.body(ApiErrorResponse.of("DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED", messages.get("download.tasks.upstream_rate_limited")));
+        }
         if (failure.code() == DownloadTaskException.Code.WORK_NOT_FOUND)
             return failure(status, failure.code().name(), "error.work.not-found");
         return failure(status, "DOWNLOAD_TASK_" + failure.code().name(), "download.tasks." + failure.code().name().toLowerCase(java.util.Locale.ROOT));

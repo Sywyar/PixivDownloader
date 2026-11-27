@@ -9,7 +9,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,11 +40,15 @@ class ArtworkHashIndexAdapterTest {
         ArtworkRecord artwork = mock(ArtworkRecord.class);
         when(database.getArtwork(1L)).thenReturn(null);
         when(database.getArtwork(2L)).thenReturn(artwork);
-        when(hashService.recordArtworkHashes(artwork)).thenReturn(4);
+        when(hashService.recordArtworkHashes(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> {
+                    java.util.function.Supplier<ArtworkRecord> lookup = call.getArgument(1);
+                    return lookup.get() == artwork ? java.util.OptionalInt.of(4) : java.util.OptionalInt.empty();
+                });
 
         assertThat(adapter.rebuildArtwork(1L)).isEmpty();
         assertThat(adapter.rebuildArtwork(2L)).hasValue(4);
-        verify(hashService, never()).recordArtworkHashes(null);
-        verify(hashService).recordArtworkHashes(artwork);
+        verify(database).getArtwork(1L);
+        verify(database).getArtwork(2L);
     }
 }

@@ -35,6 +35,22 @@ function Assert-Archive([string]$Path, [string]$Directory, [string]$Prefix = '')
 
 try {
     & {
+        . (Join-Path $repo 'scripts/distribution-aot.ps1')
+        function Invoke-GuiTrainingFixture {
+            $config = ($args -like '-Dpixivdownload.config-dir=*') -replace '^-Dpixivdownload\.config-dir=', ''
+            [void][IO.Directory]::CreateDirectory([string]$config)
+            $work = [IO.Directory]::CreateDirectory($args[-1])
+            Assert-Equal @($work.EnumerateFileSystemInfos()).Count 0
+            Write-FixtureFile $args[-2] 'cache'
+            Write-FixtureFile ($args[-2] + '.identity') 'identity'
+            $global:LASTEXITCODE = 0
+        }
+        $cache = Join-Path $fixture 'application.aot'
+        New-DistributionAotCache -Java Invoke-GuiTrainingFixture -Jar 'app.jar' -Cache $cache `
+            -Training (Join-Path $fixture 'GUI training') -Plugins 'plugins'
+        Assert-Equal ([IO.File]::ReadAllText($cache + '.identity')) 'identity'
+    }
+    & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
         $scanRoot = Join-Path $fixture 'private-key-scan'
         $sample = Join-Path $scanRoot 'application.aot'

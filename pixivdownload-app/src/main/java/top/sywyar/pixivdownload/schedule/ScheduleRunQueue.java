@@ -124,6 +124,9 @@ public class ScheduleRunQueue {
             retainedUtf8Bytes += itemBytes;
         }
 
+        /** 单轮队列在发现时已绑定本轮执行器；跨轮保留的账本在实际派发时刷新归属。 */
+        public void dispatched(ScheduledWorkKey key, ScheduleCapabilityOwner owner, long publicationId) {}
+
         /** 更新某作品的处理状态与可选说明（未登记的作品 ID 直接忽略）。 */
         public synchronized void mark(
                 ScheduledWorkKey key, String status, String message) {

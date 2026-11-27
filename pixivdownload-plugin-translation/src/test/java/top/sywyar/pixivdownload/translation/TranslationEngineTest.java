@@ -42,8 +42,7 @@ class TranslationEngineTest {
         var second = mock(top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient.class);
         when(factory.open(any())).thenReturn(first, second);
         var configuration = new TranslationPluginConfiguration();
-        configuration.youdaoHttp(factory, config).close();
-        configuration.libretranslateHttp(factory, config).close();
+        configuration.machineTranslationClient(config, factory, new tools.jackson.databind.ObjectMapper()).close();
         var profiles = org.mockito.ArgumentCaptor.forClass(top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClientProfile.class);
         verify(factory, times(2)).open(profiles.capture());
         var youdao = profiles.getAllValues().get(0);

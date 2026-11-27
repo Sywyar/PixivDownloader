@@ -285,7 +285,8 @@ class ApiReferenceConfiguration {
                 ApiOperationDocumentation.describeEventStreams(operation);
                 documentation.finishDetails(operation, operation == submit ? submissions : Map.of(), LocaleContextHolder.getLocale());
                 var limited = operation.getResponses().get("429");
-                if (limited != null) limited.addHeaderObject("Retry-After", new io.swagger.v3.oas.models.headers.Header()
+                if (limited != null && (limited.getHeaders() == null || !limited.getHeaders().containsKey("Retry-After")))
+                    limited.addHeaderObject("Retry-After", new io.swagger.v3.oas.models.headers.Header()
                         .schema(new io.swagger.v3.oas.models.media.IntegerSchema().minimum(java.math.BigDecimal.ZERO)));
             }));
             RelatedOperations.describe(api.getPaths());

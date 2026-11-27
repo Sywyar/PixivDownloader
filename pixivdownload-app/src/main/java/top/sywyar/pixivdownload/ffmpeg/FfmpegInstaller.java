@@ -30,12 +30,15 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.nio.file.LinkOption;
+import java.util.List;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -49,11 +52,15 @@ public final class FfmpegInstaller {
     static final String RELEASE_MANIFEST_NAME = "ffmpeg-release.json";
     static final String RELEASE_REPOSITORY_ID = "ffmpeg-stable";
     private static final int MAX_METADATA_BYTES = 1024 * 1024;
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(FfmpegInstaller.class);
     private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
     private static final String FFMPEG_LICENSE = "ffmpeg-LGPLv2.1.txt";
     private static final String LIBWEBP_LICENSE = "libwebp-COPYING.txt";
     private static final String LIBWEBP_PATENTS = "libwebp-PATENTS.txt";
     private static final java.util.concurrent.atomic.AtomicBoolean INSTALLING = new java.util.concurrent.atomic.AtomicBoolean();
+
+    private static final ReentrantLock PUBLICATION = new ReentrantLock();
+    private static volatile FfmpegInstallation confirmedManaged;
 
     public static boolean isInstalling() { return INSTALLING.get(); }
 
@@ -149,24 +156,8 @@ public final class FfmpegInstaller {
             progress.onProgress(ProgressStage.EXTRACTING, -1L, -1L);
             ExtractedFiles extractedFiles = extractRequiredFiles(archive, extracted);
 
-            Path toolsDir = FfmpegLocator.managedToolsDir();
-            // 下载后、真正写入前复核一次，覆盖校验与写入之间的竞态窗口。
-            requirePlainManagedDirectory(toolsDir);
-            Files.copy(extractedFiles.ffmpeg(), toolsDir.resolve(FfmpegLocator.executableName()),
-                    StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(extractedFiles.ffprobe(), toolsDir.resolve(FfmpegLocator.probeExecutableName()),
-                    StandardCopyOption.REPLACE_EXISTING);
-            makeExecutable(toolsDir.resolve(FfmpegLocator.executableName()));
-            makeExecutable(toolsDir.resolve(FfmpegLocator.probeExecutableName()));
-
-            Path licenseDir = FfmpegLocator.managedLicenseDir();
-            requirePlainManagedDirectory(licenseDir);
-            Files.copy(extractedFiles.ffmpegLicense(), licenseDir.resolve(FFMPEG_LICENSE),
-                    StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(extractedFiles.libwebpLicense(), licenseDir.resolve(LIBWEBP_LICENSE),
-                    StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(extractedFiles.libwebpPatents(), licenseDir.resolve(LIBWEBP_PATENTS),
-                    StandardCopyOption.REPLACE_EXISTING);
+            progress.onProgress(ProgressStage.INSTALLING, -1L, -1L);
+            publish(extractedFiles, FfmpegLocator.managedToolsDir());
 
             progress.onProgress(ProgressStage.COMPLETED, 1L, 1L);
             return FfmpegLocator.managedInstallation()
@@ -174,6 +165,155 @@ public final class FfmpegInstaller {
         } finally {
             deleteRecursively(tempDir);
         }
+    }
+
+    static void publish(ExtractedFiles extracted, Path tools) throws IOException {
+        PUBLICATION.lock();
+        try { publishLocked(extracted, tools); }
+        finally { PUBLICATION.unlock(); }
+    }
+
+    private static void publishLocked(ExtractedFiles extracted, Path tools) throws IOException {
+        requirePlainManagedDirectory(tools);
+        try (var channel = publicationLock(tools); var lock = channel.lock()) {
+            requirePlainManagedDirectory(tools.resolve("licenses"));
+            var targets = publicationTargets(tools);
+            var previous = recoverPending(tools, targets);
+            confirmManagedInstallation(tools);
+            Path staging;
+            if (previous.isPresent()) {
+                staging = previous.get();
+                Files.move(staging.resolve("idle"), staging.resolve("active"), StandardCopyOption.ATOMIC_MOVE);
+            } else {
+                staging = Files.createTempDirectory(tools, ".install-");
+            }
+            var sources = List.of(extracted.ffmpeg(), extracted.ffprobe(), extracted.ffmpegLicense(),
+                    extracted.libwebpLicense(), extracted.libwebpPatents());
+            try {
+                for (int i = 0; i < targets.size(); i++) {
+                    var staged = Files.copy(sources.get(i), staging.resolve("new-" + i));
+                    if (i < 2) makeExecutable(staged);
+                    if (Files.notExists(targets.get(i), LinkOption.NOFOLLOW_LINKS))
+                        Files.createFile(staging.resolve("absent-" + i));
+                    else PlainFilePathGuard.requirePlainRegularFile(targets.get(i));
+                }
+                for (int i = 0; i < targets.size(); i++) {
+                    if (!Files.exists(staging.resolve("absent-" + i)))
+                        Files.move(targets.get(i), staging.resolve("old-" + i), StandardCopyOption.ATOMIC_MOVE);
+                }
+                // Publish the locator's executable last. Keep backups until the commit marker exists.
+                for (int i = targets.size() - 1; i >= 0; i--)
+                    Files.move(staging.resolve("new-" + i), targets.get(i), StandardCopyOption.ATOMIC_MOVE);
+                Files.createFile(staging.resolve("committed"));
+            } catch (IOException | RuntimeException failure) {
+                try { finishPublication(staging, targets); }
+                catch (IOException | RuntimeException restore) {
+                    failure.addSuppressed(restore);
+                    LOG.error("FFmpeg install rollback incomplete, retained transaction {}", staging, restore);
+                }
+                throw failure;
+            }
+            finishPublication(staging, targets);
+            confirmManagedInstallation(tools);
+        }
+    }
+
+    private static java.nio.channels.FileChannel publicationLock(Path tools) throws IOException {
+        return java.nio.channels.FileChannel.open(tools.resolve(".install.lock"), java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    private static List<Path> publicationTargets(Path tools) {
+        Path licenses = tools.resolve("licenses");
+        return List.of(tools.resolve(FfmpegLocator.executableName()), tools.resolve(FfmpegLocator.probeExecutableName()),
+                licenses.resolve(FFMPEG_LICENSE), licenses.resolve(LIBWEBP_LICENSE), licenses.resolve(LIBWEBP_PATENTS));
+    }
+
+    static Optional<FfmpegInstallation> managedInstallation(Path tools, boolean statusOnly) throws IOException {
+        if (statusOnly) {
+            if (!PUBLICATION.tryLock()) return lastConfirmed(tools);
+        } else {
+            PUBLICATION.lock();
+        }
+        try {
+            if (Files.isDirectory(tools) && publicationDirectory(tools).filter(stage -> !idle(stage)).isPresent()) {
+                requirePlainManagedDirectory(tools);
+                try (var channel = publicationLock(tools); var lock = statusOnly ? channel.tryLock() : channel.lock()) {
+                    if (lock == null) return lastConfirmed(tools);
+                    requirePlainManagedDirectory(tools.resolve("licenses"));
+                    recoverPending(tools, publicationTargets(tools));
+                    return confirmManagedInstallation(tools);
+                }
+            }
+            return confirmManagedInstallation(tools);
+        } finally {
+            PUBLICATION.unlock();
+        }
+    }
+
+    private static Optional<FfmpegInstallation> confirmManagedInstallation(Path tools) {
+        var installation = FfmpegLocator.installationAt(tools, FfmpegInstallation.Source.MANAGED);
+        confirmedManaged = installation.orElse(null);
+        return installation;
+    }
+
+    private static Optional<FfmpegInstallation> lastConfirmed(Path tools) {
+        return Optional.ofNullable(confirmedManaged).filter(installation -> installation.homeDir().equals(tools));
+    }
+
+    private static Optional<Path> publicationDirectory(Path tools) throws IOException {
+        try (var entries = Files.newDirectoryStream(tools, ".install-*")) {
+            Path pending = null;
+            for (Path entry : entries) {
+                if (!entry.getFileName().toString().matches("\\.install-[0-9]+")) continue;
+                if (pending != null) throw new IOException("Ambiguous FFmpeg install transactions");
+                pending = entry;
+            }
+            return Optional.ofNullable(pending);
+        }
+    }
+
+    private static boolean idle(Path staging) {
+        return PlainFilePathGuard.isPlainRegularFile(staging.resolve("idle"));
+    }
+
+    private static Optional<Path> recoverPending(Path tools, List<Path> targets) throws IOException {
+        var workspace = publicationDirectory(tools);
+        if (workspace.isPresent()) {
+            Path staging = workspace.get();
+            requirePlainManagedDirectory(staging);
+            if (!idle(staging)) {
+                LOG.info("Recovering FFmpeg install transaction {}", staging);
+                finishPublication(staging, targets);
+            }
+        }
+        return workspace;
+    }
+
+    private static void finishPublication(Path staging, List<Path> targets) throws IOException {
+        Path committed = staging.resolve("committed");
+        if (Files.notExists(committed, LinkOption.NOFOLLOW_LINKS)) {
+            for (int i = targets.size() - 1; i >= 0; i--) {
+                Path backup = staging.resolve("old-" + i);
+                Path target = targets.get(i);
+                if (!Files.notExists(backup, LinkOption.NOFOLLOW_LINKS)) {
+                    PlainFilePathGuard.requirePlainRegularFile(backup);
+                    Files.move(backup, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } else if (Files.exists(staging.resolve("absent-" + i), LinkOption.NOFOLLOW_LINKS)) {
+                    Files.deleteIfExists(target);
+                }
+            }
+        } else PlainFilePathGuard.requirePlainRegularFile(committed);
+        for (int i = 0; i < targets.size(); i++) {
+            Files.deleteIfExists(staging.resolve("old-" + i));
+            Files.deleteIfExists(staging.resolve("absent-" + i));
+            Files.deleteIfExists(staging.resolve("new-" + i));
+        }
+        Files.deleteIfExists(committed);
+        // Reuse one workspace: on Windows the directory can still be nonempty just after its files were deleted.
+        Path active = staging.resolve("active");
+        if (Files.notExists(active, LinkOption.NOFOLLOW_LINKS)) Files.createFile(staging.resolve("idle"));
+        else Files.move(active, staging.resolve("idle"), StandardCopyOption.ATOMIC_MOVE);
     }
 
     private static void downloadArchive(URI source, ProxySettings proxySettings, Path target,
@@ -479,7 +619,7 @@ public final class FfmpegInstaller {
         void onProgress(ProgressStage stage, long current, long total);
     }
 
-    public enum ProgressStage { CONNECTING, DOWNLOADING, EXTRACTING, COMPLETED }
+    public enum ProgressStage { CONNECTING, DOWNLOADING, EXTRACTING, INSTALLING, COMPLETED }
 
     public record ProxySettings(boolean enabled, String host, int port) {
 

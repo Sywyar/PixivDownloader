@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.gallery.web.GalleryWorkQueryFactory;
-import top.sywyar.pixivdownload.core.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
@@ -87,6 +86,7 @@ public class GalleryBatchService {
         List<ArchiveExportEntry> entries = new ArrayList<>();
         List<Map<String, Object>> manifest = new ArrayList<>();
         int fileCount = 0;
+        var entryNames = new ArchiveExportRules.EntryNames();
 
         for (WorkMetadata meta : metas) {
             String baseDir = groupById
@@ -94,14 +94,13 @@ public class GalleryBatchService {
                     : "artworks/" + ArchiveExportRules.authorSegment(meta.authorId(), meta.authorName())
                             + "/" + ArchiveExportRules.workSegment(meta.workId(), meta.title());
             List<Map<String, Object>> fileEntries = new ArrayList<>();
-            List<WorkAssetFile> files = workAssetService.findAsset(WorkType.ARTWORK, meta.workId())
-                    .map(LocalWorkAsset::files)
-                    .orElse(List.of());
-            for (WorkAssetFile file : files) {
-                String entryName = baseDir + "/" + ArchiveExportRules.safeSegment(
-                        file.path().getFileName().toString(), "page-" + (file.page() + 1));
-                entries.add(ArchiveExportEntry.file(file.path(), entryName, meta.workId()));
-                fileEntries.add(fileManifest(entryName, file.path()));
+            List<Path> files = deleteAfter ? workAssetService.archiveSources(WorkType.ARTWORK, meta.workId())
+                    : workAssetService.findAsset(WorkType.ARTWORK, meta.workId()).stream()
+                            .flatMap(asset -> asset.files().stream()).map(WorkAssetFile::path).toList();
+            for (Path file : files) {
+                String entryName = entryNames.reserve(baseDir + "/" + ArchiveExportRules.safeFileName(file.getFileName().toString()));
+                entries.add(ArchiveExportEntry.file(file, entryName, meta.workId()));
+                fileEntries.add(fileManifest(entryName, file));
                 fileCount++;
             }
             manifest.add(artworkManifest(meta, fileEntries));

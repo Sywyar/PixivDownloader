@@ -184,6 +184,23 @@ public interface DesktopEnvironmentTransfer {
      * 最近一次恢复结果。
      * @param status 耐久状态
      * @param failureCode 受控错误码，不含源文件正文或凭据
+     * @param jobId 对应恢复日志中的任务 UUID；尚无任务时为空
      */
-    record RestoreState(Status status, String failureCode) {}
+    record RestoreState(Status status, String failureCode, String jobId) {
+        public RestoreState(Status status, String failureCode) { this(status, failureCode, ""); }
+
+        public boolean hasLogHint() {
+            return jobId != null && !jobId.isEmpty() && (status == Status.FAILED || status == Status.RECOVERY_REQUIRED);
+        }
+
+        /** The desktop providers translate this key when displaying a failed restore. */
+        public String reasonMessageKey() {
+            if (status != Status.FAILED && status != Status.RECOVERY_REQUIRED) return "";
+            return switch (failureCode == null ? "" : failureCode) {
+                case "transfer.database-path-unrepresentable", "transfer.database-path-collision",
+                        "transfer.database-path-unverified", "transfer.database-page-outside-root", "transfer.target-changed" -> failureCode;
+                default -> "";
+            };
+        }
+    }
 }

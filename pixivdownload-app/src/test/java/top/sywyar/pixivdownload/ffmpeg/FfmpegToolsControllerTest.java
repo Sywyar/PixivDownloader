@@ -21,7 +21,7 @@ class FfmpegToolsControllerTest {
                 new ToolApiRequests(messages, mock(WebI18nService.class)))).build();
         try (var installer = mockStatic(FfmpegInstaller.class); var locator = mockStatic(FfmpegLocator.class)) {
             installer.when(FfmpegInstaller::supportsManagedDownload).thenReturn(true);
-            locator.when(FfmpegLocator::locate).thenReturn(java.util.Optional.empty());
+            locator.when(FfmpegLocator::locateForStatus).thenReturn(java.util.Optional.empty());
             mvc.perform(post("/api/tools/ffmpeg/tasks").contentType("application/json")
                     .content("{\"proxy\":{\"enabled\":true,\"host\":\"\",\"port\":7890}}"))
                     .andExpect(status().isBadRequest());
@@ -31,6 +31,15 @@ class FfmpegToolsControllerTest {
             mvc.perform(post("/api/tools/ffmpeg/tasks").contentType("application/json").content("{}"))
                     .andExpect(status().isAccepted());
             verify(service).start(new FfmpegInstaller.ProxySettings(proxy.isEnabled(), proxy.getHost(), proxy.getPort()));
+            String cancel = "/api/tools/ffmpeg/tasks/{executionId}/cancel";
+            mvc.perform(post(cancel, UUID.randomUUID())).andExpect(status().isNotFound());
+            for (String state : java.util.List.of("CANCEL_REQUESTED", "CANCELLED", "RUNNING")) {
+                when(service.cancel(accepted.executionId())).thenReturn(new FfmpegInstallService.Snapshot(
+                        accepted.executionId(), state, accepted.stage(), 0, -1, "", null));
+                mvc.perform(post(cancel, accepted.executionId()))
+                        .andExpect(status().is(state.equals("CANCEL_REQUESTED") ? 202 : state.equals("RUNNING") ? 409 : 200))
+                        .andExpect(jsonPath("$.state").value(state));
+            }
             var error = new FfmpegInstaller.InstallationException("FFMPEG_INSTALL_UNSAFE_DIRECTORY", "private-path",
                     "ffmpeg.api.unsafe-directory");
             when(service.snapshot()).thenReturn(new FfmpegInstallService.Snapshot(accepted.executionId(), "FAILED",

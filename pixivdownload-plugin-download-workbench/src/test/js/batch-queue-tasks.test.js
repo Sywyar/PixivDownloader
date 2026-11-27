@@ -380,6 +380,17 @@ test('重复取消合并为一个请求，离页中止请求并释放计时器',
 });
 
 
+test('恢复重下失败的回执时保留目标文件冲突原因', async () => {
+    const h = fixture();
+    const item = manual(first);
+    h.state.queue.push(item);
+    h.results.set(first, {...task(first, 'FAILED'), failureReason: 'OUTPUT_FILE_CONFLICT'});
+    await h.api.refresh();
+    assert.equal(item.status, 'failed');
+    assert.equal(item.statusMessageKey, 'batch:queue.task.output-file-conflict');
+    assert.equal(JSON.parse(h.storage.get('queue'))[0].statusMessageKey, item.statusMessageKey);
+});
+
 test('重新打开页面后凭据耗尽保持暂停及原队列，不误判为普通失败或自动重提', async () => {
     const h = fixture();
     const item = manual(first);

@@ -43,7 +43,10 @@ class ArtworkMetadataRecoveryServiceTest {
 
     @BeforeEach
     void setUp() {
-        recoveryService = new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
+        var directories = mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class);
+        lenient().when(directories.recoverArtwork(anyLong(), any(), any())).thenAnswer(invocation ->
+                invocation.<java.util.function.BooleanSupplier>getArgument(2).getAsBoolean());
+        recoveryService = new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES, directories);
     }
 
     @Nested
@@ -59,7 +62,7 @@ class ArtworkMetadataRecoveryServiceTest {
                 var request = new RecoverMetadataRequest("title", null, null, 0, false, "", count);
                 assertThat(recoveryService.recoverMetadata(33333L, request)).isNull();
             }
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
         }
 
         @BeforeEach
@@ -81,7 +84,7 @@ class ArtworkMetadataRecoveryServiceTest {
 
             assertThat(result).isSameAs(existing);
             verify(pixivDatabase).fillArtworkMetadataIfMissing(11111L, "新标题", 1, true, 1234L, "新简介");
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
             verify(authorService, never()).fillMissing(anyLong(), any());
         }
 
@@ -101,7 +104,7 @@ class ArtworkMetadataRecoveryServiceTest {
             assertThat(result).isSameAs(enriched);
             verify(pixivDatabase).fillArtworkMetadataIfMissing(eq(22222L), eq("新标题"),
                     eq(1), eq(true), eq(1234L), eq("新简介"));
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
             verify(authorService).fillMissing(1234L, "newauthor");
         }
 
@@ -116,13 +119,14 @@ class ArtworkMetadataRecoveryServiceTest {
             ArtworkRecord inserted = new ArtworkRecord(artworkId, "Pixiv 标题", absolute,
                     2, "jpg", 1700000300L, false, null, null, 1, true, 5678L, "简介", 1L, null, null, null);
             when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
+            when(pixivDatabase.registerRecoveredArtwork(any(), anyList())).thenReturn(true);
             RecoverMetadataRequest req = new RecoverMetadataRequest(
                     "Pixiv 标题", 5678L, "auth", 1, true, "简介", 2);
 
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, req);
 
             assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(InsertArtworkArgument.builder()
+            verify(pixivDatabase).registerRecoveredArtwork(eq(InsertArtworkArgument.builder()
                     .artworkId(artworkId)
                     .title("Pixiv 标题")
                     .folder(absolute)
@@ -133,7 +137,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     .isAi(true)
                     .authorId(5678L)
                     .description("简介")
-                    .build());
+                    .build()), eq(java.util.List.of("jpg", "jpg")));
             verify(authorService).fillMissing(5678L, "auth");
         }
 
@@ -148,8 +152,29 @@ class ArtworkMetadataRecoveryServiceTest {
                     "标题", 1234L, "auth", 0, false, "简介", 2);
 
             assertThat(recoveryService.recoverMetadata(artworkId, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
             verify(authorService, never()).fillMissing(anyLong(), any());
+        }
+
+        @Test
+        void acceptsCaseVariantsOnlyWhenTheRecordedNameResolvesToTheSameFile() throws Exception {
+            long id = 45678L;
+            Path folder = Files.createDirectory(tempDir.resolve(Long.toString(id)));
+            Path upper = Files.writeString(folder.resolve(id + "_p0.JPG"), "image");
+            recoveryService.recoverMetadata(id, new RecoverMetadataRequest(null, null, null, null, null, null, 1));
+            boolean addressable = Files.exists(folder.resolve(id + "_p0.jpg"))
+                    && Files.isSameFile(upper, folder.resolve(id + "_p0.jpg"));
+            verify(pixivDatabase, times(addressable ? 1 : 0)).registerRecoveredArtwork(any(), eq(java.util.List.of("jpg")));
+        }
+
+        @Test
+        void cannotClaimAPageWithALeadingZeroAlias() throws Exception {
+            long id = 45679L;
+            Path folder = Files.createDirectory(tempDir.resolve(Long.toString(id)));
+            Path alias = Files.writeString(folder.resolve(id + "_p00.jpg"), "image");
+            assertThat(recoveryService.recoverMetadata(id, new RecoverMetadataRequest(null, null, null, null, null, null, 1))).isNull();
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(), anyList());
+            assertThat(alias).exists();
         }
 
         @Test
@@ -160,7 +185,7 @@ class ArtworkMetadataRecoveryServiceTest {
                     "标题", 1234L, "auth", 0, false, "简介", 2);
 
             assertThat(recoveryService.recoverMetadata(44444L, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
             verify(authorService, never()).fillMissing(anyLong(), any());
         }
 
@@ -175,7 +200,7 @@ class ArtworkMetadataRecoveryServiceTest {
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, null);
 
             assertThat(result).isNull();
-            verify(pixivDatabase, never()).insertArtwork(any(InsertArtworkArgument.class));
+            verify(pixivDatabase, never()).registerRecoveredArtwork(any(InsertArtworkArgument.class), anyList());
         }
     }
 }

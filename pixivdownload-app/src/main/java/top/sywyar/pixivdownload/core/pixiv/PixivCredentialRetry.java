@@ -26,7 +26,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             + "illust/[1-9][0-9]*(?:/(?:pages|ugoira_meta))?"
             + "|novel/[1-9][0-9]*|novel/(?:series|series_content)/[1-9][0-9]*"
             + "|series/[1-9][0-9]*|user/[1-9][0-9]*(?:/profile/(?:all|top))?"
-            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|novels)/[^/]+)");
+            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|illustrations|manga|novels)/[^/]+)");
     private static final int MAX_HEALTH = 1024;
     private static final long DEFAULT_COOLDOWN = 30_000;
     private static final long HEALTH_TTL = 24 * 60 * 60 * 1000L;
@@ -75,6 +75,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
         long started = clock.millis();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
         long retryAfter = Long.MAX_VALUE;
+        boolean rateLimited = false;
         for (String candidate : AcquisitionCredentials.candidates(primary)) {
             scope.checkCancelled();
             if (clock.millis() - started >= budgetMillis || System.nanoTime() >= deadline)
@@ -88,8 +89,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             Health blocked = blocked(key);
             if (blocked == null) blocked = blocked(accountKey);
             if (blocked != null) {
-                if (blocked.status() == 429)
+                if (blocked.status() == 429) {
+                    rateLimited = true;
                     retryAfter = Math.min(retryAfter, Math.max(1, blocked.until() - clock.millis()));
+                }
                 continue;
             }
             RequestBudget budget = new RequestBudget(deadline, deadlines, new AtomicReference<>());
@@ -105,7 +108,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
                         || failure.statusCode() != 401 && failure.statusCode() != 429) throw failure;
                 long delay = failure.statusCode() == 401 ? HEALTH_TTL
                         : Math.max(DEFAULT_COOLDOWN, failure.retryAfterMillis());
-                if (failure.statusCode() == 429) retryAfter = Math.min(retryAfter, delay);
+                if (failure.statusCode() == 429) {
+                    rateLimited = true;
+                    retryAfter = Math.min(retryAfter, delay);
+                }
                 block(failure.statusCode() == 401 ? key : accountKey,
                         new Health(saturatingAdd(clock.millis(), delay), failure.statusCode()));
             } catch (Exception failure) {
@@ -119,7 +125,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             }
         }
         scope.checkCancelled();
-        throw new AcquisitionCredentialsUnavailableException(retryAfter == Long.MAX_VALUE ? 0 : retryAfter);
+        throw new AcquisitionCredentialsUnavailableException(rateLimited ? retryAfter : 0, rateLimited);
     }
 
     private synchronized Health blocked(String key) {

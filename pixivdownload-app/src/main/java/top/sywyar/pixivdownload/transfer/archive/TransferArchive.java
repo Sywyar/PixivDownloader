@@ -75,8 +75,14 @@ public final class TransferArchive {
         public boolean encrypted() { return manifest.encrypted(); }
     }
 
-    /** 目标必须尚不存在；只有写完并回读核验后才发布文件。 */
+    public record VerifiedArchive(Preview preview, long bytes) {}
+
     public Preview write(Path destination, char[] password, String applicationVersion, List<Source> sources) throws IOException {
+        return writeVerified(destination, password, applicationVersion, sources).preview();
+    }
+
+    /** 目标必须尚不存在；发布成功后返回完整回读时取得的元数据和容器字节数。 */
+    public VerifiedArchive writeVerified(Path destination, char[] password, String applicationVersion, List<Source> sources) throws IOException {
         if (sources.size() > limits.maxEntries()) throw new IOException("transfer.archive-limit");
         boolean encrypted = password != null && password.length > 0;
         validateDescriptors(sources.stream().map(Source::descriptor).toList(), encrypted);
@@ -110,7 +116,7 @@ public final class TransferArchive {
                 zip.write(metadata);
                 zip.closeEntry();
             }
-            Preview verified = inspect(temporary, password);
+            VerifiedArchive verified = read(temporary, password, null, null, null);
             try (var channel = java.nio.channels.FileChannel.open(temporary, StandardOpenOption.WRITE)) { channel.force(true); }
             PlainFilePathGuard.requirePlainParent(target, false);
             checkInterrupted();
@@ -123,7 +129,7 @@ public final class TransferArchive {
     }
 
     /** 完整消费正文及认证尾段，仅返回元数据，不创建文件或连接数据库。 */
-    public Preview inspect(Path archive, char[] password) throws IOException { return read(archive, password, null, null, null); }
+    public Preview inspect(Path archive, char[] password) throws IOException { return read(archive, password, null, null, null).preview(); }
 
     /** 有界读取预览选定的小型配置条目，数据库和资源仍完整流式验证，不驻留内存。 */
     public SelectedContents readSelected(Path archive, char[] password, Preview expected, Set<Integer> indices) throws IOException {
@@ -136,7 +142,7 @@ public final class TransferArchive {
         }
         SelectedContents contents = new SelectedContents(indices);
         try {
-            Preview actual = read(archive, password, null, null, contents);
+            Preview actual = read(archive, password, null, null, contents).preview();
             if (!actual.equals(expected)) throw new IOException("transfer.archive-changed");
             return contents;
         } catch (IOException | RuntimeException failed) {
@@ -164,7 +170,7 @@ public final class TransferArchive {
         boolean complete = false;
         try {
             MigrationFiles.makePrivate(directory);
-            Preview result = read(archive, password, directory, created, null);
+            Preview result = read(archive, password, directory, created, null).preview();
             if (!result.equals(expected)) throw new IOException("transfer.archive-changed");
             complete = true;
             return result;
@@ -180,13 +186,13 @@ public final class TransferArchive {
         }
     }
 
-    private Preview read(Path archive, char[] password, Path directory, List<Path> created, SelectedContents selected) throws IOException {
+    private VerifiedArchive read(Path archive, char[] password, Path directory, List<Path> created, SelectedContents selected) throws IOException {
         PlainFilePathGuard.requirePlainRegularFile(archive);
         MessageDigest archiveDigest = digest();
         // 压缩容器、认证段及目录表也纳入预算，不能只限制解压后的条目。
         long containerLimit = Math.addExact(limits.maxBytes(), 2L * limits.maxManifestBytes() + 16L * 1024 * 1024);
         try (InputStream file = Files.newInputStream(archive, LinkOption.NOFOLLOW_LINKS);
-             InputStream bounded = new BudgetInputStream(file, containerLimit);
+             var bounded = new BudgetInputStream(file, containerLimit);
              DigestInputStream raw = new DigestInputStream(bounded, archiveDigest)) {
             var opened = ArchiveProtection.decrypt(raw, password);
             try (ZipTailInputStream plaintext = new ZipTailInputStream(opened.stream());
@@ -244,7 +250,8 @@ public final class TransferArchive {
                     if (item.size() != measured.get(i).size() || !item.sha256().equals(measured.get(i).sha256()))
                         throw new IOException("transfer.archive-invalid");
                 }
-                return new Preview(manifest, HexFormat.of().formatHex(archiveDigest.digest()));
+                var preview = new Preview(manifest, HexFormat.of().formatHex(archiveDigest.digest()));
+                return new VerifiedArchive(preview, containerLimit - bounded.remaining);
             }
         }
     }

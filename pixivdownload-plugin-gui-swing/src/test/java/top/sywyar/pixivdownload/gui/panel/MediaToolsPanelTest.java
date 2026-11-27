@@ -56,6 +56,10 @@ class MediaToolsPanelTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "message" -> args[0];
+                    case "stopBackend", "startBackend" -> {
+                        if (args[0] instanceof Runnable callback) callback.run();
+                        yield true;
+                    }
                     case "localArtworkImports", "startupCache" -> java.util.Optional.empty();
                     case "mediaTools" -> tools.get();
                     case "coreConfigGroups", "coreConfigSections", "coreConfigFields", "fileImportTools" -> List.of();
@@ -85,6 +89,21 @@ class MediaToolsPanelTest {
         ToolsPanel panel = reference.get();
         try {
             SwingUtilities.invokeAndWait(() -> {
+                var buttons = descendants(panel).filter(JButton.class::isInstance).map(JButton.class::cast).toList();
+                String classifier = top.sywyar.pixivdownload.gui.i18n.GuiMessages.get("gui.tools.action.open-image-classifier");
+                String checker = top.sywyar.pixivdownload.gui.i18n.GuiMessages.get("gui.tools.action.open-folder-checker");
+                assertTrue(buttons.stream().noneMatch(button -> classifier.equals(button.getAccessibleContext().getAccessibleName())));
+                var openFolder = buttons.stream().filter(button -> checker.equals(button.getAccessibleContext().getAccessibleName()))
+                        .findFirst().orElseThrow();
+                assertTrue(openFolder.isEnabled());
+                if (!java.awt.GraphicsEnvironment.isHeadless()) {
+                    var existing = java.util.Set.of(JFrame.getFrames());
+                    openFolder.doClick();
+                    var window = Arrays.stream(JFrame.getFrames()).filter(frame -> !existing.contains(frame) && frame.isShowing()
+                            && top.sywyar.pixivdownload.gui.i18n.GuiMessages.get("gui.tools.card.folder-checker.title").equals(frame.getTitle()))
+                            .findFirst().orElseThrow();
+                    window.dispose();
+                }
                 var databaseFields = descendants(panel).filter(JTextField.class::isInstance)
                         .map(JTextField.class::cast).filter(field -> databaseTarget.equals(field.getText())).toList();
                 assertEquals(2, databaseFields.size());

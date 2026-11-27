@@ -24,19 +24,14 @@ import top.sywyar.pixivdownload.core.pixiv.filename.PixivWorkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
-import top.sywyar.pixivdownload.core.download.ArtworkMoveService;
 import top.sywyar.pixivdownload.core.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.download.request.ArtworkBatchRequest;
-import top.sywyar.pixivdownload.core.download.request.MoveArtworkRequest;
 import top.sywyar.pixivdownload.core.download.request.RecoverMetadataRequest;
-import top.sywyar.pixivdownload.core.download.response.ArtworkIdResponse;
 import top.sywyar.pixivdownload.core.download.response.BatchArtworksResponse;
-import top.sywyar.pixivdownload.core.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.core.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.core.download.response.HistoryResponse;
 import top.sywyar.pixivdownload.core.download.response.PagedHistoryResponse;
@@ -65,7 +60,6 @@ public class DownloadedWorkController {
     private final DownloadedArtworkService downloadedArtworkService;
     private final ArtworkMetadataRecoveryService artworkMetadataRecoveryService;
     private final DownloadStatisticsService downloadStatisticsService;
-    private final ArtworkMoveService artworkMoveService;
     private final PixivDatabase pixivDatabase;
     private final AuthorService authorService;
     private final MangaSeriesService mangaSeriesService;
@@ -109,7 +103,8 @@ public class DownloadedWorkController {
      * 无记录时须提供完整页数，且默认命名的文件全部齐备，才能登记；GET 查询不执行恢复。
      */
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
-    @ApiResponse(responseCode = "400", content = @Content)
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json",
+            schema = @Schema(implementation = top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse.Basic.class)))
     @PostMapping({"/downloaded/{artworkId}/recover-metadata", "/library/artworks/{artworkId}/recover-metadata"})
     public ResponseEntity<DownloadedResponse> recoverMetadata(
             @PathVariable Long artworkId,
@@ -161,38 +156,13 @@ public class DownloadedWorkController {
         return ResponseEntity.ok(downloadStatisticsService.getStatistics());
     }
 
-    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
-    @ApiResponse(responseCode = "404", content = @Content)
-    @GetMapping("/downloaded/by-move-folder")
-    public ResponseEntity<ArtworkIdResponse> getArtworkByMoveFolder(@RequestParam String path,
-                                                                    HttpServletRequest httpRequest) {
-        ArtworkRecord artwork = pixivDatabase.getArtworkByMoveFolder(path);
-        if (artwork == null) {
-            return ResponseEntity.notFound().build();
-        }
-        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
-        if (session != null && !guestAccessGuard.isVisibleToGuest(artwork.artworkId(), session)) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(new ArtworkIdResponse(artwork.artworkId()));
-    }
-
-    @PostMapping({"/downloaded/move/{artworkId}", "/library/artworks/{artworkId}/move"})
-    public ResponseEntity<DownloadResponse> moveArtWork(
-            @PathVariable Long artworkId,
-            @Valid @RequestBody MoveArtworkRequest request) {
-        String movePath = PathPrefixCodec.stripTrailingSeparators(request.getMovePath());
-        String presetRoot = request.getClassifierTargetFolder();
-        if (presetRoot != null) {
-            presetRoot = PathPrefixCodec.stripTrailingSeparators(presetRoot);
-            if (presetRoot.isEmpty()) presetRoot = null;
-        }
-        artworkMoveService.moveArtWork(artworkId, movePath, request.getMoveTime(), presetRoot);
-        return ResponseEntity.ok(DownloadResponse.builder()
-                .success(true)
-                .message(messages.get("download.move.record-attempted"))
-                .build());
-    }
+    @io.swagger.v3.oas.annotations.Operation(deprecated = true)
+    @ApiResponse(responseCode = "410", content = @Content)
+    @Parameter(name = "artworkId", in = io.swagger.v3.oas.annotations.enums.ParameterIn.PATH,
+            required = true, schema = @Schema(type = "string"))
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.GONE)
+    @PostMapping("/library/artworks/{artworkId}/move")
+    public void moveArtWork() {}
 
     @GetMapping("/downloaded/history")
     public ResponseEntity<HistoryResponse> getHistory(HttpServletRequest httpRequest) {

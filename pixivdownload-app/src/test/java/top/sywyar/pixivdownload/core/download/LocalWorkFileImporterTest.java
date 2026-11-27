@@ -145,7 +145,7 @@ class LocalWorkFileImporterTest {
         assertThat(authorMapper.findById(84).name()).isEqualTo("Author");
         var locator = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator(
                 database, settings, TestI18nBeans.appMessages(), null,
-                org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), externalFiles);
+                org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), externalFiles, directories);
         assertThat(locator.resolveImageFile(row, 0)).isEqualTo(original.toFile());
         assertThat(importer.importFiles(request(List.of(original)))).isFalse();
         assertThat(locator.deleteArtworkFiles(row)).isTrue();
@@ -169,6 +169,23 @@ class LocalWorkFileImporterTest {
         assertThat(externalFiles.contains(WorkType.ARTWORK, 42)).isFalse();
         assertThat(source.resolve("custom.png")).exists();
         assertThat(events).extracting(DownloadEvent::phase).doesNotContain(DownloadEvent.Phase.COMPLETED);
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
+    void restoredRootKeepsTheRegularFileAndContainmentChecks() throws Exception {
+        assertThat(importer(history).importFiles(request(List.of(source.resolve("custom.png"))))).isTrue();
+        Files.createSymbolicLink(temp.resolve("link"), Files.createDirectory(source.resolve("nested")));
+        Path selected = temp.resolve("link/..");
+        Path outside = Files.writeString(output.resolve("elsewhere.png"), "outside");
+        Files.createSymbolicLink(source.resolve("leaf.png"), outside);
+        Files.createSymbolicLink(source.resolve("subdir"), output);
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        for (Path invalid : List.of(selected.resolve("leaf.png"), selected.resolve("subdir/elsewhere.png"), outside)) {
+            jdbc.update("UPDATE external_work_files SET root_path=?,file_path=? WHERE work_id=42",
+                    selected.toString(), invalid.toString());
+            assertThat(externalFiles.file(WorkType.ARTWORK, 42, 0)).isNull();
+        }
     }
     @Test @DisplayName("越界、缺失文件和伪装媒体不能进入画廊")
     void rejectsInvalidFiles() throws Exception {

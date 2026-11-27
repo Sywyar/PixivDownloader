@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.media;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class ImageOutputServiceTest {
         Path source = jpeg();
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         assertEquals(List.of("jpg"), service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings(null), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
@@ -46,7 +47,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         Path stem = directory.resolve("42_p0");
         assertEquals(List.of("png"), service.process(42L, 0, stem, "jpg", settings("png"), () -> false));
         assertEquals(1, calls.get());
@@ -62,7 +63,7 @@ class ImageOutputServiceTest {
         ImageIO.write(new BufferedImage(25_001, 1, BufferedImage.TYPE_INT_RGB), "png", source.toFile());
         byte[] original = Files.readAllBytes(source);
         FfmpegRunner runner = mock(FfmpegRunner.class);
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         assertEquals(List.of("png"), service.process(42L, 0, directory.resolve("42_p0"), "png", settings("png"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         verifyNoInteractions(runner);
@@ -77,7 +78,7 @@ class ImageOutputServiceTest {
             Files.writeString(output, "partial");
             throw new IOException("fixture failure");
         };
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         Path stem = directory.resolve("42_p0");
         assertThrows(IOException.class, () -> service.process(42L, 0, stem, "jpg", settings("png,webp"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
@@ -99,7 +100,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings("png,webp"), () -> false, events::add);
         assertEquals(List.of("verifying", "ffmpeg-waiting", "ffmpeg", "verifying",
                 "ffmpeg-waiting", "ffmpeg", "verifying", "thumbnail", "finalizing"),
@@ -125,7 +126,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         var first = settings("webp");
         first.setQuality(73);
         first.setWebpLossless(true);
@@ -153,6 +154,42 @@ class ImageOutputServiceTest {
         return source;
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"cancel", "save-failure", "user-arrival"})
+    void interruptedThumbnailCanBeRetriedWithoutClaimingUserFiles(String failure) throws Exception {
+        Path source = jpeg();
+        Path stem = directory.resolve("42_p0");
+        Path thumbnail = directory.resolve("42_p0_thumb.jpg");
+        FfmpegRunner runner = (tool, args, cwd, output, limit, timeout, cancelled, progress) -> {
+            ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
+            return "";
+        };
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
+        var cancel = new java.util.concurrent.atomic.AtomicBoolean();
+        byte[] user = {73};
+        var error = assertThrows(Exception.class, () -> service.process(0, stem, "jpg", settings("original,webp"), cancel::get, progress -> {
+            if (!progress.phase().equals("finalizing")) return;
+            if (failure.equals("cancel")) cancel.set(true);
+            if (failure.equals("user-arrival")) {
+                try { Files.write(thumbnail, user, java.nio.file.StandardOpenOption.CREATE_NEW); }
+                catch (IOException e) { throw new java.io.UncheckedIOException(e); }
+            }
+        }, (page, path, value) -> {
+            assertEquals("save-failure", failure);
+            assertTrue(Files.isRegularFile(thumbnail));
+            throw new IOException("controlled media save failure");
+        }));
+        assertTrue(failure.equals("cancel") ? error instanceof CancellationException : error instanceof IOException);
+        assertTrue(mediaStore.find(42L, 0).isEmpty());
+        assertTrue(Files.isRegularFile(source));
+        if (failure.equals("user-arrival")) assertArrayEquals(user, Files.readAllBytes(thumbnail));
+        else assertFalse(Files.exists(thumbnail));
+        service.process(42L, 0, stem, "jpg", settings("original,webp"), () -> false);
+        assertEquals(!failure.equals("user-arrival"), mediaStore.find(42L, 0).orElseThrow().thumbnailOwned());
+        if (failure.equals("user-arrival")) assertArrayEquals(user, Files.readAllBytes(thumbnail));
+        else assertNotNull(ImageIO.read(thumbnail.toFile()));
+    }
+
     @Test
     @DisplayName("媒体入库失败保留原文件，即使转码产物已生成也不返回成功")
     void databaseFailurePreservesOriginal() throws Exception {
@@ -164,7 +201,7 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), failedStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), failedStore, new TestMediaTransactions());
         assertThrows(IOException.class, () -> service.process(42L, 0, directory.resolve("42_p0"), "jpg", settings("png"), () -> false));
         assertArrayEquals(original, Files.readAllBytes(source));
         assertTrue(Files.exists(directory.resolve("42_p0.png")));
@@ -184,7 +221,40 @@ class ImageOutputServiceTest {
             ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_RGB), "png", output.toFile());
             return "";
         };
-        new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore).addMissingFormats(42L, 0, source, "png", () -> false);
+        Path target = directory.resolve("42_p0.png");
+        Path userThumbnail = Files.writeString(directory.resolve("42_p0_thumb.jpg"), "user thumbnail");
+        var paths = mock(DownloadPathGuard.class);
+        var store = mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class, org.mockito.AdditionalAnswers.delegatesTo(mediaStore));
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), store, new TestMediaTransactions());
+        var held = new java.util.concurrent.atomic.AtomicBoolean();
+        var closes = new AtomicInteger();
+        when(paths.reserveOutputs(42L, java.util.Set.of(target))).thenThrow(
+                new top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException("occupied", ""))
+                .thenAnswer(invocation -> {
+                    assertTrue(held.compareAndSet(false, true));
+                    return (java.io.Closeable) () -> {
+                        assertEquals(closes.getAndIncrement() > 0, Files.exists(target));
+                        held.set(false);
+                    };
+                });
+        doAnswer(invocation -> {
+            assertTrue(held.get());
+            assertTrue(Files.isRegularFile(target));
+            if (closes.get() == 0) throw new IOException("media commit failed");
+            mediaStore.save(42, 0, invocation.getArgument(2));
+            return null;
+        }).when(store).save(eq(42L), eq(0), any());
+        var previous = mediaStore.find(42, 0);
+        assertThrows(IOException.class, () -> service.addMissingFormats(42, 0, source, "png", () -> false, paths));
+        assertFalse(Files.exists(target));
+        assertEquals(previous, mediaStore.find(42, 0));
+        assertThrows(IOException.class, () -> service.addMissingFormats(42, 0, source, "png", () -> false, paths));
+        assertFalse(Files.exists(target));
+        assertEquals(previous, mediaStore.find(42, 0));
+        service.addMissingFormats(42, 0, source, "png", () -> false, paths);
+        assertEquals(2, closes.get());
+        assertFalse(held.get());
+        assertEquals("user thumbnail", Files.readString(userThumbnail));
         assertArrayEquals(original, Files.readAllBytes(source));
         assertEquals(new ArtworkMediaManifest("png", List.of("jpg", "png"), false), mediaStore.find(42L, 0).orElseThrow());
         assertNotNull(ImageIO.read(directory.resolve("42_p0.png").toFile()));
@@ -220,12 +290,29 @@ class ImageOutputServiceTest {
         };
         Path stem = directory.resolve("transparent");
         ImageIO.write(new BufferedImage(17, 13, BufferedImage.TYPE_INT_ARGB), "png", directory.resolve("transparent.png").toFile());
-        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore);
+        var service = new ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions());
         assertEquals(List.of("jpg", "webp"), service.process(42L, 0, stem, "png", settings("jpg,webp"), () -> false));
         BufferedImage jpg = ImageIO.read(directory.resolve("transparent.jpg").toFile());
         assertEquals(0xFFFFFF, jpg.getRGB(0, 0) & 0xFFFFFF);
         assertTrue(Files.size(directory.resolve("transparent.webp")) > 0);
         assertNotNull(ImageIO.read(directory.resolve("transparent_thumb.jpg").toFile()));
         assertFalse(Files.exists(directory.resolve("transparent.png")));
+        var thumbnail = directory.resolve("native_thumb.jpg");
+        var nativeStem = directory.resolve("native");
+        Files.copy(directory.resolve("transparent.webp"), directory.resolve("native.webp"));
+        service.process(43L, 0, nativeStem, "webp", settings("original"), () -> false);
+        assertFalse(mediaStore.find(43L, 0).orElseThrow().thumbnailOwned());
+        assertFalse(Files.exists(thumbnail));
+        service.process(43L, 0, nativeStem, "webp", settings("original,png"), () -> false);
+        assertTrue(mediaStore.find(43L, 0).orElseThrow().thumbnailOwned());
+        assertNotNull(ImageIO.read(thumbnail.toFile()));
+        Files.delete(directory.resolve("native.png"));
+        Files.writeString(thumbnail, "user thumbnail");
+        mediaStore.save(43L, 0, new ArtworkMediaManifest("webp", List.of("webp")));
+        var paths = mock(DownloadPathGuard.class);
+        when(paths.reserveOutputs(eq(43L), any())).thenReturn(() -> {});
+        service.addMissingFormats(43L, 0, directory.resolve("native.webp"), "png", () -> false, paths);
+        assertFalse(mediaStore.find(43L, 0).orElseThrow().thumbnailOwned());
+        assertEquals("user thumbnail", Files.readString(thumbnail));
     }
 }

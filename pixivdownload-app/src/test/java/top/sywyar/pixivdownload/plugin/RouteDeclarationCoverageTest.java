@@ -231,6 +231,15 @@ class RouteDeclarationCoverageTest {
         }
     }
 
+    @Test void toolProviderPermissionsMatchPublishedCatalog(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+        var response = mvc.perform(get("/api/openapi.json").param("lang", "en-US"))
+                .andExpect(status().isOk()).andReturn().getResponse();
+        var spec = JsonMapper.shared().readTree(response.getContentAsByteArray());
+        assertThat(spec.requiredAt("/x-program-permission-conditions/expression/contexts/query").asString()).isNotBlank();
+        top.sywyar.pixivdownload.setup.ToolProviderPermissions.exercise(directory, spec.required("paths"));
+    }
+
     @Test void malformedUpdateBodiesReturnTheDocumentedClientError() throws Exception {
         var mvc = MockMvcBuilders.webAppContextSetup(context).build();
         for (String url : List.of("/api/schedule/tasks/17", "/api/collections/17")) {
@@ -501,6 +510,55 @@ class RouteDeclarationCoverageTest {
         var owner = new ScheduleCapabilityOwner("reference-owner", "reference-package", version);
         return ScheduleCapabilityRegistryTestAccess.publish(registry,
                 ScheduleOwnerBundle.prepare(owner, descriptors, executors, List.of(), List.of(), List.of()));
+    }
+
+    @Test void programKeyLastUseDocumentsInstanceLifetimeInEachLocale() throws Exception {
+        var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+        var bundles = Map.of("zh-CN", "", "en-US", "_en", "zh-Hant", "_zh-Hant", "ja-JP", "_ja", "ko-KR", "_ko");
+        for (var locale : bundles.entrySet()) {
+            var messages = new java.util.Properties();
+            var bundle = new ClassPathResource("i18n/http/core-keys" + locale.getValue() + ".properties");
+            try (var reader = new java.io.InputStreamReader(bundle.getInputStream(), java.nio.charset.StandardCharsets.UTF_8)) {
+                messages.load(reader);
+            }
+            var spec = JsonMapper.shared().readTree(mvc.perform(get("/api/openapi.json").param("lang", locale.getKey()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+            for (String model : List.of("ProgramKeyStore.View", "ProgramKeysController.KeyRow")) {
+                var field = spec.requiredAt("/components/schemas/top.sywyar.pixivdownload.setup." + model + "/properties/lastUsedAt");
+                var expected = messages.getProperty("schema.top.sywyar.pixivdownload.setup." + model + ".field.lastUsedAt");
+                assertThat(field.required("description").asString()).as("%s in %s", model, locale.getKey())
+                        .contains("Unix", "null").isEqualTo(expected);
+            }
+        }
+    }
+
+    @Test
+    void documentsArchiveDeletionOutcomeAndCommittedCountsInEveryLocale() throws Exception {
+        var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+        var bundles = Map.of("zh-CN", "", "en-US", "_en", "zh-Hant", "_zh-Hant", "ja-JP", "_ja", "ko-KR", "_ko");
+        String model = "top.sywyar.pixivdownload.quota.response.";
+        String result = model + "ArchiveStatusResponse.SourceDeletion";
+        for (var locale : bundles.entrySet()) {
+            var labels = new java.util.Properties();
+            var bundle = new ClassPathResource("i18n/http/core-archives" + locale.getValue() + ".properties");
+            try (var reader = new java.io.InputStreamReader(bundle.getInputStream(), java.nio.charset.StandardCharsets.UTF_8)) {
+                labels.load(reader);
+            }
+            var spec = JsonMapper.shared().readTree(mvc.perform(get("/api/openapi.json").param("lang", locale.getKey()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+            var schemas = spec.requiredAt("/components/schemas");
+            for (String owner : List.of("ArchiveStatusResponse", "AdminArchiveTasksResponse.Task")) {
+                assertThat(schemas.required(model + owner).requiredAt("/properties/sourceDeletion").toString())
+                        .contains("#/components/schemas/" + result);
+            }
+            var fields = schemas.required(result).required("properties");
+            assertThat(fields.requiredAt("/status/enum").values().stream().map(node -> node.asString()).toList())
+                    .containsExactlyInAnyOrder("not_requested", "pending", "running", "not_started", "succeeded", "partial", "failed");
+            for (String field : List.of("status", "requestedWorks", "deletedWorks")) {
+                assertThat(fields.required(field).required("description").asString()).isEqualTo(
+                        labels.getProperty("schema." + result + ".field." + field));
+            }
+        }
     }
 
     @Test void taskErrorSchemasAcceptActualCodesAndRejectAnUnknownCodeWhenClosed() throws Exception {

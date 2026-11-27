@@ -44,8 +44,8 @@ public final class DatabaseTransferTestEntry {
                                 preview.changes().stream().map(DesktopEnvironmentTransfer.Change::field).collect(java.util.stream.Collectors.toSet()),
                                 Map.of(), password, true, preview.files().stream().map(DesktopEnvironmentTransfer.FileGroup::id)
                                         .collect(java.util.stream.Collectors.toSet()), args[0].equals("prepare-paths")
-                                        ? Map.of(0L, Path.of("mapped-root").toAbsolutePath().toString(),
-                                                7L, Path.of("mapped-prefix").toAbsolutePath().toString()) : Map.of());
+                                        ? Map.of(0L, Path.of(args.length > 3 ? args[3] : "mapped-root").toAbsolutePath().toString(),
+                                                7L, Path.of(args.length > 4 ? args[4] : "mapped-prefix").toAbsolutePath().toString()) : Map.of());
                     }
                 } finally { Arrays.fill(password, '\0'); }
             }

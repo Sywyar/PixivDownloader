@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.download;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.download.media.TestMediaTransactions;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegCommandResolver;
 import top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner;
@@ -41,6 +43,17 @@ class UgoiraServiceTest {
 
     @TempDir
     Path tempDir;
+
+    private int encode(UgoiraService service, DownloadRequest.Other request, String referer,
+                       java.util.function.Consumer<UgoiraProgress> progress, java.util.function.BooleanSupplier cancelled,
+                       top.sywyar.pixivdownload.core.asset.ArtworkMediaStore store) {
+        return service.stageUgoira(100L, request, tempDir, referer, null, progress, cancelled,
+                (page, stem, media) -> store.save(100L, page, media),
+                (stem, archive, timing) -> {
+                    Files.move(archive, stem.resolveSibling(stem.getFileName() + ".zip"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(timing, stem.resolveSibling(stem.getFileName() + ".frames.properties"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                });
+    }
 
     @org.junit.jupiter.api.AfterEach
     void cleanupDirectory() throws IOException {
@@ -204,15 +217,7 @@ class UgoiraServiceTest {
         AtomicInteger cancellationChecks = new AtomicInteger();
         BooleanSupplier cancellation = () -> cancellationChecks.incrementAndGet() >= 3;
 
-        assertThatThrownBy(() -> service.processUgoira(
-                100L,
-                other,
-                tempDir,
-                "https://www.pixiv.net/artworks/100",
-                null,
-                null,
-                cancellation
-        )).isInstanceOf(CancellationException.class);
+        assertThatThrownBy(() -> encode(service, other, "https://www.pixiv.net/artworks/100", null, cancellation, mediaStore)).isInstanceOf(CancellationException.class);
         assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
         assertThat(framesDir).doesNotExist();
     }
@@ -254,13 +259,7 @@ class UgoiraServiceTest {
                 }
         );
 
-        assertThat(service.processUgoira(
-                100L,
-                ugoiraRequest("zip-bomb"),
-                tempDir,
-                "https://www.pixiv.net/artworks/100",
-                null
-        )).isZero();
+        assertThat(encode(service, ugoiraRequest("zip-bomb"), "https://www.pixiv.net/artworks/100", null, () -> false, mediaStore)).isZero();
         assertThat(resolverCalls).hasValue(0);
         assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
         assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
@@ -285,8 +284,7 @@ class UgoiraServiceTest {
             throw new CancellationException("stop after validated frames reach the encoder");
         });
 
-        assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("solid-frame"), tempDir,
-                "https://www.pixiv.net/artworks/100", null)).isInstanceOf(CancellationException.class);
+        assertThatThrownBy(() -> encode(service, ugoiraRequest("solid-frame"), "https://www.pixiv.net/artworks/100", null, () -> false, mediaStore)).isInstanceOf(CancellationException.class);
         assertThat(resolverCalls).hasValue(1);
         assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
         assertThat(tempDir.resolve("solid-frame.webp.part")).doesNotExist();
@@ -301,9 +299,8 @@ class UgoiraServiceTest {
                     phases.accept(FfmpegRunner.Phase.WAITING);
                     assertThat(progress.get(progress.size() - 1).getPhase()).isEqualTo("ffmpeg-waiting");
                     throw new CancellationException("cancel while waiting");
-                }, WorkbenchTestMessages.messages(), mediaStore);
-        assertThatThrownBy(() -> service.processUgoira(100L, ugoiraRequest("waiting"), tempDir,
-                "https://www.pixiv.net/artworks/100", null, progress::add, () -> false))
+                }, WorkbenchTestMessages.messages(), mediaStore, new TestMediaTransactions());
+        assertThatThrownBy(() -> encode(service, ugoiraRequest("waiting"), "https://www.pixiv.net/artworks/100", progress::add, () -> false, mediaStore))
                 .isInstanceOf(CancellationException.class);
         assertThat(progress).filteredOn(p -> "ffmpeg-waiting".equals(p.getPhase())).singleElement()
                 .satisfies(p -> {
@@ -329,13 +326,7 @@ class UgoiraServiceTest {
                 }
         );
 
-        assertThat(service.processUgoira(
-                100L,
-                ugoiraRequest("oversized-frame"),
-                tempDir,
-                "https://www.pixiv.net/artworks/100",
-                null
-        )).isZero();
+        assertThat(encode(service, ugoiraRequest("oversized-frame"), "https://www.pixiv.net/artworks/100", null, () -> false, mediaStore)).isZero();
         assertThat(resolverCalls).hasValue(0);
         assertThat(tempDir.resolve("_ugoira_frames.zip")).doesNotExist();
         assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
@@ -355,13 +346,7 @@ class UgoiraServiceTest {
                 }
         );
 
-        assertThat(service.processUgoira(
-                100L,
-                ugoiraRequest("mismatched-frame"),
-                tempDir,
-                "https://www.pixiv.net/artworks/100",
-                null
-        )).isZero();
+        assertThat(encode(service, ugoiraRequest("mismatched-frame"), "https://www.pixiv.net/artworks/100", null, () -> false, mediaStore)).isZero();
         assertThat(resolverCalls).hasValue(0);
     }
 
@@ -387,10 +372,10 @@ class UgoiraServiceTest {
                 throw new IOException("encoder diagnostic");
             };
             var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
-                    runner, WorkbenchTestMessages.messages(), mediaStore, settings);
+                    runner, WorkbenchTestMessages.messages(), mediaStore, new TestMediaTransactions(), settings);
             var request = ugoiraRequest("failed");
             request.setUgoiraFormats(format);
-            assertThat(service.processUgoira(100L, request, tempDir, null, null, progress::add)).isZero();
+            assertThat(encode(service, request, null, progress::add, () -> false, mediaStore)).isZero();
             assertThat(progress).anyMatch(value -> Integer.valueOf(50).equals(value.getFfmpegProgress()));
             assertThat(progress.get(progress.size() - 1).getStatus()).isEqualTo(UgoiraProgress.STATUS_FAILED);
             assertThat(tempDir.resolve("failed." + format + ".part")).doesNotExist();
@@ -418,11 +403,11 @@ class UgoiraServiceTest {
             try (var file = new java.io.RandomAccessFile(output.toFile(), "rw")) { file.setLength(3L * 1024 * 1024); }
             return "";
         };
-        var service = new UgoiraService(archiveDownloader(archive), runner, WorkbenchTestMessages.messages(), mediaStore, settings);
+        var service = new UgoiraService(archiveDownloader(archive), runner, WorkbenchTestMessages.messages(), mediaStore, new TestMediaTransactions(), settings);
         var request = ugoiraRequest("limited");
         request.setUgoiraFormats("webp,zip");
         for (int attempt = 0; attempt < 3; attempt++) {
-            assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
+            assertThat(encode(service, request, null, null, () -> false, mediaStore)).isZero();
             assertThat(Files.readAllBytes(tempDir.resolve("limited.zip"))).isEqualTo(archive);
             assertThat(tempDir.resolve("limited.webp")).doesNotExist();
             assertThat(tempDir.resolve("limited.webp.part")).doesNotExist();
@@ -430,7 +415,7 @@ class UgoiraServiceTest {
             assertThat(mediaStore.find(100L, 0)).isEmpty();
         }
         request.setUgoiraFormats("zip");
-        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        assertThat(encode(service, request, null, null, () -> false, mediaStore)).isEqualTo(1);
         assertThat(tempDir.resolve("_frames_tmp")).doesNotExist();
         assertThat(Files.readAllBytes(tempDir.resolve("limited.zip"))).isEqualTo(archive);
     }
@@ -458,12 +443,12 @@ class UgoiraServiceTest {
             }
         }
         byte[] originalZip = bytes.toByteArray();
-        var request = ugoiraRequest("animation");
+        var request = ugoiraRequest("p0_thumb");
         request.setUgoiraDelays(List.of(100, 150));
         request.setUgoiraFormats("webp,gif,apng,mp4,zip");
         var service = service(archiveDownloader(originalZip), fallbackResolver());
         var progress = new ArrayList<UgoiraProgress>();
-        assertThat(service.processUgoira(100L, request, tempDir, null, null, progress::add)).isEqualTo(1);
+        assertThat(encode(service, request, null, progress::add, () -> false, mediaStore)).isEqualTo(1);
         var completed = progress.stream().filter(value -> UgoiraProgress.PHASE_FFMPEG.equals(value.getPhase())
                 && UgoiraProgress.STATUS_COMPLETED.equals(value.getStatus())).toList();
         assertThat(completed).extracting(UgoiraProgress::getOutputFormat).containsExactly("webp", "gif", "apng", "mp4");
@@ -482,18 +467,18 @@ class UgoiraServiceTest {
             assertThat(value.getZipTotalBytes()).isNull();
             assertThat(value.getMessage()).isNull();
         });
-        assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
+        assertThat(Files.readAllBytes(tempDir.resolve("p0_thumb.zip"))).isEqualTo(originalZip);
         var timing = new java.util.Properties();
-        try (var reader = Files.newBufferedReader(tempDir.resolve("animation.frames.properties"), java.nio.charset.StandardCharsets.UTF_8)) {
+        try (var reader = Files.newBufferedReader(tempDir.resolve("p0_thumb.frames.properties"), java.nio.charset.StandardCharsets.UTF_8)) {
             timing.load(reader);
         }
         assertThat(timing.getProperty("000001.png")).isEqualTo("150");
         var manifest = mediaStore.find(100L, 0).orElseThrow();
         assertThat(manifest.extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
-        assertThat(ImageIO.read(tempDir.resolve("animation_thumb.jpg").toFile())).isNotNull();
+        assertThat(ImageIO.read(tempDir.resolve("p0_thumb_thumb.jpg").toFile())).isNotNull();
         for (String format : List.of("gif", "apng", "mp4")) {
             Process probe = new ProcessBuilder("ffprobe", "-v", "error", "-show_entries", "packet=duration_time",
-                    "-of", "csv=p=0", tempDir.resolve("animation." + format).toString())
+                    "-of", "csv=p=0", tempDir.resolve("p0_thumb." + format).toString())
                     .redirectErrorStream(true).start();
             String result = new String(probe.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             assertThat(probe.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
@@ -501,9 +486,9 @@ class UgoiraServiceTest {
             double duration = result.lines().filter(line -> !line.isBlank()).mapToDouble(Double::parseDouble).sum();
             assertThat(duration).as(format + " timing").isBetween(0.23, 0.27);
         }
-        String webp = new String(Files.readAllBytes(tempDir.resolve("animation.webp")), java.nio.charset.StandardCharsets.ISO_8859_1);
+        String webp = new String(Files.readAllBytes(tempDir.resolve("p0_thumb.webp")), java.nio.charset.StandardCharsets.ISO_8859_1);
         assertThat(webp).startsWith("RIFF").contains("ANIM").contains("ANMF");
-        byte[] webpBytes = Files.readAllBytes(tempDir.resolve("animation.webp"));
+        byte[] webpBytes = Files.readAllBytes(tempDir.resolve("p0_thumb.webp"));
         int animationDuration = 0;
         for (int offset = 12; offset + 8 <= webpBytes.length;) {
             int size = ByteBuffer.wrap(webpBytes, offset + 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
@@ -516,15 +501,32 @@ class UgoiraServiceTest {
             offset += 8 + size + (size & 1);
         }
         assertThat(animationDuration).as("WebP timing").isEqualTo(250);
-        byte[] existingGif = Files.readAllBytes(tempDir.resolve("animation.gif"));
-        Files.delete(tempDir.resolve("animation.mp4"));
+        byte[] existingMp4 = Files.readAllBytes(tempDir.resolve("p0_thumb.mp4"));
+        Files.delete(tempDir.resolve("p0_thumb.gif"));
         var offline = service((source, referer, target, cookie, observer) -> {
             throw new AssertionError("Historical conversion must not download");
         }, fallbackResolver());
-        assertThat(offline.addMissingFormats(100L, tempDir.resolve("animation.webp"), "gif,mp4", () -> false)).isTrue();
-        assertThat(tempDir.resolve("animation.mp4")).isNotEmptyFile();
-        assertThat(Files.readAllBytes(tempDir.resolve("animation.gif"))).isEqualTo(existingGif);
-        assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
+        var rawPage = new top.sywyar.pixivdownload.core.work.model.WorkAssetFile(0, tempDir.resolve("p0_thumb.zip"), "zip");
+        Path missingGif = tempDir.resolve("p0_thumb.gif");
+        var paths = org.mockito.Mockito.mock(DownloadPathGuard.class);
+        var beforeSupplement = mediaStore.find(100L, 0);
+        var reservation = org.mockito.Mockito.mock(java.io.Closeable.class);
+        org.mockito.Mockito.when(paths.reserveOutputs(100L, java.util.Set.of(missingGif)))
+                .thenThrow(new top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException("occupied", ""))
+                .thenReturn(reservation);
+        assertThatThrownBy(() -> offline.addMissingFormats(100L, rawPage, "gif,mp4", () -> false, paths)).isInstanceOf(IOException.class);
+        assertThat(missingGif).doesNotExist();
+        assertThat(mediaStore.find(100L, 0)).isEqualTo(beforeSupplement);
+        assertThat(offline.addMissingFormats(100L, rawPage, "gif,mp4", () -> false, paths)).isTrue();
+        org.mockito.Mockito.verify(reservation).close();
+        byte[] gif = Files.readAllBytes(tempDir.resolve("p0_thumb.gif"));
+        assertThat(ImageIO.read(new ByteArrayInputStream(gif))).isNotNull();
+        // GIF frames may be cropped to one changed pixel. The logical screen keeps the source dimensions.
+        var header = ByteBuffer.wrap(gif).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        assertThat(header.getShort(6)).isEqualTo((short) 17);
+        assertThat(header.getShort(8)).isEqualTo((short) 13);
+        assertThat(Files.readAllBytes(tempDir.resolve("p0_thumb.mp4"))).isEqualTo(existingMp4);
+        assertThat(Files.readAllBytes(tempDir.resolve("p0_thumb.zip"))).isEqualTo(originalZip);
         assertThat(mediaStore.find(100L, 0)
                 .orElseThrow().extensions()).containsExactly("webp", "gif", "apng", "mp4", "zip");
     }
@@ -537,9 +539,20 @@ class UgoiraServiceTest {
         request.setUgoiraFormats("zip,webp");
         var service = service(archiveDownloader(original),
                 () -> new ResolvedFfmpegCommand(tempDir.resolve("missing-ffmpeg").toString(), ResolvedFfmpegCommand.Source.FALLBACK));
-        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
-        assertThat(Files.readAllBytes(tempDir.resolve("retained.zip"))).isEqualTo(original);
-        assertThat(tempDir.resolve("retained.frames.properties")).isNotEmptyFile();
+        var paths = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider.class);
+        org.mockito.Mockito.when(paths.dataDirectory()).thenReturn(tempDir.resolve("runtime"));
+        try (var rebuild = new ArtworkRebuild()) {
+            Path staging = rebuild.start(paths, 100L);
+            assertThat(service.stageUgoira(100L, request, staging, null, null, null, () -> false,
+                    rebuild.wholeArtwork(), rebuild::stageFrameArchive)).isZero();
+        }
+        Path retained = tempDir.resolve("runtime/artwork-rebuild/100-originals/animation");
+        assertThat(Files.readAllBytes(retained.resolve("frames.zip"))).isEqualTo(original);
+        var timing = new java.util.Properties();
+        try (var reader = Files.newBufferedReader(retained.resolve("frames.properties"))) { timing.load(reader); }
+        assertThat(timing.getProperty("000000.jpg")).isEqualTo(Integer.toString(request.getUgoiraDelays().getFirst()));
+        assertThat(tempDir.resolve("retained.zip")).doesNotExist();
+        assertThat(tempDir.resolve("retained.frames.properties")).doesNotExist();
         assertThat(tempDir.resolve("retained.webp")).doesNotExist();
     }
 
@@ -550,10 +563,10 @@ class UgoiraServiceTest {
         org.mockito.Mockito.doThrow(new IOException("database unavailable")).when(failedStore)
                 .save(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.any());
         var service = new UgoiraService(archiveDownloader(zip("000000.jpg", jpegFrame())),
-                testRunner(fallbackResolver()), WorkbenchTestMessages.messages(), failedStore);
+                testRunner(fallbackResolver()), WorkbenchTestMessages.messages(), failedStore, new TestMediaTransactions());
         var request = ugoiraRequest("archive");
         request.setUgoiraFormats("zip");
-        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isZero();
+        assertThat(encode(service, request, null, null, () -> false, failedStore)).isZero();
         assertThat(tempDir.resolve("archive.zip")).isNotEmptyFile();
         assertThat(tempDir.resolve("archive.frames.properties")).isNotEmptyFile();
         assertThat(tempDir.resolve("archive.media.properties")).doesNotExist();
@@ -606,7 +619,7 @@ class UgoiraServiceTest {
         request.setMediaWebpLossless(true);
         request.setMediaMaximumEdge(count == 6 ? 0 : 9);
         var service = service(archiveDownloader(zip.toByteArray()), fallbackResolver());
-        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        assertThat(encode(service, request, null, null, () -> false, mediaStore)).isEqualTo(1);
         byte[] bytes = Files.readAllBytes(tempDir.resolve("transparent.webp"));
         int frameIndex = 0;
         for (int offset = 12; offset + 8 <= bytes.length;) {
@@ -697,7 +710,7 @@ class UgoiraServiceTest {
                 PixivImageDownloader downloader,
                 FfmpegCommandResolver resolver
         ) {
-            super(downloader, testRunner(resolver), WorkbenchTestMessages.messages(), mediaStore);
+            super(downloader, testRunner(resolver), WorkbenchTestMessages.messages(), mediaStore, new TestMediaTransactions());
         }
 
         @Override

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.download.submission;
 
+import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 
 /**
@@ -40,6 +41,10 @@ public interface DownloadSubmissionHandler {
         try {
             submit(submission, attempt, credential);
             return null;
+        } catch (AcquisitionCredentialsUnavailableException unavailable) {
+            if (!unavailable.rateLimited()) throw unavailable;
+            return new DownloadTaskException.Failure(DownloadTaskException.Code.UPSTREAM_RATE_LIMITED, null, null,
+                    unavailable.retryAfterMillis());
         } catch (DownloadTaskException failure) {
             return failure.failure();
         } catch (top.sywyar.pixivdownload.plugin.api.contract.InputFieldException invalid) {

@@ -46,7 +46,17 @@ public class NovelTranslationService {
                 .orElseThrow(() -> new IllegalStateException("translation.configuration-unavailable"));
         var settings = config.machine(engine);
         return top.sywyar.pixivdownload.translation.api.TranslationDigest.of("machine-v1", engine,
-                engine.equals("libretranslate") ? config.getLibretranslateUrl() : "https://openapi.youdao.com/v2/api",
+                switch (engine) {
+                    case "libretranslate" -> config.getLibretranslateUrl();
+                    case "youdao" -> "https://openapi.youdao.com/v2/api";
+                    default -> {
+                        var settingsForProvider = config.cloud(CloudProvider.BY_ID.get(engine));
+                        yield top.sywyar.pixivdownload.translation.api.TranslationDigest.of(
+                                CloudProvider.BY_ID.get(engine).endpoint(settingsForProvider).toString(),
+                                settingsForProvider.getRegion(), settingsForProvider.getGlossaryId(),
+                                settingsForProvider.getSourceLanguage(), settingsForProvider.getFormality());
+                    }
+                },
                 String.valueOf(settings.getRequestChars()), String.valueOf(settings.getBatchSize()));
     }
     String executionFingerprint(String engine) {
@@ -56,7 +66,7 @@ public class NovelTranslationService {
     public String engine() { return engine(null); }
     String engine(String requested) {
         String id = requested == null || requested.isBlank() ? config.getEngine() : requested;
-        if (!List.of("ai", "youdao", "libretranslate").contains(id)) throw new IllegalArgumentException("translation.unknown-engine");
+        if (!CloudProvider.ENGINES.contains(id)) throw new IllegalArgumentException("translation.unknown-engine");
         return id;
     }
     public boolean isAvailable() { return isAvailable(engine()); }
@@ -69,9 +79,8 @@ public class NovelTranslationService {
         return observe("languages", 0, selected, "", run -> machine.languages(selected));
     }
     public List<Engine> engines() {
-        return List.of(new Engine("ai", "translation.engine.ai", ai.isConfigured(), true, true),
-                new Engine("youdao", "translation.engine.youdao", machine.available("youdao"), false, false),
-                new Engine("libretranslate", "translation.engine.libretranslate", machine.available("libretranslate"), false, false));
+        return CloudProvider.ENGINES.stream().map(id -> new Engine(id, "translation.engine." + id,
+                isAvailable(id), id.equals("ai"), id.equals("ai"))).toList();
     }
     private AiNovelTranslationService ai(TranslationDocuments session) {
         return new AiNovelTranslationService(ai, session, messages, database).checkpointed(checkpoint, aiFingerprint);

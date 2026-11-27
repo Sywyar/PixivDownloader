@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.core.work;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
+import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathRejectedException;
@@ -53,7 +55,8 @@ class CoreWorkInfrastructureAdapterTest {
     @Test
     @DisplayName("安全目录名保持既有 trim 与拒绝语义")
     void delegatesSafeDirectoryNameValidation() {
-        DownloadPathGuardAdapter adapter = new DownloadPathGuardAdapter(org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
+        DownloadPathGuardAdapter adapter = new DownloadPathGuardAdapter(org.mockito.Mockito.mock(DownloadDirectories.class),
+                org.mockito.Mockito.mock(ArtworkFileLocator.class));
 
         assertThat(adapter.requireSafeDirectoryName(" reader ")).isEqualTo("reader");
         assertThat(catchThrowable(() -> adapter.requireSafeDirectoryName("../reader")))
@@ -63,7 +66,8 @@ class CoreWorkInfrastructureAdapterTest {
     @Test
     @DisplayName("规范化后的候选路径只能位于下载根内")
     void requiresCandidateWithinNormalizedRoot() {
-        DownloadPathGuardAdapter adapter = new DownloadPathGuardAdapter(org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
+        DownloadPathGuardAdapter adapter = new DownloadPathGuardAdapter(org.mockito.Mockito.mock(DownloadDirectories.class),
+                org.mockito.Mockito.mock(ArtworkFileLocator.class));
         Path root = tempDir.resolve("downloads");
         Path inside = root.resolve("draft").resolve("..").resolve("novel-1");
         Path outside = tempDir.resolve("other").resolve("novel-1");

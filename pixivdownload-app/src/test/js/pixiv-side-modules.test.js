@@ -48,6 +48,36 @@ test('慢归档查询不并行重叠，同一就绪回执只下载和通知一�
     assert.equal(page.timers.size, 0);
 });
 
+test('画廊按实际删源结果提示、刷新，并在删源失败时仍下载完整 ZIP', async () => {
+    for (const [status, deletedWorks, level, message] of [
+        ['succeeded', 2, 'success', /已删除全部 2/],
+        ['partial', 1, 'error', /部分完成.*1\/2/],
+        ['failed', 0, 'error', /删源失败.*0\/2/],
+        ['not_requested', 0, 'success', /压缩包已就绪/]
+    ]) {
+        const page = trackingPage();
+        const feedback = [];
+        let reloads = 0;
+        page.window.PixivGallery = {};
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+            '../../../../pixivdownload-plugin-gallery/src/main/resources/static/pixiv-gallery/gallery-batch.js'), 'utf8'), {
+            window: page.window, toast: (text, type) => feedback.push({text, type}),
+            t: (_, fallback) => fallback, loadGallery() { reloads++; }
+        });
+        page.window.PixivGallery.batch.watchExportArchive('archive-token');
+        page.poll();
+        const request = page.requests.find(item => item.url.includes('/api/archive/status/'));
+        request.resolve({ok: true, json: async () => ({status: 'ready', sourceDeletion: {
+            status, requestedWorks: status === 'not_requested' ? 0 : 2, deletedWorks
+        }})});
+        await flush();
+        assert.equal(page.downloads.length, 1);
+        assert.equal(feedback[0].type, level);
+        assert.match(feedback[0].text, message);
+        assert.equal(reloads, deletedWorks > 0 ? 1 : 0);
+    }
+});
+
 test('重新跟踪同一归档后，旧查询不消费新回调', async () => {
     const page = trackingPage();
     let oldReady = 0, newReady = 0;

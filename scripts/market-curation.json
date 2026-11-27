@@ -43,6 +43,20 @@
     "officialRequired": false,
     "changeNotes": ["下载工作台支持按需停用"]
   },
+  "pixiv-content": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
+    "description": { "zh": "默认安装的 Pixiv 只读 API。按作品类型搜索，查看画师、系列和排行榜，直接读取图片、APNG 动图、小说正文及插图。指定 Pixiv 采集凭证可查看该账号的收藏、关注列表、关注作者的新作和珍藏集。", "en": "Search Pixiv by work type, browse creators, series and rankings, and read images, APNG animations and illustrated novels. A Pixiv credential gives access to that account’s bookmarks, followed creators, their latest works and collections. This read-only plugin is installed by default." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "utility",
+    "tags": ["pixiv", "api", "ranking", "image", "novel", "ugoira"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["支持作品与小说排行榜、逐页取图、小说插图、动图以及当前账号的收藏、关注和珍藏集"]
+  },
   "pixiv-batch-downloader-import": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":{"zh-CN":"pixivdownload-plugin-pixiv-batch-downloader-import/README.md","en":"pixivdownload-plugin-pixiv-batch-downloader-import/README_en.md"},"changelog":null,"releaseNotes":null},

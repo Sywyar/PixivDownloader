@@ -71,13 +71,15 @@ public final class EnvironmentTransferController {
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/exports/{id}/archive")
-    public ResponseEntity<org.springframework.core.io.InputStreamResource> archive(@PathVariable UUID id) throws IOException {
-        Path archive = exports.archive(id);
-        return ResponseEntity.ok().contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
-                .cacheControl(org.springframework.http.CacheControl.noStore())
-                .header("Content-Disposition", "attachment; filename=environment.pdbackup")
-                .header("X-Content-Type-Options", "nosniff").header("Content-Security-Policy", "sandbox")
-                .body(new org.springframework.core.io.InputStreamResource(java.nio.file.Files.newInputStream(archive, java.nio.file.LinkOption.NOFOLLOW_LINKS)));
+    public void archive(@PathVariable UUID id, jakarta.servlet.http.HttpServletResponse response) throws IOException {
+        try (var archive = exports.archive(id)) {
+            response.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM_VALUE);
+            response.setHeader("Cache-Control", "no-store");
+            response.setHeader("Content-Disposition", "attachment; filename=environment.pdbackup");
+            response.setHeader("X-Content-Type-Options", "nosniff");
+            response.setHeader("Content-Security-Policy", "sandbox");
+            archive.transferTo(response.getOutputStream());
+        }
     }
 
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(

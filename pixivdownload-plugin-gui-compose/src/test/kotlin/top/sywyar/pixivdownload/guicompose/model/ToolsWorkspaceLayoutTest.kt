@@ -309,7 +309,7 @@ class ToolsWorkspaceLayoutTest {
                     }
                 }
                 onNodeWithText(message("desktop.ui.page.tools")).performClick()
-                onNodeWithTag("tools.entry.classifier").performClick()
+                runOnIdle { DesktopToolsControllerTest.openRetainedClassifier(model) }
                 waitUntilExactlyOneExists(hasContentDescription("sample-0.png"), timeoutMillis = 10_000)
                 runOnIdle {
                     delayPublication.set(true)
@@ -341,7 +341,7 @@ class ToolsWorkspaceLayoutTest {
                     }
                     synchronized(model) { model.dispatch(model.snapshot(), Event(EventType.ACTIVATE, id, Value.empty())) }
                 }
-                activate("tools.image-classifier.open")
+                DesktopToolsControllerTest.openRetainedClassifier(model)
                 awaitClassifierImage(model, "sample-0.png")
                 if (change == "modal") activate("classifier.image.0.open")
                 val observed = model.snapshot()
@@ -352,7 +352,7 @@ class ToolsWorkspaceLayoutTest {
                     }
                     "workspace" -> {
                         activate("tools.active.close")
-                        activate("tools.image-classifier.open")
+                        DesktopToolsControllerTest.openRetainedClassifier(model)
                         awaitClassifierImage(model, "sample-0.png")
                     }
                     "modal" -> {
@@ -433,6 +433,7 @@ class ToolsWorkspaceLayoutTest {
         val attempts = AtomicInteger()
         val proceed = Semaphore(0)
         val succeeds = AtomicBoolean()
+        val moveFailure = "Classifier moves have been retired"
         val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
             "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
             "loadImageClassifierSettings" to Function { DesktopUiToolHost.ImageClassifierSettings(temp.toString(), true, "http://localhost:6999", listOf(DesktopUiToolHost.ImageClassifierTarget(target.toString(), "Illustrations"))) },
@@ -445,7 +446,7 @@ class ToolsWorkspaceLayoutTest {
             "classifyImageFolder" to Function {
                 attempts.incrementAndGet()
                 check(proceed.tryAcquire(10, TimeUnit.SECONDS))
-                if (!succeeds.get()) throw IOException("Classification failed")
+                if (!succeeds.get()) throw IOException(moveFailure)
                 Files.move(images[0], target.resolve(images[0].fileName))
                 target
             },
@@ -461,7 +462,7 @@ class ToolsWorkspaceLayoutTest {
                         }
                     }
                     onNodeWithText(message("desktop.ui.page.tools")).performClick()
-                    onNodeWithTag("tools.entry.classifier").performClick()
+                    runOnIdle { DesktopToolsControllerTest.openRetainedClassifier(model) }
                     waitUntilExactlyOneExists(hasContentDescription("sample-0.png"), timeoutMillis = 10_000)
                     assertEquals(1, reads.count.get())
                     onNodeWithTag("classifier.category.0.select").performClick()
@@ -477,6 +478,7 @@ class ToolsWorkspaceLayoutTest {
                             proceed.release()
                             waitUntil { !model.busy() }
                             if (attempt == 0) {
+                                waitUntilExactlyOneExists(hasText(moveFailure))
                                 waitUntilExactlyOneExists(hasTestTag("classifier.image.0.open") and isEnabled())
                                 onNodeWithTag("classifier.image.0.open").assertIsEnabled()
                                 onNodeWithContentDescription("sample-0.png").assertIsDisplayed()
@@ -527,7 +529,7 @@ class ToolsWorkspaceLayoutTest {
                         }
                     }
                     onNodeWithText(message("desktop.ui.page.tools")).performClick()
-                    onNodeWithTag("tools.entry.classifier").performClick()
+                    runOnIdle { DesktopToolsControllerTest.openRetainedClassifier(model) }
                     waitUntil(timeoutMillis = 10_000) {
                         onAllNodesWithContentDescription("sample.png").fetchSemanticsNodes().isNotEmpty()
                     }
@@ -555,31 +557,13 @@ class ToolsWorkspaceLayoutTest {
     }
 
     @Test
-    @DisplayName("真实工具模型直接进入分类与目录检查，紧凑表单、选择和修正动作保持可用")
+    @DisplayName("工具列表移除分类入口，仍可进入目录检查，紧凑表单、选择和修正动作保持可用")
     fun productionPanels() = runComposeUiTest {
         val calls = mutableListOf<String>()
-        val images = (0..7).map { index ->
-            val file = temp.resolve("sample-$index.png")
-            val image = BufferedImage(120, 160, BufferedImage.TYPE_INT_RGB)
-            image.createGraphics().apply {
-                color = Color(225 - index * 6, 235 - index * 4, 250 - index * 3)
-                fillRect(0, 0, 120, 160)
-                color = Color(70, 110, 175)
-                fillOval(20, 40, 80, 80)
-                dispose()
-            }
-            ImageIO.write(image, "png", file.toFile())
-            file
-        }
         val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
             "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
-            "loadImageClassifierSettings" to Function { DesktopUiToolHost.ImageClassifierSettings("", true, "http://localhost:6999", listOf(DesktopUiToolHost.ImageClassifierTarget(temp.toString(), "Illustrations"))) },
             "recordToolHistory" to Function { null },
             "isImageClassifierDirectory" to Function { true },
-            "listImageClassifierFolders" to Function { listOf(temp.resolve("123")) },
-            "listImageClassifierImages" to Function { images },
-            "checkImageClassifierServer" to Function { DesktopUiToolHost.ImageClassifierServer(true, "http://localhost:6999") },
-            "resolveImageClassifierArtwork" to Function { Optional.of(DesktopUiToolHost.ImageClassifierArtwork(123L, "Example", 0)) },
             "checkArtworkFolders" to Function { DesktopUiToolHost.FolderCheckResult(2, listOf(DesktopUiToolHost.FolderArtwork(123L, "Sample artwork", "missing/123", false))) },
             "updateArtworkFolder" to Function { calls += "update:${it[1]}:${it[3]}"; null },
             "openExternalUri" to Function { calls += "guide:${it[0]}"; null },
@@ -618,19 +602,7 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("tools.backfill.run").assertIsDisplayed()
                 onNodeWithTag("tools.sheet.close").performClick()
                 onNodeWithTag("tools.entry.migration").assertDoesNotExist()
-                onNodeWithTag("tools.entry.classifier").performClick()
-                onNodeWithTag("classifier.default-folder.input").assertIsDisplayed().performTextReplacement(temp.toString())
-                onNodeWithTag("classifier.open").performClick()
-                waitUntil(timeoutMillis = 5_000) { model.snapshot().document().pages().flatMap { descendants(it.content()).toList() }.any { it.id() == "classifier.image.0.open" } }
-                onNodeWithTag("classifier.image.0.open").assertIsDisplayed()
-                waitUntil(timeoutMillis = 10_000) {
-                    onAllNodesWithContentDescription("sample-0.png").fetchSemanticsNodes().isNotEmpty()
-                }
-                onNodeWithContentDescription("sample-0.png").assertIsDisplayed()
-                onNodeWithTag("classifier.category.0.select").performClick().assertIsSelected()
-                onNodeWithTag("classifier.classify").assertIsEnabled()
-                screenshot("actual-classifier")
-                onNodeWithTag("tools.back").performClick()
+                onNodeWithTag("tools.entry.classifier").assertDoesNotExist()
                 onNodeWithTag("tools.entry.folder").performClick()
                 onNodeWithTag("tools.folder.db").assertIsDisplayed()
                 onNodeWithTag("tools.folder.check").performClick()

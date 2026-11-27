@@ -114,6 +114,8 @@ public record DownloadPathPlan(List<String> baseNames, int maxLength, boolean de
 
     /** 路径超限且仍需用户处理，由调用方投影为交互提示或计划任务待处理状态。 */
     public static final class NeedsAction extends RuntimeException {
+        /** 跨手动批次和计划任务使用的路径超限原因码。 */
+        public static final String REASON = "DOWNLOAD_PATH_ACTION_REQUIRED";
         /** 原始路径与可供用户选择的命名候选。 */
         private final Problem problem;
 
@@ -122,7 +124,7 @@ public record DownloadPathPlan(List<String> baseNames, int maxLength, boolean de
          * @param problem 原始路径及可用候选
          */
         public NeedsAction(Problem problem) {
-            super("DOWNLOAD_PATH_ACTION_REQUIRED");
+            super(REASON);
             this.problem = problem;
         }
 

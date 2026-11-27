@@ -27,14 +27,16 @@ final class EnvironmentTransferDialog {
         work(() -> new Overview(transfer.restoreState(), transfer.installation()), this::chooseOperation);
     }
 
-    private record Overview(DesktopEnvironmentTransfer.RestoreState restore, DesktopEnvironmentTransfer.Installation installation) {}
+    record Overview(DesktopEnvironmentTransfer.RestoreState restore, DesktopEnvironmentTransfer.Installation installation) {}
 
-    private void chooseOperation(Overview overview) {
+    void chooseOperation(Overview overview) {
         var state = overview.restore();
         Object[] choices = {host.message("transfer.export"), host.message("transfer.import"), host.message("desktop.ui.action.close")};
         var messages = new ArrayList<String>();
         if (state.status() != DesktopEnvironmentTransfer.Status.NONE)
             messages.add(host.message("transfer.status." + state.status().name().toLowerCase(Locale.ROOT)));
+        if (!state.reasonMessageKey().isEmpty()) messages.add(host.message(state.reasonMessageKey()));
+        if (state.hasLogHint()) messages.add(host.message("transfer.restore-log-hint", state.jobId()));
         if (overview.installation().kind() != DesktopEnvironmentTransfer.InstallationKind.UNSUPPORTED) {
             var installation = overview.installation();
             messages.add(host.message("transfer.installation." + installation.kind().name().toLowerCase(Locale.ROOT)));

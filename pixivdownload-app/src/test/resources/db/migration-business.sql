@@ -10,7 +10,7 @@ INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,deleted) VALU
 INSERT INTO artwork_tags VALUES(5000000001,101);
 INSERT INTO artwork_collections VALUES(103,5000000001,1700000000123);
 INSERT INTO artwork_file_names VALUES(5000000001,0,'原始文件名 🌸');
-INSERT INTO artwork_media VALUES(5000000001,0,'png','png,jpg',1);
+INSERT INTO artwork_media(artwork_id,page,original_extension,extensions,original_retained) VALUES(5000000001,0,'png','png,jpg',1);
 INSERT INTO artwork_image_hashes VALUES(5000000001,0,'png',-9223372036854775807,NULL,1700000000123);
 INSERT INTO external_work_files VALUES('reference-fixture','ILLUST',5000000001,0,'{77}','{77}/插画/原始文件名 🌸.png',1700000000123);
 INSERT INTO file_operation_entries VALUES('entry-fixture','operation-fixture',0,'{77}/待恢复.txt',NULL,'abc',1);

@@ -85,7 +85,10 @@ public class ImageHashMapper {
         return database.read(s -> s.query(query)).stream().map(row -> (Long) row.get("id")).toList();
     }
     public void deleteByArtwork(long artworkId) {
-        database.transaction(s -> s.delete(TABLE, call(EQUAL, column(TABLE, "artwork_id"), value(artworkId))));
+        database.transaction(s -> deleteByArtwork(s, artworkId));
+    }
+    public static int deleteByArtwork(DatabaseSession session, long artworkId) throws java.sql.SQLException {
+        return session.delete(TABLE, call(EQUAL, column(TABLE, "artwork_id"), value(artworkId)));
     }
     public void deleteAll() {
         database.transaction(s -> s.delete(TABLE, call(EQUAL, value(1), value(1))));

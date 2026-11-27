@@ -113,6 +113,7 @@ class DistributionPackagingBoundaryTest {
             "pixivdownload-plugin-database-postgresql",
             "pixivdownload-plugin-download-workbench",
             "pixivdownload-plugin-pixiv-batch-downloader-import",
+            "pixivdownload-plugin-pixiv-content",
             "pixivdownload-plugin-gui-compose",
             "pixivdownload-plugin-gui-swing",
             "pixivdownload-plugin-gallery-tools",
@@ -780,6 +781,14 @@ class DistributionPackagingBoundaryTest {
     void downloadWorkbenchPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(DOWNLOAD_WORKBENCH_CLASSES_PROPERTY, "pixivdownload-plugin-download-workbench",
                 "top/sywyar/pixivdownload/download/DownloadWorkbenchPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("Pixiv 内容 API 以 thin JAR 提供元数据与图片接口")
+    void pixivContentPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin("pixiv-content.plugin.classes", "pixivdownload-plugin-pixiv-content",
+                "top/sywyar/pixivdownload/pixivcontent/PixivContentPf4jPlugin.class",
+                "i18n/web/pixiv-content.properties", "i18n/http/pixiv-content-browse.properties");
     }
 
     @Test

@@ -216,6 +216,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/admin/system/reload").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("system.reload", "program.permission.system.reload"))),
                 WebRouteContribution.admin("/api/tools/logs/*").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("logs.read", "program.permission.logs.read"))),
                 WebRouteContribution.admin("/api/tools/path-prefixes/pin").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("paths.write", "program.permission.paths.write"))),
+                WebRouteContribution.admin("/api/tools/ffmpeg/tasks/*/cancel").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("ffmpeg.cancel", "program.permission.ffmpeg.cancel"))),
                 WebRouteContribution.admin("/api/tools/ffmpeg/tasks").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("ffmpeg.install", "program.permission.ffmpeg.install"))),
                 WebRouteContribution.admin("/api/tools/backfill/defaults").withProgramPermissions(Map.of(HttpMethod.GET, new ProgramPermission("backfill.read", "program.permission.backfill.read"))),
                 WebRouteContribution.admin("/api/tools/backfill/candidates").withProgramPermissions(Map.of(HttpMethod.POST, new ProgramPermission("backfill.read", "program.permission.backfill.read"))),

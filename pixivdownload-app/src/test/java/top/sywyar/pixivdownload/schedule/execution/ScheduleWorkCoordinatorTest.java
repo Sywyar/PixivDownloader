@@ -95,17 +95,20 @@ class ScheduleWorkCoordinatorTest {
                 row.attempts() == 0 && row.reasonDetailJson().equals("{\"requiresUserAction\":true}")));
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"DOWNLOAD_PATH_ACTION_REQUIRED,TRUNCATE,TRUNCATE",
+            "DOWNLOAD_PATH_ACTION_REQUIRED,TRUNCAT,ASK", "DOWNLOAD_PATH_ACTION_REQUIRED,ASK,ASK",
+            "provider.needs-choice,ARCHIVE,ARCHIVE"})
     @DisplayName("记住的选择只作用于当前运行，先消费耐久授权再执行")
-    void rememberedChoiceIsConsumedAndDoesNotLeakToNextRun() throws Exception {
+    void rememberedChoiceIsConsumedAndDoesNotLeakToNextRun(String reason, String action, String expected) throws Exception {
         ScheduledTaskStore store = store();
         List<String> actions = new ArrayList<>();
         var executors = Map.of("illust", executor("illust", (work, context) -> {
-            actions.add(context.userAction("DOWNLOAD_PATH_ACTION_REQUIRED").orElse("ASK"));
+            actions.add(context.userAction(reason).orElse("ASK"));
             return ScheduledWorkResult.completed();
         }));
         var row = new ScheduleWorkPersistenceCodec(JsonMapper.builderWithJackson2Defaults().build()).toPendingWork(1L, work("illust", "1"),
-                "DOWNLOAD_PATH_ACTION_REQUIRED", "{\"requiresUserAction\":false,\"userAction\":\"TRUNCATE\",\"rememberForRun\":true}",
+                reason, "{\"requiresUserAction\":false,\"userAction\":\"" + action + "\",\"rememberForRun\":true}",
                 0, 1L, null);
         ScheduleWorkCoordinator first = coordinator(store, executors, new SyncTaskExecutor(), 5);
         first.loadPending(List.of(row));
@@ -117,7 +120,7 @@ class ScheduleWorkCoordinatorTest {
         ScheduleWorkCoordinator next = coordinator(store, executors, new SyncTaskExecutor(), 5);
         next.submit(work("illust", "3"));
         next.drain();
-        assertThat(actions).containsExactly("TRUNCATE", "TRUNCATE", "ASK");
+        assertThat(actions).containsExactly(expected, expected, "ASK");
     }
     private static final String NOVEL = "novel";
     private static final ScheduleCapabilityOwner WORK_OWNER =

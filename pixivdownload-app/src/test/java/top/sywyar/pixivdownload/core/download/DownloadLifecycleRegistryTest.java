@@ -33,6 +33,8 @@ class DownloadLifecycleRegistryTest {
                 public String workType() { return "example"; }
                 public void submit(DownloadSubmission command, DownloadAttempt attempt, String credential) {
                     calls.incrementAndGet();
+                    if (command.options().containsKey("saved"))
+                        throw new top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException(31_234, true);
                     if (command.options().containsKey("variant"))
                         throw new top.sywyar.pixivdownload.plugin.api.contract.InputFieldException("/options/variant", "unsupported");
                     throw new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND);
@@ -55,6 +57,11 @@ class DownloadLifecycleRegistryTest {
             assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> registry.submit(badOption, null, owner))
                     .extracting(DownloadTaskException::failure)
                     .isEqualTo(new DownloadTaskException.Failure(DownloadTaskException.Code.REJECTED, "/options/variant", "unsupported"));
+            var limited = new DownloadSubmission(UUID.randomUUID(), "example", "42", Map.of("saved", "true"));
+            assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> registry.submit(limited, null, owner))
+                    .extracting(DownloadTaskException::failure)
+                    .isEqualTo(new DownloadTaskException.Failure(DownloadTaskException.Code.UPSTREAM_RATE_LIMITED, null, null, 31_234));
+            assertThat(registry.submit(limited, null, owner).task().failureReason()).isEqualTo(DownloadEvent.FailureReason.UPSTREAM_RATE_LIMITED);
             registrar.retireDrained(registrar.withdraw(publication).orElseThrow());
             assertThat(registry.submit(command, null, owner).task()).isEqualTo(retry.task());
         }

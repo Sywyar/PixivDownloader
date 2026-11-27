@@ -28,6 +28,7 @@ final class DesktopEnvironmentTransferView {
     private char[] queuedPassword;
     private String notice = "";
     private String restoreNotice = "";
+    private DesktopEnvironmentTransfer.RestoreState restoreState;
     private DesktopEnvironmentTransfer.Installation installation;
     private DesktopEnvironmentTransfer.Preview preview;
     private final Set<DesktopEnvironmentTransfer.FieldKey> selected = new LinkedHashSet<>();
@@ -38,11 +39,13 @@ final class DesktopEnvironmentTransferView {
 
     void refreshRestoreState() {
         restoreNotice = "";
+        restoreState = null;
         var capability = model.host.environmentTransfer();
         if (capability.isEmpty()) return;
         try {
             installation = capability.get().installation();
             var state = capability.get().restoreState();
+            restoreState = state;
             if (state.status() != DesktopEnvironmentTransfer.Status.NONE)
                 restoreNotice = "transfer.status." + state.status().name().toLowerCase(Locale.ROOT);
         } catch (Exception unavailable) { restoreNotice = "transfer.result-unavailable"; }
@@ -68,6 +71,10 @@ final class DesktopEnvironmentTransferView {
                     boolean enabled = !model.owner.busy();
                     List<DesktopUiNode> body = new ArrayList<>();
                     if (!restoreNotice.isEmpty()) body.add(text("transfer.previous", restoreNotice, TextStyle.BODY));
+                    if (restoreState != null && !restoreState.reasonMessageKey().isEmpty())
+                        body.add(text("transfer.restore-reason", restoreState.reasonMessageKey(), TextStyle.WARNING));
+                    if (restoreState != null && restoreState.hasLogHint())
+                        body.add(new Text("transfer.restore-log", appToken("transfer.restore-log-hint", restoreState.jobId()), TextStyle.CAPTION, true, true));
                     if (installation != null && installation.kind() != DesktopEnvironmentTransfer.InstallationKind.UNSUPPORTED) {
                         body.add(text("transfer.installation", "transfer.installation." + installation.kind().name().toLowerCase(Locale.ROOT), TextStyle.BODY));
                         body.add(new Text("transfer.installation-paths", appToken("transfer.installation-paths",

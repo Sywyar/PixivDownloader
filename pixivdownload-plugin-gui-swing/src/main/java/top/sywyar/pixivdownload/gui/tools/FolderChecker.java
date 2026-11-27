@@ -324,8 +324,8 @@ public class FolderChecker {
             showError(message("gui.folder-checker.error.row-required"));
             return;
         }
-        String newPath = stripTrailingSlash(newPathField.getText().trim());
-        if (newPath.isEmpty()) {
+        String newPath = newPathField.getText();
+        if (newPath.isBlank()) {
             showError(message("gui.folder-checker.error.new-path.required"));
             return;
         }

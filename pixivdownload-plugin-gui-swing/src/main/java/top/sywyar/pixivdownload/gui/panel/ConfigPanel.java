@@ -1339,6 +1339,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return false;
         }
 
+        String reason = message("gui.migrate-dir.error.unreachable");
         try {
             DesktopUiHost.GuiResponse pin = SwingHost.host().guiPostJson(
                     "path-prefixes/pin", Map.of("path", currentResolved), 15_000);
@@ -1346,13 +1347,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     && pin.body().path("success").asBoolean(false)) {
                 return true;
             }
+            if (pin.body() != null) reason = StatusPanel.migrateReason(pin.body().path("errors").path(0).path("reason").asText(""));
             log.warn(logMessage("gui.config.log.symbolic-pin.failed",
                     pin.reachable() ? String.valueOf(pin.status()) : "unreachable"));
         } catch (Exception e) {
             log.warn(logMessage("gui.config.log.symbolic-pin.failed", e.getMessage()));
         }
         GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                message("gui.config.symbolic-pin.failed"));
+                message("gui.config.symbolic-pin.failed", reason));
         return false;
     }
 

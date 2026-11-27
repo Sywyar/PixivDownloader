@@ -1,6 +1,10 @@
 package top.sywyar.pixivdownload.download;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
+import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
+import top.sywyar.pixivdownload.core.asset.FileTransactionService;
+import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.download.media.ImageOutputService.MediaSink;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,13 +50,14 @@ public class UgoiraService {
     static final long MAX_ZIP_UNCOMPRESSED_BYTES = 2L * MAX_ZIP_BYTES;
     static final long MAX_FRAME_PIXELS = 25_000_000L;
     static final long MAX_OTHER_OUTPUT_BYTES = 100L * MIB;
-    // 下载包、保存源包时的副本、解压帧与小型时序 / 列表文件。
+    // 下载包、先前尝试中仍待保留的帧包、解压帧与小型时序 / 列表文件。
     private static final long INPUT_TEMPORARY_BYTES = 2 * MAX_ZIP_BYTES + MAX_ZIP_UNCOMPRESSED_BYTES + MIB;
 
     private final PixivImageDownloader pixivImageDownloader;
     private final FfmpegRunner ffmpegRunner;
     private final MessageResolver messages;
     private final ArtworkMediaStore mediaStore;
+    private final FileTransactionService transactions;
     private final top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings encoderSettings;
     private final UgoiraTemporaryBudget temporaryBudget;
     private final Map<Path, ProcessingLock> processingLocks = new HashMap<>();
@@ -65,30 +70,26 @@ public class UgoiraService {
     public UgoiraService(PixivImageDownloader pixivImageDownloader,
                          FfmpegRunner ffmpegRunner,
                          MessageResolver messages,
-                         ArtworkMediaStore mediaStore) {
-        this(pixivImageDownloader, ffmpegRunner, messages, mediaStore,
+                         ArtworkMediaStore mediaStore, FileTransactionService transactions) {
+        this(pixivImageDownloader, ffmpegRunner, messages, mediaStore, transactions,
                 new top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings());
     }
 
     public UgoiraService(PixivImageDownloader pixivImageDownloader, FfmpegRunner ffmpegRunner,
-                         MessageResolver messages, ArtworkMediaStore mediaStore,
+                         MessageResolver messages, ArtworkMediaStore mediaStore, FileTransactionService transactions,
                          top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings encoderSettings) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.ffmpegRunner = ffmpegRunner;
         this.messages = messages;
         this.mediaStore = mediaStore;
+        this.transactions = transactions;
         this.encoderSettings = encoderSettings;
         this.temporaryBudget = new UgoiraTemporaryBudget(encoderSettings.getTemporaryBudgetGib() * 1024L * MIB);
     }
 
-    /**
-     * 处理动图并写出到 downloadPath。
-     *
-     * @return 1 表示成功，0 表示失败
-     */
-    public int processUgoira(Long artworkId, DownloadRequest.Other other,
-                             Path downloadPath, String referer, String cookie) {
-        return processUgoira(artworkId, other, downloadPath, referer, cookie, null);
+    @FunctionalInterface
+    interface FrameArchiveSink {
+        void stage(Path stem, Path archive, Path timing) throws IOException;
     }
 
     public List<String> outputFormats(DownloadRequest.Other other) {
@@ -97,39 +98,38 @@ public class UgoiraService {
                 top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS);
     }
 
-    public int processUgoira(Long artworkId, DownloadRequest.Other other,
-                             Path downloadPath, String referer, String cookie,
-                             Consumer<UgoiraProgress> progressListener) {
-        return processUgoira(artworkId, other, downloadPath, referer, cookie, progressListener, () -> false);
+    /** 下载并编码到调用方独占的暂存目录；完整作品登记由执行器与文件一起提交。 */
+    int stageUgoira(Long artworkId, DownloadRequest.Other other, Path staging, String referer, String cookie,
+                    Consumer<UgoiraProgress> progressListener, BooleanSupplier cancellationRequested, MediaSink sink, FrameArchiveSink archiveSink) {
+        return processArchive(artworkId, other, staging, referer, cookie, progressListener, cancellationRequested,
+                null, sink, Objects.requireNonNull(archiveSink));
     }
 
-    public int processUgoira(Long artworkId, DownloadRequest.Other other,
-                             Path downloadPath, String referer, String cookie,
-                             Consumer<UgoiraProgress> progressListener,
-                             BooleanSupplier cancellationRequested) {
-        return processUgoira(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested,
-                (page, stem, media) -> mediaStore.save(artworkId, page, media));
+    private record LocalArchive(Path zip, Set<String> frameNames, int page, ArtworkMediaManifest media) {}
+
+    public static boolean hasRetainedFrames(Optional<ArtworkMediaManifest> media, Path stem) throws IOException {
+        if (media.isEmpty() || !media.get().originalRetained() || !media.get().originalExtension().equals("zip")) return false;
+        return readableInput(stem.resolveSibling(stem.getFileName() + ".zip"), MAX_ZIP_BYTES)
+                && readableInput(stem.resolveSibling(stem.getFileName() + ".frames.properties"), 128 * 1024);
     }
 
-    int processUgoira(Long artworkId, DownloadRequest.Other other, Path downloadPath, String referer, String cookie,
-                      Consumer<UgoiraProgress> progressListener, BooleanSupplier cancellationRequested, MediaSink sink) {
-        return processArchive(artworkId, other, downloadPath, referer, cookie, progressListener, cancellationRequested, null, null, sink);
+    private static boolean readableInput(Path path, long maximumBytes) throws IOException {
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || !Files.isReadable(path)) return false;
+        long bytes = Files.size(path);
+        return bytes > 0 && bytes <= maximumBytes;
     }
 
-    public boolean addMissingFormats(long artworkId, Path displayedFile, String selectedFormats,
-                                     BooleanSupplier cancellationRequested) throws IOException {
-        String name = displayedFile.getFileName().toString();
-        String base = name.substring(0, name.lastIndexOf('.'));
-        if (base.endsWith("_thumb")) base = base.substring(0, base.length() - 6);
-        Path stem = displayedFile.resolveSibling(base);
-        var previous = mediaStore.find(artworkId, 0);
-        if (previous.isEmpty() || !previous.get().originalExtension().equals("zip")) return false;
+    public boolean addMissingFormats(long artworkId, WorkAssetFile rawFile, String selectedFormats,
+                                     BooleanSupplier cancellationRequested, DownloadPathGuard paths) throws IOException {
+        String name = rawFile.path().getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        if (dot < 1) throw new IOException("Invalid media filename");
+        String base = name.substring(0, dot);
+        Path stem = rawFile.path().resolveSibling(base);
+        var previous = mediaStore.find(artworkId, rawFile.page());
+        if (!hasRetainedFrames(previous, stem)) return false;
         Path zip = stem.resolveSibling(base + ".zip");
         Path timingFile = stem.resolveSibling(base + ".frames.properties");
-        if (!Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS) || Files.size(zip) > MAX_ZIP_BYTES
-                || !Files.isRegularFile(timingFile, LinkOption.NOFOLLOW_LINKS) || Files.size(timingFile) > 128 * 1024) {
-            throw new IOException("Original animation archive and timing are required");
-        }
         List<String> missing = new ArrayList<>();
         for (String format : top.sywyar.pixivdownload.download.media.MediaOutputSettings.parseFormats(selectedFormats,
                 top.sywyar.pixivdownload.download.media.MediaOutputSettings.UGOIRA_FORMATS)) {
@@ -152,8 +152,9 @@ public class UgoiraService {
         request.setFileNames(List.of(base));
         request.setUgoiraDelays(delays);
         request.setUgoiraFormats(String.join(",", missing));
-        if (processArchive(artworkId, request, displayedFile.getParent(), null, null, null, cancellationRequested, zip, timing.stringPropertyNames(),
-                (page, file, media) -> mediaStore.save(artworkId, page, media)) != 1) {
+        var archive = new LocalArchive(zip, timing.stringPropertyNames(), rawFile.page(), previous.orElseThrow());
+        if (processArchive(artworkId, request, stem.getParent(), null, null, null, cancellationRequested, archive,
+                MediaSink.forMaintenance(artworkId, mediaStore, paths), null) != 1) {
             throw new IOException("Animation conversion failed");
         }
         return true;
@@ -162,7 +163,8 @@ public class UgoiraService {
     private int processArchive(Long artworkId, DownloadRequest.Other other,
                                Path downloadPath, String referer, String cookie,
                                Consumer<UgoiraProgress> progressListener,
-                               BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames, MediaSink sink) {
+                               BooleanSupplier cancellationRequested, LocalArchive sourceArchive,
+                               MediaSink sink, FrameArchiveSink archiveSink) {
         Path directory = downloadPath.toAbsolutePath().normalize();
         ProcessingLock lock;
         synchronized (processingLocks) {
@@ -176,7 +178,7 @@ public class UgoiraService {
                 acquired = lock.gate.tryLock(200, TimeUnit.MILLISECONDS);
             } while (!acquired);
             return processArchiveLocked(artworkId, other, downloadPath, referer, cookie,
-                    progressListener, cancellationRequested, sourceArchive, frameNames, sink);
+                    progressListener, cancellationRequested, sourceArchive, sink, archiveSink);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new CancellationException("download cancelled");
@@ -191,7 +193,8 @@ public class UgoiraService {
     private int processArchiveLocked(Long artworkId, DownloadRequest.Other other,
                                      Path downloadPath, String referer, String cookie,
                                      Consumer<UgoiraProgress> progressListener,
-                                     BooleanSupplier cancellationRequested, Path sourceArchive, Set<String> frameNames, MediaSink sink) {
+                                     BooleanSupplier cancellationRequested, LocalArchive sourceArchive,
+                                     MediaSink sink, FrameArchiveSink archiveSink) {
         if (sourceArchive == null) ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
         String outputBaseName = resolveOutputBaseName(artworkId, other);
         List<String> formats = outputFormats(other);
@@ -223,7 +226,7 @@ public class UgoiraService {
                         .build());
                 boolean downloaded;
                 if (sourceArchive != null) {
-                    Files.copy(sourceArchive, zipPath, StandardCopyOption.REPLACE_EXISTING);
+                    Files.copy(sourceArchive.zip(), zipPath, StandardCopyOption.REPLACE_EXISTING);
                     downloaded = true;
                 } else {
                     downloaded = downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts,
@@ -256,14 +259,18 @@ public class UgoiraService {
                 ensureNotCancelled(cancellationRequested);
 
                 List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
-                if (sourceArchive != null && (!frameFiles.keySet().equals(frameNames) || orderedFrames.size() != expectedFrames)) {
+                if (sourceArchive != null && (!frameFiles.keySet().equals(sourceArchive.frameNames()) || orderedFrames.size() != expectedFrames)) {
                     throw new IOException("Animation timing does not match frames");
                 }
                 List<Integer> delays = resolveDelays(other.getUgoiraDelays(), orderedFrames.size());
 
-                // 用户选中的原始帧包先落盘，后续编码失败或取消也保留这份恢复源。
-                if (formats.contains("zip")) saveArchive(zipPath, downloadPath.resolve(outputBaseName), orderedFrames, delays);
+                // 原始帧包和时序先成对暂存，编码失败或取消时执行器仍有完整恢复源。
+                if (archiveSink != null && formats.contains("zip"))
+                    saveArchive(zipPath, downloadPath.resolve(outputBaseName), orderedFrames, delays, archiveSink);
                 boolean complete = true;
+                Map<Path, Path> newFiles = new LinkedHashMap<>();
+                Path outputDirectory = sourceArchive == null ? downloadPath : Files.createTempDirectory(tempDir, "converted-");
+                long reservedBytes = INPUT_TEMPORARY_BYTES;
                 int outputIndex = 0;
                 int outputCount = (int) formats.stream().filter(format -> !format.equals("zip")).count();
                 for (String format : formats) {
@@ -271,35 +278,39 @@ public class UgoiraService {
                     int index = ++outputIndex;
                     Consumer<UgoiraProgress> outputProgress = progress -> publishProgress(progressListener,
                             progress.toBuilder().outputFormat(format).outputIndex(index).outputCount(outputCount).build());
-                    if (!runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
+                    if (!runFfmpeg(artworkId, orderedFrames, delays, tempDir, outputDirectory,
                             outputBaseName, format, encodingSettings, attempt, maxAttempts,
-                            outputProgress, cancellationRequested, workspace)) {
+                            outputProgress, cancellationRequested, workspace, reservedBytes)) {
                         complete = false;
                         break;
                     }
+                    if (sourceArchive != null) {
+                        String name = outputBaseName + "." + format;
+                        Path staged = outputDirectory.resolve(name);
+                        newFiles.put(downloadPath.resolve(name), staged);
+                        reservedBytes += Files.size(staged);
+                    } else workspace.update(INPUT_TEMPORARY_BYTES);
                 }
                 if (complete) {
                     publishProgress(progressListener, UgoiraProgress.builder()
                             .phase(UgoiraProgress.PHASE_FINALIZING).status(UgoiraProgress.STATUS_RUNNING)
                             .attempt(attempt).maxAttempts(maxAttempts).zipProgress(100).build());
                     Path thumbnailPath = downloadPath.resolve(outputBaseName + "_thumb.jpg");
-                    if (sourceArchive == null || !Files.exists(thumbnailPath)) {
+                    boolean thumbnailOwned = sourceArchive != null && sourceArchive.media().thumbnailOwned();
+                    if (Files.notExists(thumbnailPath, LinkOption.NOFOLLOW_LINKS)) {
                         BufferedImage thumbnail = top.sywyar.pixivdownload.core.asset.ImageThumbnailScaler.scale(
                                 orderedFrames.get(0).getValue(), 1600, 1600);
-                        Path temporary = Files.createTempFile(downloadPath, ".media-thumb-", ".jpg");
-                        try {
-                            if (!ImageIO.write(thumbnail, "jpg", temporary.toFile())) throw new IOException("JPEG writer unavailable");
-                            publishOutput(temporary, thumbnailPath);
-                        } finally { Files.deleteIfExists(temporary); }
+                        Path temporary = Files.createTempFile(tempDir, ".media-thumb-", ".jpg");
+                        if (!ImageIO.write(thumbnail, "jpg", temporary.toFile())) throw new IOException("JPEG writer unavailable");
+                        newFiles.put(thumbnailPath, temporary);
+                        thumbnailOwned = true;
                     }
                     LinkedHashSet<String> savedFormats = new LinkedHashSet<>();
-                    if (sourceArchive != null) {
-                        mediaStore.find(artworkId, 0)
-                                .ifPresent(existing -> savedFormats.addAll(existing.extensions()));
-                    }
+                    if (sourceArchive != null) savedFormats.addAll(sourceArchive.media().extensions());
                     savedFormats.addAll(formats);
-                    sink.save(0, downloadPath.resolve(outputBaseName),
-                            new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("zip", List.copyOf(savedFormats)));
+                    sink.publishAndSave(transactions, newFiles, sourceArchive == null ? 0 : sourceArchive.page(), downloadPath.resolve(outputBaseName),
+                            new ArtworkMediaManifest("zip", List.copyOf(savedFormats),
+                                    savedFormats.contains("zip"), thumbnailOwned), cancellationRequested);
                     return 1;
                 }
 
@@ -331,20 +342,16 @@ public class UgoiraService {
     }
 
     private void saveArchive(Path zip, Path stem, List<Map.Entry<String, Path>> frames,
-                             List<Integer> delays) throws IOException {
-        Path archive = Files.createTempFile(stem.getParent(), ".media-archive-", ".zip");
+                             List<Integer> delays, FrameArchiveSink sink) throws IOException {
         Path timingFile = Files.createTempFile(stem.getParent(), ".media-timing-", ".properties");
         try {
-            Files.copy(zip, archive, StandardCopyOption.REPLACE_EXISTING);
             Properties timing = new Properties();
             for (int index = 0; index < frames.size(); index++) {
                 timing.setProperty(frames.get(index).getKey(), Integer.toString(delays.get(index)));
             }
             try (var writer = Files.newBufferedWriter(timingFile, StandardCharsets.UTF_8)) { timing.store(writer, null); }
-            publishOutput(timingFile, stem.resolveSibling(stem.getFileName() + ".frames.properties"));
-            publishOutput(archive, stem.resolveSibling(stem.getFileName() + ".zip"));
+            sink.stage(stem, zip, timingFile);
         } finally {
-            Files.deleteIfExists(archive);
             Files.deleteIfExists(timingFile);
         }
     }
@@ -467,7 +474,7 @@ public class UgoiraService {
                               top.sywyar.pixivdownload.download.media.MediaOutputSettings encodingSettings,
                               int attempt, int maxAttempts,
                               Consumer<UgoiraProgress> progressListener,
-                              BooleanSupplier cancellationRequested, UgoiraTemporaryBudget.Lease workspace) throws Exception {
+                              BooleanSupplier cancellationRequested, UgoiraTemporaryBudget.Lease workspace, long reservedBytes) throws Exception {
         Path outputPath = downloadPath.resolve(outputBaseName + "." + format);
         Path partialOutput = downloadPath.resolve(outputBaseName + "." + format + ".part");
         long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
@@ -487,7 +494,7 @@ public class UgoiraService {
         long outputLimit = format.equals("webp") ? encoderSettings.getMaxOutputMib() * MIB : MAX_OTHER_OUTPUT_BYTES;
         Duration timeout = Duration.ofMinutes(encoderSettings.getTimeoutMinutes());
         java.util.function.LongConsumer reserveOutput = bytes -> {
-            try { workspace.update(INPUT_TEMPORARY_BYTES + bytes); }
+            try { workspace.update(reservedBytes + bytes); }
             catch (IOException failure) { throw resourceLimit("ugoira.log.limit.temporary", encoderSettings.getTemporaryBudgetGib()); }
         };
         try {
@@ -568,7 +575,6 @@ public class UgoiraService {
             } catch (IOException cleanupFailure) {
                 log.debug("Could not remove FFmpeg temporary output", cleanupFailure);
             }
-            workspace.update(INPUT_TEMPORARY_BYTES);
         }
     }
 

@@ -30,6 +30,37 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DownloadTasksControllerTest {
     private static final String OUTPUT = java.nio.file.Path.of("downloads", "作品").toAbsolutePath().toString();
 
+    @Test void upstreamRetryDelayIsOptionalAndRoundsUpWithoutOverflow() throws Exception {
+        var tasks = mock(DownloadTasks.class);
+        var identities = mock(RequestOwnerIdentityResolver.class);
+        var owner = RequestOwnerIdentity.adminScope();
+        when(identities.resolve(any())).thenReturn(owner);
+        var command = new DownloadSubmission(UUID.randomUUID(), "example", "42", Map.of());
+        when(tasks.submit(command, null, owner)).thenThrow(DownloadTaskException.upstreamRateLimited(1_001),
+                DownloadTaskException.upstreamRateLimited(Long.MAX_VALUE), DownloadTaskException.upstreamRateLimited(0));
+        var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
+        var request = post("/api/download/tasks").contentType(MediaType.APPLICATION_JSON).content(JsonMapper.shared().writeValueAsBytes(command));
+        for (String seconds : List.of("2", "9223372036854776"))
+            mvc.perform(request).andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", seconds))
+                    .andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_UPSTREAM_RATE_LIMITED"));
+        mvc.perform(request).andExpect(status().isTooManyRequests()).andExpect(header().doesNotExist("Retry-After"));
+    }
+
+    @Test void unreadableArchivedTasksHaveStableHttpErrorsForLookupAndCancel() throws Exception {
+        var tasks = mock(DownloadTasks.class);
+        var identities = mock(RequestOwnerIdentityResolver.class);
+        var owner = RequestOwnerIdentity.adminScope();
+        when(identities.resolve(any())).thenReturn(owner);
+        var id = UUID.randomUUID();
+        var failure = mock(top.sywyar.pixivdownload.core.download.DownloadTaskResultStore.ReceiptUnavailable.class);
+        when(tasks.find(id, owner)).thenThrow(failure);
+        when(tasks.cancel(id, owner)).thenThrow(failure);
+        var mvc = MockMvcBuilders.standaloneSetup(new DownloadTasksController(tasks, identities, HostTestMessages.messages())).build();
+        for (var request : List.of(get("/api/download/tasks/" + id), post("/api/download/tasks/" + id + "/cancel")))
+            mvc.perform(request).andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("DOWNLOAD_TASK_RECEIPT_UNAVAILABLE"));
+    }
+
     @Test void historyRequiresAdminAndPreservesCursorAndStructuredFailure() throws Exception {
         var tasks = mock(DownloadTasks.class);
         var identities = mock(RequestOwnerIdentityResolver.class);

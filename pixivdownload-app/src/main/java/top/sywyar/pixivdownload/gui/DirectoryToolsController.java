@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -40,10 +41,12 @@ public final class DirectoryToolsController {
     private final DatabaseTarget target;
     private final DownloadConfig download;
     private final ToolApiRequests requests;
+    private final DownloadDirectories directories;
     private final AppMessages messages;
 
     public DirectoryToolsController(DataSource dataSource, DatabaseTarget target, DownloadConfig download,
-                                    ToolApiRequests requests, AppMessages messages) {
+                                    ToolApiRequests requests, AppMessages messages, DownloadDirectories directories) {
+        this.directories = directories;
         this.dataSource = dataSource;
         this.target = target;
         this.download = download;
@@ -79,11 +82,13 @@ public final class DirectoryToolsController {
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.InvalidRequest.class)))
     @ApiResponse(responseCode = "404", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "ARTWORK_NOT_FOUND"))))
+    @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "DIRECTORY_UPDATE_CONFLICT"))))
     @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
     @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @PostMapping(consumes = "application/json")
     public ResponseEntity<Void> update(HttpServletRequest request) throws IOException, SQLException {
-        var body = ToolApiRequests.read(request, Update.class, BODY_LIMIT);
+        var body = ToolApiRequests.readStrictStrings(request, Update.class, BODY_LIMIT);
         if (body.artworkId() < 1) throw new InputFieldException("/artworkId", "out_of_range");
         if (body.path() == null || body.path().isBlank()) throw new InputFieldException("/path", "required");
         if (body.path().length() > 4096) throw new InputFieldException("/path", "too_large");
@@ -93,12 +98,19 @@ public final class DirectoryToolsController {
         } catch (java.nio.file.InvalidPathException invalid) {
             throw new InputFieldException("/path", "invalid_format");
         }
-        try (var connection = dataSource.getConnection()) {
+        try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(
+                top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, body.artworkId()); var connection = dataSource.getConnection()) {
             target.requireConnectionTarget(connection);
-            tools.updateArtworkFolder(connection, target, download.getRootFolder(), body.artworkId(), body.moved(), body.path());
+            tools.updateArtworkFolder(connection, target, download.getRootFolder(), body.artworkId(), body.moved(), body.path(), directories);
         }
         LOG.info("Artwork directory reference updated through HTTP artworkId={} moved={}", body.artworkId(), body.moved());
         return ResponseEntity.noContent().build();
+    }
+
+    @ExceptionHandler(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class)
+    public ResponseEntity<ApiErrorResponse> occupied(Locale locale) {
+        return ResponseEntity.status(409).body(ApiErrorResponse.of("DIRECTORY_UPDATE_CONFLICT",
+                messages.get(locale, "directory.update.deletion-in-progress")));
     }
 
     @ExceptionHandler(SQLException.class)

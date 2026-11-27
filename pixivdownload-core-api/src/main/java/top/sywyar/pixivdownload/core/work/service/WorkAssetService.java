@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -32,6 +33,18 @@ public interface WorkAssetService {
      * @return 登记产物完整时返回 {@code true}；缺失或不支持检查时返回 {@code false}
      */
     default boolean hasCompleteFiles(WorkType workType, long workId) { return false; }
+
+    /**
+     * 枚举导出并删除作品前必须进入归档的所有源文件，包括已登记但可能缺失的产物。
+     * 调用方必须中止不完整归档的删源，并在作品锁内复核当前清单。
+     * @param type 作品类型
+     * @param workId 作品标识
+     * @return 完整归档需要的文件路径
+     * @throws UnsupportedOperationException 宿主不能提供完整清单
+     */
+    default List<Path> archiveSources(WorkType type, long workId) {
+        throw new UnsupportedOperationException("Archive source inventory is unavailable");
+    }
 
     /**
      * 发布暂存产物并在同一主库事务保存记录；失败回滚，无法复原时保留备份。
