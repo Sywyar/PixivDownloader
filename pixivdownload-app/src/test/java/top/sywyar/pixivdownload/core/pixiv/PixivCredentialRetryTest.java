@@ -70,11 +70,13 @@ class PixivCredentialRetryTest {
         }
     }
 
-    @Test @DisplayName("失效后按顺序切换且不改首选，冷却跨请求共享")
-    void fallback() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"/ajax/illust/42", "/ajax/search/illustrations/cat", "/ajax/search/manga/cat"})
+    @DisplayName("公开作品读取在凭据失效后切换，冷却跨请求共享")
+    void fallback(String path) throws Exception {
+        URI uri = URI.create("https://www.pixiv.net" + path);
         var retry = new PixivCredentialRetry();
         var attempts = new ArrayList<String>();
-        String result = scope.call(() -> retry.execute(PUBLIC, A, cookie -> {
+        String result = scope.call(() -> retry.execute(uri, A, cookie -> {
             attempts.add(cookie);
             if (cookie.equals(A)) throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 401);
             return "ok";
@@ -82,7 +84,7 @@ class PixivCredentialRetryTest {
         assertThat(result).isEqualTo("ok");
         assertThat(attempts).containsExactly(A, B);
         attempts.clear();
-        scope.call(() -> retry.execute(PUBLIC, A, cookie -> {attempts.add(cookie); return "ok";}));
+        scope.call(() -> retry.execute(uri, A, cookie -> {attempts.add(cookie); return "ok";}));
         assertThat(attempts).containsExactly(B);
         assertThat(scope.primary()).isEqualTo(A);
         assertThat(AcquisitionCredentials.current()).isNull();
@@ -98,7 +100,8 @@ class PixivCredentialRetryTest {
         assertThat(attempts).containsExactly(A);
     }
     @ParameterizedTest @ValueSource(strings = {"/ajax/user/1/illusts/bookmarks", "/ajax/user/1/novels/bookmarks",
-            "/ajax/user/1/following", "/ajax/user/1/profile", "/ajax/user/1/unknown"})
+            "/ajax/user/1/following", "/ajax/user/1/profile", "/ajax/user/1/profile/collections",
+            "/ajax/collection/42", "/ajax/user/1/unknown"})
     @DisplayName("个人来源和未声明的用户子路径固定账号，全部耗尽和取消不产生额外请求")
     void accountAndCancellation(String path) {
         var attempts = new ArrayList<String>();

@@ -26,7 +26,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             + "illust/[1-9][0-9]*(?:/(?:pages|ugoira_meta))?"
             + "|novel/[1-9][0-9]*|novel/(?:series|series_content)/[1-9][0-9]*"
             + "|series/[1-9][0-9]*|user/[1-9][0-9]*(?:/profile/(?:all|top))?"
-            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|novels)/[^/]+)");
+            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|illustrations|manga|novels)/[^/]+)");
     private static final int MAX_HEALTH = 1024;
     private static final long DEFAULT_COOLDOWN = 30_000;
     private static final long HEALTH_TTL = 24 * 60 * 60 * 1000L;

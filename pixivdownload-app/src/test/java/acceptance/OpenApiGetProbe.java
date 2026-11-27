@@ -77,7 +77,7 @@ public final class OpenApiGetProbe {
                     .noneMatch(s -> s.has("adminSessionHeader") || s.isEmpty())) reason = "outside administrator session access";
             else if (urls == null && (path.contains("{") || get.path("parameters").valueStream().anyMatch(p -> p.path("required").asBoolean(false))))
                 reason = "needs path or query parameters";
-            else if (urls == null && (path.startsWith("/api/pixiv/") || path.startsWith("/api/tts/")
+            else if (urls == null && (path.startsWith("/api/pixiv/") || path.startsWith("/api/pixiv-content/") || path.startsWith("/api/tts/")
                     || path.contains("/connectivity") || path.contains("/plugin-market/") || path.equals("/api/admin/update/check")))
                 reason = "external source, supply a sample to include";
             else if (urls != null && urls.isEmpty()) reason = "skipped by samples";

@@ -499,6 +499,7 @@
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                         <pixiv-batch-downloader-import.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-pixiv-batch-downloader-import/target/classes</pixiv-batch-downloader-import.plugin.classes>
                         <download-workbench.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-download-workbench/target/classes</download-workbench.plugin.classes>
+                        <pixiv-content.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-pixiv-content/target/classes</pixiv-content.plugin.classes>
                         <posthog.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-posthog/target/classes</posthog.plugin.classes>
                         <multi-mode-decision-survey.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-multi-mode-decision-survey/target/classes</multi-mode-decision-survey.plugin.classes>
                         <gallery.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery/target/classes</gallery.plugin.classes>

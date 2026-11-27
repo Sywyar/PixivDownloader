@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -143,22 +145,41 @@ final class ApiOperationDocumentation implements OperationCustomizer {
             }
             describeInlineFields(response.getContent(), responseKey, operationLabels, locale);
         });
-        describeTransport(operation, handler, locale);
+        var declaredCodes = new LinkedHashMap<String, LinkedHashSet<String>>();
         for (var owner : List.<AnnotatedElement>of(type, handler.getMethod())) {
             for (KnownErrorCodes codes : owner.getAnnotationsByType(KnownErrorCodes.class)) {
-                if ("400".equals(codes.status()) && Arrays.asList(codes.value()).contains(top.sywyar.pixivdownload.GlobalExceptionHandler.INVALID_PARAMETER)) {
-                    HttpBindingDocumentation.addError(operation, codes.status(),
-                            "#/components/schemas/" + HttpBindingDocumentation.PARAMETER_ERROR, null);
-                    if (codes.value().length == 1) continue;
-                }
-                var response = operation.getResponses().get(codes.status());
-                if (response == null || response.getContent() == null) continue;
-                var media = response.getContent().get(MediaType.APPLICATION_JSON_VALUE);
-                if (media == null || media.getSchema() == null) continue;
-                var known = HttpBindingDocumentation.withCodes(media.getSchema(), codes.value());
-                media.setSchema(new ComposedSchema().addAnyOfItem(media.getSchema()).addAnyOfItem(known));
+                declaredCodes.computeIfAbsent(codes.status(), ignored -> new LinkedHashSet<>()).addAll(List.of(codes.value()));
             }
         }
+        if (!declaredCodes.isEmpty() && operation.getResponses() == null)
+            operation.setResponses(new io.swagger.v3.oas.models.responses.ApiResponses());
+        // A business error can share a status with a binding error without having its field and location.
+        var badRequest = declaredCodes.get("400");
+        boolean parameterError = badRequest != null && badRequest.remove(top.sywyar.pixivdownload.GlobalExceptionHandler.INVALID_PARAMETER);
+        declaredCodes.forEach((status, codes) -> {
+            if (codes.isEmpty() || !status.matches("[45][0-9]{2}")) return;
+            var response = operation.getResponses().get(status);
+            var media = response == null || response.getContent() == null ? null
+                    : response.getContent().get(MediaType.APPLICATION_JSON_VALUE);
+            String[] values = codes.toArray(String[]::new);
+            if (media != null && media.getSchema() != null) {
+                var original = media.getSchema();
+                media.setSchema(new ComposedSchema().addAnyOfItem(original)
+                        .addAnyOfItem(HttpBindingDocumentation.withCodes(original, values)));
+            } else {
+                var httpStatus = HttpStatus.resolve(Integer.parseInt(status));
+                String fallback = httpStatus == null ? status : httpStatus.getReasonPhrase();
+                String description = text.getOrDefault(locale, key + "response." + status,
+                        common.getOrDefault(locale, "response." + status, fallback));
+                HttpBindingDocumentation.addError(operation, status, HttpBindingDocumentation.BASIC,
+                        response == null || response.getDescription() == null ? description : null);
+                var added = operation.getResponses().get(status).getContent().get(MediaType.APPLICATION_JSON_VALUE);
+                added.setSchema(HttpBindingDocumentation.withCodes(added.getSchema(), values));
+            }
+        });
+        if (parameterError) HttpBindingDocumentation.addError(operation, "400",
+                "#/components/schemas/" + HttpBindingDocumentation.PARAMETER_ERROR, null);
+        describeTransport(operation, handler, locale);
         return operation;
     }
 
