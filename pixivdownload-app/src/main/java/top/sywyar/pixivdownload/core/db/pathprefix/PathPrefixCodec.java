@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -15,7 +17,7 @@ import java.util.function.LongFunction;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,7 +31,7 @@ import java.util.regex.Pattern;
  * 还原时由 {@link java.nio.file.Path} 自行处理 OS 差异。
  *
  * <p>路径匹配：按段对齐 —— 例如前缀 {@code D:\foo} 不会匹配 {@code D:\fooBar/x}。
- * 匹配时大小写不敏感且 {@code /} 与 {@code \} 等价，以兼容 Windows 用户混用的写法。
+ * Windows 盘符和 UNC 路径忽略大小写并接受两种分隔符，POSIX 路径保留大小写和反斜杠。
  *
  * <p><b>符号根 {@code {0}}：</b>当 {@code download.root-folder} 配置为<b>相对路径</b>时启用。
  * {@code {0}} 不入 {@code path_prefixes} 表，运行期固定解析为
@@ -47,7 +49,9 @@ public class PathPrefixCodec implements StoredPathCodec {
     /** 符号根的编码形态：{@code {0}}。 */
     public static final String SYMBOLIC_ROOT_TOKEN = "{0}";
 
-    private static final Pattern ENCODED_PATTERN = Pattern.compile("^\\{(\\d+)}(?:[/\\\\](.*))?$");
+    private static final Pattern ENCODED_PATTERN = Pattern.compile("\\{(\\d+)}(?:[/\\\\](.*))?", Pattern.DOTALL);
+    private static final Pattern REDUNDANT_SEGMENTS = Pattern.compile("(?<=/)(?:\\.(?:/|\\z)|/+)");
+    private static final Pattern WINDOWS_ABSOLUTE = Pattern.compile("^(?:[A-Za-z]:[/\\\\]|\\\\\\\\[^/\\\\]+[/\\\\][^/\\\\]+)");
 
     private final PathPrefixMapper mapper;
     private final DownloadConfig downloadConfig;
@@ -60,6 +64,30 @@ public class PathPrefixCodec implements StoredPathCodec {
                            javax.sql.DataSource dataSource) {
         this(mapper, downloadConfig, messages);
         databaseUnavailable = top.sywyar.pixivdownload.core.db.UnavailableDataSource.isUnavailable(dataSource);
+    }
+
+    private final java.util.concurrent.locks.ReentrantReadWriteLock mappings = new java.util.concurrent.locks.ReentrantReadWriteLock();
+    private volatile long mappingRevision;
+
+    /** Decode outside the mapping lock. If a migration committed meanwhile, reread before publishing. */
+    public <T, R> R publishFromCurrentPaths(java.util.function.Supplier<T> read, java.util.function.Function<T, R> publish) {
+        long revision = mappingRevision;
+        T prepared = read.get();
+        var lock = mappings.readLock();
+        lock.lock();
+        try {
+            return publish.apply(revision == mappingRevision ? prepared : read.get());
+        } finally { lock.unlock(); }
+    }
+
+    <T> T changeMappings(java.util.function.Supplier<T> transaction, java.util.function.Predicate<T> changed) {
+        var lock = mappings.writeLock();
+        lock.lock();
+        try {
+            T result = transaction.get();
+            if (changed.test(result)) mappingRevision++;
+            return result;
+        } finally { lock.unlock(); }
     }
 
     private final Object cacheLock = new Object();
@@ -127,12 +155,15 @@ public class PathPrefixCodec implements StoredPathCodec {
         return new PrefixSnapshot(prefixes, encodingCandidates(prefixes, symbolicRootActive, symbolicRootPath));
     }
 
-    private static List<PathPrefix> encodingCandidates(List<PathPrefix> prefixes, boolean symbolic, String root) {
+    private record EncodingPrefix(long id, String key, boolean windows) {}
+
+    private static List<EncodingPrefix> encodingCandidates(List<PathPrefix> prefixes, boolean symbolic, String root) {
         var candidates = new ArrayList<>(prefixes);
         if (symbolic && root != null && !root.isEmpty()) candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, root));
-        candidates.sort(Comparator.comparingInt((PathPrefix p) -> p.path().length()).reversed()
-                .thenComparingLong(PathPrefix::id));
-        return List.copyOf(candidates);
+        return candidates.stream().filter(p -> p.path() != null && !p.path().isEmpty())
+                .map(p -> new EncodingPrefix(p.id(), comparisonKey(p.path()), windowsPath(p.path())))
+                .sorted(Comparator.comparingInt((EncodingPrefix p) -> p.key().length()).reversed()
+                        .thenComparingLong(EncodingPrefix::id)).toList();
     }
 
     /**
@@ -140,15 +171,11 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 符号根启用时，与符号根同路径的注册请求直接返回 {@link #SYMBOLIC_ROOT_ID}，不建行 ——
      * 避免 {@code path_prefixes} 中出现与 {@code {0}} 重复的前缀。
      */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public long getOrCreatePrefixId(String absolutePath) {
-        String stripped = stripTrailingSeparators(absolutePath);
-        if (stripped == null || stripped.isEmpty()) {
-            throw new IllegalArgumentException("path must not be empty");
-        }
-        if (symbolicRootActive && normalizeForCompare(stripped).equals(normalizeForCompare(symbolicRootPath))) {
-            return SYMBOLIC_ROOT_ID;
-        }
-        return forceCreatePrefixId(stripped);
+        var registration = registerPrefix(absolutePath, false, registrationIds());
+        if (registration.id() != SYMBOLIC_ROOT_ID) reload();
+        return registration.id();
     }
 
     /**
@@ -156,18 +183,36 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 解析结果相同也照常建行。仅供「固定符号根」（pin，把 {@code {0}} 引用钉死为 {@code {N}}）使用 ——
      * 该场景恰恰需要为符号根的当前路径登记一条真实前缀行。
      */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public long forceCreatePrefixId(String absolutePath) {
-        String stripped = stripTrailingSeparators(absolutePath);
-        if (stripped == null || stripped.isEmpty()) {
-            throw new IllegalArgumentException("path must not be empty");
-        }
-        mapper.insertIfAbsent(stripped);
-        Long id = mapper.findIdByPath(stripped);
-        if (id == null) {
-            throw new IllegalStateException("path_prefixes lookup miss after insert: " + stripped);
-        }
+        var registration = registerPrefix(absolutePath, true, registrationIds());
         reload();
-        return id;
+        return registration.id();
+    }
+
+    record Registration(long id, boolean inserted) {}
+
+    Map<String, Long> registrationIds() {
+        var ids = new HashMap<String, Long>();
+        for (var prefix : mapper.findAll()) ids.merge(comparisonKey(prefix.path()), prefix.id(), Long::min);
+        return ids;
+    }
+
+    Registration registerPrefix(String absolutePath, boolean force, Map<String, Long> ids) {
+        String path = stripTrailingSeparators(absolutePath);
+        // 历史作品可能来自其他平台；磁盘上的目录检查由交互式迁移入口负责。
+        if (path == null || !(path.startsWith("/") || WINDOWS_ABSOLUTE.matcher(path).lookingAt())) {
+            throw new IllegalArgumentException("path prefix must be absolute");
+        }
+        if (!force && isSymbolicRootPath(path)) return new Registration(SYMBOLIC_ROOT_ID, false);
+        String key = comparisonKey(path);
+        Long existing = ids.get(key);
+        if (existing != null) return new Registration(existing, false);
+        int inserted = mapper.insertIfAbsent(path);
+        Long id = mapper.findIdByPath(path);
+        if (id == null) throw new org.springframework.dao.DataRetrievalFailureException("Missing prefix after insert");
+        ids.put(key, id);
+        return new Registration(id, inserted > 0);
     }
 
     /**
@@ -175,34 +220,30 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 已编码值（以 {@code {} 开头）会被原样返回，调用方可放心多次调用。
      */
     public String encode(String absolutePath) {
-        return encode(absolutePath, currentEncodeCandidates());
+        return encode(absolutePath, currentSnapshot().encoding());
     }
 
-    private static String encode(String absolutePath, List<PathPrefix> candidates) {
+    private static String encode(String absolutePath, List<EncodingPrefix> candidates) {
         if (absolutePath == null) return null;
         String stripped = stripTrailingSeparators(absolutePath);
         if (stripped.isEmpty()) return stripped;
         if (ENCODED_PATTERN.matcher(stripped).matches()) return stripped;
 
-        String path = stripped.replace('\\', '/');
-        String inputNorm = path.toLowerCase(Locale.ROOT);
-        for (PathPrefix prefix : candidates) {
-            String prefixStripped = stripTrailingSeparators(prefix.path());
-            if (prefixStripped == null || prefixStripped.isEmpty()) continue;
-            String prefixNorm = normalizeForCompare(prefixStripped);
-            if (!inputNorm.startsWith(prefixNorm)) continue;
+        boolean windows = windowsPath(stripped);
+        String path = comparisonPath(stripped, windows);
+        String inputNorm = windows ? windowsKey(path) : path;
+        for (EncodingPrefix prefix : candidates) {
+            String prefixNorm = prefix.key();
+            if (windows != prefix.windows() || !inputNorm.startsWith(prefixNorm)) continue;
             int prefixLen = prefixNorm.length();
             if (inputNorm.length() == prefixLen) {
                 return "{" + prefix.id() + "}";
             }
             int boundary = prefixNorm.endsWith("/") ? prefixLen - 1 : prefixLen;
             if (inputNorm.charAt(boundary) != '/') continue;
-            // Unicode 小写映射可能改变长度，按分隔符定位原路径的后缀。
-            int restStart = 0;
-            for (int i = 0; i <= boundary; i++) {
-                if (inputNorm.charAt(i) == '/') restStart = path.indexOf('/', restStart) + 1;
-            }
-            return "{" + prefix.id() + "}/" + path.substring(restStart);
+            // A parent segment in the suffix can leave the prefix, including through a symbolic link.
+            if (path.indexOf("/../", boundary) >= 0 || path.endsWith("/..")) return stripped;
+            return "{" + prefix.id() + "}/" + path.substring(boundary + 1);
         }
         return stripped;
     }
@@ -220,7 +261,7 @@ public class PathPrefixCodec implements StoredPathCodec {
         });
     }
 
-    private static String resolve(String storedValue, String symbolicRootPath, LongFunction<String> lookup) {
+    static String resolve(String storedValue, String symbolicRootPath, LongFunction<String> lookup) {
         if (storedValue == null) return null;
         Matcher matcher = ENCODED_PATTERN.matcher(storedValue);
         if (!matcher.matches()) {
@@ -243,10 +284,54 @@ public class PathPrefixCodec implements StoredPathCodec {
         return appendSuffix(stripTrailingSeparators(prefix), matcher.group(2));
     }
 
+    private boolean isSymbolicRootPath(String path) {
+        return symbolicRootActive && comparisonKey(path).equals(comparisonKey(symbolicRootPath));
+    }
+
     private static String appendSuffix(String prefix, String rest) {
         if (rest == null || rest.isEmpty()) return prefix;
-        return prefix + (prefix != null && (prefix.endsWith("/") || prefix.endsWith("\\")) ? "" : "/") + rest;
+        return prefix + (prefix != null && (prefix.endsWith("/") || windowsPath(prefix) && prefix.endsWith("\\")) ? "" : "/") + rest;
     }
+
+    /** 归档已包含来源的绝对符号根；匹配旧记录只需要来源路径的拼写规则。 */
+    static java.util.function.UnaryOperator<String> archiveEncoder(Map<Long, String> prefixes) {
+        var candidates = encodingCandidates(prefixes.entrySet().stream()
+                .map(entry -> new PathPrefix(entry.getKey(), entry.getValue())).toList(), false, null);
+        return path -> {
+            String encoded = encode(path, candidates);
+            if (encoded == null || encoded.isEmpty()) return encoded;
+            Matcher match = ENCODED_PATTERN.matcher(encoded);
+            if (!match.matches()) {
+                if (java.io.File.separatorChar == '\\' && encoded.startsWith("/") && !windowsPath(encoded))
+                    throw new java.nio.file.InvalidPathException("", "Unmapped POSIX absolute path");
+                if (java.io.File.separatorChar == '/' && windowsPath(encoded))
+                    throw new java.nio.file.InvalidPathException("", "Unmapped Windows absolute path");
+                return encoded;
+            }
+            String suffix = match.group(2);
+            if (suffix == null) return encoded;
+            String prefix;
+            try {
+                prefix = prefixes.get(Long.parseLong(match.group(1)));
+            } catch (NumberFormatException unknownId) {
+                return encoded;
+            }
+            if (prefix == null) return encoded;
+            if (windowsPath(prefix)) return encoded.replace('\\', '/');
+            if (java.io.File.separatorChar == '\\') {
+                for (String part : suffix.split("/")) {
+                    if (part.isEmpty() || part.equals(".") || part.equals("..")) continue;
+                    if (part.indexOf('\\') >= 0 || part.indexOf(':') >= 0 || part.endsWith(" ") || part.endsWith(".")
+                            || WINDOWS_DEVICE.matcher(part).matches())
+                        throw new java.nio.file.InvalidPathException("", "Unrepresentable POSIX path component");
+                    Path.of(part); // Apply the target filesystem's remaining character restrictions.
+                }
+            }
+            return encoded;
+        };
+    }
+
+    private static final Pattern WINDOWS_DEVICE = Pattern.compile("(?i)(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\\..*)?", Pattern.DOTALL);
 
     /** 后端停止时，维护工具用当前数据库前缀和下载根建立只读编解码快照，不创建或修改前缀表。 */
     public static StoredPathCodec snapshot(String rootFolder, List<PathPrefix> prefixes) {
@@ -254,7 +339,7 @@ public class PathPrefixCodec implements StoredPathCodec {
         String symbolicRoot = stripTrailingSeparators(root.toAbsolutePath().normalize().toString());
         var paths = new HashMap<Long, String>();
         prefixes.forEach(prefix -> paths.put(prefix.id(), prefix.path()));
-        List<PathPrefix> encoding = encodingCandidates(prefixes, !root.isAbsolute(), symbolicRoot);
+        var encoding = encodingCandidates(prefixes, !root.isAbsolute(), symbolicRoot);
         return new StoredPathCodec() {
             @Override public String encode(String path) { return PathPrefixCodec.encode(path, encoding); }
             @Override public String resolve(String path) { return PathPrefixCodec.resolve(path, symbolicRoot, paths::get); }
@@ -271,6 +356,7 @@ public class PathPrefixCodec implements StoredPathCodec {
      *
      * <p>对已编码值直接返回；空/空白值原样返回（不写表）。
      */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public String encodeOrRegister(String absolutePath) {
         if (absolutePath == null) return null;
         String stripped = stripTrailingSeparators(absolutePath);
@@ -293,23 +379,16 @@ public class PathPrefixCodec implements StoredPathCodec {
     }
 
     public static String stripTrailingSeparators(String value) {
-        if (value == null) return null;
-        String stripped = value.replaceAll("[/\\\\]+$", "");
-        if (!stripped.isEmpty()) {
-            if (stripped.matches("(?i)^[a-z]:$") && value.length() > stripped.length()) {
-                return stripped + (value.indexOf('\\') >= 0 ? "\\" : "/");
-            }
-            return stripped;
-        }
-        return value.isEmpty() ? value : value.charAt(0) == '\\' ? "\\" : "/";
+        if (value == null || value.isEmpty()) return value;
+        int end = value.length();
+        boolean windows = windowsPath(value);
+        int rootLength = windows && value.charAt(1) == ':' ? 3 : 1;
+        while (end > rootLength && (value.charAt(end - 1) == '/' || windows && value.charAt(end - 1) == '\\')) end--;
+        return value.substring(0, end);
     }
 
     private List<PathPrefix> currentPrefixes() {
         return currentSnapshot().prefixes();
-    }
-
-    private List<PathPrefix> currentEncodeCandidates() {
-        return currentSnapshot().encoding();
     }
 
     private PrefixSnapshot currentSnapshot() {
@@ -337,7 +416,7 @@ public class PathPrefixCodec implements StoredPathCodec {
         return prefixes;
     }
 
-    private record PrefixSnapshot(List<PathPrefix> prefixes, List<PathPrefix> encoding) {}
+    private record PrefixSnapshot(List<PathPrefix> prefixes, List<EncodingPrefix> encoding) {}
 
     /** 未提交的前缀只随当前事务存活，不发布给其它线程。 */
     private final class TransactionPrefixes implements TransactionSynchronization {
@@ -363,8 +442,48 @@ public class PathPrefixCodec implements StoredPathCodec {
         return fresh;
     }
 
-    private static String normalizeForCompare(String value) {
-        return value.replace('\\', '/').toLowerCase(Locale.ROOT);
+    private static boolean windowsPath(String path) {
+        return path.startsWith("//") || WINDOWS_ABSOLUTE.matcher(path).lookingAt();
+    }
+
+    public static String comparisonKey(String path) {
+        if (path == null) return null;
+        boolean windows = windowsPath(path);
+        String normalized = comparisonPath(path, windows);
+        return windows ? windowsKey(normalized) : normalized;
+    }
+
+    private static String comparisonPath(String path, boolean windows) {
+        String value = windows ? path.replace('\\', '/') : path;
+        int start = value.startsWith("//") ? 2 : 0;
+        if (!value.startsWith("//./") && !value.startsWith("//?/")
+                && (value.contains("/.") || value.indexOf("//", start) >= 0)) {
+            // Preserve the UNC anchor and parent segments, which may cross symbolic links.
+            value = value.substring(0, start) + REDUNDANT_SEGMENTS.matcher(value.substring(start)).replaceAll("");
+        }
+        return stripTrailingSeparators(value);
+    }
+
+    private static String windowsKey(String normalized) {
+        // WindowsPath compares UTF-16 characters without expanding case mappings.
+        char[] key = normalized.toCharArray();
+        for (int i = 0; i < key.length; i++) key[i] = Character.toUpperCase(key[i]);
+        return new String(key);
+    }
+
+    /** Identify the mapping to adjust without putting private directory names in restore logs. */
+    public static java.util.function.UnaryOperator<String> archivePrefixLabel(Map<Long, String> roots) {
+        var encode = archiveEncoder(roots);
+        return path -> {
+            Matcher prefix = ENCODED_PATTERN.matcher(encode.apply(path));
+            return prefix.matches() ? "{" + prefix.group(1) + "}" : "(absolute)";
+        };
+    }
+
+    /** Expand a stored archive reference using its own prefix syntax, preserving component case. */
+    public static String archiveSpelling(String stored, Map<Long, String> prefixes) {
+        String absolute = resolve(stored, prefixes.get(0L), prefixes::get);
+        return comparisonPath(absolute, windowsPath(absolute));
     }
 
     /**

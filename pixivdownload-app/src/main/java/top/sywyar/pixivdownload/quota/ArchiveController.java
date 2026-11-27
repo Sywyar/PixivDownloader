@@ -224,7 +224,7 @@ public class ArchiveController {
                         entry.getProcessedWorks(),
                         entry.getFileCount(),
                         entry.getCreatedTime(),
-                        Math.max(0, (entry.getExpireTime() - now) / 1000)))
+                        Math.max(0, (entry.getExpireTime() - now) / 1000), entry.getSourceDeletion()))
                 .toList();
         return ResponseEntity.ok(new AdminArchiveTasksResponse(tasks));
     }
@@ -234,23 +234,23 @@ public class ArchiveController {
      */
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ArchiveStatusResponse.class),
             examples = {
-                    @io.swagger.v3.oas.annotations.media.ExampleObject(name = "active", value = "{\"token\":\"example-token\",\"status\":\"ready\",\"expireSeconds\":300}"),
+                    @io.swagger.v3.oas.annotations.media.ExampleObject(name = "active", value = "{\"token\":\"example-token\",\"status\":\"ready\",\"expireSeconds\":300,\"sourceDeletion\":{\"status\":\"partial\",\"requestedWorks\":2,\"deletedWorks\":1}}"),
                     @io.swagger.v3.oas.annotations.media.ExampleObject(name = "expired", value = "{\"status\":\"expired\"}")}))
     @GetMapping("/api/archive/status/{token}")
     public ResponseEntity<ArchiveStatusResponse> archiveStatus(@PathVariable String token) {
         UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
         if (entry == null) {
-            return ResponseEntity.ok(new ArchiveStatusResponse(null, "expired", null));
+            return ResponseEntity.ok(new ArchiveStatusResponse(null, "expired", null, null));
         }
         long now = System.currentTimeMillis();
         if (now > entry.getExpireTime()) {
             userQuotaService.deleteArchive(token);
-            return ResponseEntity.ok(new ArchiveStatusResponse(null, "expired", null));
+            return ResponseEntity.ok(new ArchiveStatusResponse(null, "expired", null, null));
         }
         return ResponseEntity.ok(new ArchiveStatusResponse(
                 token,
                 entry.getStatus(),
-                (entry.getExpireTime() - now) / 1000
+                (entry.getExpireTime() - now) / 1000, entry.getSourceDeletion()
         ));
     }
 

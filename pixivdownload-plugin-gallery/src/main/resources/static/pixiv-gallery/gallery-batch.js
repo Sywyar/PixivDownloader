@@ -240,7 +240,7 @@
             }
             toast(t('manage.export-started', '正在后台打包，可在任务列表中查看进度'), 'success');
             exitBatchMode();
-            watchExportArchive(res.archiveToken, deleteAfter);
+            watchExportArchive(res.archiveToken);
         } catch (e) {
             toast(e.message || t('manage.export-failed', '导出失败'), 'error');
         } finally {
@@ -248,17 +248,17 @@
         }
     }
 
-    function watchExportArchive(token, reloadWhenReady) {
+    function watchExportArchive(token) {
         if (!window.PixivSideModules) return;
         window.PixivSideModules.trackArchive(token, {
-            onReady: () => {
-                toast(t('manage.export-ready', '压缩包已就绪，已开始下载'), 'success');
-                if (reloadWhenReady) loadGallery();
+            onReady: (_, deletion, notice) => {
+                toast(notice?.text || t('manage.export-ready', '压缩包已就绪，已开始下载'), notice?.level || 'success');
+                if (deletion?.deletedWorks > 0) loadGallery();
             },
-            onFailed: status => {
-                toast(status === 'empty'
+            onFailed: (status, notice) => {
+                toast(notice?.text || (status === 'empty'
                     ? t('manage.export-empty', '没有可导出的文件')
-                    : t('manage.export-failed', '导出失败'), 'error');
+                    : t('manage.export-failed', '导出失败')), 'error');
             },
         });
         window.PixivSideModules.openTasks();

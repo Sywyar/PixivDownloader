@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
@@ -252,7 +253,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return TrustedKeyConfigEntry.create(key.keyId(), key.algorithm(), key.publicKeySpkiBase64(),
                 key.state().name(), key.publisher(), key.trustLabel());
     }
-    @Override public ConfigFile pluginConfig(String pluginId){return propertiesConfig(resolvePluginConfigPath(pluginId,"properties"));}
+    @Override public ConfigFile pluginConfig(String pluginId){return propertiesConfig(RuntimeFiles.peekPluginConfigPath(pluginId));}
     @Override public java.util.List<UiLocale> visibleLocales(){
         return top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog().visibleLocales().stream().map(AppDesktopUiHost::mapLocale).toList();
     }
@@ -300,13 +301,25 @@ final class AppDesktopUiHost implements DesktopUiHost {
             throw new IOException(message("directory-template." + failure.reason(), failure.variable()), failure);
         }
     }
+    @Override public void validateDownloadTemplateRoot(String root) throws IOException {
+        templateForSelectedRoot(root);
+    }
+    private String templateForSelectedRoot(String root) throws IOException {
+        String current = applicationConfig.read("download.root-folder");
+        if (current == null) current = top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE;
+        try {
+            return WorkDirectoryTemplate.parse(current)
+                    .withFixedPrefix(RuntimeFiles.normalizeLiteralRoot(WorkDirectoryTemplate.selectedRoot(root)));
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException invalid) {
+            throw new IOException(message("directory-template." + invalid.reason(), invalid.variable()), invalid);
+        } catch (IllegalArgumentException invalid) {
+            throw new IOException(message("directory-template.path"), invalid);
+        }
+    }
     @Override public String saveDownloadTemplateRoot(String root) throws IOException {
         String[] saved = new String[1];
         applicationConfig.withWriteLock(() -> {
-            String current = applicationConfig.read("download.root-folder");
-            if (current == null) current = top.sywyar.pixivdownload.core.appconfig.DownloadConfig.DEFAULT_TEMPLATE;
-            saved[0] = top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(current)
-                    .withFixedPrefix(RuntimeFiles.normalizeRootFolder(root));
+            saved[0] = templateForSelectedRoot(root);
             applicationConfig.write("download.root-folder", saved[0]);
         });
         return saved[0];
@@ -416,7 +429,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
 
     @Override public Optional<FfmpegInstallation> locateFfmpeg() {
-        return FfmpegLocator.locate().map(value -> new FfmpegInstallation(value.ffmpegPath(), value.ffprobePath(),
+        return FfmpegLocator.locateForStatus().map(value -> new FfmpegInstallation(value.ffmpegPath(), value.ffprobePath(),
                 value.homeDir(), map(value.source())));
     }
     @Override public Path managedFfmpegDirectory() { return FfmpegLocator.managedToolsDir(); }
@@ -446,7 +459,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return switch (stage) {
             case CONNECTING -> FfmpegInstallStage.CONNECTING;
             case DOWNLOADING -> FfmpegInstallStage.DOWNLOADING;
-            case EXTRACTING -> FfmpegInstallStage.EXTRACTING;
+            case EXTRACTING, INSTALLING -> FfmpegInstallStage.EXTRACTING;
             case COMPLETED -> FfmpegInstallStage.COMPLETED;
         };
     }
@@ -623,8 +636,13 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws Exception {
         var target = toolDatabaseTarget(databasePath.toString());
-        try (var connection = toolConnection(target)) {
-            desktopUiTools.updateArtworkFolder(connection, target, folderCheckRoot(), artworkId, moved, newPath);
+        try (var ignored = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(
+                top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId); var connection = toolConnection(target)) {
+            var directories = BackendLifecycleManager.isRunning()
+                    ? BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class) : null;
+            desktopUiTools.updateArtworkFolder(connection, target, folderCheckRoot(), artworkId, moved, newPath, directories);
+        } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException conflict) {
+            throw new IOException(MessageBundles.get("directory.update.deletion-in-progress"), conflict);
         }
     }
 
@@ -683,7 +701,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path classifyImageFolder(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
                                               ImageClassifierServer server,
                                               ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
-        return desktopUiTools.classifyImageFolder(sourceFolder, images, artworkId, targetFolder, server, deleteFailureHandler);
+        throw new IOException(message("gui.image-classifier.move-retired"));
     }
 
     private static BackendSnapshot map(BackendLifecycleManager.Snapshot value) {

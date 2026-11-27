@@ -79,7 +79,7 @@ public final class PixivSharedProxyController {
                 .orElseGet(() -> requestOwnerIdentityResolver.isAdminAuthenticated(request))) {
             return ResponseEntity.status(403).body(ApiErrorResponse.of("CREDENTIAL_FORBIDDEN", messages.get("auth.unauthorized")));
         }
-        return scheduleRequests.read(context, AcquisitionCredentialResolver.resolve(credential), ScheduledNetworkRoute.inherit(),
+        return scheduleRequests.read(request, context, AcquisitionCredentialResolver.resolve(credential), ScheduledNetworkRoute.inherit(),
                 cookie -> getUserMeta(userId, cookie, request));
     }
 

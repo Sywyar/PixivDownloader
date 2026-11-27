@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.capability.SchedulePlanningL
 import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.schedule.execution.ScheduleNetworkRouteResolver;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 
 import java.io.IOException;
 import java.util.Objects;
@@ -35,7 +37,7 @@ public final class ScheduleRequestScope {
     @FunctionalInterface
     public interface Query<T> { T read(String credential) throws IOException; }
 
-    public <T> T read(Request request, String suppliedCredential, ScheduledNetworkRoute sourceDefaultRoute,
+    public <T> T read(HttpServletRequest httpRequest, Request request, String suppliedCredential, ScheduledNetworkRoute sourceDefaultRoute,
                       Query<T> query) throws IOException {
         if (request == null || (request.taskId() == null) != (request.expectedStateVersion() == null)
                 || request.useTaskCredential() && (request.taskId() == null || suppliedCredential != null
@@ -44,7 +46,7 @@ public final class ScheduleRequestScope {
         }
         try (var source = capabilities.prepareSource(request.sourceType()).orElseThrow(ScheduleRequestScope::stale)) {
             if (!Objects.equals(source.activationToken(), request.activationToken()) || !capabilities.activate(source)) throw stale();
-            ScheduledTask task = currentTask(request, source);
+            ScheduledTask task = currentTask(httpRequest, request, source);
             ScheduledNetworkRoute route;
             try { route = routes.resolve(request.proxy(), sourceDefaultRoute); }
             catch (IllegalArgumentException invalid) {
@@ -84,7 +86,7 @@ public final class ScheduleRequestScope {
                         credentials.checkCancelled();
                     }
                 }
-                currentTask(request, source);
+                currentTask(httpRequest, request, source);
                 return result;
             } finally {
                 if (!previousActive) OutboundProxyOverride.clear();
@@ -94,11 +96,13 @@ public final class ScheduleRequestScope {
         } catch (CancellationException cancelled) { throw stale(); }
     }
 
-    private ScheduledTask currentTask(Request request, SchedulePlanningLease source) {
+    private ScheduledTask currentTask(HttpServletRequest httpRequest, Request request, SchedulePlanningLease source) {
         if (source.cancellation().isCancellationRequested()) throw stale();
         if (request.taskId() == null) return null;
         ScheduledTask task = store.findById(request.taskId());
-        if (task == null || task.stateVersion() != request.expectedStateVersion()
+        if (task == null) throw stale();
+        ProgramAccess.require(httpRequest, task.sourceOwnerPluginId(), "schedule.manage");
+        if (task.stateVersion() != request.expectedStateVersion()
                 || !Objects.equals(task.sourceType(), source.sourceType())
                 || !Objects.equals(task.sourceOwnerPluginId(), source.owner().featurePluginId())) throw stale();
         return task;

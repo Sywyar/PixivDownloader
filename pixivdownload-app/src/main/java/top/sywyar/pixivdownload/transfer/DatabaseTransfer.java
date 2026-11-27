@@ -75,6 +75,8 @@ final class DatabaseTransfer {
                         (table, row) -> owner.equals("host") ? paths.capture(table,
                                 top.sywyar.pixivdownload.core.schedule.db.ScheduleTransferRows.paused(table, row)) : row, budget);
                 result.addAll(snapshot.archiveEntries(owner));
+                if (owner.equals("host") && snapshot.metadata().verification().tables().get(SourcePageIdentities.TABLE).rows() > 0)
+                    result.add(SourcePageIdentities.write(run, snapshot, paths.snapshot().prefixes(), budget, CONTROL));
             }
             byte[] pathBytes = JSON.writeValueAsBytes(paths.snapshot());
             if (pathBytes.length > 8 * 1024 * 1024) throw new IOException("transfer.database-limit");
@@ -177,7 +179,16 @@ final class DatabaseTransfer {
         for (var owner : result.entrySet()) {
             Set<String> paths = new HashSet<>();
             paths.add("metadata.json");
-            if (owner.getKey().equals("host")) { paths.add("catalog.json"); paths.add("paths.json"); }
+            if (owner.getKey().equals("host")) {
+                paths.add("catalog.json"); paths.add("paths.json");
+                for (var item : archive.items()) if (item.descriptor().category() == TransferArchive.Category.DATABASE
+                        && item.descriptor().owner().equals("host") && item.descriptor().path().equals(SourcePageIdentities.ENTRY)) {
+                    var pages = owner.getValue().verification().tables().get(SourcePageIdentities.TABLE);
+                    if (pages == null || !SourcePageIdentities.validSize(item.size(), pages.rows()))
+                        throw new IOException("transfer.database-invalid");
+                    paths.add(SourcePageIdentities.ENTRY);
+                }
+            }
             for (int i = 0; i < owner.getValue().schema().tables().size(); i++) paths.add(i + ".rows");
             for (var item : archive.items()) if (item.descriptor().category() == TransferArchive.Category.DATABASE
                     && item.descriptor().owner().equals(owner.getKey())) {
@@ -215,17 +226,25 @@ final class DatabaseTransfer {
                         files.put(descriptor.path(), file);
                     }
                 }
+                Path identityFile = planned.owner().equals("host") ? files.remove(SourcePageIdentities.ENTRY) : null;
                 var source = new ArchiveDatabaseSource(files);
                 if (planned.owner().equals("host")) requireNoPendingFiles(source.metadata().verification());
                 if (planned.owner().equals("host")) PathPrefixTransfer.validate(source.metadata().verification(), plan.paths());
                 var schema = schema(catalog, planned.owner());
                 source.inspect(schema);
                 if (planned.owner().equals("host")) try (var snapshot = source.export(new MigrationRequest(schema,
-                        run.resolve("unused"), Set.copyOf(source.metadata().rebuildObjects())), CONTROL)) {
+                        run.resolve("unused"), Set.copyOf(source.metadata().rebuildObjects())), CONTROL);
+                        var pages = new RestoredPagePaths(run.resolve("mapped-pages.mv"), plan.paths().prefixes(), plan.mappedPaths());
+                        var identities = identityFile == null ? null : new DataInputStream(new BufferedInputStream(
+                                Files.newInputStream(identityFile, LinkOption.NOFOLLOW_LINKS)))) {
                     var pathMapper = PathPrefixTransfer.mapper(schema, plan.paths(), plan.mappedPaths());
                     source = ArchiveDatabaseSource.write(run.resolve("restored-main"), snapshot, CONTROL,
-                            (table, row) -> pathMapper.apply(table,
-                                    top.sywyar.pixivdownload.core.schedule.db.ScheduleTransferRows.paused(table, row)), budget);
+                            (table, row) -> {
+                                var mapped = pathMapper.apply(table, top.sywyar.pixivdownload.core.schedule.db.ScheduleTransferRows.paused(table, row));
+                                if (table.name().equals(SourcePageIdentities.TABLE))
+                                    pages.check(table, row, mapped, SourcePageIdentities.next(identities));
+                                return mapped;
+                            }, budget);
                 } else source.verifyRows(CONTROL);
                 var destination = planned.owner().equals("host") ? target
                         : target.privateStorage(PluginDatabaseFactory.privateSettings(planned.owner(), new PluginCredentialStore(), false));

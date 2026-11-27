@@ -117,19 +117,23 @@ class PixivAjaxProxyClientTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {403, 503})
+    @ValueSource(ints = {403, 404, 429, 503})
     @DisplayName("上游 HTTP 失败不读取正文并收敛为稳定异常")
     void shouldTranslateHttpFailureWithoutLeakingResponse(int status) {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
         CountingInputStream body = new CountingInputStream(1024);
-        server.expect(requestTo(uri)).andRespond(request -> new MockClientHttpResponse(
-                body, HttpStatusCode.valueOf(status)));
+        server.expect(requestTo(uri)).andRespond(request -> {
+            var response = new MockClientHttpResponse(body, HttpStatusCode.valueOf(status));
+            if (status == 429) response.getHeaders().add("Retry-After", "19");
+            return response;
+        });
 
         assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate, retryService)
                 .get(uri, "PHPSESSID=secret"))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure -> {
                     assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.HTTP_STATUS);
                     assertThat(failure.statusCode()).isEqualTo(status);
+                    assertThat(failure.retryAfterMillis()).isEqualTo(status == 429 ? 19_000 : 0);
                     assertThat(failure.getCause()).isNull();
                     assertThat(failure.getMessage())
                             .doesNotContain("sensitive-upstream-body", "PHPSESSID", "secret");

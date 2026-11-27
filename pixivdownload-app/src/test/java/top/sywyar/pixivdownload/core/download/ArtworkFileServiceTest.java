@@ -58,7 +58,7 @@ class ArtworkFileServiceTest {
         var artwork = mock(ArtworkRecord.class);
         when(database.getArtwork(119L)).thenReturn(artwork);
         when(artwork.count()).thenReturn(1);
-        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(source.toFile());
 
         try (var runtime = mockStatic(RuntimeFiles.class)) {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbnails"));
@@ -131,6 +131,38 @@ class ArtworkFileServiceTest {
         }
     }
 
+    @Test
+    void directoryCorrectionReplacesEqualTimestampThumbnailInEveryRequestedSize() throws Exception {
+        Path first = Files.createDirectory(tempDir.resolve("first")).resolve("p0.jpg");
+        Path second = Files.createDirectory(tempDir.resolve("second")).resolve("p0.jpg");
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "jpeg", first.toFile());
+        ImageIO.write(new BufferedImage(12, 10, BufferedImage.TYPE_INT_RGB), "jpeg", second.toFile());
+        Files.setLastModifiedTime(second, Files.getLastModifiedTime(first));
+        var db = mock(PixivDatabase.class);
+        var locator = mock(ArtworkFileLocator.class);
+        var artwork = mock(ArtworkRecord.class);
+        when(db.getArtwork(42L)).thenReturn(artwork);
+        when(artwork.count()).thenReturn(1);
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(first.toFile());
+        var decoder = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
+                mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.shared());
+        var service = new ArtworkFileService(db, locator, decoder);
+        try (var runtime = mockStatic(RuntimeFiles.class)) {
+            runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("cache"));
+            var old = service.getThumbnailFile(42L, 0);
+            var cover = service.getThumbnailFile(42L, 0, 256, true);
+            when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(second.toFile());
+            assertThat(service.existingThumbnail(42L, 0)).isNull();
+            var updated = service.getThumbnailFile(42L, 0);
+            var updatedCover = service.getThumbnailFile(42L, 0, 256, true);
+            assertThat(ImageIO.read(updated.path().toFile()).getWidth()).isEqualTo(12);
+            assertThat(ImageIO.read(updatedCover.path().toFile()).getWidth()).isEqualTo(10);
+            assertThat(service.existingThumbnail(42L, 0)).isEqualTo(updated);
+            assertThat(old.path()).doesNotExist();
+            assertThat(cover.path()).doesNotExist();
+        }
+    }
+
     // ========== findFileByName ==========
 
     @Test
@@ -147,7 +179,7 @@ class ArtworkFileServiceTest {
         var artwork = mock(ArtworkRecord.class);
         when(database.getArtwork(42L)).thenReturn(artwork);
         when(artwork.count()).thenReturn(1);
-        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(source.toFile());
         Path directory = tempDir.resolve("thumbnails");
         Path legacy = directory.resolve("42/p0-512.jpg");
         Files.createDirectories(legacy.getParent());
@@ -188,9 +220,7 @@ class ArtworkFileServiceTest {
         var artwork = mock(ArtworkRecord.class);
         when(database.getArtwork(42L)).thenReturn(artwork);
         when(artwork.count()).thenReturn(1);
-        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
-        when(locator.resolveArtworkDirectory(artwork)).thenReturn(tempDir.toString());
-        when(locator.resolveStoredFileBaseName(artwork, 0)).thenReturn("animation");
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(source.toFile());
         try (var runtime = mockStatic(RuntimeFiles.class)) {
             runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(tempDir.resolve("thumbs"));
             var service = new ArtworkFileService(database, locator,
@@ -214,7 +244,7 @@ class ArtworkFileServiceTest {
         var artwork = mock(ArtworkRecord.class);
         when(database.getArtwork(anyLong())).thenReturn(artwork);
         when(artwork.count()).thenReturn(1);
-        when(locator.resolveImageFile(artwork, 0)).thenReturn(source.toFile());
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenReturn(source.toFile());
         var runner = mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class);
         org.mockito.Mockito.doThrow(new IOException("fixture fallback")).when(runner).run(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -323,7 +353,7 @@ class ArtworkFileServiceTest {
         var release = new CountDownLatch(1);
         var waiting = new CountDownLatch(1);
         var lookups = new AtomicInteger();
-        when(locator.resolveImageFile(artwork, 0)).thenAnswer(ignored -> {
+        when(locator.resolveThumbnailSourceFile(artwork, 0)).thenAnswer(ignored -> {
             if (lookups.incrementAndGet() > active) waiting.countDown();
             return source.toFile();
         });
@@ -339,7 +369,11 @@ class ArtworkFileServiceTest {
         try {
             for (int index = 0; index <= active; index++) {
                 long id = sameArtwork ? 0L : index;
-                Path prior = cache.resolve(id + "/p0-512-fit-v2.png");
+                Path prior;
+                try (var runtime = mockStatic(RuntimeFiles.class)) {
+                    runtime.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(cache);
+                    prior = service.thumbnailCachePath(id, 0, 512, false, source.toFile());
+                }
                 Files.createDirectories(prior.getParent());
                 Files.writeString(prior, "prior thumbnail");
                 Files.setLastModifiedTime(prior, java.nio.file.attribute.FileTime.fromMillis(0));

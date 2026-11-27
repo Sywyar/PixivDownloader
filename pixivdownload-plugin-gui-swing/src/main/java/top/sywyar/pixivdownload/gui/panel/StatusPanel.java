@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.gui.SwingShellAction;
@@ -1189,8 +1190,8 @@ public class StatusPanel extends JPanel {
         java.util.List<MigrationChange> changes = new java.util.ArrayList<>();
         PrefixRow rootChange = null;
         for (PrefixRow r : rows) {
-            String value = r.field().getText() == null ? "" : r.field().getText().trim();
-            if (value.isEmpty() || sameDirectory(value, r.original())) {
+            String value = r.field().getText();
+            if (value.isBlank() || sameDirectory(value, r.original())) {
                 continue; // 留空或未改动 = 保持原值
             }
             changes.add(new MigrationChange(r.id(), value));
@@ -1210,8 +1211,8 @@ public class StatusPanel extends JPanel {
         if (rootChange != null && rootChange.symbolic()) {
             // 符号根 {0}：新目录在软件目录内且同步配置时，只改 config（写相对路径）、不动数据库记录，
             // 让记录继续跟随软件目录；其余分支都把 {0} 固定为新目录的绝对路径前缀。
-            String newRoot = rootChange.field().getText().trim();
-            String relative = relativeToAppRoot(newRoot, appRoot);
+            String newRoot = rootChange.field().getText();
+            String relative = WorkDirectoryTemplate.relativeToAppRoot(newRoot, appRoot);
             boolean inside = relative != null;
             String messageKey = inside
                     ? "gui.migrate-dir.symbolic-sync.inside.message"
@@ -1233,7 +1234,7 @@ public class StatusPanel extends JPanel {
             }
             // 选「否」：仅改写记录，config 不动；旧根仍由符号根跟踪，无需重新登记
         } else if (rootChange != null) {
-            String newRoot = rootChange.field().getText().trim();
+            String newRoot = rootChange.field().getText();
             int answer = JOptionPane.showConfirmDialog(this,
                     htmlLines(message("gui.migrate-dir.root-sync.message", rootChange.original(), newRoot)),
                     message("gui.migrate-dir.title"),
@@ -1261,27 +1262,6 @@ public class StatusPanel extends JPanel {
         applyDirectoryMigration(changes, rootSyncPath, registerOldRoot);
     }
 
-    /**
-     * 新下载根是否仍在软件根目录（后端工作目录）内：是则返回正斜杠形式的相对路径（写入
-     * config.yaml 后保持可携带），否则返回 null。与软件根目录本身相同也视为「不在内」——
-     * 下载根不应直接等于工作目录。
-     */
-    private static String relativeToAppRoot(String newRoot, String appRoot) {
-        if (appRoot == null || appRoot.isBlank() || newRoot == null || newRoot.isBlank()) {
-            return null;
-        }
-        try {
-            Path app = Path.of(appRoot).toAbsolutePath().normalize();
-            Path target = Path.of(newRoot).toAbsolutePath().normalize();
-            if (target.equals(app) || !target.startsWith(app)) {
-                return null;
-            }
-            return app.relativize(target).toString().replace('\\', '/');
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     private void applyDirectoryMigration(java.util.List<MigrationChange> changes,
                                          String rootSyncPath, String registerOldRoot) {
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -1293,6 +1273,15 @@ public class StatusPanel extends JPanel {
         }
 
         Thread worker = new Thread(() -> {
+            if (rootSyncPath != null) {
+                try {
+                    SwingHost.host().validateDownloadTemplateRoot(rootSyncPath);
+                } catch (java.io.IOException invalid) {
+                    SwingUtilities.invokeLater(() -> GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.migrate-dir.failed", invalid.getMessage())));
+                    return;
+                }
+            }
             DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("/api/gui/path-prefixes", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> applyDirectoryMigrationResult(node, rootSyncPath));
@@ -1477,7 +1466,7 @@ public class StatusPanel extends JPanel {
         return field;
     }
 
-    private static String migrateReason(String code) {
+    static String migrateReason(String code) {
         return switch (code == null ? "" : code) {
             case "invalid" -> message("gui.migrate-dir.reason.invalid");
             case "not-absolute" -> message("gui.migrate-dir.reason.not-absolute");
@@ -1485,21 +1474,14 @@ public class StatusPanel extends JPanel {
             case "not-directory" -> message("gui.migrate-dir.reason.not-directory");
             case "duplicate" -> message("gui.migrate-dir.reason.duplicate");
             case "conflict" -> message("gui.migrate-dir.reason.conflict");
+            case "write-failed" -> message("gui.migrate-dir.reason.write-failed");
             case "unknown-id" -> message("gui.migrate-dir.reason.unknown-id");
             default -> message("gui.migrate-dir.reason.unknown");
         };
     }
 
     private static boolean sameDirectory(String a, String b) {
-        return normalizeDir(a).equals(normalizeDir(b));
-    }
-
-    private static String normalizeDir(String value) {
-        if (value == null) {
-            return "";
-        }
-        return SwingHost.host().stripTrailingPathSeparators(value)
-                .replace('\\', '/').toLowerCase(Locale.ROOT);
+        return b != null && new java.io.File(a).equals(new java.io.File(b));
     }
 
     public String getWebUrl(String path) {
@@ -1594,8 +1576,8 @@ public class StatusPanel extends JPanel {
             promptSymbolicOrphanRepair(field.getText()); // 保留已输入的路径重新弹出
             return;
         }
-        String path = field.getText() == null ? "" : field.getText().trim();
-        if (path.isEmpty()) {
+        String path = field.getText();
+        if (path.isBlank()) {
             promptSymbolicOrphanRepair(suggestedPath);
             return;
         }

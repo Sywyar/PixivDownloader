@@ -10,12 +10,23 @@ import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
+import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationValues;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.transfer.archive.TransferArchive;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.Channels;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -86,12 +97,13 @@ public final class EnvironmentExportService {
             stopBackend(context);
             stopped = true;
             write(job = job.state(State.EXPORTING, ""));
+            TransferArchive.VerifiedArchive published;
             try (var session = DatabaseBootstrap.openToolSession(DatabaseTarget.configurationEnvironment(arguments))) {
-                factory.apply(session).exportStopped(Path.of(job.destination()), password, request.includeCredentials(),
+                published = factory.apply(session).exportStopped(Path.of(job.destination()), password, request.includeCredentials(),
                         request.includeDatabases(), request.includeState(), request.includeResources());
             }
-            Path destination = Path.of(job.destination());
-            job = new Job(job.id(), State.SUCCEEDED, job.requester(), job.destination(), "", Files.size(destination), MigrationFiles.digest(destination));
+            job = new Job(job.id(), State.SUCCEEDED, job.requester(), job.destination(), "",
+                    published.bytes(), published.preview().archiveSha256());
             write(job);
             LOG.info("Environment export completed executionId={} bytes={}", job.id(), job.bytes());
         } catch (Exception failure) {
@@ -113,8 +125,11 @@ public final class EnvironmentExportService {
             }
             if (stopped && !restarted) {
                 LOG.error("Environment export restart failed executionId={}", job.id());
-                try { write(job.state(job.state() == State.SUCCEEDED ? State.SUCCEEDED : State.FAILED, "transfer.restart-failed")); }
-                catch (IOException failure) { LOG.error("Environment export restart failure could not be persisted executionId={} type={}", job.id(), failure.getClass().getSimpleName()); }
+                synchronized (EnvironmentExportService.class) {
+                    try { write(job.state(job.state() == State.SUCCEEDED ? State.SUCCEEDED : State.FAILED, "transfer.restart-failed")); }
+                    catch (IOException failure) { LOG.error("Environment export restart failure could not be persisted executionId={} type={}", job.id(), failure.getClass().getSimpleName()); }
+                    finally { ACTIVE.set(false); }
+                }
             }
         }
     }
@@ -144,14 +159,136 @@ public final class EnvironmentExportService {
         return job.view();
     }
 
-    public Path archive(UUID id) throws IOException {
+    public InputStream archive(UUID id) throws IOException {
         Job job = read();
         if (job == null || !job.id().equals(id) || job.state() != State.SUCCEEDED) throw new IOException("transfer.preview-changed");
-        Path destination = Path.of(job.destination());
-        PlainFilePathGuard.requirePlainRegularFile(destination);
-        if (Files.size(destination) != job.bytes() || !MigrationFiles.digest(destination).equals(job.sha256()))
-            throw new IOException("transfer.target-changed");
-        return destination;
+        Snapshot snapshot;
+        InputStream reader;
+        synchronized (Snapshot.class) {
+            if (activeSnapshot != null) {
+                if (!activeSnapshot.job.id().equals(id)) throw new IOException("transfer.busy");
+                if (activeSnapshot.job.bytes() != job.bytes() || !activeSnapshot.job.sha256().equals(job.sha256()))
+                    throw new IOException("transfer.target-changed");
+            } else {
+                var channel = AsynchronousFileChannel.open(journal().resolveSibling(".download-" + UUID.randomUUID() + ".part"),
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                        StandardOpenOption.DELETE_ON_CLOSE, LinkOption.NOFOLLOW_LINKS);
+                activeSnapshot = new Snapshot(job, channel);
+            }
+            snapshot = activeSnapshot;
+            reader = snapshot.openReader();
+        }
+        try {
+            snapshot.verify(job);
+            return reader;
+        } catch (Throwable failure) {
+            try { reader.close(); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
+    private static void verifyDestination(Job job, AsynchronousFileChannel output) throws IOException {
+        var digest = MigrationValues.newDigest();
+        try (var input = openDestination(Path.of(job.destination()))) {
+            byte[] buffer = new byte[64 * 1024];
+            long remaining = job.bytes();
+            for (int n; (n = input.read(buffer)) != -1;) {
+                if (n > remaining) throw new IOException("transfer.target-changed");
+                if (output != null) {
+                    var chunk = ByteBuffer.wrap(buffer, 0, n);
+                    long offset = job.bytes() - remaining;
+                    while (chunk.hasRemaining()) awaitIO(output.write(chunk, offset + chunk.position()));
+                }
+                remaining -= n;
+                digest.update(buffer, 0, n);
+            }
+            if (remaining != 0 || !MigrationValues.finish(digest).equals(job.sha256()))
+                throw new IOException("transfer.target-changed");
+        }
+    }
+
+    // A submitted I/O owns its buffer until completion. An interrupted waiter never cancels the shared handle.
+    private static int awaitIO(Future<Integer> operation) throws IOException {
+        boolean interrupted = false;
+        try {
+            for (;;) {
+                try {
+                    int count = operation.get();
+                    if (interrupted) throw new InterruptedIOException();
+                    return count;
+                } catch (InterruptedException ignored) {
+                    interrupted = true;
+                } catch (ExecutionException failed) {
+                    if (failed.getCause() instanceof IOException io) throw io;
+                    throw new IOException(failed.getCause());
+                }
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
+    }
+
+    private static Snapshot activeSnapshot;
+
+    private static final class Snapshot {
+        final Job job;
+        final AsynchronousFileChannel channel;
+        int readers;
+        private boolean populated;
+
+        Snapshot(Job job, AsynchronousFileChannel channel) {
+            this.job = job;
+            this.channel = channel;
+        }
+
+        // Serialise disk scans without holding the lock used to close a response.
+        synchronized void verify(Job request) throws IOException {
+            verifyDestination(request, populated ? null : channel);
+            populated = true;
+        }
+
+        InputStream openReader() {
+            readers++;
+            // Each response has an independent offset. The last response closes the delete-on-close handle.
+            return Channels.newInputStream(new ReadableByteChannel() {
+                private long position;
+                private volatile boolean open = true;
+
+                @Override public boolean isOpen() { return open; }
+
+                @Override public int read(ByteBuffer target) throws IOException {
+                    if (!open) throw new ClosedChannelException();
+                    if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException();
+                    int count = awaitIO(channel.read(target, position));
+                    if (count > 0) position += count;
+                    return count;
+                }
+
+                @Override public void close() throws IOException {
+                    synchronized (Snapshot.class) {
+                        if (!open) return;
+                        open = false;
+                        if (--readers == 0) {
+                            activeSnapshot = null;
+                            channel.close();
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    private static InputStream openDestination(Path destination) throws IOException {
+        try {
+            Path parent = destination.getParent();
+            if (parent == null || parent.getParent() != null && !PlainFilePathGuard.requireDirectoryOpenPrecondition(parent).ready())
+                throw new IOException("transfer.target-changed");
+            var attributes = Files.readAttributes(destination, java.nio.file.attribute.BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!attributes.isRegularFile() || attributes.isOther()) throw new IOException("transfer.target-changed");
+            return Files.newInputStream(destination, LinkOption.NOFOLLOW_LINKS);
+        } catch (NoSuchFileException missing) {
+            throw new IOException("transfer.target-changed", missing);
+        }
     }
 
     private static Path journal() { return RuntimeFiles.environmentTransferDirectory().resolve("api-export.json").toAbsolutePath().normalize(); }

@@ -13,8 +13,8 @@ public class PathPrefixMapper {
     private final MainDatabase database;
     public PathPrefixMapper(MainDatabase database) { this.database = database; }
 
-    public void insertIfAbsent(String path) {
-        database.transaction(s -> s.insert(TABLE, Map.of("path", path), DatabaseSession.Conflict.ignore()));
+    public int insertIfAbsent(String path) {
+        return database.transaction(s -> s.insert(TABLE, Map.of("path", path), DatabaseSession.Conflict.ignore()));
     }
     public Long findIdByPath(String path) {
         return database.read(s -> s.query(new Query(TABLE, Map.of("id", column(TABLE, "id")),

@@ -36,6 +36,171 @@ class FfmpegInstallerTest {
 
     private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void failedProbePublicationPreservesTheWholeInstallationAndCanRetry(boolean existing, @TempDir Path root) throws Exception {
+        Path tools = Files.createDirectories(root.resolve("tools/ffmpeg"));
+        Files.createDirectories(tools.resolve("licenses"));
+        Path unrelated = Files.writeString(tools.resolve("unrelated"), "keep");
+        var names = List.of(FfmpegLocator.executableName(), FfmpegLocator.probeExecutableName(),
+                "licenses/ffmpeg-LGPLv2.1.txt", "licenses/libwebp-COPYING.txt", "licenses/libwebp-PATENTS.txt");
+        var inputs = new java.util.ArrayList<Path>();
+        for (String name : names) {
+            inputs.add(Files.writeString(root.resolve(Path.of(name).getFileName()), "new " + name));
+            if (existing) Files.writeString(tools.resolve(name), "old " + name);
+        }
+        var extracted = new FfmpegInstaller.ExtractedFiles(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(3), inputs.get(4));
+        Path probe = tools.resolve(FfmpegLocator.probeExecutableName());
+        if (existing && FfmpegLocator.isWindows()) {
+            try (var busy = java.nio.channels.FileChannel.open(probe, java.nio.file.StandardOpenOption.READ,
+                    com.sun.nio.file.ExtendedOpenOption.NOSHARE_DELETE)) {
+                assertThatThrownBy(() -> FfmpegInstaller.publish(extracted, tools)).isInstanceOf(IOException.class);
+            }
+            for (String name : names) assertThat(Files.readString(tools.resolve(name))).isEqualTo("old " + name);
+        }
+        var denyNextProbeMove = new java.util.concurrent.atomic.AtomicBoolean(true);
+        try (var files = org.mockito.Mockito.mockStatic(Files.class, invocation -> {
+            if (invocation.getMethod().getName().equals("move") && probe.equals(invocation.getArgument(1))
+                    && denyNextProbeMove.getAndSet(false))
+                throw new java.nio.file.AccessDeniedException(probe.toString());
+            return invocation.callRealMethod();
+        })) {
+            assertThatThrownBy(() -> FfmpegInstaller.publish(extracted, tools)).isInstanceOf(java.nio.file.AccessDeniedException.class);
+        }
+        for (String name : names) {
+            if (existing) assertThat(Files.readString(tools.resolve(name))).isEqualTo("old " + name);
+            else assertThat(tools.resolve(name)).doesNotExist();
+        }
+        assertThat(FfmpegLocator.installationAt(tools, FfmpegInstallation.Source.MANAGED).isPresent()).isEqualTo(existing);
+        FfmpegInstaller.publish(extracted, tools);
+        for (String name : names) assertThat(Files.readString(tools.resolve(name))).isEqualTo("new " + name);
+        assertThat(Files.readString(unrelated)).isEqualTo("keep");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"backup", "publish"})
+    void freshProcessRecoversInterruptedUpdate(String phase, @TempDir Path root) throws Exception {
+        for (String mode : List.of(phase, "recover")) {
+            runFixture(mode, root, mode.equals("recover") ? 0 : 71);
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"status-copy", "status-publish"})
+    void statusReturnsBeforePublicationContinues(String phase, @TempDir Path root) throws Exception {
+        runFixture(phase, root, 0);
+    }
+
+    private static void runFixture(String mode, Path root, int expectedExit) throws Exception {
+        Path log = root.resolve(mode + ".log");
+        Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Dpixivdownload.config-dir=" + root.resolve("config"),
+                "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+                FfmpegInstallerTest.class.getName(), mode).directory(root.toFile())
+                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertThat(child.waitFor(60, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(child.exitValue()).as(Files.readString(log)).isEqualTo(expectedExit);
+        } finally { if (child.isAlive()) child.destroyForcibly().waitFor(); }
+    }
+
+    public static void main(String[] args) throws Exception {
+        top.sywyar.pixivdownload.common.Utf8ConsoleStreams.install();
+        Path root = Path.of("").toAbsolutePath();
+        Path tools = root.resolve("tools/ffmpeg");
+        assertThat(FfmpegLocator.managedToolsDir()).isEqualTo(tools);
+        var names = List.of(FfmpegLocator.executableName(), FfmpegLocator.probeExecutableName(),
+                "licenses/ffmpeg-LGPLv2.1.txt", "licenses/libwebp-COPYING.txt", "licenses/libwebp-PATENTS.txt");
+        var inputs = names.stream().map(name -> root.resolve(Path.of(name).getFileName())).toList();
+        var extracted = new FfmpegInstaller.ExtractedFiles(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(3), inputs.get(4));
+        if (args[0].equals("recover")) {
+            assertThat(FfmpegLocator.locate(root.resolve("config.yaml")).orElseThrow().source())
+                    .isEqualTo(FfmpegInstallation.Source.MANAGED);
+            for (String name : names) assertThat(Files.readString(tools.resolve(name))).isEqualTo("old " + name);
+            FfmpegInstaller.publish(extracted, tools);
+            for (String name : names) assertThat(Files.readString(tools.resolve(name))).isEqualTo("new " + name);
+            try (var entries = Files.newDirectoryStream(tools, ".install-*")) {
+                var workspaces = new java.util.ArrayList<Path>();
+                entries.forEach(workspaces::add);
+                assertThat(workspaces).hasSize(1);
+                assertThat(workspaces.getFirst().resolve("idle")).isRegularFile();
+            }
+            return;
+        }
+        for (int i = 0; i < names.size(); i++) Files.writeString(inputs.get(i), "old " + names.get(i));
+        FfmpegInstaller.publish(extracted, tools);
+        for (int i = 0; i < names.size(); i++) Files.writeString(inputs.get(i), "new " + names.get(i));
+        if (args[0].startsWith("status-")) {
+            checkStatusWhilePublishing(extracted, tools, args[0].equals("status-copy"));
+            return;
+        }
+        try (var files = org.mockito.Mockito.mockStatic(Files.class, invocation -> {
+            Object result = invocation.callRealMethod();
+            if (invocation.getMethod().getName().equals("move")) {
+                Path destination = invocation.getArgument(1);
+                if (args[0].equals("backup") ? destination.getFileName().toString().equals("old-0")
+                        : destination.equals(tools.resolve(names.get(3)))) Runtime.getRuntime().halt(71);
+            }
+            return result;
+        })) { FfmpegInstaller.publish(extracted, tools); }
+    }
+
+    private static void checkStatusWhilePublishing(FfmpegInstaller.ExtractedFiles extracted, Path tools, boolean beforeCopy) throws Exception {
+        var paused = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        var service = new FfmpegInstallService((proxy, progress) -> {
+            progress.onProgress(FfmpegInstaller.ProgressStage.INSTALLING, -1, -1);
+            try (var files = org.mockito.Mockito.mockStatic(Files.class, invocation -> {
+                String method = invocation.getMethod().getName();
+                boolean checkpoint = beforeCopy
+                        ? method.equals("copy") && extracted.ffmpeg().equals(invocation.getArgument(0))
+                        : method.equals("move") && ((Path) invocation.getArgument(0)).getFileName().toString().equals("new-4");
+                if (checkpoint) {
+                    paused.countDown();
+                    if (!resume.await(30, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("Publication timed out");
+                }
+                return invocation.callRealMethod();
+            })) {
+                FfmpegInstaller.publish(extracted, tools);
+            }
+            return FfmpegLocator.managedInstallation().orElseThrow();
+        });
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new FfmpegToolsController(service, null, null, null)).build();
+        try (var client = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var accepted = service.start(FfmpegInstaller.ProxySettings.disabled());
+            var resolving = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Future<top.sywyar.pixivdownload.core.ffmpeg.ResolvedFfmpegCommand> command;
+            try {
+                assertThat(paused.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(Files.exists(tools.resolve(FfmpegLocator.executableName()))).isEqualTo(beforeCopy);
+                var response = client.submit(() -> mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/tools/ffmpeg")).andReturn().getResponse()).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(response.getStatus()).isEqualTo(200);
+                var status = MAPPER.readTree(response.getContentAsByteArray());
+                assertThat(status.at("/task/executionId").asString()).isEqualTo(accepted.executionId().toString());
+                assertThat(status.at("/task/stage").asString()).isEqualTo("INSTALLING");
+                assertThat(status.at("/installation/source").asString()).isEqualTo("MANAGED");
+                command = client.submit(() -> {
+                    resolving.countDown();
+                    return new FfmpegCommandResolverAdapter().resolve();
+                });
+                assertThat(resolving.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                top.sywyar.pixivdownload.gui.AppDesktopUiHostFfmpegTest.checkSwingStatus(tools);
+                assertThat(command.isDone()).isFalse();
+                assertThat(Path.of(java.net.URI.create(status.at("/installation/ffmpegPath").asString())))
+                        .isEqualTo(tools.resolve(FfmpegLocator.executableName()));
+            } finally {
+                resume.countDown();
+                service.close();
+            }
+            assertThat(service.snapshot().state()).isEqualTo("COMPLETED");
+            Path executable = Path.of(command.get(5, java.util.concurrent.TimeUnit.SECONDS).command());
+            assertThat(executable).isEqualTo(tools.resolve(FfmpegLocator.executableName()));
+            assertThat(Files.readString(executable)).isEqualTo("new " + FfmpegLocator.executableName());
+        }
+    }
+
     @Test
     @DisplayName("启用的代理配置无效时拒绝连接，不退回直连")
     void rejectsInvalidEnabledProxy() {

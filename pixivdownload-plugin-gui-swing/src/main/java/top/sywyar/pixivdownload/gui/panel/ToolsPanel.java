@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
-import top.sywyar.pixivdownload.gui.imageclassifier.ImageClassifier;
 import top.sywyar.pixivdownload.gui.tools.FolderChecker;
 
 import javax.swing.*;
@@ -46,7 +45,6 @@ public class ToolsPanel extends JPanel {
     private final JLabel backfillStatusLabel = SwingPage.text(SwingPage.Style.BODY, message("gui.tools.backfill.status.idle"));
     private final JLabel migrationStatusLabel = SwingPage.text(SwingPage.Style.BODY, message("gui.tools.migration.status.idle"));
 
-    private final JButton imageClassifierButton = new JButton(message("gui.tools.action.open-image-classifier"));
     private final JButton folderCheckerButton = new JButton(message("gui.tools.action.open-folder-checker"));
     private final JButton backfillRunButton = new JButton(message("gui.tools.action.start-backfill"));
     private final JButton backfillLogButton = new JButton(message("gui.tools.action.open-log-page"));
@@ -111,8 +109,6 @@ public class ToolsPanel extends JPanel {
 
         content.add(SwingPage.section(message("gui.tools.section.quick"), null));
         SwingPage.RowList quickTools = new SwingPage.RowList();
-        quickTools.add(toolRow(imageClassifierButton, "gui.tools.card.image-classifier",
-                "gui.tools.action.open-image-classifier", this::openImageClassifier));
         quickTools.add(toolRow(folderCheckerButton, "gui.tools.card.folder-checker",
                 "gui.tools.action.open-folder-checker", this::openFolderChecker));
         quickTools.add(fileImports);
@@ -351,16 +347,6 @@ public class ToolsPanel extends JPanel {
             proxyPortSpinner.setValue(current.proxyPort());
         inheritedBackfillOptions = current;
         updateProxyFieldState();
-    }
-
-    private void openImageClassifier() {
-        if (!ensureNoExclusiveTool(message("gui.tools.card.image-classifier.title"))) {
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
-            ImageClassifier classifier = new ImageClassifier(false);
-            classifier.setVisible(true);
-        });
     }
 
     private void openFolderChecker() {
@@ -861,7 +847,6 @@ public class ToolsPanel extends JPanel {
                 || state == DesktopUiHost.BackendState.STOPPING;
         boolean exclusiveBusy = exclusiveToolName != null || backfillRunning || migrationRunning;
 
-        imageClassifierButton.setEnabled(!exclusiveBusy && !backendTransitioning);
         folderCheckerButton.setEnabled(!exclusiveBusy && !backendTransitioning);
         backfillRunButton.setEnabled(!exclusiveBusy && state == DesktopUiHost.BackendState.RUNNING);
         backfillLogButton.setEnabled(backfillTask != null && backfillTask.logFileName() != null);

@@ -269,17 +269,22 @@ class DownloadTasksTest {
 
     @Test @DisplayName("程序下载终态重载后仍按密钥身份隔离")
     void persistedProgramReceiptRetainsOwner(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) {
-        var registry = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
         var program = new top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity(UUID.randomUUID(), java.util.Set.of());
-        var reserved = registry.reserveForProgram(command(), null, program).task();
-        registry.register(reserved.attempt(), null, "example", "Title");
-        registry.update(new DownloadEvent(reserved.attempt(), DownloadEvent.Phase.COMPLETED));
-        var reloaded = new DownloadTaskRegistry(new DownloadTaskResultStore(directory));
-        var identity = RequestOwnerIdentity.owner(program.id().toString());
-        assertThat(reloaded.find(reserved.attempt().attemptId(), identity).orElseThrow().phase())
-                .isEqualTo(DownloadEvent.Phase.COMPLETED);
-        assertThat(reloaded.find(reserved.attempt().attemptId(), RequestOwnerIdentity.owner(UUID.randomUUID().toString()))).isEmpty();
-        assertThat(reloaded.history(null, 10, identity).tasks()).hasSize(1);
-        assertThat(reloaded.snapshot(identity).tasks()).isEmpty();
+        top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot reserved;
+        try (var store = new DownloadTaskResultStore(directory)) {
+            var registry = new DownloadTaskRegistry(store);
+            reserved = registry.reserveForProgram(command(), null, program).task();
+            registry.register(reserved.attempt(), null, "example", "Title");
+            registry.update(new DownloadEvent(reserved.attempt(), DownloadEvent.Phase.COMPLETED));
+        }
+        try (var store = new DownloadTaskResultStore(directory)) {
+            var reloaded = new DownloadTaskRegistry(store);
+            var identity = RequestOwnerIdentity.owner(program.id().toString());
+            assertThat(reloaded.find(reserved.attempt().attemptId(), identity).orElseThrow().phase())
+                    .isEqualTo(DownloadEvent.Phase.COMPLETED);
+            assertThat(reloaded.find(reserved.attempt().attemptId(), RequestOwnerIdentity.owner(UUID.randomUUID().toString()))).isEmpty();
+            assertThat(reloaded.history(null, 10, identity).tasks()).hasSize(1);
+            assertThat(reloaded.snapshot(identity).tasks()).isEmpty();
+        }
     }
 }

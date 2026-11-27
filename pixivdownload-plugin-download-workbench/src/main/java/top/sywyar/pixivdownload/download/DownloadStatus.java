@@ -15,6 +15,9 @@ public class DownloadStatus {
     private boolean completed;
     private boolean failed;
     private volatile boolean cancelled;
+    @lombok.Getter(lombok.AccessLevel.NONE)
+    @lombok.Setter(lombok.AccessLevel.NONE)
+    private boolean replacementCommitting;
     private String errorMessage;
     private String errorCode;
     private String errorMessageKey;
@@ -30,6 +33,18 @@ public class DownloadStatus {
     @lombok.Getter(lombok.AccessLevel.NONE)
     @lombok.Setter(lombok.AccessLevel.NONE)
     private final java.util.Map<Integer, ImageDownloadProgress> processingImages = new java.util.TreeMap<>();
+
+    synchronized boolean requestCancellation() {
+        if (replacementCommitting) return false;
+        cancelled = true;
+        return true;
+    }
+
+    // 文件事务回调结束后即可提交，此后的取消不能把已发布的版本报告成取消。
+    synchronized void beginReplacementCommit() {
+        if (cancelled || Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
+        replacementCommitting = true;
+    }
 
     public synchronized ImageDownloadProgress getImageProgress() {
         if (processingImages.isEmpty()) return imageProgress;

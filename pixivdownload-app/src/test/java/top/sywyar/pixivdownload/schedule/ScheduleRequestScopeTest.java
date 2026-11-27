@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.schedule;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.mock.web.MockHttpServletRequest;
+import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -102,13 +105,14 @@ class ScheduleRequestScopeTest {
 
     private MockMvc metadataEndpoint(PixivAjaxClient client) {
         var access = mock(PixivProxyAccessPolicy.class);
-        when(access.evaluate("admin", true)).thenReturn(new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
+        when(access.evaluate(eq("admin"), anyBoolean())).thenReturn(new PixivProxyAccessDecision(PixivProxyAccessOutcome.ALLOWED, null, 0, 0));
         var controller = new PixivSharedProxyController(json, client, mock(PixivThumbnailFetcher.class), access,
                 identities, HostTestMessages.messages(), scope);
         var filter = new AcquisitionCredentialsFilter(library, identities,
                 new AppMessages(new org.springframework.context.support.StaticMessageSource()),
                 new AppLocaleResolver(LocaleCatalog.defaultCatalog()), json);
-        return MockMvcBuilders.standaloneSetup(controller).addFilters(filter).build();
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages())).addFilters(filter).build();
     }
 
     @AfterEach void clearRoute() { OutboundProxyOverride.clear(); }
@@ -217,6 +221,37 @@ class ScheduleRequestScopeTest {
         verify(source).close(); verify(policy).close();
     }
 
+    @Test
+    void referencedTaskRequiresItsSourceOwnerBeforeCredentialLookup() throws Exception {
+        when(identities.isAdminAuthenticated(any())).thenReturn(false);
+        var key = UUID.randomUUID();
+        var authorOnly = new ProgramIdentity(key, Set.of("core:authors.refresh", "policy-owner:schedule.manage"));
+        var lookup = post("/api/pixiv/user/8/meta/schedule").contentType(MediaType.APPLICATION_JSON);
+        for (var referenced : List.of(context(true, null),
+                new ScheduleRequestScope.Request("external-source", "publication-a", 17L, 8L, false, null))) {
+            mvc.perform(lookup.requestAttr(ProgramIdentity.REQUEST_ATTRIBUTE, authorOnly)
+                            .content(json.writeValueAsString(referenced)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.programPermission").value("source-owner:schedule.manage"));
+        }
+        verify(store, never()).findCredentialCandidates(anyLong(), anyString(), anyString());
+        verifyNoInteractions(ajax, library);
+
+        var granted = new ProgramIdentity(key, Set.of("core:authors.refresh", "source-owner:schedule.manage"));
+        when(ajax.get(any(URI.class), eq("bound-first"))).thenReturn("{\"body\":{\"name\":\"Bound\"}}");
+        mvc.perform(lookup.requestAttr(ProgramIdentity.REQUEST_ATTRIBUTE, granted)
+                        .content(json.writeValueAsString(context(true, null))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Bound"));
+
+        clearInvocations(store);
+        when(ajax.get(any(URI.class), isNull())).thenReturn("{\"body\":{\"name\":\"Public\"}}");
+        var plainLookup = new ProgramIdentity(key, Set.of("core:authors.refresh"));
+        mvc.perform(lookup.requestAttr(ProgramIdentity.REQUEST_ATTRIBUTE, plainLookup)
+                        .content(json.writeValueAsString(context(false, null))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Public"));
+        verifyNoInteractions(store);
+    }
+
     @Test @DisplayName("本次选择由真实过滤器解析并保留候选顺序，不读取计划旧凭据")
     void selectedCredentialsThroughFilter() throws Exception {
         when(library.resolve(List.of("selected-b", "selected-a")))
@@ -238,14 +273,14 @@ class ScheduleRequestScopeTest {
     @Test @DisplayName("新计划的临时凭据或匿名查询均按本次路由执行")
     void draftAndAnonymousRoute() throws Exception {
         for (String credential : Arrays.asList("inline-secret", null)) {
-            scope.read(context(false, null), credential, ScheduledNetworkRoute.direct(), actual -> {
+            scope.read(new MockHttpServletRequest(), context(false, null), credential, ScheduledNetworkRoute.direct(), actual -> {
                 assertThat(actual).isEqualTo(credential);
                 assertThat(OutboundProxyOverride.isActive()).isTrue();
                 assertThat(OutboundProxyOverride.current()).isNull();
                 return "name";
             });
         }
-        scope.read(context(false, null), null, ScheduledNetworkRoute.inherit(), actual -> {
+        scope.read(new MockHttpServletRequest(), context(false, null), null, ScheduledNetworkRoute.inherit(), actual -> {
             assertThat(OutboundProxyOverride.current().hostName()).isEqualTo("global.proxy");
             return "name";
         });
@@ -284,7 +319,7 @@ class ScheduleRequestScopeTest {
     }
 
     private void assertStale() {
-        assertThatThrownBy(() -> scope.read(context(true, null), null, ScheduledNetworkRoute.inherit(),
+        assertThatThrownBy(() -> scope.read(new MockHttpServletRequest(), context(true, null), null, ScheduledNetworkRoute.inherit(),
                 ignored -> { throw new AssertionError("Must not query"); }))
                 .isInstanceOfSatisfying(ScheduleManagementException.class,
                         failure -> assertThat(failure.code()).isEqualTo(ScheduleManagementException.Code.CONFLICT));
@@ -293,7 +328,7 @@ class ScheduleRequestScopeTest {
     @Test @DisplayName("来源撤回或凭据策略撤回时丢弃迟到结果并恢复请求作用域")
     void cancellationDropsLateResult() {
         for (AtomicBoolean cancellation : List.of(cancelled, policyCancelled)) {
-            assertThatThrownBy(() -> scope.read(context(true, "plan.proxy:8080"), null, ScheduledNetworkRoute.inherit(), ignored -> {
+            assertThatThrownBy(() -> scope.read(new MockHttpServletRequest(), context(true, "plan.proxy:8080"), null, ScheduledNetworkRoute.inherit(), ignored -> {
                 cancellation.set(true);
                 return "late name";
             })).isInstanceOfSatisfying(ScheduleManagementException.class,
@@ -325,7 +360,7 @@ class ScheduleRequestScopeTest {
     @Test @DisplayName("网络失败保留原始失败且释放租约与临时代理")
     void networkFailureRestoresScope() {
         OutboundProxyOverride.setDirect();
-        assertThatThrownBy(() -> scope.read(context(true, "plan.proxy:8080"), null, ScheduledNetworkRoute.inherit(),
+        assertThatThrownBy(() -> scope.read(new MockHttpServletRequest(), context(true, "plan.proxy:8080"), null, ScheduledNetworkRoute.inherit(),
                 ignored -> { throw new IOException("controlled transport failure"); }))
                 .isInstanceOf(IOException.class);
         assertThat(OutboundProxyOverride.isActive()).isTrue();

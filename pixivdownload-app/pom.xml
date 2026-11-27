@@ -13,6 +13,7 @@
     <description>PixivDownloader</description>
 
     <properties>
+        <h2.version>2.5.252</h2.version>
         <plugin.credential.filter>${project.basedir}/src/main/filters/plugin-credential-key-open-source.properties</plugin.credential.filter>
         <pixivdownload.proguard.skip>false</pixivdownload.proguard.skip>
         <pixivdownload.proguard.additionalProgramPath>${project.build.directory}/proguard/program-dependencies</pixivdownload.proguard.additionalProgramPath>
@@ -51,8 +52,13 @@
         </dependency>
         <dependency>
             <groupId>com.h2database</groupId>
+            <artifactId>h2-mvstore</artifactId>
+            <version>${h2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>2.5.252</version>
+            <version>${h2.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

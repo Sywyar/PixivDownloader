@@ -30,13 +30,13 @@ public final class FfmpegToolsController {
     }
     public record Status(boolean downloadSupported, boolean installing, @HttpApiNullable FfmpegInstallation installation,
                          @HttpApiNullable Task task) {}
-    public record Task(java.util.UUID executionId, @Schema(allowableValues = {"RUNNING", "COMPLETED", "FAILED"}) String state, FfmpegInstaller.ProgressStage stage,
+    public record Task(java.util.UUID executionId, @Schema(allowableValues = {"RUNNING", "CANCEL_REQUESTED", "CANCELLED", "COMPLETED", "FAILED"}) String state, FfmpegInstaller.ProgressStage stage,
                        long current, long total, String failureCode, @HttpApiNullable String error) {}
     public record InstallRequest(FfmpegInstaller.ProxySettings proxy) {}
 
     @GetMapping public Status status(Locale locale) {
         return new Status(FfmpegInstaller.supportsManagedDownload(), FfmpegInstaller.isInstalling(),
-                FfmpegLocator.locate().orElse(null), view(service.snapshot(), locale));
+                FfmpegLocator.locateForStatus().orElse(null), view(service.snapshot(), locale));
     }
 
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
@@ -52,6 +52,22 @@ public final class FfmpegToolsController {
                 ApiErrorResponse.of("FFMPEG_INSTALL_UNSUPPORTED", messages.get(locale, "gui.ffmpeg.install.unsupported")));
         var settings = body.proxy() == null ? new FfmpegInstaller.ProxySettings(proxy.isEnabled(), proxy.getHost(), proxy.getPort()) : body.proxy();
         return ResponseEntity.accepted().body(view(service.start(settings), locale));
+    }
+
+    @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "202", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "404", content = @Content)
+    @ApiResponse(responseCode = "409", useReturnTypeSchema = true)
+    @PostMapping("/tasks/{executionId}/cancel")
+    public ResponseEntity<Task> cancel(@PathVariable java.util.UUID executionId, Locale locale) {
+        var task = service.cancel(executionId);
+        if (task == null) return ResponseEntity.notFound().build();
+        int status = switch (task.state()) {
+            case "CANCEL_REQUESTED" -> 202;
+            case "RUNNING" -> 409;
+            default -> 200;
+        };
+        return ResponseEntity.status(status).body(view(task, locale));
     }
 
     private Task view(FfmpegInstallService.Snapshot value, Locale locale) {

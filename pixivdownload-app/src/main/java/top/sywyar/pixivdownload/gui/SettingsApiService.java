@@ -14,13 +14,17 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.function.Predicate;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 
 /** 按可信字段声明读写设置，与桌面共用配置锁、凭据 owner 锁和回滚合同。 */
 @Service
 public final class SettingsApiService {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(SettingsApiService.class);
+    private final PluginCredentialStore credentials = new PluginCredentialStore();
     private final DesktopUiHost host;
     private final Supplier<List<DesktopUiPluginSnapshot>> plugins;
+    private final PluginRegistry registry;
     private final DatabaseSettingsService database;
     private java.util.function.Consumer<String> applyLocalPresets = ignored -> {};
 
@@ -29,11 +33,13 @@ public final class SettingsApiService {
                               PluginRegistry registry, DatabaseSettingsService database,
                               top.sywyar.pixivdownload.core.importing.LocalImportConfig localImports) {
         this(new AppDesktopUiHost(0, arguments.getSourceArgs(), session, target),
-                () -> GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry)), database);
+                () -> GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry)), registry, database);
         applyLocalPresets = localImports::setPresets;
     }
 
-    SettingsApiService(DesktopUiHost host, Supplier<List<DesktopUiPluginSnapshot>> plugins, DatabaseSettingsService database) {
+    SettingsApiService(DesktopUiHost host, Supplier<List<DesktopUiPluginSnapshot>> plugins,
+                       PluginRegistry registry, DatabaseSettingsService database) {
+        this.registry = registry;
         this.host = host;
         this.plugins = plugins;
         this.database = database;
@@ -52,10 +58,10 @@ public final class SettingsApiService {
     public record Preset(@HttpApiNullable String owner, @HttpApiNullable String packageId, long generation, String sectionId,
                          String id, @HttpApiNullable String namespace, String labelKey, String helpKey, Map<String, String> values) {}
 
-    public List<Preset> presets() throws IOException {
+    public List<Preset> presets(Predicate<String> canRead) throws IOException {
         var result = new ArrayList<Preset>();
-        var owners = catalog();
-        appendPresets(result, owners.get(null), host.coreConfigSections());
+        var owners = catalog(canRead);
+        if (owners.containsKey(null)) appendPresets(result, owners.get(null), host.coreConfigSections());
         for (var plugin : plugins.get()) {
             var owner = owners.get(plugin.id());
             if (owner == null || owner.generation() != plugin.generation() || !Objects.equals(owner.packageId(), plugin.packageId())) continue;
@@ -104,14 +110,19 @@ public final class SettingsApiService {
     private record Owner(String id, String packageId, long generation, String namespace,
                          Map<String, GuiConfigFieldContribution> fields, ConfigFile file) {}
 
-    public List<Field> fields() throws IOException {
+    public List<Field> fields(Predicate<String> canRead) throws IOException {
         var result = new ArrayList<Field>();
         host.applicationConfig().withWriteLock(() -> {
-            var owners = catalog();
-            host.withCredentialLocks(pluginOwners(owners.values()), () -> {
+            var owners = catalog(canRead);
+            var secretOwners = new LinkedHashSet<String>();
+            for (var owner : owners.values()) {
+                if (owner.id() != null && owner.fields().values().stream().anyMatch(GuiConfigFieldContribution::sensitive))
+                    secretOwners.add(owner.id());
+            }
+            credentials.withReadLocks(secretOwners, () -> {
                 for (var owner : owners.values()) {
                     var normal = owner.file().readAll(owner.fields().keySet());
-                    var secrets = owner.id() == null ? normal : host.readCredentials(owner.id());
+                    var secrets = secretOwners.contains(owner.id()) ? credentials.readForTransfer(owner.id()) : normal;
                     for (var field : owner.fields().values()) {
                         String value = field.sensitive() ? null : normal.getOrDefault(field.key(), field.defaultValue());
                         if (owner.id() == null && field.key().equals("database.jdbc-url")) value = database.editableSettings().jdbcUrl();
@@ -142,7 +153,12 @@ public final class SettingsApiService {
         if (changes == null || changes.isEmpty()) throw missingChange(null, "/changes");
         var saved = new ArrayList<Saved>();
         host.applicationConfig().withWriteLock(() -> {
-            var owners = catalog();
+            var requested = new HashSet<String>();
+            for (var change : changes) if (change != null) requested.add(change.owner());
+            var registered = new HashMap<String, PluginRegistry.RegisteredPlugin>();
+            for (var identity : registry.registeredPlugins())
+                if (requested.contains(identity.id())) registered.put(identity.id(), identity);
+            var owners = catalog(requested::contains);
             var updates = new LinkedHashMap<Owner, Map<String, String>>();
             var seen = new HashSet<List<String>>();
             for (int i = 0; i < changes.size(); i++) {
@@ -156,6 +172,11 @@ public final class SettingsApiService {
                     throw invalidChange(change, path + "/packageId", "SETTINGS_OWNER_CHANGED");
                 if (owner.generation() != change.generation())
                     throw invalidChange(change, path + "/generation", "SETTINGS_OWNER_CHANGED");
+                if (owner.id() != null) {
+                    var identity = registered.get(owner.id());
+                    if (identity == null || identity.generation() != owner.generation() || !identity.packageId().equals(owner.packageId()))
+                        throw invalidChange(change, path + "/owner", "SETTINGS_OWNER_CHANGED");
+                }
                 var field = owner.fields().get(change.key());
                 if (field == null || !seen.add(Arrays.asList(change.owner(), change.key())))
                     throw invalidChange(change, path + "/key", "INVALID_TOOL_REQUEST");
@@ -172,7 +193,20 @@ public final class SettingsApiService {
                 saved.add(new Saved(owner.id(), field.key(), field.effect()));
             }
             try {
-                host.withCredentialLocks(pluginOwners(updates.keySet()), () -> persist(updates, validateOnly));
+                for (var entry : updates.entrySet()) {
+                    var owner = entry.getKey();
+                    for (var update : entry.getValue().entrySet())
+                        validateUpdate(owner, owner.fields().get(update.getKey()), update.getValue());
+                }
+                registry.withActiveIdentityReservations(registered.values(), () -> {
+                    persist(updates, validateOnly);
+                    return null;
+                });
+            } catch (PluginRegistry.InactiveIdentityException stale) {
+                for (int i = 0; i < changes.size(); i++)
+                    if (stale.pluginId().equals(changes.get(i).owner()))
+                        throw invalidChange(changes.get(i), "/changes/" + i + "/owner", "SETTINGS_OWNER_CHANGED");
+                throw stale;
             } catch (InvalidField invalid) {
                 for (int i = 0; i < changes.size(); i++) {
                     Change change = changes.get(i);
@@ -189,31 +223,63 @@ public final class SettingsApiService {
     }
 
     private void persist(Map<Owner, Map<String, String>> updates, boolean validateOnly) throws IOException {
+        var drafts = new LinkedHashMap<Owner, Map<String, String>>();
+        var readOwners = new LinkedHashSet<String>();
+        var writeOwners = new LinkedHashSet<String>();
+        for (var entry : updates.entrySet()) {
+            var owner = entry.getKey();
+            var changes = entry.getValue();
+            var values = new LinkedHashMap<String, String>();
+            owner.fields().forEach((key, field) -> values.put(key, field.defaultValue()));
+            values.putAll(owner.file().readAll(owner.fields().keySet()));
+            values.putAll(changes);
+            drafts.put(owner, values);
+            if (owner.id() == null) continue;
+            if (needsStoredCredential(owner, changes, values)) readOwners.add(owner.id());
+            if (!validateOnly && changes.keySet().stream().anyMatch(key -> owner.fields().get(key).sensitive()))
+                writeOwners.add(owner.id());
+        }
+        DesktopUiHost.IoOperation operation = () -> applyDrafts(updates, drafts, readOwners, validateOnly);
+        if (writeOwners.isEmpty()) credentials.withReadLocks(readOwners, operation::run);
+        else {
+            writeOwners.addAll(readOwners);
+            host.withCredentialLocks(writeOwners, operation);
+        }
+    }
+
+    // 已填写的必填项或已知不成立的条件不依赖旧凭据；其余规则可能检查凭据本身或引用它。
+    private static boolean needsStoredCredential(Owner owner, Map<String, String> changes, Map<String, String> values) {
+        Predicate<String> unknown = key -> owner.fields().get(key).sensitive() && !changes.containsKey(key);
+        for (var field : owner.fields().values()) {
+            var conditions = field.requiredWhen();
+            if (conditions.isEmpty()) continue;
+            if (!unknown.test(field.key()) && !values.getOrDefault(field.key(), "").isBlank()) continue;
+            if (conditions.stream().anyMatch(c -> !unknown.test(c.key()) && !c.matches(values))) continue;
+            if (unknown.test(field.key()) || conditions.stream().anyMatch(c -> unknown.test(c.key()))) return true;
+        }
+        return false;
+    }
+
+    private void applyDrafts(Map<Owner, Map<String, String>> updates, Map<Owner, Map<String, String>> drafts,
+                             Set<String> readOwners, boolean validateOnly) throws IOException {
         var normal = new LinkedHashMap<Owner, Map<String, String>>();
         var secrets = new LinkedHashMap<String, Map<String, String>>();
         for (var entry : updates.entrySet()) {
             var owner = entry.getKey();
-            var values = new LinkedHashMap<String, String>();
-            owner.fields().forEach((key, field) -> values.put(key, field.defaultValue()));
-            values.putAll(owner.file().readAll(owner.fields().keySet()));
-            if (owner.id() != null) values.putAll(host.readCredentials(owner.id()));
-            values.putAll(entry.getValue());
+            var values = drafts.get(owner);
+            if (readOwners.contains(owner.id())) {
+                values = new LinkedHashMap<>(values);
+                for (var secret : credentials.readForTransfer(owner.id()).entrySet()) {
+                    var field = owner.fields().get(secret.getKey());
+                    if (field != null && field.sensitive() && !entry.getValue().containsKey(field.key()))
+                        values.put(field.key(), secret.getValue());
+                }
+            }
             for (var field : owner.fields().values()) {
                 if (field.missingRequiredValue(values)) throw new InvalidField("SETTINGS_REQUIRED", owner.id(), field.key());
             }
             for (var update : entry.getValue().entrySet()) {
                 var field = owner.fields().get(update.getKey());
-                try { validate(owner, field, update.getValue()); }
-                catch (IOException | IllegalArgumentException invalid) {
-                    Throwable reason = invalid.getCause() == null ? invalid : invalid.getCause();
-                    if (reason instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException template)
-                        throw new InvalidField("DIRECTORY_TEMPLATE_" + template.reason().replace('-', '_').toUpperCase(Locale.ROOT), owner.id(), field.key(),
-                                "directory-template." + template.reason(), template.variable());
-                    if (reason instanceof top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.VariableException variable)
-                        throw new InvalidField(variable.getMessage(), owner.id(), field.key(),
-                                "local-import.error." + variable.getMessage(), variable.variable());
-                    throw new InvalidField("INVALID_SETTINGS_VALUE", owner.id(), field.key());
-                }
                 if (field.sensitive() && owner.id() != null)
                     secrets.computeIfAbsent(owner.id(), ignored -> new LinkedHashMap<>()).put(update.getKey(), update.getValue());
                 else normal.computeIfAbsent(owner, ignored -> new LinkedHashMap<>()).put(update.getKey(), update.getValue());
@@ -244,6 +310,20 @@ public final class SettingsApiService {
         }
     }
 
+    private void validateUpdate(Owner owner, GuiConfigFieldContribution field, String value) {
+        try { validate(owner, field, value); }
+        catch (IOException | IllegalArgumentException invalid) {
+            Throwable reason = invalid.getCause() == null ? invalid : invalid.getCause();
+            if (reason instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException template)
+                throw new InvalidField("DIRECTORY_TEMPLATE_" + template.reason().replace('-', '_').toUpperCase(Locale.ROOT), owner.id(), field.key(),
+                        "directory-template." + template.reason(), template.variable());
+            if (reason instanceof top.sywyar.pixivdownload.plugin.api.gui.importing.LocalArtworkImports.VariableException variable)
+                throw new InvalidField(variable.getMessage(), owner.id(), field.key(),
+                        "local-import.error." + variable.getMessage(), variable.variable());
+            throw new InvalidField("INVALID_SETTINGS_VALUE", owner.id(), field.key());
+        }
+    }
+
     private void validate(Owner owner, GuiConfigFieldContribution field, String value) throws IOException {
         host.requireSafeConfigValue(value);
         boolean valid = switch (field.type()) {
@@ -270,7 +350,7 @@ public final class SettingsApiService {
                 && plugin.configContributions().stream().anyMatch(group -> !group.fields().isEmpty()));
     }
 
-    private Map<String, Owner> catalog() throws IOException {
+    private Map<String, Owner> catalog(Predicate<String> includeOwner) throws IOException {
         var owners = new LinkedHashMap<String, Owner>();
         var snapshots = plugins.get();
         var core = new ArrayList<>(host.coreConfigFields());
@@ -290,8 +370,9 @@ public final class SettingsApiService {
             core.add(new GuiConfigFieldContribution("local-import.presets", "tools", "local-import.presets",
                     "local-import.presets-save-direct-help", null, GuiConfigFieldType.PATH_TEMPLATES, "[]", 0,
                     false, GuiConfigEffect.HOT_RELOAD, List.of(), List.of(), List.of(), null, null, true, Map.of()));
-        owners.put(null, new Owner(null, null, 0, null, fields(core), host.applicationConfig()));
+        if (includeOwner.test(null)) owners.put(null, new Owner(null, null, 0, null, fields(core), host.applicationConfig()));
         for (var plugin : snapshots) {
+            if (!includeOwner.test(plugin.id())) continue;
             var declarations = plugin.configContributions().stream().flatMap(value -> value.fields().stream()).toList();
             if (declarations.isEmpty()) continue;
             try {
@@ -326,7 +407,4 @@ public final class SettingsApiService {
         return result;
     }
 
-    private static List<String> pluginOwners(Collection<Owner> owners) {
-        return owners.stream().map(Owner::id).filter(Objects::nonNull).distinct().sorted().toList();
-    }
 }

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -54,10 +55,61 @@ class ArchiveExportRulesTest {
         assertThat(ArchiveExportRules.safeRelativePath(null)).isEqualTo("file");
         assertThat(ArchiveExportRules.safeSegment(null, "fallback")).isEqualTo("fallback");
         assertThat(ArchiveExportRules.safeSegment("x".repeat(200), "fallback")).hasSize(120);
+        assertThat(ArchiveExportRules.safeSegment("a".repeat(119) + ".d", "file")).isEqualTo("a".repeat(119));
         assertThat(ArchiveExportRules.authorSegment(7L, "Artist")).isEqualTo("Artist");
         assertThat(ArchiveExportRules.authorSegment(null, " ")).isEqualTo("unknown-author");
         assertThat(ArchiveExportRules.authorSegment(7L, null)).isEqualTo("author-7");
         assertThat(ArchiveExportRules.workSegment(9L, "title/name")).isEqualTo("9 - title_name");
+    }
+
+    @Test
+    @DisplayName("长文件名保留扩展名，冲突和显式后缀都登记为不同成员")
+    void reservesDistinctArchiveMembersWithExtensions() {
+        String stem = "a".repeat(121);
+        String timing = ArchiveExportRules.safeRelativePath("nested/" + stem + ".frames.properties");
+        assertThat(timing.substring("nested/".length())).hasSize(120).endsWith(".frames.properties");
+        var names = new ArchiveExportRules.EntryNames();
+        assertThat(names.reserve("7/chapter")).isEqualTo("7/chapter");
+        assertThat(names.reserve("7/Chapter/page.txt")).isEqualTo("7/Chapter (2)/page.txt");
+        assertThat(names.reserve("/a/../dir/name.png")).isEqualTo("a/dir/name.png");
+        assertThat(names.reserve("a/dir/name (2).png")).isEqualTo("a/dir/name (2).png");
+        assertThat(names.reserve("a/dir/name.png")).isEqualTo("a/dir/name (3).png");
+        assertThat(names.reserve(timing)).isEqualTo(timing);
+        assertThat(names.reserve(timing)).isNotEqualTo(timing).endsWith(" (2).frames.properties");
+    }
+
+    @Test
+    @DisplayName("文件与父目录经过截断后重名，两个顺序均能解压出每一份内容")
+    void extractsFilesWhoseParentCollidesWithAnotherFile(@org.junit.jupiter.api.io.TempDir Path root) throws Exception {
+        String file = "a".repeat(116) + ".txt";
+        String folder = file + "d/";
+        var sources = List.of(file, folder + "page.txt", folder + "cover.png");
+        for (var order : List.of(sources, sources.reversed())) {
+            var names = new ArchiveExportRules.EntryNames();
+            var members = new java.util.LinkedHashMap<String, String>();
+            Path archive = Files.createTempFile(root, "novel-", ".zip");
+            try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(archive))) {
+                for (String source : order) {
+                    String member = names.reserve("7/" + ArchiveExportRules.safeRelativePath(source));
+                    members.put(source, member);
+                    zip.putNextEntry(new java.util.zip.ZipEntry(member));
+                    zip.write(source.getBytes(StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+            }
+            Path extracted = Files.createTempDirectory(root, "extracted-");
+            try (var zip = new java.util.zip.ZipInputStream(Files.newInputStream(archive))) {
+                for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                    Path target = extracted.resolve(entry.getName());
+                    Files.createDirectories(target.getParent());
+                    Files.copy(zip, target);
+                }
+            }
+            for (var member : members.entrySet()) {
+                assertThat(Files.readString(extracted.resolve(member.getValue()))).isEqualTo(member.getKey());
+            }
+            assertThat(Path.of(members.get(sources.get(1))).getParent()).isEqualTo(Path.of(members.get(sources.get(2))).getParent());
+        }
     }
 
     @Test

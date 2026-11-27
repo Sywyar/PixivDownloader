@@ -5,9 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;
@@ -182,91 +180,52 @@ class DesktopUiToolsTest {
     }
 
     @Test
-    void classifiesImagesAndMovesTheWorkSidecar() throws Exception {
-        Path source = Files.createDirectory(tempDir.resolve("123"));
-        Path image = Files.writeString(source.resolve("image.jpg"), "image");
-        Path sidecar = Files.writeString(source.resolve("123.meta.json"), "{}");
+    @org.junit.jupiter.api.DisplayName("桌面 SDK 在分类移动退役后保留源文件、目标和数据库登记")
+    void sdkRejectsRetiredClassifierMovesBeforeTouchingFilesOrRegistration() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        Path image = Files.writeString(source.resolve("42_p0.jpg"), "original");
+        Path sidecar = Files.writeString(source.resolve("42.meta.json"), "{}");
         Path target = tempDir.resolve("target");
-        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
+        Path database = tempDir.resolve("artworks.db");
+        var databaseTarget = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database);
+        var dataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource("jdbc:sqlite:" + database);
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, folder TEXT, moved INTEGER, move_folder TEXT)");
+        jdbc.update("INSERT INTO artworks VALUES (?, ?, ?, ?)", 42, source.toString(), 0, null);
+        var before = jdbc.queryForMap("SELECT * FROM artworks WHERE artwork_id = 42");
 
-        Path destination = tools.classifyImageFolder(
-                source, List.of(image), 123L, target,
-                new DesktopUiToolHost.ImageClassifierServer(false, "http://localhost:6999"),
-                (detail, folder) -> {
-                    throw new AssertionError("Deletion should not fail: " + detail);
-                });
-
-        assertThat(destination).isEqualTo(target);
-        assertThat(target.resolve(image.getFileName())).exists();
-        assertThat(target.resolve(sidecar.getFileName())).exists();
-        assertThat(source).doesNotExist();
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            exchange.sendResponseHeaders(410, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var host = new AppDesktopUiHost(server.getAddress().getPort(),
+                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigFile.class),
+                    () -> dataSource, null, databaseTarget);
+            DesktopUiToolHost sdk = host;
+            String url = "http://localhost:" + server.getAddress().getPort();
+            for (boolean online : List.of(true, false)) {
+                assertThatThrownBy(() -> sdk.classifyImageFolder(source, List.of(image), 42, target,
+                        new DesktopUiToolHost.ImageClassifierServer(online, url),
+                        (detail, folder) -> { throw new AssertionError("Unexpected source cleanup"); }))
+                        .isInstanceOf(java.io.IOException.class)
+                        .hasMessage(host.message("gui.image-classifier.move-retired"));
+                assertThat(target).doesNotExist();
+                assertThat(Files.readString(image)).isEqualTo("original");
+                assertThat(Files.readString(sidecar)).isEqualTo("{}");
+                assertThat(jdbc.queryForMap("SELECT * FROM artworks WHERE artwork_id = 42")).isEqualTo(before);
+            }
+            assertThat(requests.get()).isZero();
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static String sql(Path path) {
         return path.toString().replace("'", "''");
-    }
-
-    @Test
-    @org.junit.jupiter.api.DisplayName("分类复制遇到既有文件时撤回已复制图片并保留双方原文件")
-    void classificationRollsBackCopiesWithoutReplacingExistingFiles() throws Exception {
-        Path source = Files.createDirectory(tempDir.resolve("42"));
-        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
-        Path sidecar = Files.writeString(source.resolve("42.meta.json"), "source", StandardCharsets.UTF_8);
-        Path target = Files.createDirectory(tempDir.resolve("target"));
-        Path existing = Files.writeString(target.resolve(sidecar.getFileName()), "existing", StandardCharsets.UTF_8);
-        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
-
-        assertThatThrownBy(() -> tools.classifyImageFolder(
-                source,
-                List.of(image),
-                42L,
-                target,
-                null,
-                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
-        )).isInstanceOf(FileAlreadyExistsException.class);
-
-        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
-        assertThat(Files.readString(sidecar, StandardCharsets.UTF_8)).isEqualTo("source");
-        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
-        assertThat(target.resolve(image.getFileName())).doesNotExist();
-    }
-
-    @Test
-    @org.junit.jupiter.api.DisplayName("分类部分复制失败时移除本次新建编号目录并保留既有编号目录")
-    void classificationRollsBackItsNumberedFolderAfterPartialCopy() throws Exception {
-        Path source = Files.createDirectory(tempDir.resolve("42"));
-        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
-        Path target = Files.createDirectory(tempDir.resolve("target"));
-        Path existingFolder = Files.createDirectory(target.resolve("0"));
-        Path existing = Files.writeString(existingFolder.resolve("keep.jpg"), "existing", StandardCharsets.UTF_8);
-        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
-
-        assertThatThrownBy(() -> tools.classifyImageFolder(
-                source,
-                List.of(image, source.resolve("missing.jpg")),
-                42L,
-                target,
-                null,
-                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
-        )).isInstanceOf(NoSuchFileException.class);
-
-        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
-        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
-        assertThat(target.resolve("1")).doesNotExist();
-    }
-
-    @Test
-    @org.junit.jupiter.api.DisplayName("分类移动完整格式组和缩略图，不依赖目录中的媒体清单")
-    void classificationMovesAllFormatsWithoutManifest() throws Exception {
-        Path source = Files.createDirectory(tempDir.resolve("42"));
-        var suffixes = List.of(".jpg", ".png", ".webp", ".gif", ".apng", ".mp4", ".zip", ".frames.properties", "_thumb.jpg");
-        for (String suffix : suffixes) Files.writeString(source.resolve("42_p0" + suffix), suffix);
-        Path target = tempDir.resolve("target");
-        new DesktopUiTools(() -> "http://localhost:8123").classifyImageFolder(source, List.of(source.resolve("42_p0.jpg")), 42L, target,
-                new DesktopUiToolHost.ImageClassifierServer(false, "http://localhost:6999"),
-                (detail, folder) -> { throw new AssertionError(detail); });
-        for (String suffix : suffixes) assertThat(Files.readString(target.resolve("42_p0" + suffix))).isEqualTo(suffix);
-        assertThat(source).doesNotExist();
-        try (var files = Files.list(target)) { assertThat(files.count()).isEqualTo(suffixes.size()); }
     }
 }

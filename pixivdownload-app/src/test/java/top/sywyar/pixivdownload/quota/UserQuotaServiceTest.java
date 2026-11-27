@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.metadata.CoreWorkDeletionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -57,7 +57,7 @@ class UserQuotaServiceTest {
     private PixivDatabase pixivDatabase;
 
     @Mock private NovelMetadataRepository novelMetadataRepository;
-    @Mock private WorkDeletionService workDeletionService;
+    @Mock private CoreWorkDeletionService workDeletionService;
     @Mock private top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssetService;
     private ArtworkFileLocator locator;
     private MultiModeConfig multiModeConfig;
@@ -67,7 +67,7 @@ class UserQuotaServiceTest {
     void setUp() {
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, tempDir.resolve("data").toString());
         locator = new ArtworkFileLocator(pixivDatabase, downloadConfig, TestI18nBeans.appMessages(),
-                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), mock(ArtworkMediaStore.class), mock(ExternalWorkFiles.class));
+                new StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), mock(ArtworkMediaStore.class), mock(ExternalWorkFiles.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
         multiModeConfig = new MultiModeConfig();
         multiModeConfig.getQuota().setEnabled(true);
         multiModeConfig.getQuota().setMaxArtworks(3);
@@ -616,6 +616,73 @@ class UserQuotaServiceTest {
         assertThat(afterReady).isFalse();
         assertThat(source).hasContent("keep");
         assertThat(tempDir.resolve("_archives").resolve(token + ".zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("内容发生等长替换且修改时间被保留时，完整 ZIP 可用并保留新版源文件")
+    void changedSourceContentsPreventDeletionEvenWithTheSameAttributes() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path source = Files.writeString(tempDir.resolve("animation.frames.properties"), "0.jpg=25");
+        var modified = Files.getLastModifiedTime(source);
+        var replacement = new java.util.concurrent.atomic.AtomicBoolean();
+        var deleted = new java.util.concurrent.atomic.AtomicBoolean();
+        var pending = new ArrayList<Runnable>();
+        var queued = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase,
+                TestI18nBeans.appMessages(), pending::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
+        String token = queued.triggerAdminFileArchive(List.of(ArchiveExportEntry.file(source, "timing")),
+                "artworks", 1, () -> deleted.set(true));
+        Path zipPath = tempDir.resolve("_archives").resolve(token + ".zip");
+        when(pixivDatabase.isUnavailable()).thenAnswer(call -> {
+            if (!replacement.get() && Files.exists(zipPath)) {
+                try (var complete = new java.util.zip.ZipFile(zipPath.toFile())) {
+                    if (complete.getEntry("timing") != null) {
+                        Files.writeString(source, "0.jpg=75");
+                        Files.setLastModifiedTime(source, modified);
+                        replacement.set(true);
+                    }
+                } catch (java.util.zip.ZipException creating) {
+                    // The ZIP central directory has not been written yet.
+                }
+            }
+            return false;
+        });
+        pending.getFirst().run();
+        assertThat(replacement).isTrue();
+        assertThat(deleted).isFalse();
+        assertThat(source).hasContent("0.jpg=75");
+        assertThat(queued.getArchive(token).getStatus()).isEqualTo("ready");
+        try (var zip = new java.util.zip.ZipFile(zipPath.toFile()); var bytes = zip.getInputStream(zip.getEntry("timing"))) {
+            assertThat(new String(bytes.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("0.jpg=25");
+        }
+    }
+
+    @Test
+    @DisplayName("按已提交事务上报删源进度；中断后 ZIP 可下载且进度停在部分完成")
+    void publishesOnlyConfirmedSourceDeletions() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path source = Files.writeString(tempDir.resolve("source.txt"), "zip");
+        var tasks = new ArrayList<Runnable>();
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(pixivDatabase.isUnavailable()).thenAnswer(call -> !available.get());
+        var queued = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase, TestI18nBeans.appMessages(),
+                tasks::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
+        var observed = new ArrayList<top.sywyar.pixivdownload.quota.response.ArchiveStatusResponse.SourceDeletion>();
+        String token = queued.queueAdminFileArchive(List.of(ArchiveExportEntry.file(source, "body")), "artworks", 2, 2,
+                (hashes, committed) -> {
+                    var entry = queued.listAdminArchives().getFirst();
+                    observed.add(entry.getSourceDeletion());
+                    committed.run();
+                    observed.add(entry.getSourceDeletion());
+                    available.set(false);
+                    throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                }, () -> () -> {});
+        tasks.getFirst().run();
+        assertThat(observed).extracting(result -> result.status()).containsExactly("running", "running");
+        assertThat(observed).extracting(result -> result.deletedWorks()).containsExactly(0, 1);
+        var entry = queued.getArchive(token);
+        assertThat(entry.getStatus()).isEqualTo("ready");
+        assertThat(entry.getSourceDeletion().status()).isEqualTo("partial");
+        assertThat(entry.getSourceDeletion().deletedWorks()).isEqualTo(1);
     }
 
     @Test

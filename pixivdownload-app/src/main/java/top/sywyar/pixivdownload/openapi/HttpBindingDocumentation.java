@@ -208,12 +208,20 @@ final class HttpBindingDocumentation {
                 .addHeaderObject("Content-Range", new Header().description(text.apply("header.contentRange.single")).schema(new StringSchema())));
         operation.getResponses().addApiResponse("416", new ApiResponse().description(text.apply("response.416"))
                 .addHeaderObject("Accept-Ranges", supported).addHeaderObject("Content-Range", new Header().schema(new StringSchema())));
-        if (operation.getParameters().stream().anyMatch(p -> "If-Modified-Since".equalsIgnoreCase(p.getName()))) {
-            var modified = new Header().schema(new StringSchema());
-            full.addHeaderObject("Last-Modified", modified);
-            operation.getResponses().addApiResponse("304", new ApiResponse().description(text.apply("response.304"))
-                    .addHeaderObject("Last-Modified", modified));
+        var unchanged = new ApiResponse().description(text.apply("response.304"));
+        for (var parameter : operation.getParameters()) {
+            if (!"header".equals(parameter.getIn())) continue;
+            String header;
+            if ("If-Modified-Since".equalsIgnoreCase(parameter.getName())) header = "Last-Modified";
+            else if ("If-None-Match".equalsIgnoreCase(parameter.getName())) header = "ETag";
+            else continue;
+            var validator = new Header().schema(new StringSchema());
+            full.addHeaderObject(header, validator);
+            operation.getResponses().get("206").addHeaderObject(header, validator);
+            operation.getResponses().get("416").addHeaderObject(header, validator);
+            unchanged.addHeaderObject(header, validator);
         }
+        if (unchanged.getHeaders() != null) operation.getResponses().addApiResponse("304", unchanged);
     }
 
     private static void bindingError(Operation operation, String status, String schema, String detail, boolean local) {

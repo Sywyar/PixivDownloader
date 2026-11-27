@@ -72,7 +72,7 @@ public class PixivMapper {
     }
 
     public List<Map<String, Object>> partialPages(long artworkId) {
-        return select(PARTIAL_PAGES, fields(PARTIAL_PAGES, "page", "base_name", "original_extension", "extensions", "original_retained", "output_fingerprints"),
+        return select(PARTIAL_PAGES, fields(PARTIAL_PAGES, "page", "base_name", "original_extension", "extensions", "original_retained", "output_fingerprints", "thumbnail_owned"),
                 eq(PARTIAL_PAGES, "artwork_id", artworkId), List.of(new Query.Order(column(PARTIAL_PAGES, "page"), false, true)),
                 Integer.MAX_VALUE, 0);
     }
@@ -93,7 +93,8 @@ public class PixivMapper {
                     throw new IllegalStateException("Unfinished artwork page");
                 s.insert("artwork_media", Map.of("artwork_id", artworkId, "page", page,
                         "original_extension", row.get("original_extension"), "extensions", row.get("extensions"),
-                        "original_retained", row.get("original_retained")), DatabaseSession.Conflict.error());
+                        "original_retained", row.get("original_retained"),
+                        "thumbnail_owned", ArtworkMediaRows.read(row, true).thumbnailOwned() ? 1L : 0L), DatabaseSession.Conflict.error());
             }
             return null;
         });
@@ -113,6 +114,31 @@ public class PixivMapper {
             return null;
         });
     }
+    public boolean matchesRecordedMedia(long artworkId, List<String> pageExtensions) {
+        String table = "artwork_media";
+        var rows = select(table, fields(table, "page", "extensions"), eq(table, "artwork_id", artworkId),
+                List.of(), Integer.MAX_VALUE, 0);
+        for (var row : rows) {
+            int page = integer(row.get("page"));
+            if (page < 0 || page >= pageExtensions.size()
+                    || !List.of(((String) row.get("extensions")).split(",")).contains(pageExtensions.get(page))) return false;
+        }
+        return true;
+    }
+
+    public void insertMissingRecoveredMedia(long artworkId, List<String> pageExtensions) {
+        database.transaction(session -> {
+            for (int page = 0; page < pageExtensions.size(); page++) {
+                String extension = pageExtensions.get(page);
+                session.insert("artwork_media", Map.of("artwork_id", artworkId, "page", page,
+                        "original_extension", top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.UNKNOWN_ORIGINAL,
+                        "extensions", extension, "original_retained", 0L, "thumbnail_owned", 0L),
+                        DatabaseSession.Conflict.ignore("artwork_id", "page"));
+            }
+            return null;
+        });
+    }
+
     public void deleteArtworkMedia(long artworkId) { deleteRelated("artwork_media", artworkId); }
     public void deleteUnusedArtworkMedia(long artworkId) {
         var count = new Scalar(new Query(ARTWORKS, fields(ARTWORKS, "count"), id(artworkId), List.of(), List.of(), 1, 0));
@@ -181,7 +207,7 @@ public class PixivMapper {
     }
     public ArtworkRecord findById(long artworkId) { return artworks(id(artworkId), 1).stream().findFirst().orElse(null); }
     public List<ArtworkRecord> findByIds(Collection<Long> ids) { return ids.isEmpty() ? List.of() : artworks(in(ARTWORKS, "artwork_id", ids), Integer.MAX_VALUE); }
-    public void insertOrIgnore(long artworkId, String title, String folder, int count, String extensions, long time,
+    public int insertOrIgnore(long artworkId, String title, String folder, int count, String extensions, long time,
                                Integer xRestrict, Boolean isAi, Long authorId, String description, long fileName,
                                Long fileAuthorNameId, Long seriesId, Long seriesOrder) {
         var row = new LinkedHashMap<String, Object>();
@@ -189,7 +215,7 @@ public class PixivMapper {
         row.put("extensions", extensions); row.put("time", time); row.put("r18", xRestrict == null ? null : xRestrict.longValue());
         row.put("is_ai", bool(isAi)); row.put("author_id", authorId); row.put("description", description); row.put("file_name", fileName);
         row.put("file_author_name_id", fileAuthorNameId); row.put("series_id", seriesId); row.put("series_order", seriesOrder);
-        database.transaction(s -> s.insert(ARTWORKS, row, DatabaseSession.Conflict.ignore()));
+        return database.transaction(s -> s.insert(ARTWORKS, row, DatabaseSession.Conflict.ignore()));
     }
     /** 下载成功后替换落盘事实，清除已经失效的移动位置。 */
     public void updateDownloadedFiles(long artworkId, String folder, int count, String extensions, long time) {
@@ -200,8 +226,12 @@ public class PixivMapper {
         var normalized = call(RTRIM, call(RTRIM, column(ARTWORKS, "move_folder"), value("/")), value("\\"));
         return artworks(call(AND, call(EQUAL, normalized, value(moveFolder)), active()), 1).stream().findFirst().orElse(null);
     }
-    public void updateMove(long artworkId, String movePath, long moveTime) {
-        update(ARTWORKS, Map.of("moved", value(1), "move_folder", value(movePath), "move_time", value(moveTime)), id(artworkId));
+    public boolean markFirstMove(long artworkId) {
+        var unmoved = call(EQUAL, call(COALESCE, column(ARTWORKS, "moved"), value(0)), value(0));
+        return update(ARTWORKS, Map.of("moved", value(1)), call(AND, id(artworkId), active(), unmoved)) == 1;
+    }
+    public boolean updateMove(long artworkId, String movePath, long moveTime) {
+        return update(ARTWORKS, Map.of("move_folder", value(movePath), "move_time", value(moveTime)), call(AND, id(artworkId), active())) == 1;
     }
     /** 仅补齐缺失资料；标题和描述的空字符串也视为缺失。 */
     public void updateMetadataIfMissing(long artworkId, String title, Integer xRestrict, Boolean isAi, Long authorId, String description) {
@@ -325,7 +355,8 @@ public class PixivMapper {
                 "daily_failed", daily("daily_failed", date, true), "daily_date", value(date)), eq("statistics", "id", 1));
     }
     public void incrementMoved() {
-        update("statistics", Map.of("total_moved", call(ADD, column("statistics", "total_moved"), value(1))), eq("statistics", "id", 1));
+        if (update("statistics", Map.of("total_moved", call(ADD, column("statistics", "total_moved"), value(1))),
+                eq("statistics", "id", 1)) != 1) throw new IllegalStateException("Missing artwork statistics row");
     }
     public void setStats(int totalArtworks, int totalImages, int totalMoved) {
         update("statistics", Map.of("total_artworks", value(totalArtworks), "total_images", value(totalImages), "total_moved", value(totalMoved)),

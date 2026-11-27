@@ -201,7 +201,7 @@ public class NovelGalleryController {
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "404", content = @Content)
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
-            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.delete.file-failed", "work.delete.path-unsafe"}))))
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.delete.file-failed", "work.delete.path-unsafe", "work.delete.ownership-incomplete"}))))
     @KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
     @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/novel/{novelId}")
@@ -269,7 +269,7 @@ public class NovelGalleryController {
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"work.selection.confirm-all", "NOVEL_EXPORT_REJECTED", "NOVEL_EXPORT_INVALID_REQUEST", UnsupportedArchiveFormatException.CODE}))))
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
-            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "NOVEL_EXPORT_REJECTED"))))
+            schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = {"NOVEL_EXPORT_REJECTED", "work.delete.ownership-incomplete"}))))
     @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string", allowableValues = "NOVEL_EXPORT_REJECTED"))))
     @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
@@ -312,7 +312,8 @@ public class NovelGalleryController {
             }
             return ResponseEntity.ok(new BatchExportResponse(
                     result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
-        } catch (HttpParameterException | WorkSelectionException | UnsupportedArchiveFormatException validation) {
+        } catch (HttpParameterException | WorkSelectionException | UnsupportedArchiveFormatException
+                 | top.sywyar.pixivdownload.core.work.service.WorkDeletionException validation) {
             throw validation;
         } catch (NovelBatchService.ExportRejected rejected) {
             log.info("Novel archive rejected: runId={}, reason={}", runId, rejected.reason());

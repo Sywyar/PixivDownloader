@@ -58,7 +58,7 @@ public final class ToolApiRequests {
         return read(request, type, limit, JSON);
     }
 
-    static <T> T readStrictStrings(HttpServletRequest request, Class<T> type, int limit) throws IOException {
+    public static <T> T readStrictStrings(HttpServletRequest request, Class<T> type, int limit) throws IOException {
         return read(request, type, limit, STRICT_STRINGS);
     }
 

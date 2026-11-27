@@ -75,6 +75,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
         long started = clock.millis();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
         long retryAfter = Long.MAX_VALUE;
+        boolean rateLimited = false;
         for (String candidate : AcquisitionCredentials.candidates(primary)) {
             scope.checkCancelled();
             if (clock.millis() - started >= budgetMillis || System.nanoTime() >= deadline)
@@ -88,8 +89,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             Health blocked = blocked(key);
             if (blocked == null) blocked = blocked(accountKey);
             if (blocked != null) {
-                if (blocked.status() == 429)
+                if (blocked.status() == 429) {
+                    rateLimited = true;
                     retryAfter = Math.min(retryAfter, Math.max(1, blocked.until() - clock.millis()));
+                }
                 continue;
             }
             RequestBudget budget = new RequestBudget(deadline, deadlines, new AtomicReference<>());
@@ -105,7 +108,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
                         || failure.statusCode() != 401 && failure.statusCode() != 429) throw failure;
                 long delay = failure.statusCode() == 401 ? HEALTH_TTL
                         : Math.max(DEFAULT_COOLDOWN, failure.retryAfterMillis());
-                if (failure.statusCode() == 429) retryAfter = Math.min(retryAfter, delay);
+                if (failure.statusCode() == 429) {
+                    rateLimited = true;
+                    retryAfter = Math.min(retryAfter, delay);
+                }
                 block(failure.statusCode() == 401 ? key : accountKey,
                         new Health(saturatingAdd(clock.millis(), delay), failure.statusCode()));
             } catch (Exception failure) {
@@ -119,7 +125,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             }
         }
         scope.checkCancelled();
-        throw new AcquisitionCredentialsUnavailableException(retryAfter == Long.MAX_VALUE ? 0 : retryAfter);
+        throw new AcquisitionCredentialsUnavailableException(rateLimited ? retryAfter : 0, rateLimited);
     }
 
     private synchronized Health blocked(String key) {

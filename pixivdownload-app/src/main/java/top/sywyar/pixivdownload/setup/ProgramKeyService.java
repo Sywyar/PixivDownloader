@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.ProgramIdentity;
 import top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry;
 import top.sywyar.pixivdownload.gui.importing.DesktopFileImportToolRegistry;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwnerSnapshot;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
@@ -25,8 +27,7 @@ public final class ProgramKeyService {
     private final DesktopFileImportToolRegistry imports;
     private final top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads;
 
-    private final java.util.function.Supplier<Set<String>> batchOwners;
-    private final java.util.function.Supplier<Set<String>> scheduleOwners;
+    private final java.util.function.Supplier<List<ScheduleCapabilityOwnerSnapshot>> scheduleOwners;
     private final java.util.function.Supplier<List<top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry>> managementTargets;
 
     @Autowired
@@ -35,12 +36,7 @@ public final class ProgramKeyService {
                              top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
                              top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess schedules,
                              org.springframework.beans.factory.ObjectProvider<top.sywyar.pixivdownload.plugin.management.PluginManagementService> management) {
-        this(RuntimeFiles.programKeysPath(), routes, plugins, media, imports, downloads, () -> schedules.snapshot().owners().stream()
-                .filter(owner -> !owner.sourceTypes().isEmpty() || !owner.workTypes().isEmpty())
-                .map(owner -> owner.owner().featurePluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet()),
-                () -> schedules.snapshot().owners().stream()
-                        .filter(owner -> !owner.sourceTypes().isEmpty() || !owner.credentialPolicyIds().isEmpty())
-                        .map(owner -> owner.owner().featurePluginId()).collect(java.util.stream.Collectors.toUnmodifiableSet()),
+        this(RuntimeFiles.programKeysPath(), routes, plugins, media, imports, downloads, () -> schedules.snapshot().owners(),
                 () -> management.getObject().list().plugins());
     }
     ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins) {
@@ -53,36 +49,29 @@ public final class ProgramKeyService {
     ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
                       DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
                       top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads) {
-        this(path, routes, plugins, media, imports, downloads, Set::of);
+        this(path, routes, plugins, media, imports, downloads, List::of, List::of);
     }
     ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
                       DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
                       top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
-                      java.util.function.Supplier<Set<String>> batchOwners) {
-        this(path, routes, plugins, media, imports, downloads, batchOwners, batchOwners);
-    }
-    ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
-                      DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
-                      top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
-                      java.util.function.Supplier<Set<String>> batchOwners,
-                      java.util.function.Supplier<Set<String>> scheduleOwners) {
-        this(path, routes, plugins, media, imports, downloads, batchOwners, scheduleOwners, List::of);
-    }
-    ProgramKeyService(Path path, RouteAccessRegistry routes, PluginRegistry plugins,
-                      DesktopMediaToolRegistry media, DesktopFileImportToolRegistry imports,
-                      top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry downloads,
-                      java.util.function.Supplier<Set<String>> batchOwners,
-                      java.util.function.Supplier<Set<String>> scheduleOwners,
+                      java.util.function.Supplier<List<ScheduleCapabilityOwnerSnapshot>> scheduleOwners,
                       java.util.function.Supplier<List<top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry>> managementTargets) {
         this.store = new ProgramKeyStore(path); this.routes = routes; this.plugins = plugins;
-        this.media = media; this.imports = imports; this.downloads = downloads; this.batchOwners = batchOwners;
+        this.media = media; this.imports = imports; this.downloads = downloads;
         this.scheduleOwners = scheduleOwners;
         this.managementTargets = managementTargets;
     }
     public record Permission(String id, String owner, String namespace, @HttpApiNullable String ownerNamespace,
             String ownerLabelKey, String labelKey,
                              List<Endpoint> endpoints) {}
-    public record Endpoint(String method, String path) {}
+    public static final String SCHEDULE_AUTHOR_METADATA = "/api/pixiv/user/{userId}/meta/schedule";
+    public static final String TASK_ID_POINTER = "request#/taskId";
+
+    public record Condition(String keyFrom) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record Endpoint(String method, String path, Condition when) {
+        public Endpoint(String method, String path) { this(method, path, null); }
+    }
 
     public List<Permission> permissions() {
         var declarations = new TreeMap<String, Permission>();
@@ -108,12 +97,20 @@ public final class ProgramKeyService {
         var mediaOwners = media.tools().stream().map(tool -> tool.identity().pluginId()).collect(java.util.stream.Collectors.toSet());
         var importOwners = imports.tools().stream().map(tool -> tool.identity().pluginId()).collect(java.util.stream.Collectors.toSet());
         var downloadOwners = downloads.submissionOwners();
-        var currentBatchOwners = batchOwners.get();
-        var currentScheduleOwners = scheduleOwners.get();
+        var sourceOwners = new HashSet<String>();
+        var workOwners = new HashSet<String>();
+        var policyOwners = new HashSet<String>();
+        for (var capability : scheduleOwners.get()) {
+            String owner = capability.owner().featurePluginId();
+            if (!capability.sourceTypes().isEmpty()) sourceOwners.add(owner);
+            if (!capability.workTypes().isEmpty()) workOwners.add(owner);
+            if (!capability.credentialPolicyIds().isEmpty()) policyOwners.add(owner);
+        }
         for (var registered : plugins.registeredPlugins()) {
             var targets = new ArrayList<String>();
-            if (currentBatchOwners.contains(registered.id())) targets.add("batches.execute");
-            if (currentScheduleOwners.contains(registered.id())) targets.add("schedule.manage");
+            boolean sourceOwner = sourceOwners.contains(registered.id());
+            if (sourceOwner || workOwners.contains(registered.id())) targets.add("batches.execute");
+            if (sourceOwner || policyOwners.contains(registered.id())) targets.add("schedule.manage");
             if (downloadOwners.contains(registered.id())) targets.add("downloads.create");
             if (!registered.plugin().guiConfigContributions().isEmpty()) targets.addAll(List.of("settings.read", "settings.write"));
             if (mediaOwners.contains(registered.id())) targets.addAll(List.of("media.read", "media.preview", "media.execute", "media.cancel"));
@@ -133,6 +130,12 @@ public final class ProgramKeyService {
                     declarations.values().stream().filter(value -> value.id().startsWith("core:schedule.")
                             && !value.id().equals("core:schedule.sources.read"))
                             .forEach(value -> endpoints.addAll(value.endpoints()));
+                    var refresh = declarations.get("core:authors.refresh");
+                    if (sourceOwner && refresh != null) refresh.endpoints().stream()
+                            .filter(endpoint -> endpoint.method().equals("POST")
+                                    && endpoint.path().equals(SCHEDULE_AUTHOR_METADATA.replace("{userId}", "*")))
+                            .map(endpoint -> new Endpoint(endpoint.method(), endpoint.path(), new Condition(TASK_ID_POINTER)))
+                            .forEach(endpoints::add);
                 }
                 if (permission.equals("batches.execute") && declarations.containsKey("core:batches.resume"))
                     endpoints.addAll(declarations.get("core:batches.resume").endpoints());

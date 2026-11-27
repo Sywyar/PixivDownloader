@@ -17,7 +17,8 @@ public record AdminArchiveTasksResponse(List<Task> tasks) {
             int processedWorks,
             int fileCount,
             long createdTime,
-            long expireSeconds
+            long expireSeconds,
+            ArchiveStatusResponse.SourceDeletion sourceDeletion
     ) {
     }
 }

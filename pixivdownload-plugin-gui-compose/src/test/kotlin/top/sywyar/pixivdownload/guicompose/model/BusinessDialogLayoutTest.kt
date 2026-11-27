@@ -57,7 +57,7 @@ class BusinessDialogLayoutTest {
                             "gui.config.market.repo.dialog.ok" to "gui.config.market.repo.dialog.cancel"
                         }
                         "classifier" -> {
-                            activate("tools.image-classifier.open")
+                            DesktopToolsControllerTest.openRetainedClassifier(model)
                             activate("classifier.settings")
                             "gui.button.save" to "desktop.ui.action.cancel"
                         }

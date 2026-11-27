@@ -253,7 +253,7 @@ public class GalleryController {
     @ApiResponse(responseCode = "404", content = @Content)
     @ApiResponse(responseCode = "409", content = @Content(mediaType = "application/json", schema = @Schema(allOf = ApiErrorResponse.Basic.class),
             schemaProperties = @SchemaProperty(name = "code", schema = @Schema(type = "string",
-                    allowableValues = {"work.delete.file-failed", "work.delete.path-unsafe"}))))
+                    allowableValues = {"work.delete.file-failed", "work.delete.path-unsafe", "work.delete.ownership-incomplete"}))))
     @KnownErrorCodes(status = "503", value = "DATABASE_UNAVAILABLE")
     @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @DeleteMapping("/artwork/{artworkId}")

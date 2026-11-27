@@ -51,7 +51,8 @@ class ToolsOverviewTest {
         assertTrue(bounds("import.beta").top >= bounds("backfill").bottom)
         runOnIdle { imports = emptyList() }
         onNodeWithTag("tools.entry.import.beta").assertDoesNotExist()
-        onNodeWithTag("tools.entry.classifier").performScrollTo().assertIsDisplayed()
+        onNodeWithTag("tools.entry.classifier").assertDoesNotExist()
+        onNodeWithTag("tools.entry.folder").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -70,7 +71,7 @@ class ToolsOverviewTest {
                 }
             }
         }
-        val left = onNodeWithTag("tools.entry.classifier").fetchSemanticsNode().boundsInRoot
+        val left = onNodeWithTag("tools.entry.folder").fetchSemanticsNode().boundsInRoot
         val right = onNodeWithTag("tools.entry.backfill").fetchSemanticsNode().boundsInRoot
         assertTrue(left.top > right.bottom)
         assertEquals(left.left, right.left, 1f)
@@ -198,7 +199,7 @@ class ToolsOverviewTest {
             val history = Table("history", "history.selection", listOf("tool", "outcome", "start", "end", "processed").map { TableColumn(it, TextToken.raw(it), 80) },
                 listOf(TableRow("history.1", listOf("Backfill", "Succeeded", "09:01", "09:02", "2"))), SelectionMode.SINGLE, emptyList(), false)
             return DesktopUiNode.ToolsOverview("tools.workspace", Text("backend", TextToken.raw("Service running"), TextStyle.CAPTION, true, false),
-                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, fileImports, history, activity, null)
+                listOf(content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, fileImports, history, activity, null)
         }
     }
 }

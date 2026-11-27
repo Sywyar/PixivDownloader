@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 
@@ -34,12 +36,23 @@ public class CoreWorkDeletionService implements WorkDeletionService {
 
     @Override
     public boolean delete(WorkType workType, long workId) {
+        return delete(workType, workId, null);
+    }
+
+    public boolean deleteArchived(WorkType workType, long workId, Map<Path, String> archived) {
+        return delete(workType, workId, Map.copyOf(archived));
+    }
+
+    private boolean delete(WorkType workType, long workId, Map<Path, String> archived) {
         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(workType, workId)) {
             if (!workQueryService.hasActiveWork(workType, workId)) {
                 return false;
             }
-            if (!workAssetService.deleteLocalFiles(workType, workId, () -> markDeleted(workType, workId))) {
+            Runnable commit = () -> markDeleted(workType, workId);
+            boolean deleted = archived == null ? workAssetService.deleteLocalFiles(workType, workId, commit)
+                    : workAssetService.deleteArchivedFiles(workType, workId, archived, commit);
+            if (!deleted) {
                 throw new WorkDeletionException(
                         WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED,
                         workType,
@@ -97,9 +110,10 @@ public class CoreWorkDeletionService implements WorkDeletionService {
     }
 
     private String deletionFailureForLog(Exception exception, WorkType workType, long workId) {
-        if (exception instanceof WorkDeletionException deletionException
-                && deletionException.reason() == WorkDeletionException.Reason.LOCAL_FILE_DELETE_FAILED) {
-            return messages.getForLog("work.delete.file-failed", typeNounForLog(workType), workId);
+        if (exception instanceof WorkDeletionException deletionException) {
+            String code = deletionException.reason() == WorkDeletionException.Reason.INCOMPLETE_FILE_OWNERSHIP
+                    ? "work.delete.ownership-incomplete" : "work.delete.file-failed";
+            return messages.getForLog(code, typeNounForLog(workType), workId);
         }
         return exception.getMessage();
     }

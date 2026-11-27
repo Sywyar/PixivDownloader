@@ -36,6 +36,9 @@ class ProgramKeyStoreTest {
         assertThat(reloaded.authenticate(created.secret(), "localhost", true)).isNull();
         assertThat(reloaded.authenticate(created.secret() + "x", "192.0.2.1", true)).isNull();
         assertThat(reloaded.list().getFirst().lastUsedAt()).isNotNull();
+        var afterRestart = new ProgramKeyStore(file).list().getFirst();
+        assertThat(afterRestart.id()).isEqualTo(created.key().id());
+        assertThat(afterRestart.lastUsedAt()).isNull();
     }
 
     @Test

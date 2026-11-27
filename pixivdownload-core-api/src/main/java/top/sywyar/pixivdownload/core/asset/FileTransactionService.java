@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 核心拥有的本地文件与主库记录事务；由宿主必需基础设施提供，不依赖可选插件。
@@ -25,4 +26,33 @@ public interface FileTransactionService {
      */
     void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions,
                      Runnable commitRecord) throws IOException;
+
+    /**
+     * 发布前检查所有只允许新建的目标；任何一个已存在时整批拒绝。
+     * @param stagedByTarget 目标文件及其暂存副本
+     * @param deletions 要移除的旧文件
+     * @param createOnly 发布目标中必须尚不存在的路径
+     * @param commitRecord 与文件变更一同提交的主库更新
+     * @throws IOException 目标冲突、校验或事务失败
+     */
+    default void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions, Set<Path> createOnly,
+                             Runnable commitRecord) throws IOException {
+        if (!createOnly.isEmpty()) throw new IOException("File transaction does not support create-only publication");
+        changeFiles(stagedByTarget, deletions, commitRecord);
+    }
+
+    /**
+     * 发布前核验旧文件的 SHA-256，保留在资格检查后被改写的文件。
+     * @param stagedByTarget 要发布的目标及其暂存文件
+     * @param deletions 要删除的旧文件
+     * @param createOnly 只允许新建的发布目标
+     * @param expectedHashes 覆盖或删除前必须匹配的旧文件路径与 SHA-256
+     * @param commitRecord 与文件变更一同提交的主库更新
+     * @throws IOException 目标冲突、内容变化、事务失败或实现不支持摘要核验
+     */
+    default void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions, Set<Path> createOnly,
+                             Map<Path, String> expectedHashes, Runnable commitRecord) throws IOException {
+        if (!expectedHashes.isEmpty()) throw new IOException("File transaction does not support verified publication");
+        changeFiles(stagedByTarget, deletions, createOnly, commitRecord);
+    }
 }

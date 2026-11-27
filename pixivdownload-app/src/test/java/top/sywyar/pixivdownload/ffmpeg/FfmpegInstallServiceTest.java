@@ -50,6 +50,55 @@ class FfmpegInstallServiceTest {
         } finally { release.countDown(); service.close(); }
     }
 
+    @Test void cancellationWaitsForCleanupAndAnOldExecutionCannotInterruptItsSuccessor() throws Exception {
+        var started = new CountDownLatch(1);
+        var cleaning = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var service = new FfmpegInstallService((proxy, progress) -> {
+            started.countDown();
+            try { new CountDownLatch(1).await(); }
+            finally {
+                cleaning.countDown();
+                assertTrue(release.await(5, TimeUnit.SECONDS));
+            }
+            return null;
+        });
+        try {
+            var first = service.start(null);
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            assertEquals("CANCEL_REQUESTED", service.cancel(first.executionId()).state());
+            assertTrue(cleaning.await(5, TimeUnit.SECONDS));
+            assertEquals("CANCEL_REQUESTED", service.cancel(first.executionId()).state());
+            assertThrows(FfmpegInstaller.BusyException.class, () -> service.start(null));
+            release.countDown();
+            org.awaitility.Awaitility.await().until(() -> service.snapshot().state().equals("CANCELLED"));
+            assertEquals("CANCELLED", service.cancel(first.executionId()).state());
+            var second = service.start(null);
+            assertNull(service.cancel(first.executionId()));
+            assertEquals(second, service.snapshot());
+            service.cancel(second.executionId());
+        } finally { release.countDown(); service.close(); }
+    }
+
+    @Test void publishingTheVerifiedFilesFinishesEvenIfCancellationArrives() throws Exception {
+        var publishing = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var service = new FfmpegInstallService((proxy, progress) -> {
+            progress.onProgress(FfmpegInstaller.ProgressStage.INSTALLING, -1, -1);
+            publishing.countDown();
+            assertTrue(release.await(5, TimeUnit.SECONDS));
+            return null;
+        });
+        try {
+            var id = service.start(null).executionId();
+            assertTrue(publishing.await(5, TimeUnit.SECONDS));
+            assertEquals("RUNNING", service.cancel(id).state());
+            release.countDown();
+            service.close();
+            assertEquals("COMPLETED", service.snapshot().state());
+        } finally { release.countDown(); service.close(); }
+    }
+
     @Test void failuresDoNotPublishRawExceptionText() throws Exception {
         var entered = new CountDownLatch(1);
         var service = new FfmpegInstallService((proxy, progress) -> {

@@ -52,6 +52,18 @@ test('批量选择一篇或多篇均保留归档选项和任务流程', async ()
     }
 });
 
+test('小说导出显示服务器删源结果，仅在确认删除作品时刷新', async () => {
+    for (const [status, deletedWorks, type] of [['failed', 0, 'error'], ['partial', 1, 'error'], ['succeeded', 2, 'success']]) {
+        const h = load();
+        let refreshes = 0;
+        await h.open({onDeleted: () => refreshes++});
+        const notice = {text: 'source deletion: ' + status, level: type};
+        h.tracked[0][1].onReady('archive', {status, deletedWorks, requestedWorks: 2}, notice);
+        assert.deepEqual(h.messages.at(-1), [notice.text, type]);
+        assert.equal(refreshes, deletedWorks > 0 ? 1 : 0);
+    }
+});
+
 test('单篇只选择语言和引擎，直接下载附件并释放 URL，不创建归档', async () => {
     const h = load({form: async options => {
         const names = [];

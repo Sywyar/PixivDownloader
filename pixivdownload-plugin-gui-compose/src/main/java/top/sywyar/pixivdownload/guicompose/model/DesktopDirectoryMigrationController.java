@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.guicompose.model;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
+import top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate;
 
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
@@ -8,11 +9,9 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.InputKin
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -167,7 +166,7 @@ final class DesktopDirectoryMigrationController {
         List<MigrationChange> changes = new ArrayList<>();
         PathPrefixRow rootChange = null;
         for (PathPrefixRow prefix : prefixes) {
-            String value = form(binding(prefix), "").trim();
+            String value = form(binding(prefix), "");
             if (value.isBlank() || sameDirectory(value, prefix.path())) continue;
             changes.add(new MigrationChange(prefix.id(), value));
             if (prefix.downloadRoot()) rootChange = prefix;
@@ -197,7 +196,7 @@ final class DesktopDirectoryMigrationController {
         String newRoot = plan.changes().stream().filter(change -> change.id() == root.id()).map(
                 MigrationChange::path).findFirst().orElse("");
         if (root.symbolic()) {
-            String relative = relativeToAppRoot(newRoot, appRoot);
+            String relative = WorkDirectoryTemplate.relativeToAppRoot(newRoot, appRoot);
             boolean inside = relative != null;
             TextToken message = appToken(
                     inside ? "gui.migrate-dir.symbolic-sync.inside.message" : "gui.migrate-dir.symbolic-sync.outside.message",
@@ -316,6 +315,15 @@ final class DesktopDirectoryMigrationController {
     ) {
         owner.closeDialog();
         owner.runBusy(() -> {
+            if (rootSyncPath != null) {
+                try {
+                    host.validateDownloadTemplateRoot(rootSyncPath);
+                } catch (java.io.IOException invalid) {
+                    owner.showDialog("migrate.failed", "gui.dialog.error.title",
+                            appToken("gui.migrate-dir.failed", invalid.getMessage()), DesktopUiDocument.DialogStyle.ERROR);
+                    return;
+                }
+            }
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put(
                     "updates",
@@ -427,37 +435,19 @@ final class DesktopDirectoryMigrationController {
     }
 
     private String reason(String code) {
-        return host.message("gui.migrate-dir.reason." + switch (nullToEmpty(code)) {
+        return host.message(reasonKey(code));
+    }
+
+    static String reasonKey(String code) {
+        return "gui.migrate-dir.reason." + switch (nullToEmpty(code)) {
             case "invalid", "not-absolute", "not-exist", "not-directory", "duplicate", "conflict",
-                 "unknown-id" -> code;
+                 "unknown-id", "write-failed" -> code;
             default -> "unknown";
-        });
+        };
     }
 
     private boolean sameDirectory(String first, String second) {
-        return normalizeDirectory(first).equals(normalizeDirectory(second));
-    }
-
-    private String normalizeDirectory(String value) {
-        return host.stripTrailingPathSeparators(nullToEmpty(value)).replace(
-                '\\',
-                '/'
-        ).toLowerCase(
-                Locale.ROOT);
-    }
-
-    private static String relativeToAppRoot(String newRoot, String appRoot) {
-        if (nullToEmpty(newRoot).isBlank() || nullToEmpty(appRoot).isBlank()) return null;
-        try {
-            Path app = Path.of(appRoot).toAbsolutePath().normalize();
-            Path target = Path.of(newRoot).toAbsolutePath().normalize();
-            return target.equals(app) || !target.startsWith(app) ? null : app.relativize(target).toString().replace(
-                    '\\',
-                    '/'
-            );
-        } catch (Exception ignored) {
-            return null;
-        }
+        return second != null && new java.io.File(first).equals(new java.io.File(second));
     }
 
     private static String binding(PathPrefixRow row) {
@@ -599,7 +589,7 @@ final class DesktopDirectoryMigrationController {
     }
 
     private void repairSymbolicOrphan() {
-        String path = form("symbolic-orphan.path", "").trim();
+        String path = form("symbolic-orphan.path", "");
         if (path.isBlank()) {
             showSymbolicOrphanDialog("", key("gui.migrate-dir.reason.invalid"));
             return;

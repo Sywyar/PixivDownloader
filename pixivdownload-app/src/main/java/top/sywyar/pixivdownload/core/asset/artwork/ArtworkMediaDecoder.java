@@ -32,21 +32,8 @@ public final class ArtworkMediaDecoder {
         Path cache = RuntimeFiles.galleryThumbnailDirectory();
         Files.createDirectories(cache);
         Path temporary = Files.createTempFile(cache, "zip-frame-", ".image");
-        try (var zip = new java.util.zip.ZipInputStream(Files.newInputStream(source))) {
-            var entry = zip.getNextEntry();
-            if (entry == null || entry.isDirectory()) throw new IOException("Missing animation frame");
-            // 只读首帧，既不展开目录，也不以归档内路径创建文件。
-            int limit = 32 * 1024 * 1024;
-            long count = 0;
-            try (var out = Files.newOutputStream(temporary)) {
-                byte[] buffer = new byte[65536];
-                int n;
-                while ((n = zip.read(buffer)) != -1) {
-                    count += n;
-                    if (count > limit) throw new IOException("Animation frame byte limit exceeded");
-                    out.write(buffer, 0, n);
-                }
-            }
+        try {
+            ZipPreviewFrame.copy(source, temporary, 32L * 1024 * 1024);
             BufferedImage image = decodeImage(temporary, edge, cover);
             if (image == null) throw new IOException("Invalid animation frame");
             return image;

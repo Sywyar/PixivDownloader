@@ -75,6 +75,8 @@
             if (task.phase === 'FAILED' && task.failureReason === 'CREDENTIALS_UNAVAILABLE') {
                 item.status = 'paused';
                 item.statusMessageKey = 'batch:credentials.unavailable';
+            } else if (task.phase === 'FAILED' && task.failureReason === 'OUTPUT_FILE_CONFLICT') {
+                item.statusMessageKey = 'batch:queue.task.output-file-conflict';
             } else item.statusMessageKey = 'batch:queue.task.phase.' + task.phase;
             item.lastMessage = '';
             item.lastMessageParts = null;

@@ -5,9 +5,12 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
+import top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -23,7 +26,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
+import static top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec.comparisonKey;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,22 +57,31 @@ public class PathPrefixMigrationService {
     private final AppMessages messages;
     private final TransactionOperations transactionOperations;
     private final MainDatabase database;
+    private final DownloadDirectories directories;
 
     @Autowired
     public PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
                                       PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
                                       PlatformTransactionManager transactionManager,
-                                      MainDatabase database) {
+                                      MainDatabase database, DownloadDirectories directories) {
         this(codec, mapper, pathPrefixColumns, downloadConfig, messages,
-                new TransactionTemplate(transactionManager), database);
+                writeTransactions(transactionManager), database, directories);
+    }
+
+    private static TransactionOperations writeTransactions(PlatformTransactionManager manager) {
+        var transaction = new TransactionTemplate(manager);
+        // The table has a literal-path UNIQUE constraint. Equivalent spellings share a logical key.
+        transaction.setIsolationLevel(TransactionTemplate.ISOLATION_SERIALIZABLE);
+        return transaction;
     }
 
     PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
                                PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations,
-                               MainDatabase database) {
+                               MainDatabase database, DownloadDirectories directories) {
+        this.directories = directories;
         this.codec = codec;
         this.mapper = mapper;
         this.pathPrefixColumns = pathPrefixColumns;
@@ -84,7 +96,7 @@ public class PathPrefixMigrationService {
      * 符号根启用时额外置顶一条虚拟行（id 0、{@code symbolic=true}，路径为符号根当前解析结果）。
      */
     public List<PathPrefixView> list() {
-        String rootNorm = normalize(currentDownloadRootAbsolute());
+        String rootNorm = comparisonKey(currentDownloadRootAbsolute());
         List<PathPrefixView> views = new ArrayList<>();
         if (codec.isSymbolicRootActive()) {
             views.add(new PathPrefixView(PathPrefixCodec.SYMBOLIC_ROOT_ID,
@@ -94,7 +106,7 @@ public class PathPrefixMigrationService {
                 .map(p -> new PathPrefixView(
                         p.id(),
                         PathPrefixCodec.stripTrailingSeparators(p.path()),
-                        rootNorm != null && rootNorm.equals(normalize(p.path())),
+                        rootNorm != null && rootNorm.equals(comparisonKey(p.path())),
                         false))
                 .sorted(Comparator.comparing(PathPrefixView::downloadRoot).reversed()
                         .thenComparingLong(PathPrefixView::id))
@@ -121,7 +133,7 @@ public class PathPrefixMigrationService {
         String suggested = readMarker();
         // marker 与当前解析结果相同说明它已被覆盖 / 不含旧路径信息（如修复早于本版本的覆盖 bug），
         // 这种建议值只会误导使用者，宁可留空让其手动填写
-        if (suggested != null && normalize(suggested).equals(normalize(codec.getSymbolicRootPath()))) {
+        if (suggested != null && comparisonKey(suggested).equals(comparisonKey(codec.getSymbolicRootPath()))) {
             suggested = null;
         }
         return new SymbolicRootStatus(active, referenced, !active && referenced, suggested);
@@ -135,8 +147,8 @@ public class PathPrefixMigrationService {
      * {@code {0}} 行）同样经此入口，成功后删除已无意义的 marker 文件。
      */
     public PathPrefixMigrationResult pinSymbolicRoot(String rawPath) {
-        String stripped = PathPrefixCodec.stripTrailingSeparators(rawPath == null ? "" : rawPath.trim());
-        if (stripped == null || stripped.isEmpty()) {
+        String stripped = PathPrefixCodec.stripTrailingSeparators(rawPath);
+        if (stripped == null || stripped.isBlank()) {
             return new PathPrefixMigrationResult(false, 0,
                     List.of(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, "invalid")));
         }
@@ -145,15 +157,17 @@ public class PathPrefixMigrationService {
             return new PathPrefixMigrationResult(false, 0,
                     List.of(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, reason)));
         }
-        try {
-            transactionOperations.executeWithoutResult(status ->
-                    rewriteSymbolicRoot(codec.forceCreatePrefixId(stripped)));
-        } catch (DataAccessException e) {
-            log.warn(messages.getForLog("download.db.log.prefix-migrate-failed", e.getMessage()), e);
-            codec.reload();
-            return new PathPrefixMigrationResult(false, 0,
-                    List.of(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, "conflict")));
-        }
+        var result = migrate(() -> {
+            long id = PathPrefixCodec.SYMBOLIC_ROOT_ID;
+            String oldRoot = codec.getSymbolicRootPath();
+            if (!java.util.Objects.equals(oldRoot, stripped)) {
+                if (reserved(oldRoot, stripped)) return new PathPrefixMigrationResult(false, 0, List.of(new PrefixError(id, "conflict")));
+                invalidateHashSources(currentPrefixes(), Map.of(), oldRoot, stripped);
+            }
+            rewriteSymbolicRoot(codec.forceCreatePrefixId(stripped));
+            return new PathPrefixMigrationResult(true, 1, List.of());
+        });
+        if (!result.success()) return result;
         boolean wasActive = codec.isSymbolicRootActive();
         // pin 已把全部 {0} 引用固定为真实 {N} 行：从运行期编码候选中摘除符号根，避免「改了
         // download.root-folder 但尚未重启」的窗口里新下载仍被编码成 {0}（重启后会解析到新 root 的错误目录）。
@@ -171,8 +185,8 @@ public class PathPrefixMigrationService {
             if (!Files.isRegularFile(marker)) {
                 return null;
             }
-            String value = Files.readString(marker, StandardCharsets.UTF_8).trim();
-            return value.isEmpty() ? null : value;
+            String value = Files.readString(marker, StandardCharsets.UTF_8);
+            return value.isBlank() ? null : value;
         } catch (Exception e) {
             return null;
         }
@@ -193,18 +207,30 @@ public class PathPrefixMigrationService {
      * 校验并应用一批前缀路径改写。全有或全无：任一条非法即不写入任何记录，返回逐条错误原因。
      * 仅处理 {@code path} 非空白且确实改变的条目；其余忽略（视为保持原值）。
      *
-     * <p>{@code registerPaths} 为改写完成后需要「确保存在」的前缀（best-effort 追加新行）：
+     * <p>{@code registerPaths} 在同一事务内确保前缀存在：
      * 典型用于用户改写了下载根目录、但选择不同步 {@code config.yaml} 时，把旧下载根目录重新登记成
      * 一条新前缀，使后续仍下到旧目录的新作品能继续被编码压缩。
      */
     public PathPrefixMigrationResult apply(List<PathPrefixUpdate> updates, List<String> registerPaths) {
+        return migrate(() -> applyInTransaction(updates, registerPaths));
+    }
+
+    private PathPrefixMigrationResult migrate(java.util.function.Supplier<PathPrefixMigrationResult> operation) {
+        try {
+            synchronized (directories) {
+                return codec.changeMappings(() -> transactionOperations.execute(status -> operation.get()),
+                        result -> result.success() && result.applied() > result.registered());
+            }
+        } catch (DataAccessException | TransactionException failure) {
+            return writeFailure(failure);
+        }
+    }
+
+    private PathPrefixMigrationResult applyInTransaction(List<PathPrefixUpdate> updates, List<String> registerPaths) {
         List<PathPrefixUpdate> safeUpdates = updates == null ? List.of() : updates;
 
         // 现有前缀：id -> 去尾分隔符后的原始路径
-        Map<Long, String> existing = new HashMap<>();
-        for (PathPrefix p : codec.snapshot()) {
-            existing.put(p.id(), PathPrefixCodec.stripTrailingSeparators(p.path()));
-        }
+        Map<Long, String> existing = currentPrefixes();
 
         List<PrefixError> errors = new ArrayList<>();
         // id -> 待写入的新路径（已去尾分隔符）；仅含实际发生变化的行
@@ -214,8 +240,8 @@ public class PathPrefixMigrationService {
 
         for (PathPrefixUpdate update : safeUpdates) {
             long id = update.id();
-            String raw = update.path() == null ? "" : update.path().trim();
-            if (raw.isEmpty()) {
+            String stripped = PathPrefixCodec.stripTrailingSeparators(update.path());
+            if (stripped == null || stripped.isBlank()) {
                 continue; // 留空 = 保持原值
             }
             if (id == PathPrefixCodec.SYMBOLIC_ROOT_ID) {
@@ -223,12 +249,7 @@ public class PathPrefixMigrationService {
                     errors.add(new PrefixError(id, "unknown-id"));
                     continue;
                 }
-                String stripped = PathPrefixCodec.stripTrailingSeparators(raw);
-                if (stripped == null || stripped.isEmpty()) {
-                    errors.add(new PrefixError(id, "invalid"));
-                    continue;
-                }
-                if (normalize(stripped).equals(normalize(codec.getSymbolicRootPath()))) {
+                if (comparisonKey(stripped).equals(comparisonKey(codec.getSymbolicRootPath()))) {
                     continue; // 与当前解析结果相同 = 未改动
                 }
                 String reason = validatePath(stripped);
@@ -243,13 +264,7 @@ public class PathPrefixMigrationService {
                 errors.add(new PrefixError(id, "unknown-id"));
                 continue;
             }
-            String stripped = PathPrefixCodec.stripTrailingSeparators(raw);
-            if (stripped == null || stripped.isEmpty()) {
-                errors.add(new PrefixError(id, "invalid"));
-                continue;
-            }
-            // 与原值相同（大小写 / 分隔符不敏感）→ 视为未改动，忽略
-            if (normalize(stripped).equals(normalize(existing.get(id)))) {
+            if (comparisonKey(stripped).equals(comparisonKey(existing.get(id)))) {
                 continue;
             }
             String reason = validatePath(stripped);
@@ -266,31 +281,75 @@ public class PathPrefixMigrationService {
         // 但其它行的新路径不得占用符号根的当前解析路径（否则编码歧义）。
         detectCollisions(pending, existing, errors);
 
-        if (!errors.isEmpty()) {
-            return new PathPrefixMigrationResult(false, 0, errors);
-        }
-
-        String finalSymbolicTarget = symbolicTarget;
-        if (!pending.isEmpty() || finalSymbolicTarget != null) {
-            try {
-                transactionOperations.executeWithoutResult(status -> {
-                    applyPending(pending);
-                    if (finalSymbolicTarget != null) {
-                        rewriteSymbolicRoot(codec.getOrCreatePrefixId(finalSymbolicTarget));
-                    }
-                });
-            } catch (DataAccessException e) {
-                // 整批回滚：要么全部生效，要么一行都不动，绝不留下「混合新旧目录」的部分迁移结果。
-                log.warn(messages.getForLog("download.db.log.prefix-migrate-failed", e.getMessage()), e);
-                codec.reload();
-                return new PathPrefixMigrationResult(false, 0,
-                        List.of(new PrefixError(0L, "conflict")));
+        List<String> registrations = new ArrayList<>();
+        if (registerPaths != null) {
+            for (int i = 0; i < registerPaths.size(); i++) {
+                String raw = registerPaths.get(i);
+                String path = PathPrefixCodec.stripTrailingSeparators(raw);
+                String reason = path == null || path.isBlank() ? "invalid" : validatePath(path);
+                if (reason != null) errors.add(new PrefixError(0L, reason, "/registerPaths/" + i));
+                else registrations.add(path);
             }
         }
-        reRegister(registerPaths);
+        if (!errors.isEmpty()) return new PathPrefixMigrationResult(false, 0, errors);
+
+        Map<Long, String> replacements = new HashMap<>();
+        for (var edit : pending.entrySet()) {
+            String old = existing.get(edit.getKey());
+            if (reserved(old, edit.getValue())) errors.add(new PrefixError(edit.getKey(), "conflict"));
+            replacements.put(edit.getKey(), edit.getValue());
+        }
+        String oldRoot = codec.getSymbolicRootPath();
+        String newRoot = symbolicTarget == null ? oldRoot : symbolicTarget;
+        if (!java.util.Objects.equals(oldRoot, newRoot) && reserved(oldRoot, newRoot))
+            errors.add(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, "conflict"));
+        if (!errors.isEmpty()) return new PathPrefixMigrationResult(false, 0, errors);
+        if (!replacements.isEmpty() || !java.util.Objects.equals(oldRoot, newRoot))
+            invalidateHashSources(existing, replacements, oldRoot, newRoot);
+
+        applyPending(pending);
+        if (symbolicTarget != null) rewriteSymbolicRoot(codec.getOrCreatePrefixId(symbolicTarget));
+        int registered = 0;
+        if (!registrations.isEmpty()) {
+            var ids = codec.registrationIds();
+            for (String path : registrations) {
+                if (codec.registerPrefix(path, false, ids).inserted()) registered++;
+            }
+        }
         codec.reload();
-        int applied = pending.size() + (finalSymbolicTarget != null ? 1 : 0);
-        return new PathPrefixMigrationResult(true, applied, List.of());
+        int applied = pending.size() + (symbolicTarget != null ? 1 : 0) + registered;
+        return new PathPrefixMigrationResult(true, applied, registered, registrations.size() - registered, List.of());
+    }
+
+    private boolean reserved(String old, String destination) {
+        try {
+            try { directories.requireDirectoryAvailable(Path.of(old)); }
+            catch (InvalidPathException unusableOnThisPlatform) { /* No local reservation can use this spelling. */ }
+            directories.requireDirectoryAvailable(Path.of(destination));
+            return false;
+        } catch (DirectoryTemplateException conflict) {
+            return true;
+        }
+    }
+
+    private Map<Long, String> currentPrefixes() {
+        Map<Long, String> existing = new HashMap<>();
+        for (PathPrefix p : mapper.findAll()) {
+            existing.put(p.id(), PathPrefixCodec.stripTrailingSeparators(p.path()));
+        }
+        return existing;
+    }
+
+    private void invalidateHashSources(Map<Long, String> previous, Map<Long, String> replacements,
+                                       String oldRoot, String newRoot) {
+        ArtworkHashSourcePaths.invalidate(database, path -> PathPrefixCodec.resolve(path, oldRoot, previous::get),
+                path -> PathPrefixCodec.resolve(path, newRoot, id -> replacements.getOrDefault(id, previous.get(id))));
+    }
+
+    private PathPrefixMigrationResult writeFailure(RuntimeException failure) {
+        log.warn(messages.getForLog("download.db.log.prefix-migrate-failed", failure.getMessage()), failure);
+        String reason = failure instanceof org.springframework.dao.DuplicateKeyException ? "conflict" : "write-failed";
+        return new PathPrefixMigrationResult(false, 0, List.of(new PrefixError(0L, reason)));
     }
 
     /**
@@ -332,26 +391,6 @@ public class PathPrefixMigrationService {
         return ":pixiv-path-prefix-migrating:" + id + ":" + token;
     }
 
-    /** best-effort 追加新前缀行（如保留旧下载根目录），失败仅记日志、不影响主迁移结果。 */
-    private void reRegister(List<String> registerPaths) {
-        if (registerPaths == null) {
-            return;
-        }
-        for (String raw : registerPaths) {
-            if (raw == null) {
-                continue;
-            }
-            String stripped = PathPrefixCodec.stripTrailingSeparators(raw.trim());
-            if (stripped == null || stripped.isEmpty()) {
-                continue;
-            }
-            try {
-                codec.getOrCreatePrefixId(stripped);
-            } catch (Exception e) {
-                log.warn(messages.getForLog("download.db.log.prefix-migrate-failed", e.getMessage()), e);
-            }
-        }
-    }
 
     private void detectCollisions(LinkedHashMap<Long, String> pending,
                                   Map<Long, String> existing,
@@ -365,16 +404,16 @@ public class PathPrefixMigrationService {
             if (pending.containsKey(e.getKey())) {
                 continue;
             }
-            currentByNorm.put(normalize(e.getValue()), e.getKey());
+            currentByNorm.put(comparisonKey(e.getValue()), e.getKey());
         }
         // 符号根启用时其当前解析路径始终被占用：config 是否同步由 GUI 决定，本批改写后
         // 该路径仍可能继续作为下载根接收新作品，其它行的新路径不得与之重合
         if (codec.isSymbolicRootActive()) {
-            currentByNorm.putIfAbsent(normalize(codec.getSymbolicRootPath()), PathPrefixCodec.SYMBOLIC_ROOT_ID);
+            currentByNorm.putIfAbsent(comparisonKey(codec.getSymbolicRootPath()), PathPrefixCodec.SYMBOLIC_ROOT_ID);
         }
         Map<String, Long> newByNorm = new HashMap<>();
         for (Map.Entry<Long, String> e : pending.entrySet()) {
-            String norm = normalize(e.getValue());
+            String norm = comparisonKey(e.getValue());
             Long clashOther = currentByNorm.get(norm);
             Long clashNew = newByNorm.put(norm, e.getKey());
             if (clashOther != null || clashNew != null) {
@@ -413,14 +452,6 @@ public class PathPrefixMigrationService {
         }
     }
 
-    /** 与 {@link PathPrefixCodec} 内部一致的归一化：{@code \\} 与 {@code /} 等价、大小写不敏感。 */
-    private static String normalize(String value) {
-        if (value == null) {
-            return null;
-        }
-        return PathPrefixCodec.stripTrailingSeparators(value).replace('\\', '/').toLowerCase(Locale.ROOT);
-    }
-
     /**
      * @param symbolic 是否为符号根 {@code {0}} 的虚拟行（不对应 {@code path_prefixes} 中的真实行，
      *                 {@code path} 为符号根当前的运行期解析结果）
@@ -431,9 +462,14 @@ public class PathPrefixMigrationService {
     public record PathPrefixUpdate(long id, String path) {
     }
 
-    public record PathPrefixMigrationResult(boolean success, int applied, List<PrefixError> errors) {
+    public record PathPrefixMigrationResult(boolean success, int applied, int registered, int alreadyRegistered, List<PrefixError> errors) {
+        public PathPrefixMigrationResult(boolean success, int applied, List<PrefixError> errors) {
+            this(success, applied, 0, 0, errors);
+        }
     }
 
-    public record PrefixError(long id, @Schema(allowableValues = {"invalid", "not-absolute", "not-exist", "not-directory", "conflict", "unknown-id", "duplicate"}) String reason) {
+    public record PrefixError(long id, @Schema(allowableValues = {"invalid", "not-absolute", "not-exist", "not-directory", "conflict", "unknown-id", "duplicate", "write-failed"}) String reason,
+                              @HttpApiNullable String field) {
+        public PrefixError(long id, String reason) { this(id, reason, null); }
     }
 }

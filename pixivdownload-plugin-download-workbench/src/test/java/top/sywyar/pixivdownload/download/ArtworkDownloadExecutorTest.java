@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.download.media.TestMediaTransactions;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -124,17 +125,25 @@ class ArtworkDownloadExecutorTest {
     private top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle;
     private final top.sywyar.pixivdownload.download.media.MemoryMediaStore mediaStore = new top.sywyar.pixivdownload.download.media.MemoryMediaStore();
     @Mock private top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider paths;
-    @Mock private top.sywyar.pixivdownload.core.asset.FileTransactionService fileTransactions;
+    @org.mockito.Spy private TestMediaTransactions fileTransactions = new TestMediaTransactions();
     private ArtworkDownloadExecutor artworkDownloadExecutor;
     private final InteractiveDownloadExecutionLane downloadTaskExecutor = Runnable::run;
 
     @BeforeEach
     void setUp() throws Exception {
         LocaleContextHolder.setLocale(Locale.US);
+        lenient().when(ugoiraService.outputFormats(any())).thenReturn(List.of("webp"));
+        lenient().when(paths.dataDirectory()).thenReturn(tempDir.resolve("runtime"));
         lenient().when(taskScheduler.schedule(any(Runnable.class), any(java.time.Instant.class)))
                 .thenReturn(mock(ScheduledFuture.class));
         lenient().doAnswer(invocation -> { Files.createDirectories(invocation.getArgument(2)); return null; })
                 .when(downloadPathGuard).prepareDirectory(any(), anyLong(), any());
+        lenient().when(downloadPathGuard.reserveOutputs(anyLong(), anyCollection())).thenReturn(() -> {});
+        lenient().when(downloadPathGuard.prepareDirectoryIf(any(), anyLong(), any(), any())).thenAnswer(call -> {
+            if (!call.<java.util.function.BooleanSupplier>getArgument(3).getAsBoolean()) return false;
+            Files.createDirectories(call.getArgument(2));
+            return true;
+        });
         lenient().when(artworkDownloadStatistics.today()).thenReturn(new DailyOutcomes(0, 0));
         artworkDownloadExecutor = newExecutor(downloadTaskExecutor);
     }
@@ -145,13 +154,12 @@ class ArtworkDownloadExecutorTest {
     }
 
     private ArtworkDownloadExecutor newExecutor(InteractiveDownloadExecutionLane taskExecutor) {
-        org.mockito.Mockito.lenient().when(ugoiraService.outputFormats(any())).thenReturn(java.util.List.of("webp"));
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService, pixivImageDownloader, taskScheduler, taskExecutor,
                 pixivBookmarkActions, ugoiraService,
                 new top.sywyar.pixivdownload.download.media.ImageOutputService(
-                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build(), mediaStore),
+                        mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class), JsonMapper.builderWithJackson2Defaults().build(), mediaStore, new TestMediaTransactions()),
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,
@@ -169,8 +177,8 @@ class ArtworkDownloadExecutorTest {
     @DisplayName("后台下载失败保留终态与进度事件但不将内部诊断写入用户状态")
     void downloadFailureDoesNotExposeInternalDetails() {
         stubSuccessfulUgoiraDownload(true);
-        when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                .thenThrow(new IllegalStateException("internal-probe C:/private/download token=private-value"));
+        doThrow(new IllegalStateException("internal-probe C:/private/download token=private-value"))
+                .when(ugoiraService).stageUgoira(anyLong(), any(), any(), anyString(), any(), any(), any(), any(), any());
         var other = new DownloadRequest.Other();
         other.setUgoira(true);
         other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
@@ -193,8 +201,13 @@ class ArtworkDownloadExecutorTest {
         lenient().when(downloadSettings.directoryTemplate(nullable(String.class))).thenAnswer(invocation ->
                 tempDir + (!flatFolder && "user".equals(invocation.getArgument(0))
                         ? "/{username}/{R18}/{artwork_id}" : "/{artwork_id}"));
-        lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                .thenReturn(1);
+        lenient().doAnswer(call -> {
+            Path stem = call.<Path>getArgument(2).resolve(call.<DownloadRequest.Other>getArgument(1).getFileNames().getFirst());
+            Files.write(stem.resolveSibling(stem.getFileName() + ".webp"), new byte[]{1});
+            call.<top.sywyar.pixivdownload.download.media.ImageOutputService.MediaSink>getArgument(7)
+                    .save(0, stem, new ArtworkMediaManifest("zip", List.of("webp"), false, false));
+            return 1;
+        }).when(ugoiraService).stageUgoira(anyLong(), any(), any(), anyString(), any(), any(), any(), any(), any());
         lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
     }
 
@@ -230,7 +243,7 @@ class ArtworkDownloadExecutorTest {
     @DisplayName("历史写入后数据库失效时不执行后置收藏或索引维护")
     void databaseFailureStopsPostDownloadActions() throws Exception {
         when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
-        when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any())).thenReturn("jpg");
+        stubSuccessfulImageDownload("https://i.pximg.net/fixture.jpg", new byte[]{1});
         doAnswer(call -> { databaseAvailable.set(false); return null; }).when(artworkDownloadHistory).record(any());
         var options = new DownloadRequest.Other();
         options.setBookmark(true);
@@ -1093,12 +1106,14 @@ class ArtworkDownloadExecutorTest {
                     "https://www.pixiv.net/", other, null, null);
 
             Path expectedPath = collectionRoot.resolve("收藏😀_unsafe/7/12345");
-            verify(ugoiraService).processUgoira(
+            verify(ugoiraService).stageUgoira(
                     eq(12345L),
                     same(other),
-                    eq(expectedPath),
+                    argThat(path -> !path.equals(expectedPath)),
                     eq("https://www.pixiv.net/"),
                     isNull(),
+                    any(),
+                    any(),
                     any(),
                     any()
             );
@@ -1301,7 +1316,7 @@ class ArtworkDownloadExecutorTest {
                         return "";
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), new TestMediaTransactions()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");
@@ -1376,7 +1391,7 @@ class ArtworkDownloadExecutorTest {
                         return "";
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), new TestMediaTransactions()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");
@@ -1390,6 +1405,7 @@ class ArtworkDownloadExecutorTest {
                 assertThat(result.isDone()).isFalse();
                 verify(artworkDownloadHistory, never()).record(any());
                 if (cancel) {
+                    Path folder = Path.of(artworkDownloadExecutor.getDownloadStatus(12345L, "owner", false).getDownloadPath());
                     QueueGenerationDrain drain = artworkDownloadExecutor.prepareQuiesceDownloads();
                     artworkDownloadExecutor.cancelQuiescedDownloads();
                     assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(150))).isFalse();
@@ -1398,7 +1414,7 @@ class ArtworkDownloadExecutorTest {
                     assertThat(result.get(5, TimeUnit.SECONDS)).isFalse();
                     assertThat(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(1))).isTrue();
                     assertThat(downloaded.get()).isEqualTo(2);
-                    assertThat(sources).allMatch(Files::exists);
+                    for (Path source : sources) assertThat(folder.resolve(source.getFileName())).isNotEmptyFile();
                     verify(artworkDownloadHistory, never()).record(any());
                 } else {
                     release.countDown();
@@ -1429,7 +1445,7 @@ class ArtworkDownloadExecutorTest {
                         throw new IOException("encoding failed");
                     };
             ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
-                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore()));
+                    new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, JsonMapper.builderWithJackson2Defaults().build(), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), new TestMediaTransactions()));
             var other = new DownloadRequest.Other();
             other.setMediaOutputEnabled(true);
             other.setImageFormats("png");
@@ -1779,6 +1795,114 @@ class ArtworkDownloadExecutorTest {
                 options, null, null);
     }
 
+    private DownloadRequest.Other stagedAnimation(boolean retainArchive, java.util.concurrent.atomic.AtomicBoolean failTransfer) {
+        var options = new DownloadRequest.Other();
+        options.setFileNameTemplate("animation");
+        options.setUgoira(true);
+        options.setUgoiraZipUrl("https://public-img-zip.pximg.net/animation.zip");
+        options.setUgoiraFormats(retainArchive ? "zip,webp" : "webp");
+        var formats = retainArchive ? List.of("zip", "webp") : List.of("webp");
+        doReturn(formats).when(ugoiraService).outputFormats(any());
+        doAnswer(call -> {
+            if (failTransfer.getAndSet(false)) return 0;
+            Path stage = call.getArgument(2);
+            Path stem = stage.resolve("animation");
+            Files.writeString(stage.resolve("animation.webp"), "new movie");
+            Files.writeString(stage.resolve("animation_thumb.jpg"), "generated thumb");
+            if (retainArchive) {
+                Path zip = Files.writeString(stage.resolve("incoming.zip"), "frame archive");
+                Path timing = Files.writeString(stage.resolve("timing"), "a.jpg=25\nb.jpg=70\n");
+                call.<UgoiraService.FrameArchiveSink>getArgument(8).stage(stem, zip, timing);
+            }
+            call.<top.sywyar.pixivdownload.download.media.ImageOutputService.MediaSink>getArgument(7)
+                    .save(0, stem, new ArtworkMediaManifest("zip", formats, retainArchive, true));
+            return 1;
+        }).when(ugoiraService).stageUgoira(anyLong(), any(), any(), anyString(), any(), any(), any(), any(), any());
+        return options;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {".webp", ".zip", ".frames.properties"})
+    void firstAnimationRetryRequiresEveryNewOutputToBeFree(String suffix) throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        var options = stagedAnimation(!suffix.equals(".webp"), new java.util.concurrent.atomic.AtomicBoolean(true));
+        var urls = List.of(options.getUgoiraZipUrl());
+        var folder = tempDir.resolve("67890");
+        assertThat(download(id, urls, options)).isFalse();
+        assertThat(mediaStore.find(id, 0)).isEmpty();
+        Path user = Files.writeString(folder.resolve("animation" + suffix), "independent");
+        assertThat(download(id, urls, options)).isFalse();
+        try (var files = Files.list(folder)) { assertThat(files.toList()).containsExactly(user); }
+        assertThat(Files.readString(user)).isEqualTo("independent");
+        assertThat(mediaStore.find(id, 0)).isEmpty();
+        verify(artworkDownloadHistory, never()).record(any());
+        verify(downloadLifecycle).publish(argThat(event -> event != null && event.failureReason() != null
+                && event.failureReason().name().equals("OUTPUT_FILE_CONFLICT")));
+        Files.delete(user);
+        assertThat(download(id, urls, options)).isTrue();
+        assertThat(Files.readString(folder.resolve("animation.webp"))).isEqualTo("new movie");
+        assertThat(mediaStore.find(id, 0).orElseThrow().thumbnailOwned()).isTrue();
+        assertThat(capturedDownloadCompletion().extensions()).containsExactlyInAnyOrderElementsOf(
+                suffix.equals(".webp") ? List.of("webp") : List.of("zip", "webp"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void failedAnimationHistoryRollsBackTheSetAndRetryKeepsOnlyItsOwnThumbnail(boolean replaced) throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        var options = stagedAnimation(true, new java.util.concurrent.atomic.AtomicBoolean());
+        var urls = List.of(options.getUgoiraZipUrl());
+        var folder = tempDir.resolve("67890");
+        var thumb = folder.resolve("animation_thumb.jpg");
+        var failHistory = new java.util.concurrent.atomic.AtomicBoolean(true);
+        doAnswer(call -> {
+            assertThat(Files.readString(folder.resolve("animation.webp"))).isEqualTo("new movie");
+            assertThat(Files.readString(folder.resolve("animation.zip"))).isEqualTo("frame archive");
+            assertThat(Files.readString(folder.resolve("animation.frames.properties"))).contains("b.jpg=70");
+            if (failHistory.getAndSet(false)) throw new IllegalStateException("history failure");
+            return null;
+        }).when(artworkDownloadHistory).record(any());
+        assertThat(download(id, urls, options)).isFalse();
+        try (var files = Files.list(folder)) { assertThat(files.toList()).isEmpty(); }
+        Path retained = tempDir.resolve("runtime/artwork-rebuild/67890-originals");
+        assertThat(Files.readString(retained.resolve("animation/frames.zip"))).isEqualTo("frame archive");
+        assertThat(Files.readString(retained.resolve("animation/frames.properties"))).contains("a.jpg=25", "b.jpg=70");
+        if (replaced) Files.writeString(thumb, "user replacement");
+        assertThat(download(id, urls, options)).isTrue();
+        assertThat(retained).doesNotExist();
+        assertThat(Files.readString(thumb)).isEqualTo(replaced ? "user replacement" : "generated thumb");
+        assertThat(mediaStore.find(id, 0).orElseThrow().thumbnailOwned()).isEqualTo(!replaced);
+        var registered = new java.util.HashSet<>(Set.of(folder.resolve("animation.webp"), folder.resolve("animation.zip"),
+                folder.resolve("animation.frames.properties")));
+        if (!replaced) registered.add(thumb);
+        when(artworkDownloadLookup.registeredOutputs(id)).thenReturn(java.util.Optional.of(registered));
+        assertThat(download(id, urls, options)).isEqualTo(!replaced);
+        assertThat(Files.readString(thumb)).isEqualTo(replaced ? "user replacement" : "generated thumb");
+        assertThat(mediaStore.find(id, 0).orElseThrow().thumbnailOwned()).isEqualTo(!replaced);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"generated thumb", "replaced  thumb"})
+    void orphanedAnimationManifestDoesNotClaimAFileByItsCurrentNameAndBytes(String thumbnail) throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        Path folder = Files.createDirectory(tempDir.resolve("67890"));
+        Path movie = Files.writeString(folder.resolve("animation.webp"), "new movie");
+        Path thumb = Files.writeString(folder.resolve("animation_thumb.jpg"), thumbnail);
+        var old = new ArtworkMediaManifest("zip", List.of("webp"), false, true);
+        mediaStore.save(id, 0, old);
+        var options = stagedAnimation(false, new java.util.concurrent.atomic.AtomicBoolean());
+        assertThat(download(id, List.of(options.getUgoiraZipUrl()), options)).isFalse();
+        assertThat(Files.readString(movie)).isEqualTo("new movie");
+        assertThat(Files.readString(thumb)).isEqualTo(thumbnail);
+        assertThat(mediaStore.find(id, 0)).contains(old);
+        verify(artworkDownloadHistory, never()).record(any());
+        verify(downloadLifecycle).publish(argThat(event -> event != null && event.failureReason() != null
+                && event.failureReason().name().equals("OUTPUT_FILE_CONFLICT")));
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 2})
     void explicitSelectionOfEveryPageCannotOverwriteRegisteredArtwork(int pageCount) throws Exception {
@@ -1790,14 +1914,500 @@ class ArtworkDownloadExecutorTest {
         var complete = capturedDownloadCompletion();
         var options = new DownloadRequest.Other();
         options.setSelectedPages(pageCount == 1 ? Set.of(0) : Set.of(0, 1));
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/other/{artwork_id}");
         when(artworkDownloadHistory.startPartial(any())).thenReturn(false);
         assertThat(download(id, urls, options)).isFalse();
+        assertThat(tempDir.resolve("other")).doesNotExist();
         verify(downloadLifecycle).publish(argThat(event -> event != null
                 && event.failureReason() == top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.FailureReason.OUTPUT_ALREADY_REGISTERED));
         for (var url : urls)
             verify(pixivImageDownloader).downloadImage(eq(URI.create(url)), any(), any(), nullable(String.class), any());
         for (var name : complete.fileNames())
             assertThat(Files.readAllBytes(complete.folder().resolve(name + ".jpg"))).containsExactly(42);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"animation,.webp", "renamed,.zip", "animation,_thumb.jpg", "animation,.frames.properties"})
+    void wholeArtworkRebuildProtectsUnregisteredPublicationTargets(String template, String suffix) throws Exception {
+        long id = 67890L;
+        Path folder = Files.createDirectory(tempDir.resolve(Long.toString(id)));
+        Path original = Files.writeString(folder.resolve("animation.jpg"), "original");
+        Path conflict = Files.writeString(folder.resolve(template + suffix), "user");
+        var originalMedia = new ArtworkMediaManifest("jpg", List.of("jpg"));
+        mediaStore.save(id, 0, originalMedia);
+        when(artworkDownloadLookup.registeredOutputs(id)).thenReturn(java.util.Optional.of(Set.of(original)));
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        when(paths.dataDirectory()).thenReturn(tempDir.resolve("runtime"));
+        var options = new DownloadRequest.Other();
+        options.setFileNameTemplate(template);
+        options.setUgoira(true);
+        options.setUgoiraZipUrl("https://public-img-zip.pximg.net/animation.zip");
+        var formats = List.of("zip", "webp");
+        doAnswer(call -> {
+            Path stage = call.getArgument(2);
+            for (String output : List.of(".zip", ".webp", "_thumb.jpg", ".frames.properties"))
+                Files.writeString(stage.resolve(template + output), "staged");
+            call.<top.sywyar.pixivdownload.download.media.ImageOutputService.MediaSink>getArgument(7)
+                    .save(0, stage.resolve(template), new ArtworkMediaManifest("zip", formats, true, true));
+            return 1;
+        }).when(ugoiraService).stageUgoira(eq(id), any(), any(), any(), any(), any(), any(), any(), any());
+        doAnswer(call -> {
+            assertThat(call.<Set<Path>>getArgument(2)).contains(conflict);
+            throw new java.nio.file.FileAlreadyExistsException(conflict.toString());
+        }).when(fileTransactions).changeFiles(anyMap(), eq(Set.of(original)), anySet(), any());
+
+        assertThat(artworkDownloadExecutor.downloadImagesBlocking(id, "title", List.of(options.getUgoiraZipUrl()),
+                "https://www.pixiv.net/", options, null, null)).isFalse();
+        var status = artworkDownloadExecutor.getDownloadStatus(id);
+        assertThat(status.getErrorCode()).isEqualTo("download.rebuild.target-exists");
+        assertThat(status.getErrorMessageKey()).isEqualTo("download.rebuild.target-exists");
+        assertThat(status.getErrorMessageArgs()).containsExactly(conflict.getFileName().toString());
+        verify(downloadLifecycle).publish(argThat(event -> event != null && event.failureReason() != null
+                && event.failureReason().name().equals("OUTPUT_FILE_CONFLICT")));
+        assertThat(Files.readString(original)).isEqualTo("original");
+        assertThat(Files.readString(conflict)).isEqualTo("user");
+        assertThat(mediaStore.find(id, 0)).contains(originalMedia);
+        verify(artworkDownloadHistory, never()).record(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void registeredArtworkSubmissionPublishesAllPagesOnlyOnSuccess(boolean cancel) throws Exception {
+        long id = 67890L;
+        String workId = Long.toString(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        when(paths.dataDirectory()).thenReturn(tempDir.resolve("runtime"));
+        for (var url : urls) stubSuccessfulImageDownload(url, new byte[]{1});
+        assertThat(download(id, urls, new DownloadRequest.Other())).isTrue();
+        var original = capturedDownloadCompletion();
+        clearInvocations(fileTransactions);
+        doAnswer(call -> {
+            var event = call.<top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent>getArgument(0);
+            if (event.phase() == top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.Phase.COMPLETED)
+                assertThat(tempDir.resolve("runtime/artwork-rebuild").resolve(workId)).doesNotExist();
+            return null;
+        }).when(downloadLifecycle).publish(any());
+        var files = original.fileNames().stream().map(name -> original.folder().resolve(name + ".jpg")).toList();
+        when(artworkDownloadLookup.registeredOutputs(id)).thenReturn(java.util.Optional.of(Set.copyOf(files)));
+        var fetch = mock(PixivFetchService.class);
+        var meta = new PixivFetchService.ArtworkMeta(1, "Manga", 0, false, 7L, "Author",
+                null, null, 0, 2, List.of(), null, null);
+        var body = JsonMapper.builderWithJackson2Defaults().build().createObjectNode();
+        when(fetch.fetchArtworkMetaCapture(workId, null)).thenReturn(new PixivFetchService.ArtworkMetaCapture(meta, body));
+        when(fetch.resolveArtworkPages(workId, null)).thenReturn(new PixivFetchService.ArtworkPages(urls, body));
+        var handler = new ArtworkSubmissionHandler(fetch, artworkDownloadExecutor);
+        Runnable submit = () -> {
+            var request = new top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmission(
+                    java.util.UUID.randomUUID(), "artwork", workId, Map.of());
+            handler.submit(request, new top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt(
+                    request.requestId(), "artwork", workId), null);
+        };
+
+        String firstExtension = cancel ? "png" : "jpg";
+        doAnswer(call -> {
+            Path stem = call.getArgument(2);
+            Files.write(stem.resolveSibling(stem.getFileName() + "." + firstExtension), new byte[]{2});
+            return firstExtension;
+        }).when(pixivImageDownloader).downloadImage(eq(URI.create(urls.getFirst())), any(), any(), nullable(String.class), any());
+        doAnswer(call -> {
+            if (cancel) {
+                artworkDownloadExecutor.cancelDownload(id);
+                call.<PixivImageTransferObserver>getArgument(4).checkCancelled();
+            }
+            return null;
+        }).when(pixivImageDownloader).downloadImage(eq(URI.create(urls.getLast())), any(), any(), nullable(String.class), any());
+        submit.run();
+        var status = artworkDownloadExecutor.getDownloadStatus(id);
+        assertThat(cancel ? status.isCancelled() : status.isFailed()).isTrue();
+        for (int page = 0; page < files.size(); page++) {
+            assertThat(Files.readAllBytes(files.get(page))).containsExactly(1);
+            assertThat(mediaStore.find(id, page)).contains(new ArtworkMediaManifest("jpg", List.of("jpg")));
+        }
+        assertThat(original.folder().resolve(original.fileNames().getFirst() + ".png")).doesNotExist();
+        verifyNoInteractions(fileTransactions);
+        verify(artworkDownloadHistory, times(1)).record(any());
+
+        stubSuccessfulImageDownload(urls.getLast(), new byte[]{2});
+        var reserved = new java.util.concurrent.atomic.AtomicBoolean();
+        var targets = new java.util.HashSet<>(files);
+        targets.add(original.folder().resolve(original.fileNames().getFirst() + "." + firstExtension));
+        when(downloadPathGuard.reserveOutputs(id, targets))
+                .thenThrow(new top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException("occupied", null))
+                .thenAnswer(call -> {
+                    reserved.set(true);
+                    return (java.io.Closeable) () -> reserved.set(false);
+                });
+        submit.run();
+        assertThat(artworkDownloadExecutor.getDownloadStatus(id).getErrorCode()).isEqualTo("download.rebuild.output-in-use");
+        verify(downloadLifecycle).publish(argThat(event -> event != null
+                && event.failureReason() == top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.FailureReason.OUTPUT_FILE_CONFLICT));
+        for (Path file : files) assertThat(Files.readAllBytes(file)).containsExactly(1);
+        verify(artworkDownloadHistory, times(1)).record(any());
+
+        doAnswer(call -> {
+            Map<Path, Path> replacements = call.getArgument(0);
+            assertThat(reserved).isTrue();
+            for (Path file : files) assertThat(Files.readAllBytes(file)).containsExactly(1);
+            for (var entry : replacements.entrySet())
+                Files.copy(entry.getValue(), entry.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            for (var file : call.<java.util.Collection<Path>>getArgument(1)) Files.deleteIfExists(file);
+            call.<Runnable>getArgument(3).run();
+            assertThat(reserved).isTrue();
+            artworkDownloadExecutor.cancelDownload(id);
+            return null;
+        }).when(fileTransactions).changeFiles(anyMap(), anyCollection(), anySet(), any());
+        submit.run();
+        var completed = org.mockito.ArgumentCaptor.forClass(ArtworkDownloadCompletion.class);
+        verify(artworkDownloadHistory, times(2)).record(completed.capture());
+        assertThat(reserved).isFalse();
+        var replacement = completed.getValue();
+        for (int page = 0; page < files.size(); page++) {
+            String ext = page == 0 ? firstExtension : "jpg";
+            assertThat(Files.readAllBytes(replacement.folder().resolve(replacement.fileNames().get(page) + "." + ext)))
+                    .containsExactly(2);
+            assertThat(mediaStore.find(id, page)).contains(new ArtworkMediaManifest(ext, List.of(ext)));
+        }
+        if (cancel) assertThat(files.getFirst()).doesNotExist();
+        assertThat(artworkDownloadExecutor.getDownloadStatus(id).isFailed()).isFalse();
+        assertThat(artworkDownloadExecutor.getDownloadStatus(id).isCancelled()).isFalse();
+        verify(fileTransactions).changeFiles(anyMap(), anyCollection(), anySet(), any());
+    }
+
+    @Test
+    void partialRebuildClaimsMatchingFilesIndividuallyAndCompletionRequiresTheWholePage() throws Exception {
+        var media = new ArtworkMediaManifest("jpg", List.of("jpg", "png"), true, true);
+        Path stem = tempDir.resolve("p0");
+        Path original = Files.write(tempDir.resolve("p0.jpg"), new byte[]{1});
+        Path copy = Files.write(tempDir.resolve("p0.png"), new byte[]{2});
+        Path thumbnail = Files.write(tempDir.resolve("p0_thumb.jpg"), new byte[]{3});
+        String stamps = PartialArtwork.fingerprint(stem, media);
+        var partial = new PartialArtwork(67890, tempDir.toString(), 2, "p{page}", 180, "test", null,
+                List.of("p0", "p1"), Map.of(0, media), Map.of(0, stamps));
+        assertThat(partial.verifiedFiles()).containsOnlyKeys(0);
+        Files.delete(copy);
+        assertThat(partial.verifiedFiles()).isEmpty();
+        assertThat(partial.verifiedOutputs()).containsOnlyKeys(original, thumbnail);
+        Files.write(copy, new byte[]{9});
+        Files.write(thumbnail, new byte[]{8});
+        assertThat(partial.verifiedFiles()).isEmpty();
+        assertThat(partial.verifiedOutputs()).containsOnlyKeys(original);
+        assertThat(Files.readAllBytes(copy)).containsExactly(9);
+    }
+
+    @Test
+    void successiveSinglePagesReadOnlyNewOutputsUntilFinalVerification() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = java.util.stream.IntStream.range(0, 100).mapToObj(i -> "https://i.pximg.net/" + i + ".jpg").toList();
+        for (var url : urls) stubSuccessfulImageDownload(url, new byte[]{42});
+        var options = new DownloadRequest.Other();
+        try (var digests = mockStatic(PartialArtwork.class, CALLS_REAL_METHODS)) {
+            for (int page = 0; page < 99; page++) {
+                options.setSelectedPages(Set.of(page));
+                assertThat(download(id, urls, options)).isTrue();
+            }
+            digests.verify(() -> PartialArtwork.fingerprint(any(), any()), times(99));
+            verify(artworkDownloadHistory, never()).completePartial(any());
+            options.setSelectedPages(Set.of(99));
+            assertThat(download(id, urls, options)).isTrue();
+            digests.verify(() -> PartialArtwork.fingerprint(any(), any()), times(200));
+            verify(artworkDownloadHistory).completePartial(any());
+        }
+    }
+
+    @Test
+    void corruptUnrequestedPagePreventsFinalRegistrationUntilRepaired() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        for (var url : urls) stubSuccessfulImageDownload(url, new byte[]{7});
+        var selection = new DownloadRequest.Other();
+        selection.setSelectedPages(Set.of(0));
+        assertThat(download(id, urls, selection)).isTrue();
+        var layout = artworkDownloadHistory.partial(id);
+        Path first = Path.of(layout.folder(), layout.baseNames().getFirst() + ".jpg");
+        Files.write(first, new byte[]{8});
+        selection.setSelectedPages(Set.of(1));
+        assertThat(download(id, urls, selection)).isTrue();
+        verify(artworkDownloadHistory, never()).completePartial(any());
+        selection.setSelectedPages(Set.of(0));
+        assertThat(download(id, urls, selection)).isTrue();
+        assertThat(Files.readAllBytes(first)).containsExactly(7);
+        verify(artworkDownloadHistory).completePartial(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"preexisting", "late", "modified-during-repair"})
+    void sameLayoutPagePublicationProtectsUnregisteredFilesAndConcurrentEdits(String scenario) throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        var selection = new DownloadRequest.Other();
+        selection.setSelectedPages(Set.of(0));
+        stubSuccessfulImageDownload(urls.getFirst(), new byte[]{1});
+        assertThat(download(id, urls, selection)).isTrue();
+        var partial = artworkDownloadHistory.partial(id);
+        int page = scenario.equals("modified-during-repair") ? 0 : 1;
+        Path target = Path.of(partial.folder(), partial.baseNames().get(page) + ".jpg");
+        if (page == 0) Files.write(target, new byte[]{6});
+        if (scenario.equals("preexisting")) Files.write(target, new byte[]{8});
+        doAnswer(call -> {
+            Path stage = call.getArgument(2);
+            assertThat(stage.getParent()).isNotEqualTo(target.getParent());
+            if (!scenario.equals("preexisting")) Files.write(target, new byte[]{8});
+            Files.write(stage.resolveSibling(stage.getFileName() + ".jpg"), new byte[]{1});
+            return "jpg";
+        }).when(pixivImageDownloader).downloadImage(eq(URI.create(urls.get(page))), any(), any(), nullable(String.class), any());
+        selection.setSelectedPages(Set.of(page));
+        assertThat(download(id, urls, selection)).isFalse();
+        assertThat(Files.readAllBytes(target)).containsExactly(8);
+        assertThat(artworkDownloadHistory.partial(id)).isEqualTo(partial);
+        verify(downloadLifecycle).publish(argThat(event -> event != null && event.failureReason() != null
+                && event.failureReason().name().equals("OUTPUT_FILE_CONFLICT")));
+        verify(artworkDownloadHistory, never()).completePartial(any());
+    }
+
+    @Test
+    void repeatingAnIntactPageNeedsNoStagingOrFileTransaction() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        var selection = new DownloadRequest.Other();
+        selection.setSelectedPages(Set.of(0));
+        stubSuccessfulImageDownload(urls.getFirst(), new byte[]{1});
+        assertThat(download(id, urls, selection)).isTrue();
+        var original = artworkDownloadHistory.partial(id);
+        clearInvocations(paths, fileTransactions, pixivImageDownloader);
+        assertThat(download(id, urls, selection)).isTrue();
+        verifyNoInteractions(paths, fileTransactions, pixivImageDownloader);
+        assertThat(artworkDownloadHistory.partial(id)).isEqualTo(original);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"resolved", "direct", "direct-without-animation-archive"})
+    void wholeRetryAfterTransferFailureProtectsUnregisteredPageThenCompletes(String request) throws Exception {
+        long id = 67890L;
+        boolean resolved = request.equals("resolved");
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        if (resolved) trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        var options = new DownloadRequest.Other();
+        options.setResolvedPageList(resolved);
+        options.setUgoira(request.equals("direct-without-animation-archive"));
+        options.setFileNameTemplate("p{page}");
+        stubSuccessfulImageDownload(urls.getFirst(), new byte[]{1});
+        assertThat(download(id, urls, options)).isFalse();
+        Path first = tempDir.resolve("67890/p0.jpg");
+        Path second = first.resolveSibling("p1.jpg");
+        var initial = artworkDownloadHistory.partial(id);
+        if (resolved) {
+            assertThat(initial.verifiedFiles()).containsOnlyKeys(0);
+            assertThat(Files.readAllBytes(first)).containsExactly(1);
+        } else {
+            assertThat(initial).isNull();
+            assertThat(first).doesNotExist();
+        }
+        assertThat(second).doesNotExist();
+        assertThat(mediaStore.find(id, 1)).isEmpty();
+        Files.write(second, new byte[]{9});
+        stubSuccessfulImageDownload(urls.getLast(), new byte[]{2});
+        assertThat(download(id, urls, options)).isFalse();
+        assertThat(Files.readAllBytes(second)).containsExactly(9);
+        assertThat(artworkDownloadHistory.partial(id)).isEqualTo(initial);
+        assertThat(mediaStore.find(id, 1)).isEmpty();
+        verify(artworkDownloadHistory, never()).completePartial(any());
+        verify(artworkDownloadHistory, never()).record(any());
+        verify(downloadLifecycle).publish(argThat(event -> event != null && event.failureReason() != null
+                && event.failureReason().name().equals("OUTPUT_FILE_CONFLICT")));
+        Files.delete(second);
+        assertThat(download(id, urls, options)).isTrue();
+        assertThat(Files.readAllBytes(first)).containsExactly(1);
+        assertThat(Files.readAllBytes(second)).containsExactly(2);
+        if (resolved) {
+            verify(artworkDownloadHistory).completePartial(any());
+            verify(pixivImageDownloader).downloadImage(eq(URI.create(urls.getFirst())), any(), any(), nullable(String.class), any());
+        } else {
+            verify(artworkDownloadHistory).record(any());
+            verify(artworkDownloadHistory, never()).startPartial(any());
+        }
+    }
+
+    @Test
+    void orphanMediaRowWithoutPageLocationAndFingerprintCannotAuthorizeOverwrite() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        Path directory = Files.createDirectory(tempDir.resolve("67890"));
+        Path old = Files.write(directory.resolve("p0.jpg"), new byte[]{1});
+        Path user = Files.write(directory.resolve("p1.jpg"), new byte[]{9});
+        mediaStore.save(id, 0, new ArtworkMediaManifest("jpg", List.of("jpg")));
+        stubSuccessfulImageDownload(urls.getFirst(), new byte[]{1});
+        var options = new DownloadRequest.Other();
+        options.setResolvedPageList(true);
+        options.setFileNameTemplate("p{page}");
+        assertThat(download(id, urls, options)).isFalse();
+        assertThat(Files.readAllBytes(old)).containsExactly(1);
+        assertThat(Files.readAllBytes(user)).containsExactly(9);
+        assertThat(artworkDownloadHistory.partial(id).media()).isEmpty();
+        verify(artworkDownloadHistory, never()).completePartial(any());
+        verify(artworkDownloadHistory, never()).record(any());
+    }
+
+    @Test
+    void failedLegacyEncodingKeepsOnePrivateOriginalPerPageWhenTheDestinationIsOccupied() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        Path folder = Files.createDirectory(tempDir.resolve("67890"));
+        Path user = Files.write(folder.resolve("p0.jpg"), new byte[]{9});
+        Path recovery = tempDir.resolve("runtime/artwork-rebuild/67890-originals");
+        for (int generation = 1; generation <= 2; generation++) {
+            try (var rebuild = new ArtworkRebuild()) {
+                rebuild.initialSources(folder, fileTransactions, Set.of("png"));
+                Path stage = rebuild.start(paths, id).resolve("p0");
+                Files.write(stage.resolveSibling("p0.jpg"), new byte[]{(byte) generation});
+                rebuild.downloadedSource(0, stage, "jpg");
+                // 模拟首次转码在生成媒体清单前失败。
+            }
+            assertThat(Files.readAllBytes(user)).containsExactly(9);
+            assertThat(Files.readAllBytes(recovery.resolve("0"))).containsExactly(generation);
+            try (var files = Files.list(recovery)) { assertThat(files.count()).isOne(); }
+        }
+        Files.delete(user);
+        var urls = List.of("https://i.pximg.net/0.jpg");
+        stubSuccessfulImageDownload(urls.getFirst(), new byte[]{3});
+        var options = new DownloadRequest.Other();
+        options.setFileNameTemplate("p{page}");
+        assertThat(download(id, urls, options)).isTrue();
+        assertThat(Files.readAllBytes(user)).containsExactly(3);
+        assertThat(recovery).doesNotExist();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void failedFirstWholeRegistrationRetainsReadableSourceAndCleansItOnRetry(boolean selectedRetry) throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        trackPartialArtwork(id);
+        var urls = List.of("https://i.pximg.net/0.jpg", "https://i.pximg.net/1.jpg");
+        var options = new DownloadRequest.Other();
+        options.setResolvedPageList(true);
+        options.setFileNameTemplate("p{page}");
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(7, 5, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpg", bytes);
+        stubSuccessfulImageDownload(urls.getFirst(), bytes.toByteArray());
+        var failing = spy(mediaStore);
+        doThrow(new IllegalStateException("unavailable storage")).when(failing).savePartial(eq(id), eq(0), any(), anyString());
+        ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
+                new top.sywyar.pixivdownload.download.media.ImageOutputService(mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
+                        JsonMapper.builderWithJackson2Defaults().build(), failing, new TestMediaTransactions()));
+        assertThat(artworkDownloadExecutor.downloadImagesBlocking(id, "title", urls, "https://www.pixiv.net/", options, null, null)).isFalse();
+        Path privateOriginal = tempDir.resolve("runtime/artwork-rebuild/67890-originals/0");
+        assertThat(Files.readAllBytes(privateOriginal)).isEqualTo(bytes.toByteArray());
+        assertThat(javax.imageio.ImageIO.read(privateOriginal.toFile()).getWidth()).isEqualTo(7);
+        assertThat(tempDir.resolve("67890/p0.jpg")).doesNotExist();
+        assertThat(artworkDownloadHistory.partial(id).verifiedFiles()).isEmpty();
+        if (selectedRetry) options.setSelectedPages(Set.of(0));
+        else stubSuccessfulImageDownload(urls.getLast(), bytes.toByteArray());
+        assertThat(download(id, urls, options)).isTrue();
+        assertThat(Files.readAllBytes(tempDir.resolve("67890/p0.jpg"))).isEqualTo(bytes.toByteArray());
+        assertThat(privateOriginal.getParent()).doesNotExist();
+        if (selectedRetry) verify(artworkDownloadHistory, never()).completePartial(any());
+        else verify(artworkDownloadHistory).completePartial(any());
+    }
+
+    @Test
+    void failedDirectConversionWithOriginalSelectedKeepsItsDestinationAvailableForRetry() throws Exception {
+        long id = 67890L;
+        when(downloadSettings.directoryTemplate(nullable(String.class))).thenReturn(tempDir + "/{artwork_id}");
+        var urls = List.of("https://i.pximg.net/0.jpg");
+        var options = new DownloadRequest.Other();
+        options.setFileNameTemplate("p{page}");
+        options.setMediaOutputEnabled(true);
+        options.setImageFormats("original,png");
+        var bytes = new java.io.ByteArrayOutputStream();
+        var pixels = new java.awt.image.BufferedImage(7, 5, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        javax.imageio.ImageIO.write(pixels, "jpg", bytes);
+        stubSuccessfulImageDownload(urls.getFirst(), bytes.toByteArray());
+        var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+        top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner encoder = (tool, args, cwd, out, limit, timeout, cancel, progress) -> {
+            if (fail.getAndSet(false)) throw new IOException("encoding failed");
+            javax.imageio.ImageIO.write(pixels, "png", out.toFile());
+            return "";
+        };
+        ReflectionTestUtils.setField(artworkDownloadExecutor, "imageOutputService",
+                new top.sywyar.pixivdownload.download.media.ImageOutputService(encoder, JsonMapper.builderWithJackson2Defaults().build(),
+                        mediaStore, new TestMediaTransactions()));
+        var original = tempDir.resolve("67890/p0.jpg");
+        var recovery = tempDir.resolve("runtime/artwork-rebuild/67890-originals/0");
+        assertThat(artworkDownloadExecutor.downloadImagesBlocking(id, "title", urls, "https://www.pixiv.net/", options, null, null)).isFalse();
+        assertThat(original).doesNotExist();
+        assertThat(Files.readAllBytes(recovery)).isEqualTo(bytes.toByteArray());
+        Files.write(original, new byte[]{9});
+        assertThat(artworkDownloadExecutor.downloadImagesBlocking(id, "title", urls, "https://www.pixiv.net/", options, null, null)).isFalse();
+        assertThat(Files.readAllBytes(original)).containsExactly(9);
+        assertThat(original.resolveSibling("p0.png")).doesNotExist();
+        verify(artworkDownloadHistory, never()).record(any());
+        Files.delete(original);
+        assertThat(artworkDownloadExecutor.downloadImagesBlocking(id, "title", urls, "https://www.pixiv.net/", options, null, null)).isTrue();
+        assertThat(Files.readAllBytes(original)).isEqualTo(bytes.toByteArray());
+        assertThat(javax.imageio.ImageIO.read(original.resolveSibling("p0.png").toFile()).getHeight()).isEqualTo(5);
+        assertThat(recovery.getParent()).doesNotExist();
+        verify(artworkDownloadHistory).record(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"verified", "modified", "legacy", "missing", "late", "changed-after-check", "identical"})
+    void restoringMissingCopyPreservesVerifiedThumbnailOwnershipAndProtectsUserFiles(String scenario) throws Exception {
+        Path folder = Files.createDirectory(tempDir.resolve("work"));
+        Path stem = folder.resolve("p0");
+        Path webp = Files.write(folder.resolve("p0.webp"), new byte[]{1});
+        Path png = Files.write(folder.resolve("p0.png"), new byte[]{2});
+        Path thumbnail = Files.write(folder.resolve("p0_thumb.jpg"), new byte[]{3});
+        var manifest = new ArtworkMediaManifest("webp", List.of("webp", "png"), true, true);
+        String stamps = PartialArtwork.fingerprint(stem, manifest);
+        if (scenario.equals("legacy")) stamps = stamps.substring(0, stamps.lastIndexOf(','));
+        var partial = new PartialArtwork(42L, folder.toString(), 2, "p{page}", 180, "test", "v1",
+                List.of("p0", "p1"), Map.of(0, manifest), Map.of(0, stamps));
+        Files.delete(png);
+        if (Set.of("missing", "late", "identical").contains(scenario)) Files.delete(thumbnail);
+        if (scenario.equals("identical")) Files.write(thumbnail, new byte[]{3});
+        if (scenario.equals("modified")) Files.write(thumbnail, new byte[]{9});
+        var observed = partial.observeRepair(0);
+        Path stage = Files.createDirectory(tempDir.resolve("stage")).resolve("p0");
+        Files.write(stage.resolveSibling("p0.webp"), new byte[]{1});
+        Files.write(stage.resolveSibling("p0.png"), new byte[]{2});
+        Files.write(stage.resolveSibling("p0_thumb.jpg"), new byte[]{3});
+        if (Set.of("late", "changed-after-check").contains(scenario)) Files.write(thumbnail, new byte[]{8});
+        var saved = new AtomicReference<ArtworkMediaManifest>();
+        try (var rebuild = new ArtworkRebuild()) {
+            var sink = rebuild.partialPage(new TestMediaTransactions(), downloadPathGuard, 42L, observed, folder, (page, path, media) -> {
+                assertThat(path).isEqualTo(stage);
+                assertThat(PartialArtwork.fingerprint(path, media)).isEqualTo(PartialArtwork.fingerprint(stem, media));
+                saved.set(media);
+            }, () -> false);
+            if (Set.of("late", "changed-after-check").contains(scenario)) {
+                assertThatThrownBy(() -> sink.save(0, stage, manifest)).isInstanceOf(top.sywyar.pixivdownload.download.web.LocalizedException.class);
+                assertThat(saved.get()).isNull();
+                assertThat(Files.readAllBytes(thumbnail)).containsExactly(8);
+                assertThat(png).doesNotExist();
+            } else {
+                sink.save(0, stage, manifest);
+                boolean owned = !Set.of("legacy", "modified").contains(scenario);
+                assertThat(saved.get().thumbnailOwned()).isEqualTo(owned);
+                assertThat(Files.readAllBytes(thumbnail)).containsExactly(scenario.equals("modified") ? 9 : 3);
+                assertThat(Files.readAllBytes(png)).containsExactly(2);
+                assertThat(Files.readAllBytes(webp)).containsExactly(1);
+                var repaired = new PartialArtwork(42L, folder.toString(), 2, "p{page}", 180, "test", "v1",
+                        partial.baseNames(), Map.of(0, saved.get()), Map.of(0, PartialArtwork.fingerprint(stage, saved.get())));
+                assertThat(repaired.verifiedOutputs().containsKey(thumbnail)).isEqualTo(owned);
+            }
+        }
     }
 
     @ParameterizedTest
@@ -1839,6 +2449,7 @@ class ArtworkDownloadExecutorTest {
         assertThat(download(id, original, options)).isTrue();
         var partial = artworkDownloadHistory.partial(id);
         Path oldFile = Path.of(partial.folder(), partial.baseNames().getFirst() + ".jpg");
+        clearInvocations(fileTransactions);
         switch (change) {
             case "uploadDate" -> options.setSourceUploadDate("v2");
             case "directory" -> when(downloadSettings.directoryTemplate(nullable(String.class)))
@@ -1865,9 +2476,10 @@ class ArtworkDownloadExecutorTest {
             for (var entry : replacements.entrySet())
                 Files.copy(entry.getValue(), entry.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             for (Path file : obsolete) Files.deleteIfExists(file);
-            call.<Runnable>getArgument(2).run();
+            assertThat(call.<Map<Path, String>>getArgument(3)).containsKey(oldFile);
+            call.<Runnable>getArgument(4).run();
             return null;
-        }).when(fileTransactions).changeFiles(anyMap(), anyCollection(), any());
+        }).when(fileTransactions).changeFiles(anyMap(), anyCollection(), anySet(), anyMap(), any());
         stubSuccessfulImageDownload(updated.getLast(), new byte[]{3});
         assertThat(download(id, updated, options)).isTrue();
         var completed = capturedDownloadCompletion();

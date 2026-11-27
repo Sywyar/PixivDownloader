@@ -7,6 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -1009,6 +1014,33 @@ class ScheduleServiceTest {
         verify(store).resume(
                 eq(15L), eq(STATE_VERSION), eq(ScheduleSuspendReason.MANUAL),
                 eq("ADMIN_PAUSE"), anyLong());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"DOWNLOAD_PATH_ACTION_REQUIRED,DEFAULT_NAME", "provider.needs-choice,ARCHIVE"})
+    void resolvesOnlySupportedActionsAtCurrentVersion(String reason, String choice) throws Exception {
+        var pending = new ScheduledPendingWork(15L, "illust", "42", "fixture",
+                1, "{}", "[]", "{}", reason, "{\"requiresUserAction\":true}", 0, 1L, null);
+        when(store.findById(15L)).thenReturn(task(15L, true, null, ScheduleSuspendReason.USER_ACTION_REQUIRED,
+                reason, null, null, null, false));
+        when(store.listPendingWork(15L)).thenReturn(List.of(pending));
+        when(store.resolvePendingWork(15L, STATE_VERSION, "illust", "42", choice, true))
+                .thenReturn(OptionalLong.of(STATE_VERSION + 1));
+        var mvc = MockMvcBuilders.standaloneSetup(new ScheduleController(newService(), TestI18nBeans.appMessages())).build();
+        var post = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/schedule/tasks/15/pending/resolve")
+                .contentType("application/json");
+        var json = JsonMapper.shared();
+        var decision = json.createObjectNode().put("expectedStateVersion", STATE_VERSION).put("workType", "illust")
+                .put("workId", "42").put("rememberForRun", true);
+        if (reason.equals("DOWNLOAD_PATH_ACTION_REQUIRED")) {
+            var invalid = mvc.perform(post.content(json.writeValueAsBytes(decision.put("userAction", "TRUNCAT")))).andReturn().getResponse();
+            assertThat(invalid.getStatus()).isEqualTo(400);
+            assertThat(json.readTree(invalid.getContentAsByteArray()).required("field").asString()).isEqualTo("/userAction");
+            verify(store, never()).resolvePendingWork(15L, STATE_VERSION, "illust", "42", "TRUNCAT", true);
+        }
+        var accepted = mvc.perform(post.content(json.writeValueAsBytes(decision.put("userAction", choice)))).andReturn().getResponse();
+        assertThat(accepted.getStatus()).isEqualTo(200);
+        verify(store).resolvePendingWork(15L, STATE_VERSION, "illust", "42", choice, true);
     }
 
     @Test

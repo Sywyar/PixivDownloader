@@ -105,8 +105,8 @@ public class DownloadWorkbenchPluginConfiguration {
             top.sywyar.pixivdownload.download.media.ImageOutputService images,
             UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
             top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
-            @Qualifier("downloadWorkbenchMessages") MessageResolver messages, PluginRuntimeTaskRegistrar tasks) {
-        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, database, messages, tasks);
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages, PluginRuntimeTaskRegistrar tasks, DownloadPathGuard paths) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, database, messages, tasks, paths);
     }
 
     @Bean
@@ -121,8 +121,9 @@ public class DownloadWorkbenchPluginConfiguration {
     public top.sywyar.pixivdownload.download.media.ImageOutputService imageOutputService(
             top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner runner,
             ObjectMapper mapper,
-            top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
-        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, mapper, mediaStore);
+            top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
+            top.sywyar.pixivdownload.core.asset.FileTransactionService transactions) {
+        return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, mapper, mediaStore, transactions);
     }
 
     @Bean(name = "downloadWorkbenchTaskScheduler", destroyMethod = "shutdown")
@@ -187,8 +188,9 @@ public class DownloadWorkbenchPluginConfiguration {
                                        top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner ffmpegRunner,
                                        @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
                                        top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
+                                       top.sywyar.pixivdownload.core.asset.FileTransactionService transactions,
                                        top.sywyar.pixivdownload.download.media.UgoiraEncoderSettings settings) {
-        return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore, settings);
+        return new UgoiraService(pixivImageDownloader, ffmpegRunner, messages, mediaStore, transactions, settings);
     }
 
     @Bean

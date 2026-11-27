@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.core.db.ArtworkMediaRows;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import java.io.IOException;
@@ -31,13 +32,8 @@ public class ArtworkMediaStoreImpl implements ArtworkMediaStore {
         try {
             return database.read(s -> s.query(new Query(TABLE, Map.of(
                     "original_extension", column(TABLE, "original_extension"), "extensions", column(TABLE, "extensions"),
-                    "original_retained", column(TABLE, "original_retained")), identity(artworkId, page),
-                    List.of(), List.of(), 1, 0))).stream().findFirst().map(row -> {
-                long retained = (Long) row.get("original_retained");
-                if (retained != 0 && retained != 1) throw new IllegalArgumentException("Invalid retention fact");
-                return new ArtworkMediaManifest((String) row.get("original_extension"),
-                        List.of(((String) row.get("extensions")).split(",", -1)), retained == 1);
-            });
+                    "original_retained", column(TABLE, "original_retained"), "thumbnail_owned", column(TABLE, "thumbnail_owned")), identity(artworkId, page),
+                    List.of(), List.of(), 1, 0))).stream().findFirst().map(row -> ArtworkMediaRows.read(row, false));
         } catch (DataAccessException | IllegalArgumentException failure) {
             throw new IOException("Cannot read artwork media", failure);
         }
@@ -49,10 +45,11 @@ public class ArtworkMediaStoreImpl implements ArtworkMediaStore {
         try {
             database.transaction(s -> s.insert(TABLE, Map.of("artwork_id", artworkId, "page", page,
                     "original_extension", media.originalExtension(), "extensions", String.join(",", media.extensions()),
-                    "original_retained", media.originalRetained() ? 1L : 0L),
+                    "original_retained", media.originalRetained() ? 1L : 0L, "thumbnail_owned", media.thumbnailOwned() ? 1L : 0L),
                     new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("artwork_id", "page"),
                             Map.of("original_extension", new Incoming("original_extension"),
-                                    "extensions", new Incoming("extensions"), "original_retained", new Incoming("original_retained")))));
+                                    "extensions", new Incoming("extensions"), "original_retained", new Incoming("original_retained"),
+                                    "thumbnail_owned", new Incoming("thumbnail_owned")))));
         } catch (DataAccessException failure) {
             throw new IOException("Cannot persist artwork media", failure);
         }
@@ -63,6 +60,7 @@ public class ArtworkMediaStoreImpl implements ArtworkMediaStore {
         int changed = database.transaction(s -> s.update(table, Map.of(
                 "original_extension", value(media.originalExtension()), "extensions", value(String.join(",", media.extensions())),
                 "original_retained", value(media.originalRetained() ? 1L : 0L),
+                "thumbnail_owned", value(media.thumbnailOwned() ? 1L : 0L),
                 "output_fingerprints", value(Objects.requireNonNull(fingerprints))),
                 call(AND, call(EQUAL, column(table, "artwork_id"), value(artworkId)), call(EQUAL, column(table, "page"), value(page)))));
         if (changed != 1) throw new IOException("Missing partial artwork page");

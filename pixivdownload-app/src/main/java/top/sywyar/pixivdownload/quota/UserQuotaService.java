@@ -22,12 +22,15 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
+import top.sywyar.pixivdownload.quota.response.ArchiveStatusResponse.SourceDeletion;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
@@ -271,6 +274,12 @@ public class UserQuotaService {
 
     public String triggerAdminFileArchive(List<ArchiveExportEntry> items, String exportType, int workCount,
                                           Runnable afterReady, java.util.function.Supplier<AutoCloseable> sourceLease) {
+        return queueAdminFileArchive(items, exportType, workCount, 0, checkedCompletion(afterReady), sourceLease);
+    }
+
+    String queueAdminFileArchive(List<ArchiveExportEntry> items, String exportType, int workCount, int requestedDeletions,
+                                 BiConsumer<Map<Path, String>, Runnable> afterReady,
+                                 java.util.function.Supplier<AutoCloseable> sourceLease) {
         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String token = UUID.randomUUID().toString();
         long expireTime = System.currentTimeMillis()
@@ -278,6 +287,7 @@ public class UserQuotaService {
         ArchiveEntry entry = new ArchiveEntry(token, null, expireTime);
         entry.setExportType(exportType);
         entry.setWorkCount(workCount);
+        if (requestedDeletions > 0) entry.sourceDeletion = new SourceDeletion("pending", requestedDeletions, 0);
         archiveMap.put(token, entry);
         List<ArchiveExportEntry> snapshot = items == null ? List.of() : new ArrayList<>(items);
         submitArchive(entry, taskToken -> {
@@ -360,7 +370,7 @@ public class UserQuotaService {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
         if (folders.isEmpty()) {
-            buildAdminFileArchive(token, List.of(), afterReady);
+            buildAdminFileArchive(token, List.of(), checkedCompletion(afterReady));
             return;
         }
         List<ArchiveExportEntry> items = new ArrayList<>();
@@ -384,10 +394,23 @@ public class UserQuotaService {
                 }
             }
         }
-        buildAdminFileArchive(token, items, afterReady);
+        buildAdminFileArchive(token, items, checkedCompletion(afterReady));
     }
 
-    private void buildAdminFileArchive(String token, List<ArchiveExportEntry> items, Runnable afterReady) {
+    private static BiConsumer<Map<Path, String>, Runnable> checkedCompletion(Runnable afterReady) {
+        if (afterReady == null) return null;
+        return (archived, ignored) -> {
+            try {
+                top.sywyar.pixivdownload.core.asset.StagedFileDeletion.verifyArchivedFiles(archived);
+            } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
+            }
+            afterReady.run();
+        };
+    }
+
+    private void buildAdminFileArchive(String token, List<ArchiveExportEntry> items,
+                                       BiConsumer<Map<Path, String>, Runnable> afterReady) {
         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
@@ -407,10 +430,10 @@ public class UserQuotaService {
             Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
             Files.createDirectories(archiveDir);
             Path archivePath = archiveDir.resolve(token + ".zip");
-            Set<String> entryNames = new HashSet<>();
+            var entryNames = new ArchiveExportRules.EntryNames();
             Set<Long> startedWorks = new HashSet<>();
             int written = 0;
-            Map<Path, java.nio.file.attribute.BasicFileAttributes> sources = new LinkedHashMap<>();
+            Map<Path, ArchivedSource> sources = new LinkedHashMap<>();
             entry.setArchivePath(archivePath);
 
             try (ZipOutputStream zos = new ZipOutputStream(
@@ -427,8 +450,7 @@ public class UserQuotaService {
                     if (item.workId() != null && startedWorks.add(item.workId())) {
                         entry.setProcessedWorks(startedWorks.size());
                     }
-                    String entryName = uniqueEntryName(safeZipEntryName(item.entryName()), entryNames);
-                    if (entryName == null) throw new IOException("Invalid archive entry name");
+                    String entryName = entryNames.reserve(item.entryName());
                     try {
                         byte[] bytes = item.bytes();
                         if (bytes != null) {
@@ -441,10 +463,18 @@ public class UserQuotaService {
                             var before = Files.readAttributes(item.sourcePath(), java.nio.file.attribute.BasicFileAttributes.class,
                                     LinkOption.NOFOLLOW_LINKS);
                             zos.putNextEntry(new ZipEntry(entryName));
-                            Files.copy(item.sourcePath(), zos);
+                            if (afterReady == null) {
+                                Files.copy(item.sourcePath(), zos);
+                            } else {
+                                Path source = item.sourcePath().toAbsolutePath().normalize();
+                                var fingerprint = new ArchivedSource(before, copyAndDigest(source, zos));
+                                var prior = sources.putIfAbsent(source, fingerprint);
+                                if (prior != null && !prior.digest().equals(fingerprint.digest())) {
+                                    throw new IOException("Archive source contents changed: " + source);
+                                }
+                            }
                             zos.closeEntry();
                             requireUnchangedSource(item.sourcePath(), before);
-                            sources.put(item.sourcePath(), before);
                             written++;
                         }
                     } catch (IOException e) {
@@ -461,23 +491,34 @@ public class UserQuotaService {
 
             completeArchive = true;
             synchronized (entry) {
-                if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                if (entry.sourceDeletion.requestedWorks() == 0 && pixivDatabase.isUnavailable()) {
+                    throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                }
                 if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) {
                     deletePartialArchive(entry);
                     archiveMap.remove(token, entry);
                     return;
                 }
                 if (afterReady != null) {
+                    entry.startDeletion();
                     try {
-                        for (var source : sources.entrySet()) requireUnchangedSource(source.getKey(), source.getValue());
+                        var archived = new LinkedHashMap<Path, String>();
+                        for (var source : sources.entrySet()) {
+                            requireUnchangedSource(source.getKey(), source.getValue().attributes());
+                            archived.put(source.getKey(), source.getValue().digest());
+                        }
                         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
-                        afterReady.run();
+                        afterReady.accept(Collections.unmodifiableMap(archived), entry::recordDeletedWork);
                     } catch (Exception e) {
                         // ZIP 已完整关闭；删源失败必须保留这份可下载副本。
                         log.warn(message("archive.log.admin.post-action.failed", token), e);
+                    } finally {
+                        entry.finishDeletion();
                     }
                 }
-                if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                if (entry.sourceDeletion.requestedWorks() == 0 && pixivDatabase.isUnavailable()) {
+                    throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                }
                 entry.setFileCount(written);
                 entry.setStatus("ready");
             }
@@ -488,50 +529,6 @@ public class UserQuotaService {
             if (!completeArchive) deletePartialArchive(entry);
             log.error(message("archive.log.admin.create.failed", token), e);
         }
-    }
-
-    private String safeZipEntryName(String entryName) {
-        if (entryName == null || entryName.isBlank()) {
-            return null;
-        }
-        String normalized = entryName.replace('\\', '/');
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
-        }
-        if (normalized.isBlank()) {
-            return null;
-        }
-        String[] parts = normalized.split("/");
-        List<String> safeParts = new ArrayList<>(parts.length);
-        for (String part : parts) {
-            if (part == null || part.isBlank() || ".".equals(part) || "..".equals(part)) {
-                continue;
-            }
-            safeParts.add(part);
-        }
-        return safeParts.isEmpty() ? null : String.join("/", safeParts);
-    }
-
-    private String uniqueEntryName(String entryName, Set<String> used) {
-        if (entryName == null || used == null) {
-            return entryName;
-        }
-        if (used.add(entryName)) {
-            return entryName;
-        }
-        int slash = entryName.lastIndexOf('/');
-        String dir = slash >= 0 ? entryName.substring(0, slash + 1) : "";
-        String name = slash >= 0 ? entryName.substring(slash + 1) : entryName;
-        int dot = name.lastIndexOf('.');
-        String base = dot > 0 ? name.substring(0, dot) : name;
-        String ext = dot > 0 ? name.substring(dot) : "";
-        for (int i = 2; i < 10_000; i++) {
-            String candidate = dir + base + " (" + i + ")" + ext;
-            if (used.add(candidate)) {
-                return candidate;
-            }
-        }
-        return null;
     }
 
     public ArchiveEntry getArchive(String token) {
@@ -554,6 +551,16 @@ public class UserQuotaService {
             }
             archiveMap.remove(token, entry);
         }
+    }
+
+    private record ArchivedSource(java.nio.file.attribute.BasicFileAttributes attributes, String digest) {}
+
+    private static String copyAndDigest(Path source, OutputStream target) throws IOException, java.security.NoSuchAlgorithmException {
+        var digest = java.security.MessageDigest.getInstance("SHA-256");
+        try (var input = new java.security.DigestInputStream(Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
+            input.transferTo(target);
+        }
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static void requireUnchangedSource(Path path, java.nio.file.attribute.BasicFileAttributes before)
@@ -731,6 +738,31 @@ public class UserQuotaService {
         /** 打包过程中已开始处理的作品数（≤ workCount），用于任务列表进度条。 */
         @Setter private volatile int processedWorks;
         @Setter private volatile int fileCount;
+
+        private volatile SourceDeletion sourceDeletion = new SourceDeletion("not_requested", 0, 0);
+
+        public SourceDeletion getSourceDeletion() {
+            var result = sourceDeletion;
+            if ("pending".equals(result.status()) && ("empty".equals(status) || "error".equals(status) || "cancelled".equals(status))) {
+                return new SourceDeletion("not_started", result.requestedWorks(), 0);
+            }
+            return result;
+        }
+
+        private void startDeletion() {
+            if (sourceDeletion.requestedWorks() > 0) sourceDeletion = new SourceDeletion("running", sourceDeletion.requestedWorks(), 0);
+        }
+
+        private void recordDeletedWork() {
+            sourceDeletion = new SourceDeletion("running", sourceDeletion.requestedWorks(), sourceDeletion.deletedWorks() + 1);
+        }
+
+        private void finishDeletion() {
+            int requested = sourceDeletion.requestedWorks();
+            if (requested == 0) return;
+            int deleted = sourceDeletion.deletedWorks();
+            sourceDeletion = new SourceDeletion(deleted == requested ? "succeeded" : deleted > 0 ? "partial" : "failed", requested, deleted);
+        }
 
         public ArchiveEntry(String token, String userUuid, long expireTime) {
             this.token = token;

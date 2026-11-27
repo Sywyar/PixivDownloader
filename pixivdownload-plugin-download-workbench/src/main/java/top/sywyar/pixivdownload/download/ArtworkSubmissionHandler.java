@@ -106,6 +106,9 @@ public final class ArtworkSubmissionHandler implements DownloadSubmissionHandler
             if (urls.isEmpty()) throw new IllegalArgumentException("artwork has no files");
             executor.submitImages(attempt, id, meta.title(), urls,
                     "https://www.pixiv.net/artworks/" + id, other, credential, null);
+        } catch (PixivAjaxException failure) {
+            if (failure.statusCode() == 429) throw DownloadTaskException.upstreamRateLimited(failure.retryAfterMillis());
+            throw failure;
         } catch (IOException failure) {
             throw new DownloadTaskException(DownloadTaskException.Code.REJECTED);
         }

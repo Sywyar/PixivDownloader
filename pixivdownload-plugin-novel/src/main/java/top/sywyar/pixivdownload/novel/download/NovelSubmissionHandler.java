@@ -79,6 +79,7 @@ public final class NovelSubmissionHandler implements DownloadSubmissionHandler {
         try {
             return client.get(URI.create("https://www.pixiv.net/ajax/novel/" + id + "?lang=zh"), credential);
         } catch (PixivAjaxException failure) {
+            if (failure.statusCode() == 429) throw DownloadTaskException.upstreamRateLimited(failure.retryAfterMillis());
             if (failure.statusCode() == 404) throw new DownloadTaskException(DownloadTaskException.Code.WORK_NOT_FOUND);
             throw failure;
         }

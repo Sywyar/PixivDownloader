@@ -711,6 +711,7 @@ final class DesktopConfigurationController {
     private void pinSymbolicRootAndSave(String path) {
         owner.closeDialog();
         owner.runBusy(() -> {
+            String reason = "gui.migrate-dir.error.unreachable";
             try {
                 DesktopUiHost.GuiResponse response = host.guiPostJson(
                         "path-prefixes/pin",
@@ -722,6 +723,8 @@ final class DesktopConfigurationController {
                     saveConfiguration(true);
                     return;
                 }
+                if (response.body() != null) reason = DesktopDirectoryMigrationController.reasonKey(
+                        response.body().path("errors").path(0).path("reason").asText(""));
                 String detail = response.reachable() ? Integer.toString(response.status()) : "unreachable";
                 LOG.warn(host.message("gui.config.log.symbolic-pin.failed", detail));
             } catch (RuntimeException failure) {
@@ -733,7 +736,7 @@ final class DesktopConfigurationController {
             owner.showDialog(
                     "config.symbolic-pin.failed",
                     "gui.dialog.error.title",
-                    "gui.config.symbolic-pin.failed",
+                    appToken("gui.config.symbolic-pin.failed", host.message(reason)),
                     DesktopUiDocument.DialogStyle.ERROR
             );
         });

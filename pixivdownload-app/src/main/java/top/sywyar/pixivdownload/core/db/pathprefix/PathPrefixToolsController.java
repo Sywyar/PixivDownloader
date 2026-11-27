@@ -54,11 +54,13 @@ public final class PathPrefixToolsController {
             mediaType = "application/json", schema = @Schema(implementation = Changes.class)))
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
             schema = @Schema(implementation = PathPrefixMigrationService.PathPrefixMigrationResult.class)))
-    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, Rejected.class})))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ToolApiRequests.InvalidRequest.class, Rejected.class})))
     @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Rejected.class)))
+    @top.sywyar.pixivdownload.core.web.KnownErrorCodes(status = "500", value = "PATH_PREFIX_WRITE_FAILED")
     @PostMapping(consumes = "application/json")
     public ResponseEntity<?> apply(HttpServletRequest request, Locale locale) throws IOException {
-        var body = ToolApiRequests.read(request, Changes.class, BODY_LIMIT);
+        var body = ToolApiRequests.readStrictStrings(request, Changes.class, BODY_LIMIT);
         var updates = body.updates() == null ? List.<PathPrefixMigrationService.PathPrefixUpdate>of() : body.updates();
         var paths = body.registerPaths() == null ? List.<String>of() : body.registerPaths();
         if (updates.isEmpty() && paths.isEmpty()) throw new InputFieldException("", "invalid_value");
@@ -76,11 +78,13 @@ public final class PathPrefixToolsController {
             mediaType = "application/json", schema = @Schema(implementation = Pin.class)))
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "application/json",
             schema = @Schema(implementation = PathPrefixMigrationService.PathPrefixMigrationResult.class)))
-    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, Rejected.class})))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ToolApiRequests.InvalidRequest.class, Rejected.class})))
     @ApiResponse(responseCode = "413", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ToolApiRequests.BodyLimit.class)))
+    @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = Rejected.class)))
+    @top.sywyar.pixivdownload.core.web.KnownErrorCodes(status = "500", value = "PATH_PREFIX_WRITE_FAILED")
     @PostMapping(value = "/pin", consumes = "application/json")
     public ResponseEntity<?> pin(HttpServletRequest request, Locale locale) throws IOException {
-        var body = ToolApiRequests.read(request, Pin.class, BODY_LIMIT);
+        var body = ToolApiRequests.readStrictStrings(request, Pin.class, BODY_LIMIT);
         validatePath(body.path(), "/path");
         return result(service.pinSymbolicRoot(body.path()), locale);
     }
@@ -93,6 +97,10 @@ public final class PathPrefixToolsController {
                            List<PathPrefixMigrationService.PrefixError> errors) implements ApiErrorResponse {}
     private ResponseEntity<?> result(PathPrefixMigrationService.PathPrefixMigrationResult result, Locale locale) {
         if (result.success()) return ResponseEntity.ok(result);
+        if (result.errors().stream().anyMatch(error -> "write-failed".equals(error.reason()))) {
+            return ResponseEntity.internalServerError().body(new Rejected("PATH_PREFIX_WRITE_FAILED",
+                    messages.get(locale, "error.io"), false, result.applied(), result.errors()));
+        }
         return ResponseEntity.badRequest().body(new Rejected("PATH_PREFIX_REJECTED",
                 messages.get(locale, "tools.api.invalid-request"), false, result.applied(), result.errors()));
     }

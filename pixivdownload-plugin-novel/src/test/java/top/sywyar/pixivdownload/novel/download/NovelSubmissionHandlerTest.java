@@ -22,7 +22,7 @@ import static org.mockito.Mockito.*;
 class NovelSubmissionHandlerTest {
     private final jakarta.validation.ValidatorFactory validation = jakarta.validation.Validation.buildDefaultValidatorFactory();
     @org.junit.jupiter.api.AfterEach void closeValidation() { validation.close(); }
-    @Test void onlyNotFoundIsTranslatedDuringNovelLookup() {
+    @Test void preservesKnownUpstreamFailuresDuringNovelLookup() {
         var client = mock(PixivAjaxClient.class);
         var downloads = mock(NovelDownloadService.class);
         var handler = new NovelSubmissionHandler(client, JsonMapper.shared(), downloads, validation.getValidator());
@@ -30,9 +30,12 @@ class NovelSubmissionHandlerTest {
         var attempt = new DownloadAttempt(UUID.randomUUID(), "novel", "42");
         var forbidden = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 403);
         when(client.get(URI.create("https://www.pixiv.net/ajax/novel/42?lang=zh"), null))
-                .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404)).thenThrow(forbidden);
+                .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404))
+                .thenThrow(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429, 9_999)).thenThrow(forbidden);
         assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> handler.submit(submission, attempt, null))
                 .extracting(DownloadTaskException::code).isEqualTo(DownloadTaskException.Code.WORK_NOT_FOUND);
+        assertThat(handler.submitAndReportFailure(submission, attempt, null)).isEqualTo(new DownloadTaskException.Failure(
+                DownloadTaskException.Code.UPSTREAM_RATE_LIMITED, null, null, 9_999));
         assertThatThrownBy(() -> handler.submit(submission, attempt, null)).isSameAs(forbidden);
         verifyNoInteractions(downloads);
     }

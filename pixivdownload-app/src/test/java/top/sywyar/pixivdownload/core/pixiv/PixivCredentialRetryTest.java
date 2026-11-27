@@ -107,7 +107,11 @@ class PixivCredentialRetryTest {
         assertThatThrownBy(() -> scope.call(() -> retry.execute(personal, A, cookie -> {
             attempts.add(cookie);
             throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429, 100_000);
-        }))).isInstanceOf(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException.class);
+        }))).isInstanceOfSatisfying(top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException.class,
+                failure -> {
+                    assertThat(failure.rateLimited()).isTrue();
+                    assertThat(failure.retryAfterMillis()).isEqualTo(100_000);
+                });
         assertThat(attempts).containsExactly(A);
         Thread.currentThread().interrupt();
         try {

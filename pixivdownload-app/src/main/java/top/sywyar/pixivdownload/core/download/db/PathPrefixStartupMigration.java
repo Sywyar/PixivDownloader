@@ -28,7 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
+import static top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec.comparisonKey;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
@@ -148,9 +148,8 @@ public class PathPrefixStartupMigration
     }
 
     private void registerPrefix(String value) {
-        if (value == null) return;
-        String stripped = PathPrefixCodec.stripTrailingSeparators(value.trim());
-        if (stripped == null || stripped.isEmpty()) return;
+        if (value == null || value.isBlank()) return;
+        String stripped = PathPrefixCodec.stripTrailingSeparators(value);
         if (codec.looksEncoded(stripped)) return;
         try {
             codec.getOrCreatePrefixId(stripped);
@@ -187,8 +186,8 @@ public class PathPrefixStartupMigration
         try {
             Path marker = RuntimeFiles.resolveDownloadRootMarkerPath();
             if (Files.isRegularFile(marker)) {
-                String value = Files.readString(marker, StandardCharsets.UTF_8).trim();
-                return value.isEmpty() ? "?" : value;
+                String value = Files.readString(marker, StandardCharsets.UTF_8);
+                return value.isBlank() ? "?" : value;
             }
         } catch (IOException ignored) {
             // 仅用于日志展示
@@ -209,9 +208,9 @@ public class PathPrefixStartupMigration
      * 单个事务内改写全部路径前缀列并删除该前缀行，绝不留下悬空的 {@code {N}} 引用。
      */
     private void foldRootPrefixes(String rootPath) {
-        String rootNorm = normalize(rootPath);
+        String rootNorm = comparisonKey(rootPath);
         List<PathPrefix> matches = codec.snapshot().stream()
-                .filter(p -> rootNorm.equals(normalize(p.path())))
+                .filter(p -> rootNorm.equals(comparisonKey(p.path())))
                 .toList();
         for (PathPrefix match : matches) {
             String token = "{" + match.id() + "}";
@@ -246,12 +245,12 @@ public class PathPrefixStartupMigration
         String previous;
         try {
             if (!Files.isRegularFile(marker)) return false;
-            previous = Files.readString(marker, StandardCharsets.UTF_8).trim();
+            previous = Files.readString(marker, StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.warn(logMessage("download.db.log.read-failed", marker, e.getMessage()));
             return false;
         }
-        if (previous.isEmpty() || normalize(previous).equals(normalize(current))) return false;
+        if (previous.isBlank() || comparisonKey(previous).equals(comparisonKey(current))) return false;
         if (!hasSymbolicRows) return false;
         if (directoryHasEntries(previous) && !directoryHasEntries(current)) {
             log.warn(logMessage("download.db.log.symbolic-root-moved-warn", previous, current));
@@ -283,9 +282,6 @@ public class PathPrefixStartupMigration
         }
     }
 
-    private static String normalize(String value) {
-        return PathPrefixCodec.stripTrailingSeparators(value).replace('\\', '/').toLowerCase(Locale.ROOT);
-    }
 
     private int migrateTable(String table, String idColumn, List<String> pathColumns) {
         var projection = new LinkedHashMap<String, Expression>();
