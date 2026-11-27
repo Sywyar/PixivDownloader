@@ -30,7 +30,7 @@ function New-DistributionAotCache {
         $candidate = $Cache + '.pending'
         & $Java '-Dfile.encoding=UTF-8' "-Dpixivdownload.plugins-dir=$Plugins" `
             "-Dpixivdownload.config-dir=$Training/source-config" -cp $Jar `
-            top.sywyar.pixivdownload.startup.DistributionLauncher prepare-gui $candidate $Training
+            top.sywyar.pixivdownload.startup.DistributionLauncher prepare-gui $candidate (Join-Path $Training 'work')
         if ($LASTEXITCODE -ne 0) { throw "GUI AOT preparation failed (exit $LASTEXITCODE)." }
         Move-Item -LiteralPath $candidate -Destination $Cache -Force
         Move-Item -LiteralPath ($candidate + '.identity') -Destination ($Cache + '.identity') -Force

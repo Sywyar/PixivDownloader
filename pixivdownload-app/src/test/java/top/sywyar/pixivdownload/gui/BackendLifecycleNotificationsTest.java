@@ -58,7 +58,7 @@ class BackendLifecycleNotificationsTest {
             try {
                 modelEntered.countDown();
                 await(listenerEntered);
-                try { BackendLifecycleManager.requiredBean(Object.class); }
+                try { BackendLifecycleManager.requiredBean(ModelBean.class); }
                 catch (IllegalStateException ignored) { }
             } finally {
                 modelLock.unlock();
@@ -263,9 +263,11 @@ class BackendLifecycleNotificationsTest {
         }
     }
 
+    private record ModelBean() {}
+
     private static AnnotationConfigApplicationContext context() {
         var context = new AnnotationConfigApplicationContext();
-        context.registerBean(Object.class, Object::new);
+        context.registerBean(ModelBean.class, ModelBean::new);
         context.refresh();
         return context;
     }
