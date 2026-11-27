@@ -49,6 +49,8 @@ class SecurityProgramKeysPageTest {
         screenshot("program-keys-list-dark")
         onNodeWithTag("program.keys.edit.$FIRST").performClick()
         assertEquals("program.keys.edit.$FIRST", events.last().nodeId())
+        onNodeWithTag("program.keys.prompt.$FIRST").assertTextEquals(security.getProperty("instructions.title")).performClick()
+        assertEquals("program.keys.prompt.$FIRST", events.last().nodeId())
         onNodeWithTag("program.keys.leave").performKeyInput { pressKey(Key.Escape) }
         assertEquals("security.close", events.last().nodeId())
         runOnIdle { view = keys("revoke") }
@@ -62,6 +64,7 @@ class SecurityProgramKeysPageTest {
         runOnIdle { view = keys("list", rows = emptyList()) }
         onNodeWithTag("security.sheet").assertDoesNotExist()
         onNodeWithTag("program.keys.empty").assertExists()
+        onNodeWithText(security.getProperty("empty.description")).assertExists()
         onNodeWithTag("program.keys.empty.create").performClick()
         assertEquals("program.keys.create", events.last().nodeId())
         onNodeWithTag("program.keys.leave").performClick()
@@ -122,12 +125,46 @@ class SecurityProgramKeysPageTest {
         onNodeWithTag("program.keys.copy.notice").assertTextEquals("Key copied.")
         onNodeWithTag("program.keys.copy-instructions").assertTextContains(security.getProperty("copy.instructions"))
         onNodeWithTag("security.error").assertDoesNotExist()
+        onNodeWithTag("program.keys.verify").performScrollTo()
+            .assertTextContains("Bearer \$PIXIV_PROGRAM_KEY\" $SELF_URL", substring = true)
+            .assert(hasText("pdk_example_secret_value", substring = true).not())
         screenshot("program-keys-created-light-compact")
         runOnIdle { view = keys("created", secret = "pdk_example_secret_value", prompt = null) }
         onNodeWithText(security.getProperty("instructions.unavailable")).assertExists()
         onNodeWithTag("program.keys.copy-instructions").assertDoesNotExist()
         onNodeWithTag("program.keys.copy").performScrollTo().performClick()
         assertEquals("program.keys.copy", events.last().nodeId())
+    }
+
+    @Test
+    @DisplayName("已有密钥的提示词页不显示秘密，可复制提示词，完成与 Esc 返回列表")
+    fun promptPage() = runComposeUiTest(effectContext = object : MotionDurationScale { override val scaleFactor = 0f }) {
+        val events = mutableListOf<Event>()
+        val clipboard = object : ClipboardManager {
+            private var content: AnnotatedString? = null
+            override fun getText() = content
+            override fun setText(annotatedString: AnnotatedString) { content = annotatedString }
+        }
+        val view = keys("prompt", prompt = TextToken("security", "instructions.restricted", "", listOf(referenceUrl)))
+        setContent { PixivDownloaderTheme("light") {
+            CompositionLocalProvider(LocalClipboardManager provides clipboard) {
+                Box(Modifier.size(620.dp, 520.dp).background(LocalExperiencePalette.current.background).testTag("frame")) {
+                    SecurityOverview(overview(view), ::resolve, { events += it })
+                }
+            }
+        } }
+        onNodeWithTag("program.keys.secret").assertDoesNotExist()
+        onNodeWithTag("program.keys.verify").assertDoesNotExist()
+        onNodeWithText("arta").assertExists()
+        val prompt = MessageFormat.format(security.getProperty("instructions.restricted"), referenceUrl)
+        onNodeWithTag("program.keys.instructions").assertTextEquals(prompt)
+        onNodeWithTag("program.keys.copy-instructions").performScrollTo().performClick()
+        assertEquals(prompt, clipboard.getText()?.text)
+        onNodeWithTag("program.keys.cancel").assertTextEquals(security.getProperty("done")).performClick()
+        assertEquals("program.keys.cancel", events.last().nodeId())
+        onNodeWithTag("program.keys.leave").performKeyInput { pressKey(Key.Escape) }
+        assertEquals("program.keys.cancel", events.last().nodeId())
+        screenshot("program-keys-prompt-light-compact")
     }
 
     @Test
@@ -155,6 +192,7 @@ class SecurityProgramKeysPageTest {
 
     companion object {
         private const val referenceUrl = "https://studio.example.test:7443/api/openapi.json"
+        private const val SELF_URL = "https://studio.example.test:7443/api/security/program-keys/self"
         private const val FIRST = "11111111-1111-1111-1111-111111111111"
         private const val PERMISSION = "program.keys.permission.status"
         private val security = Properties().apply {
@@ -193,13 +231,15 @@ class SecurityProgramKeysPageTest {
                     permission("program.keys.permission.models", "Read models", "AI models"))))
             val list = rows ?: listOf(
                 ProgramKeyRow(FIRST, "arta", 6, true, emptyList(), 1_794_600_000_000, 0, "HTTPS_REQUIRED",
-                    "program.keys.edit.$FIRST", "program.keys.revoke.$FIRST", "program.keys.transport.$FIRST", sec("transport.REVIEWED")),
+                    "program.keys.edit.$FIRST", "program.keys.revoke.$FIRST", "program.keys.transport.$FIRST", sec("transport.REVIEWED"),
+                    "program.keys.prompt.$FIRST"),
                 ProgramKeyRow("2", "NAS sync", 2, false, listOf("192.168.1.0/24", "2001:db8::/64"), 1_794_000_000_000,
                     1_794_650_000_000, "HTTP_ALLOWED", "program.keys.edit.2", "program.keys.revoke.2",
-                    "program.keys.transport.2", sec("transport.HTTPS_REQUIRED")))
+                    "program.keys.transport.2", sec("transport.HTTPS_REQUIRED"), "program.keys.prompt.2"))
             return ProgramKeysView(mode, if (mode in listOf("list", "revoke", "transport")) list else emptyList(), inputs, groups,
                 Toggle("program.keys.any", "program.keys.any", sec("source.any"), null, ToggleStyle.CHECKBOX, any, editable),
-                secret, prompt, notice, if (mode == "revoke") "arta" else "", "HTTP_ALLOWED", false, true, true)
+                secret, prompt, if (mode == "created") SELF_URL else "", notice, if (mode == "revoke" || mode == "prompt") "arta" else "", "HTTP_ALLOWED",
+                false, true, true)
         }
 
         private fun overview(view: ProgramKeysView): DesktopUiNode.SecurityOverview {
@@ -208,10 +248,11 @@ class SecurityProgramKeysPageTest {
                 addAll(listOf("security.password", "security.sessions", "security.program-keys", "security.connection", "security.close"))
                 addAll(listOf("refresh", "create", "cancel", "review", "save", "back", "revoke", "confirm", "copy", "group.core", "group.ai")
                     .map { "program.keys.$it" })
-                view.keys().forEach { addAll(listOf(it.editAction(), it.revokeAction(), it.transportAction())) }
+                view.keys().forEach { addAll(listOf(it.editAction(), it.revokeAction(), it.transportAction(), it.promptAction())) }
             }
             val enabled = { id: String -> when {
-                id.startsWith("program.keys.edit.") || id.startsWith("program.keys.revoke.") || id.startsWith("program.keys.transport.") -> mode == "list"
+                id.startsWith("program.keys.edit.") || id.startsWith("program.keys.revoke.") || id.startsWith("program.keys.transport.")
+                        || id.startsWith("program.keys.prompt.") -> mode == "list"
                 id == "program.keys.review" -> mode == "edit"
                 id == "program.keys.save" || id == "program.keys.back" -> mode == "review"
                 id == "program.keys.revoke" -> mode == "revoke"

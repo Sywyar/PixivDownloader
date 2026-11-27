@@ -128,6 +128,7 @@
     margin-top: 14px; text-align: center; font-size: 0.75rem;
   }
   .invite-link-row a { color: var(--brand); cursor: pointer; text-decoration: underline; }
+  .invite-link-separator { margin: 0 8px; color: var(--muted); }
   .hidden { display: none; }
 
   @media (max-width: 37.5em) {

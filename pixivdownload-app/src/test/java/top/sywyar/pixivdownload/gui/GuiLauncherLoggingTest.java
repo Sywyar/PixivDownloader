@@ -124,6 +124,47 @@ class GuiLauncherLoggingTest {
         }
     }
 
+    @Test
+    @DisplayName("密钥命令的一次性秘密只输出到终端，不进入文本或HTML日志")
+    void programKeySecretStaysOutOfLogs() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            exchange.getRequestBody().readAllBytes();
+            String body = switch (path) {
+                case "/api/auth/login" -> {
+                    exchange.getResponseHeaders().add("Set-Cookie", "pixiv_session=fixture; Path=/");
+                    yield "{\"success\":true}";
+                }
+                case "/api/security/program-keys/permissions" -> "[{\"id\":\"core:api-reference.read\",\"endpoints\":[]}]";
+                case "/api/security/program-keys" -> "{\"key\":{\"id\":\"4f1c2b8e-1d2a-4c55-9a77-3e2f6f2a9b10\","
+                        + "\"policy\":{\"name\":\"agent\"}},\"secret\":\"FixtureSecretForLogTest\"}";
+                default -> "{\"success\":true}";
+            };
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(path.equals("/api/security/program-keys") ? 201 : 200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String console = launchArguments(0, "--program-key-create",
+                    "--server-url=http://127.0.0.1:" + server.getAddress().getPort(),
+                    "--username=fixture-admin", "--password=FixturePasswordForLogTest", "--key-name=agent",
+                    "--key-permissions=core:api-reference.read", "--key-sources=any");
+            assertThat(console).contains("FixtureSecretForLogTest");
+            for (Path log : List.of(tempDir.resolve("log/latest.log"), tempDir.resolve("log/html/latest.html"))) {
+                assertThat(Files.readString(log, StandardCharsets.UTF_8))
+                        .contains("action=program-key-create")
+                        .doesNotContain("FixtureSecretForLogTest", "FixturePasswordForLogTest");
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private String launchArguments(int expectedExit, String... arguments) throws Exception {
         Path java = Path.of(System.getProperty("java.home"), "bin",
                 System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java");

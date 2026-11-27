@@ -25,7 +25,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.util.HtmlUtils;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.LocaleCatalog;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry;
@@ -34,6 +36,7 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.setup.ProgramAccess;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -120,12 +123,20 @@ public final class ApiReferenceController extends OpenApiResource {
                 "{document}", "<code>GET " + DOCUMENT_PATH + "</code>",
                 "{header}", "<code>Authorization: Bearer &lt;key&gt;</code>",
                 "{permission}", "<code>" + HtmlUtils.htmlEscape(documentPermission()) + "</code>",
+                "{list}", "<code>--program-keys</code>",
+                "{revoke}", "<code>--program-key-revoke</code>",
                 "{login}", "<a href=\"/login.html?redirect=%2Fopenapi\">"
                         + HtmlUtils.htmlEscape(text.getOrDefault("page.login", "")) + "</a>");
+        // The examples use the address this page was requested through, as normalized by the trusted proxy filter.
+        Map<String, String> values = Map.of(
+                "admin", Boolean.toString(admin),
+                "lang", locale.toLanguageTag(),
+                "self", ServletUriComponentsBuilder.fromContextPath(request).path(ProgramAccess.SELF_PATH).build().toUriString(),
+                "guide", text.getOrDefault("guide.url", AppInfo.DOCS_URL));
         String html = PAGE_TOKEN.matcher(pageTemplate).replaceAll(token -> {
             String key = token.group(1);
-            if (key.equals("admin")) return Boolean.toString(admin);
-            String value = HtmlUtils.htmlEscape(key.equals("lang") ? locale.toLanguageTag() : text.getOrDefault(key, ""));
+            if (values.containsKey(key)) return Matcher.quoteReplacement(HtmlUtils.htmlEscape(values.get(key)));
+            String value = HtmlUtils.htmlEscape(text.getOrDefault(key, ""));
             for (var fragment : fragments.entrySet()) value = value.replace(fragment.getKey(), fragment.getValue());
             return Matcher.quoteReplacement(value);
         });

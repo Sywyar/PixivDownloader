@@ -4,6 +4,8 @@
   "defaultLang": "en-US",
   "messages": {
     "admin.title": "管理者ログイン",
+    "automation.description": "API リファレンス、プログラム用アクセスキー、AI エージェントの接続方法",
+    "automation.link": "AI と自動化",
     "button.login": "ログイン",
     "editor.authentication": "ログイン領域",
     "editor.error": "エラーメッセージ",

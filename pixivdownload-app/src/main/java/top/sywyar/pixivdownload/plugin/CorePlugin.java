@@ -507,7 +507,7 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        // 邀请码管理与插件管理均为 ADMIN，标签使用各自的核心 i18n namespace。
+        // 邀请码管理、插件管理与接口参考入口均为 ADMIN，标签使用各自的核心 i18n namespace。
         //
         // 邀请管理属于核心安全能力；可选内容插件撤回后仍可管理和撤销已有邀请。
         // 仅贡献到 Web 侧栏与桌面安全入口，不占用顶部应用导航。
@@ -524,6 +524,13 @@ public class CorePlugin implements PixivFeaturePlugin {
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.GALLERY_SIDEBAR,
                                 NavigationPlacements.NOVEL_SIDEBAR),
                         "plugins", "nav.label", "/plugin-manage.html",
-                        "puzzle", AccessPolicy.ADMIN, 85, Set.of("plugin-update-summary"), null));
+                        "puzzle", AccessPolicy.ADMIN, 85, Set.of("plugin-update-summary"), null),
+                // 接口参考页本身公开；入口只给管理员，桌面安全页借同一贡献打开它。
+                new NavigationContribution(
+                        "api-reference",
+                        Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR_TOOLS,
+                                NavigationPlacements.NOVEL_SIDEBAR_TOOLS, NavigationPlacements.DESKTOP_SECURITY_ACTIONS),
+                        "openapi", "nav.label", "/openapi",
+                        "code", AccessPolicy.ADMIN, 90, Set.of(), "nav.description"));
     }
 }

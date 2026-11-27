@@ -19,10 +19,13 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ProgramKeysPanelTest {
+    private static final String KEY = "4f1c2b8e-1d2a-4c55-9a77-3e2f6f2a9b10";
+
     @Test void createOpensTheFullPageEditorAndRequiresASource() throws Exception {
         var fixture = loadedPanel("example:read", true);
         SwingUtilities.invokeAndWait(() -> {
             var panel = fixture.panel();
+            assertTrue(children(panel).anyMatch(c -> c instanceof JLabel label && label.getText() != null && label.getText().contains("empty.description")));
             named(panel, "program-keys.create").doClick(0);
             assertEquals("editor", fixture.page().get());
             var editor = panel.editorPage();
@@ -77,16 +80,47 @@ class ProgramKeysPanelTest {
             } else {
                 assertFalse(children(editor).anyMatch(c -> "program-keys.copy-instructions".equals(c.getName())));
             }
+            var verify = children(editor).filter(c -> "program-keys.verify".equals(c.getName())).findFirst();
+            assertEquals(addressAvailable, verify.isPresent());
+            verify.ifPresent(commands -> assertTrue(((JTextArea) commands).getText()
+                    .contains("Bearer $PIXIV_PROGRAM_KEY\" https://studio.example.test:7443/api/security/program-keys/self")));
+            assertFalse(verify.map(commands -> ((JTextArea) commands).getText().contains("test-secret")).orElse(false));
             text(editor, "copy").doClick(0);
             assertEquals("test-secret", fixture.clipboard().get());
         });
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"core:api-reference.read,created.instructions", "example:read,instructions.restricted"})
+    void existingKeyOffersAPromptMatchingItsCurrentPermissions(String grant, String expected) throws Exception {
+        var row = Map.<String, Object>of("id", KEY, "revision", 3, "name", "agent", "permissionCount", 1, "anyIp", true,
+                "networks", List.of(), "createdAt", 0, "transport", "HTTPS_REQUIRED");
+        var detail = Map.<String, Object>of("id", KEY, "revision", 3, "policy", Map.of("name", "agent",
+                "permissions", List.of(grant), "anyIp", true, "networks", List.of()));
+        var fixture = loadedPanel(grant, true, List.of(row), detail);
+        SwingUtilities.invokeAndWait(() -> named(fixture.panel(), "program-keys.prompt").doClick(0));
+        assertTrue(fixture.editor().await(5, TimeUnit.SECONDS));
+        SwingUtilities.invokeAndWait(() -> {
+            var editor = fixture.panel().editorPage();
+            assertTrue(children(editor).noneMatch(c -> "program-keys.secret".equals(c.getName())));
+            named(editor, "program-keys.copy-instructions").doClick(0);
+            assertEquals(expected + " https://studio.example.test:7443/api/openapi.json", fixture.clipboard().get());
+            text(editor, "done").doClick(0);
+            assertEquals("overview", fixture.page().get());
+        });
+    }
+
     private record Fixture(ProgramKeysPanel panel, AtomicReference<String> page, CountDownLatch created,
-                           AtomicReference<String> clipboard) {}
+                           AtomicReference<String> clipboard, CountDownLatch editor) {}
 
     private static Fixture loadedPanel(String grant, boolean addressAvailable) throws Exception {
+        return loadedPanel(grant, addressAvailable, List.of(), Map.of());
+    }
+
+    private static Fixture loadedPanel(String grant, boolean addressAvailable, List<Map<String, Object>> keys,
+                                       Map<String, Object> detail) throws Exception {
         var created = new CountDownLatch(1);
+        var editorShown = new CountDownLatch(1);
         var clipboard = new AtomicReference<String>();
         var host = (DesktopUiHost) Proxy.newProxyInstance(ProgramKeysPanelTest.class.getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> {
@@ -105,8 +139,12 @@ class ProgramKeysPanelTest {
                     assertEquals("guiGet", method.getName());
                     var catalog = List.of(Map.of("id", grant, "owner", "example",
                             "ownerLabel", "Legacy Plugin", "label", "Read items"));
-                    return new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(
-                            args[0].equals("program-keys/permissions") ? catalog : List.of()), "", false);
+                    Object body = switch ((String) args[0]) {
+                        case "program-keys/permissions" -> catalog;
+                        case "program-keys" -> keys;
+                        default -> detail;
+                    };
+                    return new DesktopUiHost.GuiResponse(true, 200, DesktopUiHost.GuiValue.of(body), "", false);
                 });
         SwingHost.install(new DesktopUiContext(false, 8080, ".", Path.of("config.yaml"), "swing", host,
                 List.of(), List::of, token -> {
@@ -119,7 +157,7 @@ class ProgramKeysPanelTest {
         var panel = new AtomicReference<ProgramKeysPanel>();
         SwingUtilities.invokeAndWait(() -> {
             panel.set(new ProgramKeysPanel(new ProgramKeysPanel.Navigator() {
-                @Override public void showEditor() { page.set("editor"); }
+                @Override public void showEditor() { page.set("editor"); editorShown.countDown(); }
                 @Override public void showOverview() { page.set("overview"); }
             }));
             named(panel.get(), "program-keys.create").addPropertyChangeListener("enabled", event -> {
@@ -128,7 +166,7 @@ class ProgramKeysPanelTest {
             named(panel.get(), "program-keys.refresh").doClick(0);
         });
         assertTrue(ready.await(5, TimeUnit.SECONDS));
-        return new Fixture(panel.get(), page, created, clipboard);
+        return new Fixture(panel.get(), page, created, clipboard, editorShown);
     }
 
     private static AbstractButton named(Container panel, String name) {

@@ -167,9 +167,15 @@ class ApiReferenceConfiguration {
             FilterOperationDocumentation filters, ScheduleCapabilityRegistry schedules) {
         return api -> {
             var text = i18n.loadBundle("openapi", LocaleContextHolder.getLocale()).getMessages();
+            // Sections follow a reader's order: get access, check grants, poll and write, handle errors, then compare fields.
             api.setInfo(new Info().title(text.get("title")).version("1")
-                    .description(text.get("intro") + "\n\n" + text.get("permissions") + "\n\n"
-                            + text.get("integration") + "\n\n" + text.get("missing") + "\n\n" + text.get("comparison") + "\n\n"
+                    .description("## " + text.get("heading.access") + "\n\n" + text.get("intro")
+                            + "\n\n" + text.get("example") + "\n\n```sh\ncurl -H \"Authorization: Bearer ${PROGRAM_KEY}\" "
+                            + "https://your-server/api/settings\n```\n" + text.get("example.scope")
+                            + "\n\n## " + text.get("heading.permissions") + "\n\n" + text.get("permissions")
+                            + "\n\n## " + text.get("heading.integration") + "\n\n" + text.get("integration")
+                            + "\n\n## " + text.get("heading.errors") + "\n\n" + text.get("response.serverFailure")
+                            + "\n\n" + text.get("missing") + "\n\n" + text.get("comparison") + "\n\n"
                             + text.get("pagination") + "\n\n" + text.get("comparison.task") + """
                                 \n\n```json
                                 {
@@ -191,10 +197,7 @@ class ApiReferenceConfiguration {
                                     "download": {"bookmark": false, "mediaQuality": 80, "mediaWebpLossless": false}
                                   }
                                 }
-                                ```"""
-                            + "\n\n" + text.get("example") + "\n\n```sh\ncurl -H \"Authorization: Bearer ${PROGRAM_KEY}\" "
-                            + "https://your-server/api/settings\n```\n" + text.get("example.scope")
-                            + "\n\n" + text.get("response.serverFailure")));
+                                ```"""));
             api.setExternalDocs(new io.swagger.v3.oas.models.ExternalDocumentation().url(text.get("guide.url")));
             api.setServers(List.of(new Server().url("/")));
             if (api.getComponents() == null) api.setComponents(new Components());

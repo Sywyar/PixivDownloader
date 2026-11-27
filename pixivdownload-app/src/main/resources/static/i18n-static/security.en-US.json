@@ -11,15 +11,17 @@
     "copy.manual": "Automatic copying failed. Copy the selected key manually.",
     "create": "Create key",
     "created.help": "The full key is shown only once. Copy it to your program’s secure configuration before leaving this view.",
-    "created.instructions": "Read the PixivDownloader OpenAPI document using the program key provided separately:\n{0}\nUse the documented endpoints to help me with my task within the permissions granted.",
+    "created.instructions": "Read the PixivDownloader OpenAPI document using the program key provided separately:\n{0}\nSend Authorization: Bearer <key> with every request. Before you start, call GET /api/security/program-keys/self to confirm this key’s permissions. A 401 or 403 response names the missing permission in its programPermission field. Use the documented endpoints to help me with my task within the permissions granted.",
     "created.secret": "Full key",
     "created.title": "Key created",
     "done": "Done",
     "edit": "Edit permissions",
     "empty": "No program access keys yet.",
+    "empty.description": "After you create a key, scripts, automation tools and AI agents can call the API within the permissions you choose.",
     "instructions.copied": "Prompt copied",
+    "instructions.help": "The prompt contains only the API reference address and how to use it, not the key. Configure the key separately in the agent’s runtime environment.",
     "instructions.manual": "Select and copy the prompt above.",
-    "instructions.restricted": "API reference: {0}\nThis key cannot read the catalog. Ask me for the document, then use the separately supplied key to help with my task within its permissions.",
+    "instructions.restricted": "API reference: {0}\nThis key cannot read the catalog. Ask me for the document, then use the separately supplied key to help with my task within its permissions. Send Authorization: Bearer <key> with every request; you can call GET /api/security/program-keys/self first to confirm this key’s permissions.",
     "instructions.title": "Agent prompt",
     "instructions.unavailable": "The instance address is unavailable. Save your key.",
     "keys.back": "Back to Security",
@@ -62,6 +64,8 @@
     "transport.state.HTTP_ALLOWED": "Public HTTP allowed",
     "transport.state.HTTPS_REQUIRED": "Public access: HTTPS only",
     "transport.state.REVIEWED": "Public HTTP risk reviewed",
-    "unused": "Not used since startup"
+    "unused": "Not used since startup",
+    "verify.help": "Save the key in the PIXIV_PROGRAM_KEY environment variable, then run either command below. The response lists the key ID and its permissions.",
+    "verify.title": "Verify the key"
   }
 }

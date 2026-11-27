@@ -158,6 +158,10 @@ class RouteDeclarationCoverageTest {
                 "reference-admin".equals(invocation.<jakarta.servlet.http.HttpServletRequest>getArgument(0)
                         .getHeader("X-Session-Token")));
 
+        // 页面文案取自生产语言包，只验证按请求语言渲染，不冻结措辞。
+        var i18n = context.getBean(top.sywyar.pixivdownload.i18n.WebI18nService.class);
+        var english = i18n.loadBundle("openapi", java.util.Locale.forLanguageTag("en-US")).getMessages();
+        var japanese = i18n.loadBundle("openapi", java.util.Locale.forLanguageTag("ja-JP")).getMessages();
         // 不执行脚本也能读到的访问说明：目录地址、Bearer 用法、来自路由声明的权限 ID 与 service-desc 链接。
         mvc.perform(get("/openapi").param("lang", "en-US")).andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("text/html")))
@@ -168,11 +172,16 @@ class RouteDeclarationCoverageTest {
                                 containsString("<code>Authorization: Bearer &lt;key&gt;</code>"),
                                 containsString("<code>core:api-reference.read</code>"),
                                 containsString("rel=\"service-desc\""),
-                                containsString("href=\"/login.html?redirect=%2Fopenapi\">sign in</a>"),
+                                containsString("href=\"/login.html?redirect=%2Fopenapi\">"
+                                        + org.springframework.web.util.HtmlUtils.htmlEscape(english.get("page.login")) + "</a>"),
+                                // 无桌面环境的取得方式、按本次请求地址生成的自检命令与当前语言的使用指南。
+                                containsString("--program-key-create"),
+                                containsString("http://localhost/api/security/program-keys/self"),
+                                containsString("href=\"" + org.springframework.web.util.HtmlUtils.htmlEscape(english.get("guide.url")) + "\""),
                                 org.hamcrest.Matchers.not(containsString("{{")))));
         mvc.perform(get("/openapi").param("lang", "ja-JP")).andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
-                        .string(containsString("機械可読な OpenAPI ドキュメント")));
+                        .string(containsString(org.springframework.web.util.HtmlUtils.htmlEscape(japanese.get("page.lead")))));
 
         mvc.perform(get("/openapi").header("X-Session-Token", "reference-admin").param("lang", "en-US"))
                 .andExpect(status().isOk())

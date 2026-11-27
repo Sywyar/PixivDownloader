@@ -7,6 +7,8 @@ import java.util.*;
 
 /** 密钥编辑的短暂状态；离开安全页即丢弃一次性秘密。 */
 final class DesktopProgramKeysController {
+    static final String REFERENCE_PERMISSION = "core:api-reference.read";
+    static final String SELF_PATH = "/api/security/program-keys/self";
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
     private final Map<String, String> form;
@@ -17,6 +19,7 @@ final class DesktopProgramKeysController {
     private volatile String mode = "list";
     private volatile String secret = "";
     private TextToken agentPrompt;
+    private volatile String selfUrl = "";
     private volatile TextToken notice;
     private volatile boolean uncertain;
     private long revision;
@@ -56,8 +59,9 @@ final class DesktopProgramKeysController {
         boolean rowActions = mode.equals("list") && !uncertain;
         for (var key : listing ? keys : List.<GuiValue>of()) {
             String id = key.path("id").asText();
-            String edit = "edit." + id, revoke = "revoke." + id;
+            String edit = "edit." + id, revoke = "revoke." + id, prompt = "prompt." + id;
             add(callbacks, actions, edit, () -> loadForEditing(id), ready && rowActions);
+            add(callbacks, actions, prompt, () -> loadPrompt(id), ready && rowActions);
             add(callbacks, actions, revoke, () -> { editing = key; mode = "revoke"; notice = null; owner.rebuild(); }, rowActions);
             String state = key.path("transport").asText("HTTPS_REQUIRED");
             String next = switch (state) {
@@ -73,7 +77,7 @@ final class DesktopProgramKeysController {
                     key.path("permissionCount").asInt(), key.path("anyIp").asBoolean(),
                     values(key.path("networks")).stream().map(GuiValue::asText).toList(),
                     key.path("createdAt").asLong(), key.path("lastUsedAt").asLong(), state, "program.keys." + edit,
-                    "program.keys." + revoke, "program.keys." + transport, label("transport." + next)));
+                    "program.keys." + revoke, "program.keys." + transport, label("transport." + next), "program.keys." + prompt));
         }
         List<TextInput> inputs = new ArrayList<>();
         inputs.add(input("name", "name", 1));
@@ -101,7 +105,7 @@ final class DesktopProgramKeysController {
         });
         var any = new Toggle("program.keys.any", "program.keys.any", label("source.any"), null, ToggleStyle.CHECKBOX,
                 Boolean.parseBoolean(form.get("program.keys.any")), !owner.busy() && mode.equals("edit"));
-        return new ProgramKeysView(mode, List.copyOf(rows), List.copyOf(inputs), List.copyOf(groups), any, secret, agentPrompt, notice,
+        return new ProgramKeysView(mode, List.copyOf(rows), List.copyOf(inputs), List.copyOf(groups), any, secret, agentPrompt, selfUrl, notice,
                 editing == null ? "" : editing.path("name").asText(editing.path("policy").path("name").asText()), nextTransport, uncertain,
                 editing == null, ready);
     }
@@ -113,7 +117,7 @@ final class DesktopProgramKeysController {
     private void add(Map<String, Runnable> callbacks, List<Button> actions, String name, Runnable action, boolean enabled) {
         String id = "program.keys." + name;
         callbacks.put(id, action);
-        actions.add(new Button(id, id, label(name.equals("back") ? "review.back"
+        actions.add(new Button(id, id, label(name.equals("back") ? "review.back" : name.startsWith("prompt.") ? "copy.instructions"
                 : name.contains(".") ? name.substring(0, name.indexOf('.')) : name),
                 null, ButtonStyle.NORMAL, !owner.busy() && enabled));
     }
@@ -152,6 +156,7 @@ final class DesktopProgramKeysController {
         visit++;
         secret = "";
         agentPrompt = null;
+        selfUrl = "";
         notice = null;
         form.keySet().removeIf(key -> key.startsWith("program.keys."));
         revision++;
@@ -164,6 +169,30 @@ final class DesktopProgramKeysController {
                 var key = read(host.guiGet("program-keys/" + id, 5000));
                 if (!id.equals(key.path("id").asText())) throw new RequestFailure(label("request.failed"), false);
                 synchronized (owner) { if (started == visit) edit(key); }
+            } catch (RequestFailure failure) {
+                synchronized (owner) { if (started == visit) notice = failure.token; }
+            }
+        });
+    }
+
+    /** 提示词不含秘密，可随时为已有密钥重新生成；是否能读取目录取决于该密钥当前的权限。 */
+    private void loadPrompt(String id) {
+        long started = visit;
+        owner.runBusy(() -> {
+            try {
+                var key = read(host.guiGet("program-keys/" + id, 5000));
+                if (!id.equals(key.path("id").asText())) throw new RequestFailure(label("request.failed"), false);
+                boolean canReadReference = false;
+                for (var permission : key.path("policy").path("permissions"))
+                    canReadReference |= REFERENCE_PERMISSION.equals(permission.asText());
+                var prompt = agentPrompt(canReadReference);
+                synchronized (owner) {
+                    if (started != visit) return;
+                    clear();
+                    editing = key;
+                    agentPrompt = prompt;
+                    mode = "prompt";
+                }
             } catch (RequestFailure failure) {
                 synchronized (owner) { if (started == visit) notice = failure.token; }
             }
@@ -219,7 +248,7 @@ final class DesktopProgramKeysController {
     }
 
     private void write(String path, Object body, boolean creating) {
-        boolean canReadReference = creating && Boolean.parseBoolean(form.get(binding("core:api-reference.read")));
+        boolean canReadReference = creating && Boolean.parseBoolean(form.get(binding(REFERENCE_PERMISSION)));
         long started = visit;
         owner.runBusy(() -> {
             boolean committed = false;
@@ -230,11 +259,13 @@ final class DesktopProgramKeysController {
                 if (creating && issued.isEmpty()) throw new RequestFailure(label("request.check-before-retry"), true);
                 var refreshed = creating ? List.<GuiValue>of() : values(read(host.guiGet("program-keys", 5000)));
                 var prompt = creating ? agentPrompt(canReadReference) : null;
+                String self = creating ? backendUrl(SELF_PATH) : "";
                 synchronized (owner) {
                     if (started != visit) return;
                     if (creating) {
                         secret = issued;
                         agentPrompt = prompt;
+                        selfUrl = self;
                         mode = "created";
                     } else {
                         keys = refreshed;
@@ -254,13 +285,18 @@ final class DesktopProgramKeysController {
     }
 
     private TextToken agentPrompt(boolean canReadReference) {
-        String url;
+        String url = backendUrl("/api/openapi.json");
+        return url.isEmpty() ? null
+                : new TextToken("security", canReadReference ? "created.instructions" : "instructions.restricted", "", List.of(url));
+    }
+
+    /** 实例地址不可用时返回空字符串，界面改为说明无法生成示例。 */
+    private String backendUrl(String path) {
         try {
-            url = host.backendUri("/api/openapi.json").toASCIIString();
+            return host.backendUri(path).toASCIIString();
         } catch (RuntimeException unavailable) {
-            return null;
+            return "";
         }
-        return new TextToken("security", canReadReference ? "created.instructions" : "instructions.restricted", "", List.of(url));
     }
 
     private static GuiValue read(DesktopUiHost.GuiResponse response) {

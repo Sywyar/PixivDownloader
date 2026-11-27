@@ -4,6 +4,8 @@
   "defaultLang": "en-US",
   "messages": {
     "admin.title": "管理员登录",
+    "automation.description": "接口参考、程序访问密钥与 AI Agent 接入说明",
+    "automation.link": "AI 与自动化",
     "button.login": "登录",
     "editor.authentication": "登录区域",
     "editor.error": "错误提示",

@@ -11,15 +11,17 @@
     "copy.manual": "自動コピーに失敗しました。選択されたキーを手動でコピーしてください。",
     "create": "キーを作成",
     "created.help": "キー全体は一度だけ表示されます。この画面を離れる前に、プログラムの安全な設定先にコピーしてください。",
-    "created.instructions": "別途渡すプログラムキーで PixivDownloader の OpenAPI ドキュメントを読んでください。\n{0}\nドキュメントから適切な API を選び、許可された範囲で私の作業を手伝ってください。",
+    "created.instructions": "別途渡すプログラムキーで PixivDownloader の OpenAPI ドキュメントを読んでください。\n{0}\nすべてのリクエストで Authorization: Bearer <キー> ヘッダーを送信してください。始める前に GET /api/security/program-keys/self を呼び出して、このキーの権限を確認してください。401 または 403 が返された場合は、programPermission フィールドに不足している権限が示されます。ドキュメントから適切な API を選び、許可された範囲で私の作業を手伝ってください。",
     "created.secret": "キー全体",
     "created.title": "キーを作成しました",
     "done": "完了",
     "edit": "権限を編集",
     "empty": "プログラム用アクセスキーはまだありません。",
+    "empty.description": "キーを作成すると、スクリプト、自動化ツール、AI エージェントが選んだ権限の範囲で API を呼び出せます。",
     "instructions.copied": "コピーしました",
+    "instructions.help": "プロンプトには API ドキュメントのアドレスと使い方だけが含まれ、キーは含まれません。キーはエージェントの実行環境に別途設定してください。",
     "instructions.manual": "上のプロンプトを選択してコピーしてください。",
-    "instructions.restricted": "API ドキュメント：{0}\nこのキーではカタログを読めません。私にドキュメントを求めてから、別途渡すキーの権限内で作業を手伝ってください。",
+    "instructions.restricted": "API ドキュメント：{0}\nこのキーではカタログを読めません。私にドキュメントを求めてから、別途渡すキーの権限内で作業を手伝ってください。すべてのリクエストで Authorization: Bearer <キー> ヘッダーを送信し、最初に GET /api/security/program-keys/self でこのキーの権限を確認できます。",
     "instructions.title": "エージェント用プロンプト",
     "instructions.unavailable": "インスタンスのアドレスを取得できません。キーを保存してください。",
     "keys.back": "セキュリティに戻る",
@@ -62,6 +64,8 @@
     "transport.state.HTTP_ALLOWED": "外部 HTTP を許可",
     "transport.state.HTTPS_REQUIRED": "外部接続は HTTPS のみ",
     "transport.state.REVIEWED": "外部 HTTP のリスク確認済み",
-    "unused": "今回の起動後は未使用"
+    "unused": "今回の起動後は未使用",
+    "verify.help": "キーを環境変数 PIXIV_PROGRAM_KEY に保存してから、次のいずれかのコマンドを実行します。キー ID と権限が返れば利用できます。",
+    "verify.title": "キーを確認"
   }
 }
