@@ -116,6 +116,12 @@ public record PartialArtwork(long artworkId, String folder, int totalPages, Stri
      * @param preserveThumbnail 已存在用户或归属未经证实的缩略图，应原样保留并从新登记排除
      */
     public record PageRepair(Map<Path, String> observedHashes, Set<Path> verifiedFiles, boolean preserveThumbnail) {
+        /**
+         * 保存发布前的文件校验条件，复制文件名和摘要集合。
+         * @param observedHashes 可替换文件及其观察到的 SHA-256
+         * @param verifiedFiles 仍匹配原登记的文件
+         * @param preserveThumbnail 是否保留已存在的缩略图
+         */
         public PageRepair {
             observedHashes = Map.copyOf(observedHashes);
             verifiedFiles = Set.copyOf(verifiedFiles);

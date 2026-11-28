@@ -45,6 +45,12 @@ public record ArtworkMediaManifest(String originalExtension, List<String> extens
         this(originalExtension, extensions, extensions != null && extensions.contains(originalExtension));
     }
 
+    /**
+     * 创建不拥有 JPEG 缩略图的页媒体记录。
+     * @param originalExtension 原始文件扩展名
+     * @param extensions 已保存产物的扩展名列表
+     * @param originalRetained 原始文件是否保留
+     */
     public ArtworkMediaManifest(String originalExtension, List<String> extensions, boolean originalRetained) {
         this(originalExtension, extensions, originalRetained, false);
     }

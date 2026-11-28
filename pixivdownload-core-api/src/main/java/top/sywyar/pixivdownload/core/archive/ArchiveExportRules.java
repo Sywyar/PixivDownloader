@@ -209,6 +209,9 @@ public final class ArchiveExportRules {
     public static final class EntryNames {
         private final Directory root = new Directory("");
 
+        /** 创建一个 ZIP 导出使用的成员名集合。 */
+        public EntryNames() {}
+
         /**
          * 登记相对成员名，并在文件名冲突时分配独立名称。
          * @param requested 请求的包内路径

@@ -90,7 +90,12 @@ public final class WorkDirectoryTemplate {
     /** {@return 第一个变量之前的固定路径，保留相对或绝对属性} */
     public Path fixedPrefix() { return prefix; }
 
-    /** A parent segment after a symbolic link must be resolved by the filesystem before composing a template. */
+    /**
+     * 在拼接模板前交由文件系统解析父目录段，保留符号链接的实际指向。
+     * @param root 用户选中的下载根
+     * @return 解析后的目录路径，或不含父目录段的原路径
+     * @throws IOException 含父目录段的路径无法解析
+     */
     public static String selectedRoot(String root) throws IOException {
         if (root == null || root.isBlank()) throw rejected("path", "");
         Path path = Path.of(root);
@@ -100,7 +105,12 @@ public final class WorkDirectoryTemplate {
         return root;
     }
 
-    /** Returns a portable relative root for the migration dialog when the selected directory is under the application. */
+    /**
+     * 将应用目录下选择的下载根转换为可供迁移对话框使用的相对路径。
+     * @param root 用户选中的下载根
+     * @param appRoot 应用目录
+     * @return 使用斜杠的相对路径，无法解析或不在应用目录下时为 {@code null}
+     */
     public static String relativeToAppRoot(String root, String appRoot) {
         if (root == null || root.isBlank() || appRoot == null || appRoot.isBlank()) return null;
         try {

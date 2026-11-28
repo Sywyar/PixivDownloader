@@ -187,13 +187,19 @@ public interface DesktopEnvironmentTransfer {
      * @param jobId 对应恢复日志中的任务 UUID；尚无任务时为空
      */
     record RestoreState(Status status, String failureCode, String jobId) {
+        /**
+         * 创建没有日志任务标识的恢复结果。
+         * @param status 耐久状态
+         * @param failureCode 受控错误码
+         */
         public RestoreState(Status status, String failureCode) { this(status, failureCode, ""); }
 
+        /** {@return 是否可用任务标识查找失败或待恢复任务的日志} */
         public boolean hasLogHint() {
             return jobId != null && !jobId.isEmpty() && (status == Status.FAILED || status == Status.RECOVERY_REQUIRED);
         }
 
-        /** The desktop providers translate this key when displaying a failed restore. */
+        /** {@return 桌面界面用于翻译恢复原因的文案键，无可显示的原因时返回空字符串} */
         public String reasonMessageKey() {
             if (status != Status.FAILED && status != Status.RECOVERY_REQUIRED) return "";
             return switch (failureCode == null ? "" : failureCode) {
