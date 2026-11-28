@@ -140,6 +140,7 @@ public class GuiLauncher {
         System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
         boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
         if (startupLaunch || startupCacheTraining() || CliSetupCommand.containsCliCommand(args)
+                || CliSetupCommand.containsProgramKeyCommand(args)
                 || Arrays.asList(args).contains("--no-gui")
                 || Arrays.asList(args).contains("--help") || Arrays.asList(args).contains("-h")) {
             splash.close();
@@ -148,6 +149,12 @@ public class GuiLauncher {
         SystemLocaleDetector.detectAndApply(localeDiagnostics::append);
         splash.showStatus(message("gui.launcher.splash.starting"));
         log = LoggerFactory.getLogger(GuiLauncher.class);
+        // 密钥命令连接正在运行的实例，权限目录由该实例提供；不取单实例锁，也不读写本地状态文件。
+        // 创建结果含一次性秘密，必须在标准流转接到日志之前执行，使输出只到达终端。
+        if (CliSetupCommand.containsProgramKeyCommand(args)) {
+            CliSetupCommand.validateArgsOrExit(args);
+            top.sywyar.pixivdownload.cli.CliProgramKeys.handleIfPresent(args);
+        }
         ConsoleLogStreams.install();
         installJulBridge();
         System.out.println(localeDiagnostics);

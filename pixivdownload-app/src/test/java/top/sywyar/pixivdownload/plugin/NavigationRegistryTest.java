@@ -31,13 +31,13 @@ class NavigationRegistryTest {
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
-        // 邀请码管理 / 插件入口 / 插件市场页内分段入口 + 画廊主入口及其类型切换 / 统计页视图三链
+        // 邀请码管理 / 插件入口 / 接口参考入口 / 插件市场页内分段入口 + 画廊主入口及其类型切换 / 统计页视图三链
         // + 小说画廊主入口及其类型切换。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 与 duplicate 已外置，
         // download-workbench / stats / duplicate 导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
-                        "invite-manage", "plugin-manage", "plugin-market",
+                        "invite-manage", "plugin-manage", "api-reference", "plugin-market",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "gallery-gui-open", "gallery-invite-manage-back",
@@ -81,12 +81,12 @@ class NavigationRegistryTest {
                     assertThat(registered.navigation().href()).isEqualTo("/pixiv-gallery.html?view=all");
                     assertThat(registered.navigation().placements()).containsExactly("invite.manage.back");
                 });
-        // 邀请码管理 / 插件入口归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
+        // 邀请码管理 / 插件入口 / 接口参考入口归 core 插件、ADMIN 可见；邀请码管理与接口参考只进侧栏、不进顶部栏 placement，
         // 插件入口进入顶部栏及画廊家族侧栏的主页面区域。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.pluginId().equals("core"))
                 .extracting(registered -> registered.navigation().id())
-                .containsExactlyInAnyOrder("invite-manage", "plugin-manage");
+                .containsExactlyInAnyOrder("invite-manage", "plugin-manage", "api-reference");
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
                 .singleElement()
@@ -109,11 +109,19 @@ class NavigationRegistryTest {
     }
 
     @Test
-    @DisplayName("共享邀请管理由核心自己贡献，管理地址受同来源管理员路由保护")
+    @DisplayName("桌面安全页入口由核心贡献：邀请管理受管理员路由保护，接口参考入口只对管理员显示")
     void securityManagementIsOwnedByCore() {
         var core = new CorePlugin();
-        assertThat(core.navigation())
-                .filteredOn(nav -> nav.placements().contains(NavigationPlacements.DESKTOP_SECURITY_ACTIONS))
+        var security = core.navigation().stream()
+                .filter(nav -> nav.placements().contains(NavigationPlacements.DESKTOP_SECURITY_ACTIONS)).toList();
+        assertThat(security).extracting(NavigationContribution::id).containsExactlyInAnyOrder("invite-manage", "api-reference");
+        // 接口参考页外壳公开说明如何取得密钥，目录本身仍由管理员会话或程序权限保护；入口不扩大可见范围。
+        assertThat(security).filteredOn(nav -> nav.id().equals("api-reference")).singleElement().satisfies(nav -> {
+            assertThat(nav.descriptionI18nKey()).isNotBlank();
+            assertThat(nav.visibleTo()).isEqualTo(AccessPolicy.ADMIN);
+            assertThat(core.routes()).anySatisfy(route -> assertThat(route.pathPattern()).isEqualTo(nav.href()));
+        });
+        assertThat(security).filteredOn(nav -> nav.id().equals("invite-manage"))
                 .singleElement().satisfies(nav -> {
                     assertThat(nav.descriptionI18nKey()).isNotBlank();
                     assertThat(nav.visibleTo()).isEqualTo(AccessPolicy.ADMIN);

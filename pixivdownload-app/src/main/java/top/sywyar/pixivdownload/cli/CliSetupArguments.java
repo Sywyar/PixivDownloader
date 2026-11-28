@@ -22,8 +22,18 @@ record CliSetupArguments(
             CliSetupCommand.CMD_SETUP,
             CliSetupCommand.CMD_CHANGE_PASSWORD,
             CliSetupCommand.CMD_RESET_PASSWORD);
+    /** 连接运行中实例的密钥命令；不属于需要单实例锁的本地管理命令。 */
+    static final Set<String> PROGRAM_KEY_COMMANDS = Set.of(
+            CliProgramKeys.CMD_LIST,
+            CliProgramKeys.CMD_PERMISSIONS,
+            CliProgramKeys.CMD_CREATE,
+            CliProgramKeys.CMD_REVOKE);
     private static final Set<String> KNOWN_BOOL_FLAGS = Set.of(
             CliWebPublications.COMMAND,
+            CliProgramKeys.CMD_LIST,
+            CliProgramKeys.CMD_PERMISSIONS,
+            CliProgramKeys.CMD_CREATE,
+            CliProgramKeys.CMD_REVOKE,
             "--no-gui",
             "--intro",
             "--pixivdownload-startup",
@@ -37,6 +47,11 @@ record CliSetupArguments(
             "--trace");
     private static final Set<String> KNOWN_VALUE_FLAGS = Set.of(
             "--publication-restore",
+            CliProgramKeys.FLAG_SERVER,
+            CliProgramKeys.FLAG_NAME,
+            CliProgramKeys.FLAG_PERMISSIONS,
+            CliProgramKeys.FLAG_SOURCES,
+            CliProgramKeys.FLAG_ID,
             "--publication-sha256",
             CliSetupCommand.FLAG_USERNAME,
             CliSetupCommand.FLAG_PASSWORD,
@@ -85,6 +100,18 @@ record CliSetupArguments(
         }
         for (String arg : args) {
             if (isCommand(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean containsProgramKeyCommand(String[] args) {
+        if (args == null) {
+            return false;
+        }
+        for (String arg : args) {
+            if (arg != null && PROGRAM_KEY_COMMANDS.contains(arg)) {
                 return true;
             }
         }

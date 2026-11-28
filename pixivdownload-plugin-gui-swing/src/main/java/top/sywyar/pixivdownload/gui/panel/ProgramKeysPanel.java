@@ -24,7 +24,9 @@ final class ProgramKeysPanel extends SwingPage.Block {
         void showOverview();
     }
 
-    private enum Mode { LIST, EDIT, REVIEW, CREATED }
+    private enum Mode { LIST, EDIT, REVIEW, CREATED, PROMPT }
+    private static final String REFERENCE_PERMISSION = "core:api-reference.read";
+    private static final String SELF_PATH = "/api/security/program-keys/self";
 
     private final Navigator navigator;
     private final SwingPage.RowList list = new SwingPage.RowList();
@@ -141,7 +143,8 @@ final class ProgramKeysPanel extends SwingPage.Block {
     }
 
     private void showKeys() {
-        showList(keys.isEmpty() ? text("empty") : null);
+        if (keys.isEmpty()) showList(text("empty"), text("empty.description"));
+        else showList(null);
         for (var key : keys) list.add(keyRow(key));
         list.revalidate();
         list.repaint();
@@ -149,10 +152,19 @@ final class ProgramKeysPanel extends SwingPage.Block {
     }
 
     private void showList(String placeholder) {
+        showList(placeholder, null);
+    }
+
+    private void showList(String placeholder, String detail) {
         list.removeAll();
         if (placeholder != null) {
-            JComponent empty = SwingPage.text(SwingPage.Style.SECONDARY, placeholder);
+            SwingPage.Block empty = new SwingPage.Block();
             empty.setBorder(BorderFactory.createEmptyBorder(SwingPage.ROW_PADDING, 0, SwingPage.ROW_PADDING, 0));
+            empty.add(SwingPage.text(SwingPage.Style.SECONDARY, placeholder));
+            if (detail != null) {
+                empty.add(Box.createVerticalStrut(4));
+                empty.add(SwingPage.text(SwingPage.Style.SECONDARY, detail));
+            }
             list.add(empty);
         }
         list.revalidate();
@@ -201,8 +213,11 @@ final class ProgramKeysPanel extends SwingPage.Block {
         String action = "transport." + next;
         JButton transportButton = SwingPage.link(text(action));
         transportButton.setName("program-keys.transport");
+        JButton promptButton = SwingPage.link(text("instructions.title"));
+        promptButton.setName("program-keys.prompt");
+        promptButton.getAccessibleContext().setAccessibleName(text("instructions.title") + " · " + keyName);
         row.texts.add(Box.createVerticalStrut(2));
-        row.texts.add(SwingPage.links(transportButton));
+        row.texts.add(SwingPage.links(transportButton, promptButton));
 
         edit.addActionListener(event -> {
             if (!ready || uncertain || busy) return;
@@ -214,6 +229,17 @@ final class ProgramKeysPanel extends SwingPage.Block {
                     throw new RequestFailure(text("request.failed"), false);
                 return result.body();
             }, this::edit, false);
+        });
+        promptButton.addActionListener(event -> {
+            if (!ready || uncertain || busy) return;
+            returnFocus = promptButton;
+            run(() -> {
+                var result = SwingHost.host().guiGet("program-keys/" + id, 5000);
+                check(result);
+                if (result.body() == null || !id.equals(result.body().path("id").asText()))
+                    throw new RequestFailure(text("request.failed"), false);
+                return result.body();
+            }, this::showPrompt, false);
         });
         revoke.addActionListener(event -> {
             if (busy || uncertain || !ready) return;
@@ -252,6 +278,7 @@ final class ProgramKeysPanel extends SwingPage.Block {
             if (busy) return;
             if (mode == Mode.REVIEW) showEditForm();
             else if (mode == Mode.EDIT) cancelEditing();
+            else if (mode == Mode.PROMPT) { returnToList(); restoreFocus(); }
         }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
     }
 
@@ -452,7 +479,7 @@ final class ProgramKeysPanel extends SwingPage.Block {
             if (target != null) { load(); return; }
             if (response.body() == null || response.body().path("secret").asText().isEmpty())
                 throw new RequestFailure(text("request.check-before-retry"), true);
-            showCreated(response.body().path("secret").asText(), selected.contains("core:api-reference.read"));
+            showCreated(response.body().path("secret").asText(), selected.contains(REFERENCE_PERMISSION));
         }, true);
     }
 
@@ -474,6 +501,7 @@ final class ProgramKeysPanel extends SwingPage.Block {
         field.add(secret, BorderLayout.CENTER);
         field.add(copy, BorderLayout.EAST);
         body.add(SwingPage.capped(field, 760));
+        addVerification(body);
         body.add(Box.createVerticalStrut(18));
         body.add(SwingPage.section(text("instructions.title"), null));
         addAgentPrompt(body, canReadReference, field.getFont());
@@ -481,6 +509,48 @@ final class ProgramKeysPanel extends SwingPage.Block {
         done.addActionListener(event -> { clearSecret(); load(); });
         showEditorView(text("created.title"), null, body, done);
         copy.requestFocusInWindow();
+    }
+
+    /** 提示词不含秘密，可随时为已有密钥重新生成；能否读取目录取决于该密钥当前的权限。 */
+    private void showPrompt(GuiValue key) {
+        mode = Mode.PROMPT;
+        boolean canReadReference = false;
+        for (var permission : values(key.path("policy").path("permissions")))
+            canReadReference |= REFERENCE_PERMISSION.equals(permission.asText());
+        SwingPage.Block body = new SwingPage.Block();
+        body.add(SwingPage.text(SwingPage.Style.SECONDARY, text("instructions.help")));
+        body.add(Box.createVerticalStrut(14));
+        addAgentPrompt(body, canReadReference, UIManager.getFont("Label.font"));
+        JButton done = SwingPage.primary(new JButton(text("done")));
+        done.addActionListener(event -> { returnToList(); restoreFocus(); });
+        showEditorView(text("instructions.title"), key.path("policy").path("name").asText(), body, done);
+        navigator.showEditor();
+        done.requestFocusInWindow();
+    }
+
+    /** 验证命令只引用环境变量，不把完整密钥拼进可复制的文本。 */
+    private void addVerification(SwingPage.Block body) {
+        String self;
+        try {
+            self = SwingHost.host().backendUri(SELF_PATH).toASCIIString();
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        body.add(Box.createVerticalStrut(18));
+        body.add(SwingPage.section(text("verify.title"), text("verify.help")));
+        var commands = new JTextArea(verificationCommands(self));
+        commands.setName("program-keys.verify");
+        commands.setEditable(false);
+        commands.setLineWrap(true);
+        commands.setOpaque(false);
+        commands.setFont(new Font(Font.MONOSPACED, Font.PLAIN, UIManager.getFont("Label.font").getSize()));
+        commands.getAccessibleContext().setAccessibleName(text("verify.title"));
+        body.add(SwingPage.capped(commands, 760));
+    }
+
+    static String verificationCommands(String selfUrl) {
+        return "curl -H \"Authorization: Bearer $PIXIV_PROGRAM_KEY\" " + selfUrl + "\n"
+                + "curl.exe -H \"Authorization: Bearer $env:PIXIV_PROGRAM_KEY\" " + selfUrl;
     }
 
     private void addAgentPrompt(SwingPage.Block body, boolean canReadReference, Font font) {

@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,7 +79,7 @@ internal fun SecurityProgramKeysPage(
                 when (mode) {
                     "list" -> back()
                     "review" -> activate("program.keys.back")
-                    "edit" -> activate("program.keys.cancel")
+                    "edit", "prompt" -> activate("program.keys.cancel")
                     else -> return@onKeyEvent false
                 }
                 true
@@ -103,6 +104,7 @@ internal fun SecurityProgramKeysPage(
                     "edit" -> label(if (view.creating()) "create" else "edit")
                     "review" -> label("review.title")
                     "created" -> label("created.title")
+                    "prompt" -> label("instructions.title")
                     else -> label("keys.title")
                 }
                 @Composable fun toolbar() {
@@ -148,6 +150,7 @@ internal fun SecurityProgramKeysPage(
                                 mode == "created" -> CreatedKey(view, ::label, text, enabled("program.keys.copy")) {
                                     activate("program.keys.copy")
                                 }
+                                mode == "prompt" -> PromptKey(view, ::label, text)
                             }
                         }
                     }
@@ -165,7 +168,7 @@ internal fun SecurityProgramKeysPage(
                     when (mode) {
                         "edit" -> { action("cancel"); action("review", primary = true) }
                         "review" -> { action("back", "review.back"); action("save", primary = true) }
-                        "created" -> action("cancel", "done", primary = true)
+                        "created", "prompt" -> action("cancel", "done", primary = true)
                     }
                 }
             }
@@ -229,6 +232,8 @@ private fun KeyList(
         ) {
             ToolIcon(Icons.Default.Key)
             CupertinoText(l("empty"), fontSize = 14.sp, color = palette.secondaryText)
+            CupertinoText(l("empty.description"), Modifier.widthIn(max = 460.dp), fontSize = 13.sp,
+                color = palette.secondaryText, textAlign = TextAlign.Center)
             SecurityButton(l("create"), "program.keys.empty.create", enabled("program.keys.create"), primary = true) {
                 activate("program.keys.create")
             }
@@ -282,8 +287,13 @@ private fun KeyRow(
                 fontSize = 12.sp, color = palette.secondaryText)
             CupertinoText(label("times").replace("{created}", dates.format(java.util.Date(entry.createdAt())))
                 .replace("{used}", used), fontSize = 12.sp, color = palette.secondaryText)
-            TextLink(text(entry.transportLabel()), entry.transportAction(), enabled(entry.transportAction())) {
-                activate(entry.transportAction())
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextLink(text(entry.transportLabel()), entry.transportAction(), enabled(entry.transportAction())) {
+                    activate(entry.transportAction())
+                }
+                TextLink(label("instructions.title"), entry.promptAction(), enabled(entry.promptAction())) {
+                    activate(entry.promptAction())
+                }
             }
             if (narrow) actions()
         }
@@ -528,6 +538,36 @@ private fun CreatedKey(view: ProgramKeysView, label: (String, Array<out Any>) ->
                 fontSize = 13.sp, color = if (copied) palette.success else palette.secondaryText)
         }
     }
+    if (view.selfUrl().isNotEmpty()) KeySection(l("verify.title")) {
+        CupertinoText(l("verify.help"), fontSize = 13.sp, color = palette.secondaryText)
+        SelectionContainer {
+            CupertinoText(verificationCommands(view.selfUrl()), Modifier.widthIn(max = 760.dp).testTag("program.keys.verify"),
+                fontSize = 13.sp, lineHeight = 20.sp, fontFamily = FontFamily.Monospace)
+        }
+    }
+    AgentPromptSection(view, ::l, text, promptFeedback) { promptFeedback = it }
+}
+
+/** 为已有密钥重新生成给 Agent 的提示词；提示词不含秘密。 */
+@Composable
+private fun PromptKey(view: ProgramKeysView, label: (String, Array<out Any>) -> String, text: (TextToken) -> String) {
+    val palette = LocalExperiencePalette.current
+    fun l(key: String) = label(key, emptyArray())
+    var feedback by remember(view.agentPrompt()) { mutableStateOf<String?>(null) }
+    if (view.targetName().isNotEmpty()) CupertinoText(view.targetName(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    CupertinoText(l("instructions.help"), fontSize = 13.sp, color = palette.secondaryText)
+    AgentPromptSection(view, ::l, text, feedback) { feedback = it }
+}
+
+@Composable
+private fun AgentPromptSection(
+    view: ProgramKeysView,
+    l: (String) -> String,
+    text: (TextToken) -> String,
+    feedback: String?,
+    onFeedback: (String?) -> Unit,
+) {
+    val palette = LocalExperiencePalette.current
     KeySection(l("instructions.title")) {
         val prompt = view.agentPrompt()
         if (prompt == null) {
@@ -540,16 +580,21 @@ private fun CreatedKey(view: ProgramKeysView, label: (String, Array<out Any>) ->
                 fontSize = 14.sp, lineHeight = 21.sp)
         }
         val clipboard = LocalClipboardManager.current
-        val copied = promptFeedback == "instructions.copied"
+        val copied = feedback == "instructions.copied"
         SecurityButton(l(if (copied) "instructions.copied" else "copy.instructions"),
             "program.keys.copy-instructions", true, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
-            promptFeedback = try {
+            onFeedback(try {
                 clipboard.setText(AnnotatedString(instructions))
                 "instructions.copied"
             } catch (_: Exception) {
                 "instructions.manual"
-            }
+            })
         }
-        if (promptFeedback == "instructions.manual") DesktopNotice(l("instructions.manual"), TextStyle.WARNING)
+        if (feedback == "instructions.manual") DesktopNotice(l("instructions.manual"), TextStyle.WARNING)
     }
 }
+
+/** 环境变量占位只出现在命令里，完整密钥不会被拼进可复制的文本。 */
+internal fun verificationCommands(selfUrl: String): String =
+    "curl -H \"Authorization: Bearer \$PIXIV_PROGRAM_KEY\" $selfUrl\n" +
+        "curl.exe -H \"Authorization: Bearer \$env:PIXIV_PROGRAM_KEY\" $selfUrl"

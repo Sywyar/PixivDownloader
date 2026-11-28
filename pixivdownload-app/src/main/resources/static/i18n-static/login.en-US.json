@@ -4,6 +4,8 @@
   "defaultLang": "en-US",
   "messages": {
     "admin.title": "Admin Login",
+    "automation.description": "API reference, program access keys and AI agent setup",
+    "automation.link": "AI & automation",
     "button.login": "Log In",
     "editor.authentication": "Authentication",
     "editor.error": "Error message",

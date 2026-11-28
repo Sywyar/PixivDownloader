@@ -16,7 +16,7 @@ PixivDownloader 是本地运行的 Pixiv 插画、漫画、动图（Ugoira）与
 - **媒体转码与小说能力**：图片支持原始格式、PNG、JPG、WebP 多选保存；动图支持转码为 WebP、GIF、APNG、MP4 或保留原始 ZIP；[小说](https://sywyar.github.io/PixivDownloader/#/zh-cn/novel)支持保存为 TXT / HTML / EPUB（含系列合订本）、正文全文检索、AI / 有道 / LibreTranslate 翻译与 AI 多角色朗读。
 - **本地画廊与整理工具**：[作品画廊](https://sywyar.github.io/PixivDownloader/#/zh-cn/gallery)与小说画廊支持多条件筛选、三态标签/作者组合、本地收藏夹、批量 ZIP 导出、统计看板、基于感知哈希（dHash）的疑似重复检测及只读访客邀请码。
 - **计划任务与通知**：[计划任务](https://sywyar.github.io/PixivDownloader/#/zh-cn/scheduled-tasks)支持固定周期或 6 位 Cron 后台增量追更，遇到登录态失效、过度访问警告或连续失败熔断时通过邮件与多通道推送告警。
-- **[OpenAPI 自动化访问](https://sywyar.github.io/PixivDownloader/#/zh-cn/http-api)**：脚本与 Agent 可以用程序密钥提交下载、查询进度。在实例的 `/openapi` 查看接口和所需权限。
+- **[OpenAPI 自动化访问](https://sywyar.github.io/PixivDownloader/#/zh-cn/http-api)**：脚本与 Agent 可以用程序密钥提交下载、查询进度。在实例的 `/openapi` 查看接口和所需权限。支持 Agent Skills 的 Agent 可以安装 `pixivdownloader` skill，在相关任务中自动调用这些接口。
 - **插件与界面扩展**：提供 Compose 与 Swing 桌面界面、SQLite 与可选 PostgreSQL 数据库支持、[插件管理与市场](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management)、[PixivBatchDownloader 导入支持](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)及公开 [第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)。
 - **页面编辑与表单验证**：按需安装[页面编辑器](https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor)，调整登录与邀请码兑换布局、制作可复用组件，发布或恢复页面；[操作验证码](https://sywyar.github.io/PixivDownloader/#/zh-cn/captcha)提供在线与离线组件，拖入表单并发布后由服务端强制验证。
 
