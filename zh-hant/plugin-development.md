@@ -174,6 +174,7 @@ new NavigationContribution(
 
 - **資料庫存取**：新外掛注入 `PluginDatabase`，透過 `privateSchema()` 與 `privateStorageMigrations()` 宣告結構，使用 `read(work)` / `transaction(work)` 執行與方言無關的操作（相容 SQLite 與 PostgreSQL）；參與主資料庫協作時，注入 `PluginMainDatabase` 存取本 owner 受管資料表或已申請的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`，建立由外掛 Bean 擁有並在銷毀時 `close()` 的用戶端（`exchangeStream` 回傳的回應串流必須在所有分支關閉）；禁止自行建立 `HttpClient`、`ProxySelector` 或依賴宿主 HTTP 設定類別。
+- **存取 Pixiv**：讀取 `www.pixiv.net` 的 JSON 時注入 core-api 的 `PixivAjaxClient`，讀取 `*.pximg.net` 的圖片或動圖封存檔時注入 `PixivMediaClient`，不要用 `OutboundHttpClientFactory` 自行請求 Pixiv。宿主統一加入瀏覽器請求標頭，套用代理設定與回應大小上限，不跟隨重新導向；請求使用已儲存的憑證時，依宿主的憑證重試規則改用候選憑證。`PixivAjaxClient` 接受 `/ajax/**`、`/rpc/**`，以及查詢參數含 `format=json` 的根層級 `*.php` 頁面，失敗時拋出 `PixivAjaxException`。`PixivMediaClient.open(source, referer, maximumBytes)` 只把傳入的 Pixiv 頁面作為 `Referer` 送出，不送出 Cookie；回傳的 `PixivMediaStream` 必須在所有分支關閉，`exceededLimit()` 用於區分超過位元組上限與一般傳輸失敗。宿主不會攔截以通用用戶端發往 Pixiv 的請求，但帶有登入 Cookie 卻缺少瀏覽器請求標頭的請求，可能被 Pixiv 的前置防護直接拒絕（HTTP 403）。
 
 ## 獨立服務契約與組合
 

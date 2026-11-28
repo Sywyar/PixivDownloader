@@ -174,6 +174,7 @@ new NavigationContribution(
 
 - **数据库访问**：新插件注入 `PluginDatabase`，通过 `privateSchema()` 与 `privateStorageMigrations()` 声明结构，使用 `read(work)` / `transaction(work)` 执行方言无关操作（兼容 SQLite 与 PostgreSQL）；参与主库协作时注入 `PluginMainDatabase` 访问本 owner 受管表或已申请的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` 创建由插件 Bean 拥有并在销毁时 `close()` 的客户端（`exchangeStream` 返回的响应流必须在所有分支关闭）；禁止自行创建 `HttpClient`、`ProxySelector` 或依赖宿主 HTTP 配置类。
+- **访问 Pixiv**：读取 `www.pixiv.net` 的 JSON 时注入 core-api 的 `PixivAjaxClient`，读取 `*.pximg.net` 的图片或动图归档时注入 `PixivMediaClient`，不要用 `OutboundHttpClientFactory` 自行请求 Pixiv。宿主统一添加浏览器请求头，应用代理设置和响应大小上限，不跟随重定向；请求使用已保存凭据时，按宿主的凭据重试规则换用候选凭据。`PixivAjaxClient` 接受 `/ajax/**`、`/rpc/**` 和查询参数含 `format=json` 的根级 `*.php` 页面，失败时抛出 `PixivAjaxException`。`PixivMediaClient.open(source, referer, maximumBytes)` 只把传入的 Pixiv 页面作为 `Referer` 发送，不发送 Cookie；返回的 `PixivMediaStream` 必须在所有分支关闭，`exceededLimit()` 用于区分超过字节上限与普通传输失败。宿主不会拦截用通用客户端发往 Pixiv 的请求，但带登录 Cookie 而缺少浏览器请求头的请求可能被 Pixiv 的前置防护直接拒绝（HTTP 403）。
 
 ## 独立服务契约与组合
 

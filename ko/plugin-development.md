@@ -174,6 +174,7 @@ new NavigationContribution(
 
 - **데이터베이스 접근**: 새 플러그인은 `PluginDatabase`를 주입하고 `privateSchema()`와 `privateStorageMigrations()`로 구조를 선언하며 `read(work)` / `transaction(work)`로 SQL 방언에 독립적인 작업을 수행합니다. SQLite와 PostgreSQL을 지원합니다. 주 DB 협업에는 `PluginMainDatabase`를 주입하여 현재 owner의 관리 테이블이나 신청한 `sharedMainStorage()`에 접근합니다.
 - **아웃바운드 HTTP / WebSocket**: `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`를 주입하여 플러그인 Bean이 소유하고 소멸 시 `close()`하는 클라이언트를 만듭니다. `exchangeStream`이 반환한 응답 스트림은 모든 분기에서 닫아야 합니다. 직접 `HttpClient`, `ProxySelector`를 만들거나 호스트 HTTP 설정 클래스에 의존하면 안 됩니다.
+- **Pixiv 접근**: `www.pixiv.net`의 JSON을 읽을 때는 core-api의 `PixivAjaxClient`를, `*.pximg.net`의 이미지나 우고이라 아카이브를 읽을 때는 `PixivMediaClient`를 주입합니다. `OutboundHttpClientFactory`로 Pixiv에 직접 요청하지 마세요. 호스트가 브라우저 요청 헤더를 붙이고 프록시 설정과 응답 크기 상한을 적용하며, 리디렉션은 따르지 않습니다. 저장된 자격 증명을 쓰는 요청은 호스트의 자격 증명 재시도 규칙에 따라 후보 자격 증명으로 바꿉니다. `PixivAjaxClient`는 `/ajax/**`, `/rpc/**`, 그리고 쿼리에 `format=json`이 있는 루트 경로의 `*.php` 페이지를 받으며, 실패하면 `PixivAjaxException`을 던집니다. `PixivMediaClient.open(source, referer, maximumBytes)`는 전달한 Pixiv 페이지만 `Referer`로 보내고 Cookie는 보내지 않습니다. 반환된 `PixivMediaStream`은 모든 분기에서 닫아야 하며, 바이트 상한 초과와 일반 전송 실패는 `exceededLimit()`로 구분합니다. 범용 클라이언트가 Pixiv로 보내는 요청을 호스트가 막지는 않지만, 로그인 Cookie는 있고 브라우저 헤더가 없는 요청은 Pixiv 앞단의 보호 기능에서 바로 거부될 수 있습니다(HTTP 403).
 
 ## 독립 서비스 계약 및 조합
 
