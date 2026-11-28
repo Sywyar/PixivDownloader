@@ -254,6 +254,8 @@ SDK 开发包支持在 IntelliJ IDEA（运行 `Developer Mode`）、VS Code（`R
 
 ## 投稿市场资料
 
+用 SDK 2.0 构建并通过候选 CI 后，在社区投稿向导中选择与候选包一致的 Java 25 构建配置。向导本身仍可在 JDK 17 上运行。
+
 社区投稿向导支持附加插件图标、截图、外链列表以及多语言 `README`、本次更新说明和 `CHANGELOG.md`（可按版本标题如 `## [v1.2.0]` 自动提取）。所有文档与图片随同一版本 Release 签名锁定，客户端以净化后的静态隔离文档展示，详见[社区仓库投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
 
 ## 签名和发布

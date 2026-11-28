@@ -254,6 +254,8 @@ SDK 개발 패키지는 IntelliJ IDEA(`Developer Mode` 실행), VS Code(`Run Plu
 
 ## 마켓 자료 제출
 
+SDK 2.0으로 빌드한 플러그인이 후보 CI를 통과하면 커뮤니티 제출 마법사에서 후보 패키지와 일치하는 Java 25 빌드 프로필을 선택하세요. 마법사 자체는 JDK 17에서도 실행됩니다.
+
 커뮤니티 제출 마법사는 플러그인 아이콘, 스크린샷, 외부 링크 목록과 다국어 `README`, 이번 업데이트 설명, `CHANGELOG.md`를 첨부할 수 있습니다. `## [v1.2.0]` 같은 버전 제목으로 자동 추출할 수 있습니다. 모든 문서와 이미지는 같은 버전 Release의 서명으로 고정되며 클라이언트는 정제된 정적 격리 문서로 표시합니다. [커뮤니티 저장소 제출 안내](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)를 참고하세요.
 
 ## 서명 및 배포

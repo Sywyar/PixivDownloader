@@ -254,6 +254,8 @@ SDK 開發包支援在 IntelliJ IDEA（執行 `Developer Mode`）、VS Code（`R
 
 ## 投稿市場資料
 
+使用 SDK 2.0 建置並通過候選 CI 後，請在社群投稿精靈中選擇與候選套件相符的 Java 25 建置設定。精靈本身仍可在 JDK 17 上執行。
+
 社群投稿精靈支援附加外掛圖示、截圖、外部連結清單，以及多語言 `README`、本次更新說明和 `CHANGELOG.md`（可依版本標題如 `## [v1.2.0]` 自動擷取）。所有文件與圖片隨同一版本 Release 以簽章鎖定，用戶端以淨化後的靜態隔離文件顯示，詳見[社群儲存庫投稿說明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
 
 ## 簽署和發布

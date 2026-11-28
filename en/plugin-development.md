@@ -254,6 +254,8 @@ The default package is a thin PF4J `.jar` with `plugin.properties` at the root a
 
 ## Submit market materials
 
+After candidate CI passes for your SDK 2.0 plugin, choose the Java 25 build profile that matches the candidate package in the community submission wizard. The wizard itself still runs on JDK 17.
+
 The community submission wizard accepts plugin icons, screenshots, external links, and multilingual `README`, release notes for the update and `CHANGELOG.md` (which can be extracted automatically by version headings such as `## [v1.2.0]`). All documents and images are signature-bound to the same version's Release. Clients display sanitized, statically isolated documents. See [Community repository submission instructions](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理).
 
 ## Signing and distribution
