@@ -47,7 +47,7 @@ class PrivateDatabaseMigrationStateTest {
         try (var paths = mockStatic(RuntimeFiles.class); var identity = mockStatic(InstallIdentity.class);
              var factory = mockStatic(PluginDatabaseFactory.class)) {
             paths.when(RuntimeFiles::dataDirectory).thenReturn(directory);
-            paths.when(() -> RuntimeFiles.normalizeRootFolder(anyString())).thenCallRealMethod();
+            paths.when(() -> RuntimeFiles.normalizeRootFolder(anyString())).thenReturn(directory.resolve("downloads").toString());
             paths.when(RuntimeFiles::databaseMigrationDirectory).thenReturn(directory.resolve("migration"));
             paths.when(() -> RuntimeFiles.privateDatabaseMigrationReceipt(owner)).thenReturn(receipt);
             identity.when(InstallIdentity::get).thenReturn(settings.installationId());
