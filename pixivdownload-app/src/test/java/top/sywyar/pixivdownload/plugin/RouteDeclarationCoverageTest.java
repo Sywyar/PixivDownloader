@@ -178,6 +178,12 @@ class RouteDeclarationCoverageTest {
                                 containsString("--program-key-create"),
                                 containsString("http://localhost/api/security/program-keys/self"),
                                 containsString("href=\"" + org.springframework.web.util.HtmlUtils.htmlEscape(english.get("guide.url")) + "\""),
+                                // Agent skill 的安装命令，以及按本次请求地址填写的环境变量说明。
+                                containsString("npx skills add Sywyar/PixivDownloader --skill pixivdownloader"),
+                                containsString("<code>PIXIV_PROGRAM_KEY</code>"),
+                                containsString("<code>http://localhost</code>"),
+                                org.hamcrest.Matchers.not(containsString("Variable}")),
+                                org.hamcrest.Matchers.not(containsString("{base}")),
                                 org.hamcrest.Matchers.not(containsString("{{")))));
         mvc.perform(get("/openapi").param("lang", "ja-JP")).andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()

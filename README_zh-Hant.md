@@ -16,7 +16,7 @@ PixivDownloader 是本地執行的 Pixiv 插畫、漫畫、動圖（Ugoira）與
 - **媒體轉碼與小說功能**：圖片支援原始格式、PNG、JPG、WebP 多選儲存；動圖支援轉碼為 WebP、GIF、APNG、MP4 或保留原始 ZIP；[小說](https://sywyar.github.io/PixivDownloader/#/zh-hant/novel)支援儲存為 TXT / HTML / EPUB（含系列合訂本）、正文全文檢索、AI / 有道 / LibreTranslate 翻譯與 AI 多角色朗讀。
 - **本地畫廊與整理工具**：[作品畫廊](https://sywyar.github.io/PixivDownloader/#/zh-hant/gallery)與小說畫廊支援多條件篩選、三態標籤/作者組合、本地收藏夾、批次 ZIP 匯出、統計儀表板、基於感知雜湊（dHash）的疑似重複檢測及唯讀訪客邀請碼。
 - **排程工作與通知**：[排程工作](https://sywyar.github.io/PixivDownloader/#/zh-hant/scheduled-tasks)支援固定週期或 6 位 Cron 背景增量追更，遇到登入態失效、過度存取警告或連續失敗熔斷時透過郵件與多通道推送通知。
-- **[OpenAPI 自動化存取](https://sywyar.github.io/PixivDownloader/#/zh-hant/http-api)**：指令碼或 Agent 可用程式金鑰提交下載並查詢進度。在執行個體的 `/openapi` 可查看介面和所需權限。
+- **[OpenAPI 自動化存取](https://sywyar.github.io/PixivDownloader/#/zh-hant/http-api)**：指令碼或 Agent 可用程式金鑰提交下載並查詢進度。在執行個體的 `/openapi` 可查看介面和所需權限。支援 Agent Skills 的 Agent 可以安裝 `pixivdownloader` skill，在相關任務中自動呼叫這些介面。
 - **外掛與介面擴充**：提供 Compose 與 Swing 桌面介面、SQLite 與選用 PostgreSQL 資料庫支援、[外掛管理與市場](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-management)、[PixivBatchDownloader 匯入支援](https://sywyar.github.io/PixivDownloader/#/zh-hant/pixiv-batch-downloader-import)及公開 [第三方外掛 SDK](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-development)。
 - **頁面編輯與表單驗證**：按需安裝[頁面編輯器](https://sywyar.github.io/PixivDownloader/#/zh-hant/page-editor)，調整登入與邀請碼兌換版面、製作可重複使用的元件，發布或還原頁面；[操作驗證碼](https://sywyar.github.io/PixivDownloader/#/zh-hant/captcha)提供線上與離線元件，拖入表單並發布後由伺服器強制驗證。
 

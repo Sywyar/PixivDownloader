@@ -119,19 +119,23 @@ public final class ApiReferenceController extends OpenApiResource {
     public ResponseEntity<String> page(HttpServletRequest request, Locale locale) {
         boolean admin = setup.isAdminLoggedIn(request);
         Map<String, String> text = i18n.loadBundle("openapi", locale).getMessages();
+        // The examples use the address this page was requested through, as normalized by the trusted proxy filter.
+        String base = ServletUriComponentsBuilder.fromContextPath(request).build().toUriString();
         Map<String, String> fragments = Map.of(
                 "{document}", "<code>GET " + DOCUMENT_PATH + "</code>",
                 "{header}", "<code>Authorization: Bearer &lt;key&gt;</code>",
                 "{permission}", "<code>" + HtmlUtils.htmlEscape(documentPermission()) + "</code>",
                 "{list}", "<code>--program-keys</code>",
                 "{revoke}", "<code>--program-key-revoke</code>",
+                "{base}", "<code>" + HtmlUtils.htmlEscape(base) + "</code>",
+                "{keyVariable}", "<code>PIXIV_PROGRAM_KEY</code>",
+                "{baseVariable}", "<code>PIXIV_BASE_URL</code>",
                 "{login}", "<a href=\"/login.html?redirect=%2Fopenapi\">"
                         + HtmlUtils.htmlEscape(text.getOrDefault("page.login", "")) + "</a>");
-        // The examples use the address this page was requested through, as normalized by the trusted proxy filter.
         Map<String, String> values = Map.of(
                 "admin", Boolean.toString(admin),
                 "lang", locale.toLanguageTag(),
-                "self", ServletUriComponentsBuilder.fromContextPath(request).path(ProgramAccess.SELF_PATH).build().toUriString(),
+                "self", base + ProgramAccess.SELF_PATH,
                 "guide", text.getOrDefault("guide.url", AppInfo.DOCS_URL));
         String html = PAGE_TOKEN.matcher(pageTemplate).replaceAll(token -> {
             String key = token.group(1);
