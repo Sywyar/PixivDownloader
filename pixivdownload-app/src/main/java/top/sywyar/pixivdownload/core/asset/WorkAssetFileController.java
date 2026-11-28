@@ -25,7 +25,8 @@ import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.concurrent.TimeUnit;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * 已下载插画图片文件的核心 serving 端点（{@code /api/downloaded/thumbnail|thumbnail-file|rawfile|image}）。
@@ -46,9 +47,10 @@ public class WorkAssetFileController {
 
     @ApiResponse(responseCode = "200", content = @Content(mediaType = "image/*", schema = @Schema(type = "string", format = "binary")))
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "304", content = @Content)
     @ApiResponse(responseCode = "404", content = @Content)
     @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
-    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
+    @Parameter(name = "If-None-Match", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
     @GetMapping({
             "/downloaded/thumbnail/{artworkId}/{page}",
             "/downloaded/thumbnail-file/{artworkId}/{page}"
@@ -64,7 +66,7 @@ public class WorkAssetFileController {
         WorkAssetFile thumbnail = (cover
                 ? workAssetService.coverThumbnail(WorkType.ARTWORK, artworkId, page, size)
                 : workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page, size)).orElse(null);
-        return fileResponse(thumbnail, true);
+        return fileResponse(thumbnail);
     }
 
     @ApiResponse(responseCode = "200", content = {
@@ -72,7 +74,8 @@ public class WorkAssetFileController {
             @Content(mediaType = "video/*", schema = @Schema(type = "string", format = "binary"))})
     @ApiResponse(responseCode = "404", content = @Content)
     @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
-    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
+    @Parameter(name = "If-None-Match", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "304", content = @Content)
     @GetMapping("/downloaded/image/{artworkId}/{page}")
     public ResponseEntity<Resource> getImage(
             @PathVariable Long artworkId,
@@ -82,9 +85,9 @@ public class WorkAssetFileController {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         WorkAssetFile preview = workAssetService.previewFile(WorkType.ARTWORK, artworkId, page).orElse(null);
         if (preview != null && "zip".equalsIgnoreCase(preview.extension())) {
-            return fileResponse(workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page).orElse(null), true);
+            preview = workAssetService.thumbnail(WorkType.ARTWORK, artworkId, page).orElse(null);
         }
-        return fileResponse(preview, false);
+        return fileResponse(preview);
     }
 
     @ApiResponse(responseCode = "200", content = {
@@ -93,7 +96,8 @@ public class WorkAssetFileController {
             @Content(mediaType = "application/zip", schema = @Schema(type = "string", format = "binary"))})
     @ApiResponse(responseCode = "404", content = @Content)
     @Parameter(name = "Range", in = ParameterIn.HEADER, example = "bytes=0-99", schema = @Schema(type = "string"))
-    @Parameter(name = "If-Modified-Since", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
+    @Parameter(name = "If-None-Match", in = ParameterIn.HEADER, schema = @Schema(type = "string"))
+    @ApiResponse(responseCode = "304", content = @Content)
     @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
     public ResponseEntity<Resource> getRawFile(
             @PathVariable Long artworkId,
@@ -101,20 +105,19 @@ public class WorkAssetFileController {
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        return fileResponse(workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null), false);
+        return fileResponse(workAssetService.rawFile(WorkType.ARTWORK, artworkId, page).orElse(null));
     }
 
-    private ResponseEntity<Resource> fileResponse(WorkAssetFile file, boolean cacheable) throws IOException {
+    private ResponseEntity<Resource> fileResponse(WorkAssetFile file) throws IOException {
         if (file == null || !Files.isRegularFile(file.path())) {
             return ResponseEntity.notFound().build();
         }
-        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
-                .contentType(mediaTypeForImageExtension(file.extension()))
-                .lastModified(Files.getLastModifiedTime(file.path()).toMillis());
-        if (cacheable) {
-            response.cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePrivate());
-        }
-        return response.body(new FileSystemResource(file.path()));
+        // 作品可切换到同名、同时间戳的另一份文件，只有当前表示的 ETag 能用于条件读取。
+        String identity = file.path() + "\n" + Files.getLastModifiedTime(file.path()) + "\n" + Files.size(file.path());
+        var version = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
+        return ResponseEntity.ok().contentType(mediaTypeForImageExtension(file.extension()))
+                .eTag("W/\"" + version + "\"").cacheControl(CacheControl.noCache().cachePrivate())
+                .body(new FileSystemResource(file.path()));
     }
 
     private MediaType mediaTypeForImageExtension(String extension) {

@@ -71,7 +71,7 @@ class WorkDeletionFileRollbackTest {
 
     private WorkDeletionService deletionService(StagedFileDeletion helper) {
         ArtworkFileLocator locator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), helper, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), helper, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
         LocalWorkAssetService assetService = new LocalWorkAssetService(
                 mock(ArtworkFileService.class), locator, pixivDatabase, novelMetadataRepository,
                 downloadConfig, TestI18nBeans.appMessages(), helper, org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class),

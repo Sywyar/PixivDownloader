@@ -46,7 +46,7 @@ class DownloadedArtworkServiceTest {
     @BeforeEach
     void setUp() {
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES,
-                new StagedFileDeletion(APP_MESSAGES, top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                new StagedFileDeletion(APP_MESSAGES, top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.DownloadDirectories.class));
         ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator,
                 new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
                         org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),

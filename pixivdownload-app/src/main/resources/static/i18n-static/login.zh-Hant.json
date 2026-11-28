@@ -4,6 +4,8 @@
   "defaultLang": "en-US",
   "messages": {
     "admin.title": "管理員登入",
+    "automation.description": "介面參考、程式存取金鑰與 AI Agent 接入說明",
+    "automation.link": "AI 與自動化",
     "button.login": "登入",
     "editor.authentication": "登入區域",
     "editor.error": "錯誤提示",

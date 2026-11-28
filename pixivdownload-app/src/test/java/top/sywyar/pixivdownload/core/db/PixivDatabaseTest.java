@@ -36,6 +36,7 @@ class PixivDatabaseTest {
 
     private PixivDatabase pixivDatabase;
     private SingleConnectionDataSource dataSource;
+    private PathPrefixCodec codec;
 
     @BeforeEach
     void setUp() {
@@ -61,7 +62,7 @@ class PixivDatabaseTest {
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
         downloadConfig.setRootFolder(
                 java.nio.file.Path.of("pixiv-download").toAbsolutePath().normalize().toString() + "/{artwork_id}");
-        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, downloadConfig, TestI18nBeans.appMessages());
+        codec = new PathPrefixCodec(pathPrefixMapper, downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 
         pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec, initializer);
@@ -70,6 +71,41 @@ class PixivDatabaseTest {
         proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),
                 new AnnotationTransactionAttributeSource()));
         pixivDatabase = (PixivDatabase) proxy.getProxy();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void moveOfDeletedArtworkPreservesDeletionState(boolean movedBeforeDeletion) throws Exception {
+        var moves = new top.sywyar.pixivdownload.core.download.ArtworkMoveService(pixivDatabase);
+        insertArtwork(42L, "title", "/source", 1, "jpg", 10L, 0);
+        if (movedBeforeDeletion) assertThat(moves.recordMove(42, "/original", 100L, null)).isTrue();
+        pixivDatabase.markArtworkDeleted(42);
+        var deleted = pixivDatabase.getArtwork(42);
+        long moved = pixivDatabase.getStats()[2];
+        assertThat(moves.recordMove(42, "/destination", 200L, null)).isFalse();
+        assertThat(deleted.deleted()).isTrue();
+        assertThat(pixivDatabase.getArtwork(42)).isEqualTo(deleted);
+        assertThat(pixivDatabase.getStats()[2]).isEqualTo(moved);
+    }
+
+    @Test
+    void firstMoveAndStatisticsRollBackTogetherAndRetryCountsOnce() {
+        var moves = new top.sywyar.pixivdownload.core.download.ArtworkMoveService(pixivDatabase);
+        assertThat(moves.recordMove(42, "/missing", 100L, null)).isFalse();
+        insertArtwork(42L, "title", "/source", 1, "jpg", 10L, 0);
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TRIGGER reject_move BEFORE UPDATE OF total_moved ON statistics "
+                + "BEGIN SELECT RAISE(ABORT, 'fixture stats failure'); END");
+        assertThatThrownBy(() -> moves.recordMove(42, "/destination", 100L, null)).isInstanceOf(RuntimeException.class);
+        assertThat(pixivDatabase.getArtwork(42).moved()).isFalse();
+        assertThat(pixivDatabase.getArtwork(42).moveFolder()).isNull();
+        assertThat(pixivDatabase.getStats()[2]).isZero();
+        jdbc.execute("DROP TRIGGER reject_move");
+        assertThat(moves.recordMove(42, "/destination", 100L, null)).isTrue();
+        assertThat(moves.recordMove(42, "/next", 200L, null)).isTrue();
+        assertThat(pixivDatabase.getArtwork(42).moved()).isTrue();
+        assertThat(pixivDatabase.getArtwork(42).moveFolder()).isEqualTo("/next");
+        assertThat(pixivDatabase.getStats()[2]).isOne();
     }
 
     @Test
@@ -118,6 +154,111 @@ class PixivDatabaseTest {
         assertThat(pixivDatabase.partialArtwork(id)).isNull();
         assertThat(pixivDatabase.startPartialArtwork(layout)).isFalse();
         assertThat(pixivDatabase.getArtworkFileNames(id)).containsExactly("first", "second", "third");
+    }
+
+    @Test
+    void recoveredPageFactsAreAtomicAndPreserveEarlierMedia(@org.junit.jupiter.api.io.TempDir Path root) throws Exception {
+        long id = 8941;
+        var media = new ArtworkMediaStoreImpl(DatabaseProviderTestFixtures.main(dataSource), null);
+        var trusted = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("webp", List.of("jpg"), false, true);
+        media.save(id, 0, trusted);
+        var input = InsertArtworkArgument.builder().artworkId(id).title("recovery").folder(root.toString())
+                .count(2).time(pixivDatabase.getUniqueTime()).extensions("jpg,png").build();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        jdbc.execute("CREATE TRIGGER reject_page BEFORE INSERT ON artwork_media WHEN NEW.page=1 BEGIN SELECT RAISE(ABORT,'injected'); END");
+        assertThatThrownBy(() -> pixivDatabase.registerRecoveredArtwork(input, List.of("jpg", "png"))).isInstanceOf(RuntimeException.class);
+        assertThat(pixivDatabase.getArtwork(id)).isNull();
+        assertThat(pixivDatabase.getArtworkFileNames(id)).isEmpty();
+        assertThat(media.find(id, 0)).contains(trusted);
+        assertThat(media.find(id, 1)).isEmpty();
+        jdbc.execute("DROP TRIGGER reject_page");
+        assertThat(pixivDatabase.registerRecoveredArtwork(input, List.of("png", "jpg"))).isFalse();
+        assertThat(pixivDatabase.getArtwork(id)).isNull();
+        assertThat(pixivDatabase.registerRecoveredArtwork(input, List.of("jpg", "png"))).isTrue();
+        assertThat(pixivDatabase.registerRecoveredArtwork(input, List.of("jpg", "png"))).isFalse();
+        assertThat(media.find(id, 0)).contains(trusted);
+        assertThat(media.find(id, 1)).contains(new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest(
+                top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest.UNKNOWN_ORIGINAL, List.of("png"), false, false));
+        assertThat(pixivDatabase.getArtworkFileNames(id)).containsExactly(id + "_p0", id + "_p1");
+    }
+
+    @Test
+    void selectionOfRegisteredArtworkCannotClaimANewDirectory(@org.junit.jupiter.api.io.TempDir Path root)
+            throws Exception {
+        long id = 9124L;
+        Path current = Files.createDirectory(root.resolve("current"));
+        Path other = root.resolve("different");
+        insertArtwork(id, "saved", current.toString(), 1, "jpg", 100L, 0);
+        var layout = new PartialArtwork(id, other.toString(), 1, "{artwork_id}_p{page}", 180,
+                "original", "revision", List.of("page"), Map.of(), Map.of());
+        var directories = new top.sywyar.pixivdownload.core.asset.DownloadDirectories(
+                DatabaseProviderTestFixtures.main(dataSource), codec, null);
+        var type = top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK;
+        directories.prepare(type, id, current);
+        assertThat(directories.prepareIf(type, id, other, () -> pixivDatabase.startPartialArtwork(layout))).isFalse();
+        assertThat(other).doesNotExist();
+        assertThat(directories.owns(type, id, current)).isTrue();
+        assertThat(directories.owns(type, id, other)).isFalse();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM download_directories", Integer.class)).isOne();
+        assertThat(pixivDatabase.partialArtwork(id)).isNull();
+
+        pixivDatabase.markArtworkDeleted(id);
+        Files.createDirectory(other);
+        Files.writeString(other.resolve("unrelated"), "keep");
+        assertThatThrownBy(() -> directories.prepareIf(type, id, other, () -> pixivDatabase.startPartialArtwork(layout)))
+                .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+        assertThat(pixivDatabase.partialArtwork(id)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM download_directories", Integer.class)).isOne();
+    }
+
+    @Test
+    void replacementCommitFailureRestoresRegisteredMediaAndEveryPage(@org.junit.jupiter.api.io.TempDir Path root)
+            throws Exception {
+        long id = 9178L;
+        Path first = Files.write(root.resolve("first.jpg"), new byte[]{1});
+        Path second = Files.write(root.resolve("second.jpg"), new byte[]{1});
+        Path newPage = Files.write(root.resolve("staged"), new byte[]{2});
+        insertArtwork(id, "prior", root.toString(), 2, "jpg", 100L, 0);
+        var history = new ArtworkDownloadHistoryAdapter(pixivDatabase);
+        var old = pixivDatabase.getArtwork(id);
+        var media = new ArtworkMediaStoreImpl(DatabaseProviderTestFixtures.main(dataSource), null);
+        var jpg = new ArtworkMediaManifest("jpg", List.of("jpg"));
+        var png = new ArtworkMediaManifest("png", List.of("png"));
+        media.save(id, 0, jpg);
+        media.save(id, 1, jpg);
+        var files = new StagedFileDeletion(TestI18nBeans.appMessages(), FileOperationTestSupport.journal(dataSource));
+        var completion = new ArtworkDownloadCompletion(id, "replacement", root, 1, Set.of("png"),
+                1234L, 0, false, null, null, "{artwork_id}_p{page}", null, null, null,
+                List.of(), 180, List.of("first"));
+        Path newFile = root.resolve("first.png");
+        Runnable commit = () -> {
+            try { media.save(id, 0, png); } catch (java.io.IOException e) { throw new java.io.UncheckedIOException(e); }
+            history.record(completion);
+        };
+        String previous = System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, root.resolve("runtime").toString());
+        try {
+            assertThatThrownBy(() -> files.changeFiles(Map.of(newFile, newPage), List.of(first, second), () -> {
+                commit.run();
+                throw new IllegalStateException("commit failed");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("commit failed");
+            assertThat(Files.readAllBytes(first)).containsExactly(1);
+            assertThat(Files.readAllBytes(second)).containsExactly(1);
+            assertThat(newFile).doesNotExist();
+            assertThat(pixivDatabase.getArtwork(id)).isEqualTo(old);
+            assertThat(media.find(id, 0)).contains(jpg);
+            assertThat(media.find(id, 1)).contains(jpg);
+            files.changeFiles(Map.of(newFile, newPage), List.of(first, second), commit);
+            assertThat(Files.readAllBytes(newFile)).containsExactly(2);
+            assertThat(first).doesNotExist();
+            assertThat(second).doesNotExist();
+            assertThat(media.find(id, 0)).contains(png);
+            assertThat(media.find(id, 1)).isEmpty();
+            assertThat(pixivDatabase.getArtwork(id).count()).isOne();
+        } finally {
+            if (previous == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, previous);
+        }
     }
 
     @Test
@@ -388,7 +529,7 @@ class PixivDatabaseTest {
                     pixivDatabase, new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), TestI18nBeans.appMessages(),
                     new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(TestI18nBeans.appMessages(), top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal(dataSource)),
                     org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class),
-                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
+                    org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class), null);
             assertThat(locator.resolveStoredFileBaseName(pixivDatabase.getArtwork(43L), 0)).isEqualTo("Original title_p0");
             pixivDatabase.markArtworkDeleted(43L);
             assertThat(pixivDatabase.getArtworkFileNames(43L)).isEmpty();
@@ -736,6 +877,213 @@ class PixivDatabaseTest {
             assertThat(pixivDatabase.getArtworkByMoveFolder(firstTarget).artworkId()).isEqualTo(700001L);
             assertThat(pixivDatabase.getArtworkByMoveFolder(secondTarget).artworkId()).isEqualTo(700002L);
         }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"complete", "direct-delete", "missing-timing", "new-media", "new-during-delete", "changed-before-backup", "commit-failed", "partial"})
+    @DisplayName("动图 ZIP 保留原始帧、逐帧时序和转换产物，仅完整归档才能删除文件和记录")
+    void archiveDeletionRequiresEveryAnimationOutput(String scenario, @org.junit.jupiter.api.io.TempDir Path root)
+            throws Exception {
+        long id = 77;
+        Path directory = Files.createDirectory(root.resolve("77"));
+        Path frames = directory.resolve("animation.zip");
+        try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(frames))) {
+            for (int page = 0; page < 2; page++) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(page + ".jpg"));
+                zip.write(page + 1);
+                zip.closeEntry();
+            }
+        }
+        byte[] frameBytes = Files.readAllBytes(frames);
+        Path timing = Files.writeString(directory.resolve("animation.frames.properties"), "0.jpg=50\n1.jpg=150\n");
+        Path webp = Files.write(directory.resolve("animation.webp"), new byte[]{5, 9});
+        Path legacyMedia = Files.writeString(directory.resolve("animation.media.properties"), "original=zip");
+        List<String> userFiles = List.of("animation.psd", "animation.png", "animation.frames.txt",
+                "animation_thumb.jpg", "77.meta.txt", "notes.txt");
+        for (String file : userFiles) Files.writeString(directory.resolve(file), file);
+        insertArtwork(id, "Animation", directory.toString(), 1, "zip,webp", 100, 0);
+        pixivDatabase.replaceArtworkFileNames(id, List.of("animation"));
+        var db = DatabaseProviderTestFixtures.main(dataSource);
+        var media = new ArtworkMediaStoreImpl(db, null);
+        media.save(id, 0, new ArtworkMediaManifest("zip", List.of("zip", "webp")));
+        if (scenario.equals("missing-timing")) Files.delete(timing);
+
+        var config = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
+        config.setRootFolder(root + "/{artwork_id}");
+        var messages = TestI18nBeans.appMessages();
+        var journal = new StagedFileDeletion(messages, FileOperationTestSupport.journal(dataSource)) {
+            @Override
+            protected void deleteFile(Path original) throws java.io.IOException {
+                super.deleteFile(original);
+                if (scenario.equals("new-during-delete")) {
+                    Files.writeString(directory.resolve("77.meta.json"), "new after verification");
+                }
+            }
+
+            @Override
+            public boolean deleteArchivedFiles(Map<Path, String> archived, Runnable commitRecord) {
+                if (scenario.equals("changed-before-backup")) {
+                    try {
+                        var time = Files.getLastModifiedTime(webp);
+                        Files.write(webp, new byte[]{7, 9});
+                        Files.setLastModifiedTime(webp, time);
+                    } catch (java.io.IOException failure) {
+                        throw new java.io.UncheckedIOException(failure);
+                    }
+                }
+                return super.deleteArchivedFiles(archived, commitRecord);
+            }
+        };
+        var external = new top.sywyar.pixivdownload.core.asset.ExternalWorkFiles(db, codec, null);
+        var locator = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator(
+                pixivDatabase, config, messages, journal, media, external,
+                new top.sywyar.pixivdownload.core.asset.DownloadDirectories(db, codec, null));
+        var assets = new top.sywyar.pixivdownload.core.download.LocalWorkAssetService(
+                new top.sywyar.pixivdownload.core.download.ArtworkFileService(pixivDatabase, locator, null),
+                locator, pixivDatabase, null, config, messages, journal, external, null);
+        var type = top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK;
+        var query = org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.work.service.WorkQueryService.class);
+        org.mockito.Mockito.when(query.hasActiveWork(type, id)).thenReturn(true);
+        var deletion = new top.sywyar.pixivdownload.core.metadata.CoreWorkDeletionService(query, assets, pixivDatabase, null, messages);
+        var queue = new java.util.ArrayList<Runnable>();
+        var settings = new top.sywyar.pixivdownload.core.appconfig.MultiModeConfig();
+        var quota = new top.sywyar.pixivdownload.quota.UserQuotaService(settings, config, pixivDatabase, messages,
+                queue::add, locator, null, deletion, assets);
+        var exporter = new top.sywyar.pixivdownload.quota.QuotaArchiveExportServiceAdapter(
+                quota, settings, deletion, pixivDatabase, null, assets);
+        var sources = assets.archiveSources(type, id);
+        assertThat(sources).containsExactlyInAnyOrder(frames, timing, webp, legacyMedia);
+        var entries = new java.util.ArrayList<>(sources.stream().map(path -> top.sywyar.pixivdownload.core.archive.ArchiveExportEntry.file(
+                path, id + "/" + path.getFileName(), id)).toList());
+        boolean partial = scenario.equals("partial");
+        if (partial) {
+            Path first = Files.createDirectory(root.resolve("76"));
+            Path image = Files.write(first.resolve("page.jpg"), new byte[]{10});
+            insertArtwork(76L, "First", first.toString(), 1, "jpg", 99, 0);
+            pixivDatabase.replaceArtworkFileNames(76L, List.of("page"));
+            media.save(76L, 0, new ArtworkMediaManifest("jpg", List.of("jpg")));
+            org.mockito.Mockito.when(query.hasActiveWork(type, 76L)).thenReturn(true);
+            entries.add(top.sywyar.pixivdownload.core.archive.ArchiveExportEntry.file(image, "76/page.jpg", 76L));
+        }
+        List<Long> ids = partial ? List.of(76L, id) : List.of(id);
+        if (partial || scenario.equals("commit-failed")) {
+            new org.springframework.jdbc.core.JdbcTemplate(dataSource).execute("""
+                    CREATE TRIGGER reject_source_deletion BEFORE UPDATE OF deleted ON artworks
+                    WHEN NEW.artwork_id = 77 AND NEW.deleted = 1
+                    BEGIN SELECT RAISE(ABORT, 'fixture record commit failure'); END""");
+        }
+        var request = new top.sywyar.pixivdownload.core.archive.ArchiveExportRequest(entries, "artworks", ids.size(), entries.size(),
+                "zip", new top.sywyar.pixivdownload.core.archive.ArchiveWorkDeletion("ARTWORK", ids));
+        String previous = System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, root.resolve("runtime").toString());
+        try {
+            if (scenario.equals("direct-delete")) {
+                assertThat(deletion.delete(type, id)).isTrue();
+                assertThat(pixivDatabase.getArtwork(id).deleted()).isTrue();
+                for (Path path : sources) assertThat(path).doesNotExist();
+                for (String file : userFiles) assertThat(Files.readString(directory.resolve(file))).isEqualTo(file);
+                return;
+            }
+            var result = exporter.export(request);
+            var controller = new top.sywyar.pixivdownload.quota.ArchiveController(quota, settings, null, pixivDatabase, messages);
+            var queued = controller.archiveStatus(result.archiveToken()).getBody().getSourceDeletion();
+            assertThat(queued.status()).isEqualTo("pending");
+            assertThat(queued.requestedWorks()).isEqualTo(ids.size());
+            if (scenario.equals("new-media")) {
+                Files.write(directory.resolve("animation.gif"), new byte[]{8});
+                media.save(id, 0, new ArtworkMediaManifest("zip", List.of("zip", "webp", "gif")));
+            }
+            queue.getFirst().run();
+            var archive = quota.getArchive(result.archiveToken());
+            boolean deleted = scenario.equals("complete");
+            var resultStatus = controller.archiveStatus(result.archiveToken()).getBody();
+            var sourceDeletion = resultStatus.getSourceDeletion();
+            assertThat(sourceDeletion.status()).isEqualTo(scenario.equals("missing-timing") ? "not_started"
+                    : partial ? "partial" : deleted ? "succeeded" : "failed");
+            assertThat(sourceDeletion.requestedWorks()).isEqualTo(ids.size());
+            assertThat(sourceDeletion.deletedWorks()).isEqualTo(partial || deleted ? 1 : 0);
+            if (partial) {
+                assertThat(pixivDatabase.getArtwork(76L).deleted()).isTrue();
+                assertThat(root.resolve("76/page.jpg")).doesNotExist();
+            }
+            assertThat(pixivDatabase.getArtwork(id).deleted()).isEqualTo(deleted);
+            for (String file : userFiles) assertThat(Files.readString(directory.resolve(file))).isEqualTo(file);
+            if (deleted) {
+                for (Path source : sources) assertThat(source).doesNotExist();
+            } else {
+                assertThat(Files.readAllBytes(frames)).isEqualTo(frameBytes);
+                assertThat(Files.readAllBytes(webp)).containsExactly(scenario.equals("changed-before-backup") ? 7 : 5, 9);
+            }
+            if (scenario.equals("missing-timing")) {
+                assertThat(archive.getStatus()).isEqualTo("error");
+                assertThat(media.find(id, 0)).contains(new ArtworkMediaManifest("zip", List.of("zip", "webp")));
+            } else {
+                assertThat(archive.getStatus()).isEqualTo("ready");
+                assertThat(controller.downloadArchive(result.archiveToken()).getStatusCode().value()).isEqualTo(200);
+                try (var zip = new java.util.zip.ZipFile(archive.getArchivePath().toFile())) {
+                    assertThat(zip.stream().map(java.util.zip.ZipEntry::getName))
+                            .containsExactlyInAnyOrderElementsOf(entries.stream().map(top.sywyar.pixivdownload.core.archive.ArchiveExportEntry::entryName).toList());
+                    if (partial) assertThat(zip.getInputStream(zip.getEntry("76/page.jpg")).readAllBytes()).containsExactly(10);
+                    assertThat(new String(zip.getInputStream(zip.getEntry("77/animation.media.properties")).readAllBytes(),
+                            java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("original=zip");
+                    assertThat(zip.getInputStream(zip.getEntry("77/animation.zip")).readAllBytes()).isEqualTo(frameBytes);
+                    var delays = new java.util.Properties();
+                    delays.load(zip.getInputStream(zip.getEntry("77/animation.frames.properties")));
+                    assertThat(delays).containsEntry("0.jpg", "50").containsEntry("1.jpg", "150");
+                    assertThat(zip.getInputStream(zip.getEntry("77/animation.webp")).readAllBytes()).containsExactly(5, 9);
+                }
+                if (!deleted) {
+                    assertThat(timing).exists();
+                    if (scenario.equals("new-media")) {
+                        assertThat(directory.resolve("animation.gif")).exists();
+                        assertThat(media.find(id, 0)).contains(new ArtworkMediaManifest("zip", List.of("zip", "webp", "gif")));
+                    } else {
+                        assertThat(media.find(id, 0)).contains(new ArtworkMediaManifest("zip", List.of("zip", "webp")));
+                    }
+                    if (scenario.equals("new-during-delete")) {
+                        assertThat(Files.readString(directory.resolve("77.meta.json"))).isEqualTo("new after verification");
+                    }
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, previous);
+        }
+    }
+
+    @Test
+    void retiredClassifierLeavesBothFilesAndArtworkRecordsUntouched(
+            @org.junit.jupiter.api.io.TempDir Path root) throws Exception {
+        Path source = Files.createDirectory(root.resolve("42"));
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path sourceFile = Files.writeString(source.resolve("image.jpg"), "source");
+        Path targetFile = Files.writeString(target.resolve("keep.jpg"), "target");
+        insertArtwork(41, "A", root.resolve("41").toString(), 1, "jpg", 100, 0);
+        insertArtwork(42, "B", root.resolve("B").toString(), 1, "jpg", 101, 0);
+        pixivDatabase.updateArtworkMove(41, source.toString(), 102L);
+        var first = pixivDatabase.getArtwork(41);
+        var second = pixivDatabase.getArtwork(42);
+        var controller = new top.sywyar.pixivdownload.gui.ImageClassifierController();
+        var library = new top.sywyar.pixivdownload.core.download.controller.DownloadedWorkController(
+                null, null, null, pixivDatabase, null, null, null, null, TestI18nBeans.appMessages());
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller, library).build();
+        long moved = pixivDatabase.getStats()[2];
+        for (long id : List.of(41L, 42L)) {
+            for (String route : List.of("/api/tools/classifier/moves", "/api/downloaded/move/" + id,
+                    "/api/library/artworks/" + id + "/move")) {
+                var body = Map.of("source", source.toString(), "target", target.toString(), "artworkId", id,
+                        "movePath", target.toString(), "moveTime", 200L);
+                mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(route)
+                                .contentType("application/json").content(tools.jackson.databind.json.JsonMapper.shared().writeValueAsBytes(body)))
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isGone())
+                        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().bytes(new byte[0]));
+            }
+        }
+        assertThat(pixivDatabase.getStats()[2]).isEqualTo(moved);
+        assertThat(Files.readString(sourceFile)).isEqualTo("source");
+        try (var entries = Files.list(target)) { assertThat(entries).containsExactly(targetFile); }
+        assertThat(Files.readString(targetFile)).isEqualTo("target");
+        assertThat(pixivDatabase.getArtwork(41)).isEqualTo(first);
+        assertThat(pixivDatabase.getArtwork(42)).isEqualTo(second);
     }
 
     // ========== getArtworkByMoveFolder ==========

@@ -113,11 +113,14 @@ class TransferArchiveTest {
                 .hasMessage("transfer.password-required");
         for (char[] password : new char[][] {null, "archive-fixture-password".toCharArray()}) {
             Path archive = temporary.resolve(password == null ? "plain" : "encrypted");
-            var preview = codec.write(archive, password, "fixture", List.of(source));
+            var verified = codec.writeVerified(archive, password, "fixture", List.of(source));
             Path staging = temporary.resolve(archive.getFileName() + "-staging");
-            codec.extract(archive, password, staging, preview);
+            codec.extract(archive, password, staging, verified.preview());
             assertThat(Files.readAllBytes(staging.resolve("0"))).isEqualTo(content);
             byte[] bytes = Files.readAllBytes(archive);
+            assertThat(verified.bytes()).isEqualTo(bytes.length);
+            assertThat(verified.preview().archiveSha256()).isEqualTo(java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(bytes)));
             Files.write(archive, Arrays.copyOf(bytes, bytes.length - 1));
             assertThatThrownBy(() -> codec.inspect(archive, password)).isInstanceOf(java.io.IOException.class);
             Files.write(archive, Arrays.copyOf(bytes, bytes.length + 1));

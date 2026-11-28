@@ -263,6 +263,8 @@ class NovelBatchServiceTest {
 
         assertThat(request.deleteAfterReady())
                 .isEqualTo(new ArchiveWorkDeletion(WorkType.NOVEL.name(), List.of(7L)));
+        assertThat(request.entries()).extracting(ArchiveExportEntry::entryName).containsExactly(
+                "novels/Writer/7 - Story/content.txt", "novels/Writer/7 - Story/7.meta.json", "manifest.json");
     }
 
     @Test
@@ -305,9 +307,7 @@ class NovelBatchServiceTest {
         when(novelWorkDetailsRepository.findAll(List.of(7L, 8L))).thenReturn(Map.of(
                 7L, new NovelWorkDetails(7L, 100, 200, 60, null, null, null,
                         List.of(), List.of())));
-        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
-                new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
-                        List.of(new WorkAssetFile(0, content, "txt")))));
+        when(workAssetService.archiveSources(WorkType.NOVEL, 7L)).thenReturn(List.of(content));
         ArchiveExportResult result =
                 service.exportNovels(List.of(7L, 8L), "author", "zip", true, null);
 
@@ -353,6 +353,62 @@ class NovelBatchServiceTest {
         assertThat(new String(archive.entries().getLast().bytes(), java.nio.charset.StandardCharsets.UTF_8))
                 .contains("zh-CN@youdao");
         assertThat(Files.readString(original)).isEqualTo("original text");
+    }
+
+    @Test
+    @DisplayName("外部引用小说没有作品目录时仍能直接导出 TXT")
+    void exportsReferencedNovelWithoutDirectory() throws Exception {
+        Path original = translatedFixture();
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, null, 1, List.of(new WorkAssetFile(0, original, "txt")))));
+        var controller = new NovelGalleryController(novelGalleryService, service, null, null, workAssetService, null, null);
+        var body = JsonMapper.shared().readValue("""
+                {"mode":"ids","ids":[7],"groupBy":"id","format":"zip"}
+                """, NovelBatchRequest.class);
+        var response = controller.exportNovels(body, new MockHttpServletRequest());
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isInstanceOfSatisfying(NovelGalleryController.BatchExportResponse.class,
+                result -> assertThat(result.fileCount()).isEqualTo(1));
+        var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(captured.capture());
+        var request = captured.getValue();
+        var file = JsonMapper.shared().readTree(request.entries().getLast().bytes()).get(0).get("files").get(0);
+        assertThat(file.get("archivePath").asString()).isEqualTo("7/content.txt");
+        assertThat(Path.of(file.get("originalPath").asString())).isEqualTo(original);
+        assertThat(request.entries().getFirst().sourcePath()).isEqualTo(original);
+        assertThat(request.deleteAfterReady()).isNull();
+        assertThat(Files.readString(original)).isEqualTo("original text");
+    }
+
+    @Test
+    @DisplayName("译文与嵌套图片使用已分配的最终成员名，长文件名碰撞后仍能与清单逐项对应")
+    void allocatesTranslatedAndNestedManifestNames() throws Exception {
+        Path original = translatedFixture();
+        String stem = "a".repeat(121);
+        Path nested = Files.createDirectory(tempDir.resolve("images"));
+        Path first = Files.write(nested.resolve(stem + "1.png"), new byte[]{1});
+        Path second = Files.write(nested.resolve(stem + "2.png"), new byte[]{2});
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(new LocalWorkAsset(
+                WorkType.NOVEL, 7L, tempDir, 3, List.of(new WorkAssetFile(0, original, "txt"),
+                        new WorkAssetFile(1, first, "png"), new WorkAssetFile(2, second, "png")))));
+        when(novelExportService.export(7L, top.sywyar.pixivdownload.novel.download.NovelDownloadService.NovelFormat.TXT,
+                "zh-CN@youdao")).thenReturn(new top.sywyar.pixivdownload.novel.export.NovelExportService.Export(
+                        stem + ".txt", new byte[]{3}));
+        service.exportNovels(List.of(7L), "id", "zip", false, "zh-CN@youdao");
+        var captured = ArgumentCaptor.forClass(ArchiveExportRequest.class);
+        verify(archiveExportService).export(captured.capture());
+        var entries = captured.getValue().entries();
+        var manifest = JsonMapper.shared().readTree(entries.getLast().bytes()).get(0).get("files");
+        assertThat(entries).extracting(ArchiveExportEntry::entryName).doesNotHaveDuplicates();
+        for (int i = 0; i < 3; i++) {
+            assertThat(manifest.get(i).get("archivePath").asString()).isEqualTo(entries.get(i).entryName());
+        }
+        assertThat(entries.get(0).entryName()).endsWith(".txt");
+        assertThat(entries.get(0).bytes()).containsExactly(3);
+        assertThat(entries.get(1).entryName()).startsWith("7/images/").endsWith(".png");
+        assertThat(entries.get(2).entryName()).startsWith("7/images/").endsWith(".png");
+        assertThat(entries.get(1).sourcePath()).isEqualTo(first);
+        assertThat(entries.get(2).sourcePath()).isEqualTo(second);
     }
 
     @Test
@@ -467,14 +523,17 @@ class NovelBatchServiceTest {
         when(novelWorkDetailsRepository.findAll(List.of(7L))).thenReturn(Map.of(
                 7L, new NovelWorkDetails(7L, 100, 200, 60, null, null, null,
                         List.of(), List.of())));
-        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
-                new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
-                        List.of(new WorkAssetFile(0, content, "txt")))));
+        if (deleteAfter) {
+            when(workAssetService.archiveSources(WorkType.NOVEL, 7L)).thenReturn(List.of(content, folder.resolve("7.meta.json")));
+        } else {
+            when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                    new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1, List.of(new WorkAssetFile(0, content, "txt")))));
+        }
         ArchiveExportResult result =
                 service.exportNovels(List.of(7L), groupBy, "zip", deleteAfter, null);
 
         assertThat(result.archiveToken()).isEqualTo("token-2");
-        assertThat(result.fileCount()).isEqualTo(1);
+        assertThat(result.fileCount()).isEqualTo(deleteAfter ? 2 : 1);
 
         ArgumentCaptor<ArchiveExportRequest> requestCaptor =
                 ArgumentCaptor.forClass(ArchiveExportRequest.class);
@@ -482,7 +541,7 @@ class NovelBatchServiceTest {
         ArchiveExportRequest request = requestCaptor.getValue();
         assertThat(request.exportType()).isEqualTo("novels");
         assertThat(request.workCount()).isEqualTo(1);
-        assertThat(request.fileCount()).isEqualTo(1);
+        assertThat(request.fileCount()).isEqualTo(deleteAfter ? 2 : 1);
         assertThat(request.format()).isEqualTo("zip");
         return request;
     }

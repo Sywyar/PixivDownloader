@@ -60,6 +60,13 @@ public class PluginCredentialStore {
 
     /** 迁移读取不创建目录、不升级信封；归档加密由调用方负责。 */
     public Map<String, String> readForTransfer(String ownerPluginId) throws IOException {
+        // 迁移先替换信封，再停用旧密钥；读取须看到一致的两者。
+        synchronized (InstallationCredentialKeys.class) {
+            return readWithoutMigration(ownerPluginId);
+        }
+    }
+
+    private Map<String, String> readWithoutMigration(String ownerPluginId) throws IOException {
         Path path = RuntimeFiles.peekPluginCredentialPath(ownerPluginId).toAbsolutePath().normalize();
         top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(path, false);
         if (!Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return Map.of();
@@ -162,14 +169,25 @@ public class PluginCredentialStore {
             throws IOException {
         Objects.requireNonNull(ownerPluginIds, "ownerPluginIds");
         Objects.requireNonNull(operation, "operation");
+        if (ownerPluginIds.isEmpty()) {
+            operation.run();
+            return;
+        }
         if (cipher == null && Files.exists(RuntimeFiles.pluginCredentialKeyPath())) {
             writableStore(true).withOwnerLocks(ownerPluginIds, operation);
             return;
         }
+        withLocks(ownerPluginIds, operation, true);
+    }
+
+    /** 只锁定请求涉及的 owner，读取时保留安装密钥与信封的原始状态。 */
+    public void withReadLocks(Collection<String> owners, IoOperation operation) throws IOException {
+        withLocks(owners, operation, false);
+    }
+
+    private static void withLocks(Collection<String> owners, IoOperation operation, boolean createDirectory) throws IOException {
         LinkedHashSet<Path> uniquePaths = new LinkedHashSet<>();
-        for (String ownerPluginId : ownerPluginIds) {
-            uniquePaths.add(credentialPath(ownerPluginId));
-        }
+        for (String owner : owners) uniquePaths.add(credentialPath(owner, createDirectory));
         List<Path> orderedPaths = new ArrayList<>(uniquePaths);
         orderedPaths.sort(Comparator.comparing(Path::toString));
         runWithLocks(orderedPaths, 0, operation);
@@ -234,15 +252,21 @@ public class PluginCredentialStore {
     }
 
     private static Path credentialPath(String ownerPluginId) throws IOException {
+        return credentialPath(ownerPluginId, true);
+    }
+
+    private static Path credentialPath(String ownerPluginId, boolean createDirectory) throws IOException {
         top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(
                 RuntimeFiles.peekPluginCredentialPath(ownerPluginId), false);
-        Path resolved = RuntimeFiles.resolvePluginCredentialPath(ownerPluginId)
+        Path resolved = (createDirectory ? RuntimeFiles.resolvePluginCredentialPath(ownerPluginId)
+                : RuntimeFiles.peekPluginCredentialPath(ownerPluginId))
                 .toAbsolutePath()
                 .normalize();
         Path parent = resolved.getParent();
         if (parent == null) {
             throw new IOException("Plugin credential path has no parent directory");
         }
+        if (!createDirectory && Files.notExists(parent)) return resolved;
         return parent.toRealPath().resolve(resolved.getFileName()).normalize();
     }
 

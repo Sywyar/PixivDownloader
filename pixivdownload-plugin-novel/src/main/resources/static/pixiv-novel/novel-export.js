@@ -151,11 +151,11 @@
             activeRequest = null;
             options.toast(t('manage.export-started'), 'success');
             window.PixivSideModules.trackArchive(data.archiveToken, {
-                onReady: () => {
-                    options.toast(t('manage.export-ready'), 'success');
-                    if (choice.deleteAfter) options.onDeleted?.();
+                onReady: (_, deletion, notice) => {
+                    options.toast(notice?.text || t('manage.export-ready'), notice?.level || 'success');
+                    if (deletion?.deletedWorks > 0) options.onDeleted?.();
                 },
-                onFailed: status => options.toast(t(status === 'empty' ? 'manage.export-empty' : 'manage.export-failed'), 'error')
+                onFailed: (status, notice) => options.toast(notice?.text || t(status === 'empty' ? 'manage.export-empty' : 'manage.export-failed'), 'error')
             });
             options.onSubmitted?.();
             window.PixivSideModules.openTasks();

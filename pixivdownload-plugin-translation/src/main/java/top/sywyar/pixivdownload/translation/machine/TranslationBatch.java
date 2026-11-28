@@ -12,6 +12,7 @@ public final class TranslationBatch {
     private final int textLimit;
     private final int charsLimit;
     private final int countLimit;
+    private final int utf16Limit;
     private final Function<List<String>, List<String>> translator;
     private final StringBuilder output = new StringBuilder();
     private final StringBuilder literal = new StringBuilder();
@@ -19,19 +20,25 @@ public final class TranslationBatch {
     private final List<String> prefixes = new ArrayList<>();
     private int chars;
 
-    private TranslationBatch(int textLimit, int charsLimit, int countLimit, Function<List<String>, List<String>> translator) {
-        if (textLimit < 1 || charsLimit < textLimit || countLimit < 1)
+    private TranslationBatch(int textLimit, int charsLimit, int countLimit, int utf16Limit, Function<List<String>, List<String>> translator) {
+        if (textLimit < 1 || charsLimit < textLimit || countLimit < 1 || utf16Limit < 2)
             throw new IllegalArgumentException("translation.segment-size");
         this.textLimit = textLimit;
         this.charsLimit = charsLimit;
         this.countLimit = countLimit;
+        this.utf16Limit = utf16Limit;
         this.translator = translator;
     }
 
     public static String translate(String source, int textLimit, int charsLimit, int countLimit,
                                    Function<List<String>, List<String>> translator) {
+        return translate(source, textLimit, charsLimit, countLimit, Integer.MAX_VALUE, translator);
+    }
+
+    public static String translate(String source, int textLimit, int charsLimit, int countLimit, int utf16Limit,
+                                   Function<List<String>, List<String>> translator) {
         if (source.length() > OUTPUT_CHARS) throw new IllegalStateException("translation.response-too-large");
-        var batch = new TranslationBatch(textLimit, charsLimit, countLimit, translator);
+        var batch = new TranslationBatch(textLimit, charsLimit, countLimit, utf16Limit, translator);
         var matcher = TOKENS.matcher(source);
         int offset = 0;
         while (matcher.find()) {
@@ -69,6 +76,10 @@ public final class TranslationBatch {
             }
             int count = Math.min(textLimit, remaining);
             int end = text.offsetByCodePoints(offset, count);
+            if (end - offset > utf16Limit) {
+                end = offset + utf16Limit;
+                if (Character.isHighSurrogate(text.charAt(end - 1))) end--;
+            }
             // 优先保留句子和单词；没有可用边界的超长词才按码点切分。
             if (end < text.length()) {
                 for (int at = end; at > offset;) {

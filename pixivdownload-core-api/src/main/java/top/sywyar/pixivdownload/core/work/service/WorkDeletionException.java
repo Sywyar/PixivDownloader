@@ -14,7 +14,9 @@ public final class WorkDeletionException extends RuntimeException {
         /**
          * 原因。
          */
-        LOCAL_FILE_DELETE_FAILED
+        LOCAL_FILE_DELETE_FAILED,
+        /** 无法确认全部待删除文件的独占归属，例如缺少逐页记录、与其他作品共用或正被另一操作使用。 */
+        INCOMPLETE_FILE_OWNERSHIP
     }
 
     /**

@@ -63,8 +63,14 @@ class PathPrefixSymbolicRootTest {
         dataSource.destroy();
     }
 
+    private top.sywyar.pixivdownload.core.asset.DownloadDirectories directories(PathPrefixCodec codec) {
+        return new top.sywyar.pixivdownload.core.asset.DownloadDirectories(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec, null);
+    }
+
     private void createPathColumnTables() {
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("CREATE TABLE artwork_image_hashes(artwork_id INTEGER, page INTEGER)");
             for (var table : PATH_COLUMNS.all()) {
                 st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + (table.idColumn().equals("reference_id") || table.idColumn().equals("entry_id")
                         ? " TEXT PRIMARY KEY, " : " INTEGER PRIMARY KEY, ")
@@ -98,16 +104,27 @@ class PathPrefixSymbolicRootTest {
 
         @org.junit.jupiter.params.ParameterizedTest
         @org.junit.jupiter.params.provider.ValueSource(strings = {"/fixture/İ", "C:\\fixture\\İ"})
-        @DisplayName("Unicode 大小写映射不改变路径后缀，活动编解码与离线快照一致")
+        @DisplayName("大小写按路径平台比较，保留 Unicode 后缀且离线快照一致")
         void preservesSuffixWhenCaseMappingChangesLength(String prefix) {
             long id = codec.forceCreatePrefixId(prefix);
             var snapshot = PathPrefixCodec.snapshot(new DownloadConfig().getRootFolder(), codec.snapshot());
             for (StoredPathCodec paths : java.util.List.of(codec, snapshot)) {
                 assertThat(paths.encode(prefix + "/file-İ/图.png")).isEqualTo("{" + id + "}/file-İ/图.png");
                 assertThat(paths.encode(prefix.toLowerCase(java.util.Locale.ROOT) + "/file.png"))
-                        .isEqualTo("{" + id + "}/file.png");
+                        .isEqualTo(prefix.toLowerCase(java.util.Locale.ROOT) + "/file.png");
+                String alternateCase = prefix.replace("fixture", "FIXTURE") + "/file.png";
+                assertThat(paths.encode(alternateCase)).isEqualTo(prefix.startsWith("/") ? alternateCase : "{" + id + "}/file.png");
                 assertThat(paths.resolve("{" + id + "}/file-İ/图.png")).isEqualTo(prefix + "/file-İ/图.png");
                 assertThat(paths.encode(prefix + "other/file.png")).isEqualTo(prefix + "other/file.png");
+                String parent = prefix + "/link/../work";
+                assertThat(paths.encode(parent)).isEqualTo(parent);
+                assertThat(paths.encode(prefix + "/..")).isEqualTo(prefix + "/..");
+                for (String name : java.util.List.of("..backup", "part\u2028two", ".\u2028", "line\u2029")) {
+                    String encoded = "{" + id + "}/" + name;
+                    assertThat(paths.encode(prefix + "/" + name)).isEqualTo(encoded);
+                    assertThat(paths.encode(encoded)).isEqualTo(encoded);
+                    assertThat(paths.resolve(encoded)).isEqualTo(prefix + "/" + name);
+                }
             }
         }
 
@@ -387,7 +404,7 @@ class PathPrefixSymbolicRootTest {
             Path oldRoot = Files.createDirectory(tempDir.resolve("old-root"));
             execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");
             PathPrefixMigrationService service = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS,
-                    absConfig, TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+                    absConfig, TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), directories(absCodec));
             assertThat(service.symbolicRootStatus().orphan()).isTrue();
             assertThat(service.symbolicRootStatus().suggestedOldPath()).isEqualTo(rootPath);
 

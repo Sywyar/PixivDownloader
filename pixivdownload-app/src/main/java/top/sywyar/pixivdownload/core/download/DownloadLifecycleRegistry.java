@@ -214,8 +214,11 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
         } catch (VirtualMachineError | ThreadDeath fatal) {
             throw fatal;
         } catch (Throwable failure) {
-            var reason = failure instanceof DownloadTaskException known && known.code() == DownloadTaskException.Code.WORK_NOT_FOUND
-                    ? DownloadEvent.FailureReason.WORK_NOT_FOUND : null;
+            var reason = failure instanceof DownloadTaskException known ? switch (known.code()) {
+                case WORK_NOT_FOUND -> DownloadEvent.FailureReason.WORK_NOT_FOUND;
+                case UPSTREAM_RATE_LIMITED -> DownloadEvent.FailureReason.UPSTREAM_RATE_LIMITED;
+                default -> null;
+            } : null;
             publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED, reason));
             if (failure instanceof DownloadTaskException known) throw known;
             if (failure instanceof ExternalCapabilityUnavailableException

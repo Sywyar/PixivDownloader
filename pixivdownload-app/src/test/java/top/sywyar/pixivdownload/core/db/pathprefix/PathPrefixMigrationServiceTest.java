@@ -68,13 +68,89 @@ class PathPrefixMigrationServiceTest {
         idB = codec.getOrCreatePrefixId(dirB.toString());
         idC = codec.getOrCreatePrefixId(dirC.toString());
 
-        // 不依赖真实事务管理器：withoutTransaction 直接执行回调，足以验证两阶段写入避免瞬时 UNIQUE 冲突
         service = new PathPrefixMigrationService(codec, mapper, PATH_COLUMNS, new DownloadConfig(),
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+                TestI18nBeans.appMessages(), new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource),
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), directories(codec));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"/api/tools/path-prefixes", "/api/gui/path-prefixes"})
+    void registrationReportsCommittedChangesAndRollsBackMixedWrites(String route) throws Exception {
+        var mvc = http();
+        boolean tool = route.contains("/tools/");
+        var post = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(route)
+                .header("Host", "localhost").contentType("application/json");
+        var json = tools.jackson.databind.json.JsonMapper.shared();
+        var body = json.createObjectNode();
+        var paths = body.putArray("registerPaths").add(dirD.toString()).add(123);
+        var response = mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(tool ? 400 : 200);
+        var error = json.readTree(response.getContentAsByteArray());
+        assertThat(error.at(tool ? "/field" : "/errors/0/field").asString()).isEqualTo("/registerPaths/1");
+        assertThat(mapper.findIdByPath(dirD.toString())).isNull();
+        assertThat(mapper.findIdByPath("123")).isNull();
+
+        paths.removeAll().add(dirD.toString()).add("relative-directory");
+        response = mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(tool ? 400 : 200);
+        error = json.readTree(response.getContentAsByteArray());
+        assertThat(error.at("/errors/0/field").asString()).isEqualTo("/registerPaths/1");
+        assertThat(error.at("/errors/0/reason").asString()).isEqualTo("not-absolute");
+        assertThat(mapper.findIdByPath("relative-directory")).isNull();
+        assertThat(mapper.findIdByPath(dirD.toString())).isNull();
+
+        paths.removeAll().add(dirE.toString()).add(dirB.toString());
+        body.putArray("updates").addObject().put("id", idA).put("path", dirD.toString());
+        execute("CREATE TRIGGER reject_prefix BEFORE INSERT ON path_prefixes BEGIN SELECT RAISE(ABORT, 'fixture registration failed'); END");
+        response = mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(tool ? 500 : 200);
+        var failed = json.readTree(response.getContentAsByteArray());
+        assertThat(failed.required("success").asBoolean()).isFalse();
+        assertThat(failed.required("applied").asInt()).isZero();
+        assertThat(failed.at("/errors/0/reason").asString()).isEqualTo("write-failed");
+        assertThat(stored(idA)).isEqualTo(strip(dirA));
+        assertThat(mapper.findIdByPath(dirE.toString())).isNull();
+        execute("DROP TRIGGER reject_prefix");
+
+        response = mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        var result = json.readValue(response.getContentAsByteArray(), PathPrefixMigrationResult.class);
+        assertThat(result.success()).isTrue();
+        assertThat(result.applied()).isEqualTo(2);
+        assertThat(result.registered()).isOne();
+        assertThat(result.alreadyRegistered()).isOne();
+        assertThat(stored(idA)).isEqualTo(strip(dirD));
+        var prefixId = mapper.findIdByPath(dirE.toString());
+        assertThat(prefixId).isNotNull();
+        body.remove("updates");
+        paths.removeAll().add(dirE.toString());
+        result = json.readValue(mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse().getContentAsByteArray(),
+                PathPrefixMigrationResult.class);
+        assertThat(result.success()).isTrue();
+        assertThat(result.applied()).isZero();
+        assertThat(result.registered()).isZero();
+        assertThat(result.alreadyRegistered()).isOne();
+        assertThat(mapper.findIdByPath(dirE.toString())).isEqualTo(prefixId);
+    }
+
+    @Test
+    void codecRejectsRelativePrefixesAndPreservesAbsoluteLibraryPathsFromOtherPlatforms() {
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException().isThrownBy(() -> codec.forceCreatePrefixId("relative"));
+        assertThat(mapper.findIdByPath("relative")).isNull();
+        for (String path : List.of("/old/library", "D:/old/library", "\\\\server\\share\\library")) {
+            assertThat(codec.forceCreatePrefixId(path)).isPositive();
+            assertThat(mapper.findIdByPath(path)).isNotNull();
+        }
+    }
+
+    private top.sywyar.pixivdownload.core.asset.DownloadDirectories directories(PathPrefixCodec codec) {
+        return new top.sywyar.pixivdownload.core.asset.DownloadDirectories(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec, null);
     }
 
     private void createPathColumnTables() {
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("CREATE TABLE artwork_image_hashes(artwork_id INTEGER, page INTEGER)");
             for (var table : PATH_COLUMNS.all()) {
                 st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + (table.idColumn().equals("reference_id") || table.idColumn().equals("entry_id")
                         ? " TEXT PRIMARY KEY, " : " INTEGER PRIMARY KEY, ")
@@ -88,6 +164,171 @@ class PathPrefixMigrationServiceTest {
     @AfterEach
     void tearDown() {
         dataSource.destroy();
+    }
+
+    private org.springframework.test.web.servlet.MockMvc http() {
+        var messages = TestI18nBeans.appMessages();
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new PathPrefixToolsController(service, new top.sywyar.pixivdownload.gui.ToolApiRequests(messages,
+                        org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.WebI18nService.class)), messages),
+                new top.sywyar.pixivdownload.gui.controller.PathPrefixController(service)).build();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.LINUX)
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"register", "update", "pin"})
+    void preservesTrailingSpaceInDirectorySelection(String operation) throws Exception {
+        Path neighbour = Files.createDirectory(dirD.resolve("images"));
+        Path selected = Files.createDirectory(dirD.resolve("images "));
+        long neighbourId = codec.getOrCreatePrefixId(neighbour.toString());
+        var json = tools.jackson.databind.json.JsonMapper.shared();
+        var body = json.createObjectNode();
+        String route = "/api/tools/path-prefixes";
+        switch (operation) {
+            case "register" -> body.putArray("registerPaths").add(selected.toString());
+            case "update" -> body.putArray("updates").addObject().put("id", idA).put("path", selected.toString());
+            case "pin" -> {
+                execute("INSERT INTO artworks(artwork_id, folder) VALUES(1, '{0}/work')");
+                route += "/pin";
+                body.put("path", selected.toString());
+            }
+        }
+        var response = http().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(route)
+                .contentType("application/json").content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(json.readTree(response.getContentAsByteArray()).required("applied").asInt()).isOne();
+        Long id = mapper.findIdByPath(selected.toString());
+        assertThat(id).isNotNull().isNotEqualTo(neighbourId);
+        if (operation.equals("update")) assertThat(id).isEqualTo(idA);
+        if (operation.equals("pin")) assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id=1"))
+                .isEqualTo("{" + id + "}/work");
+        String stored = mapper.findPathById(id);
+        assertThat(stored).isEqualTo(selected.toString());
+        assertThat(Files.isSameFile(Path.of(stored), selected)).isTrue();
+        assertThat(Files.isSameFile(Path.of(stored), neighbour)).isFalse();
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+    void equivalentRegistrationsShareTheIdUsedByArtworkEncoding() throws Exception {
+        String forward = dirD.toString().replace('\\', '/');
+        assertThat(Files.isSameFile(dirD, Path.of(forward))).isTrue();
+        var mvc = http();
+        var post = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/tools/path-prefixes")
+                .contentType("application/json");
+        var json = tools.jackson.databind.json.JsonMapper.shared();
+        var body = json.createObjectNode();
+        String dotted = dirD.resolve(".").toString();
+        assertThat(Files.isSameFile(dirD, Path.of(dotted))).isTrue();
+        var paths = body.putArray("registerPaths").add(forward).add(dirD.toString()).add(dotted);
+        var response = mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        var result = json.readValue(response.getContentAsByteArray(), PathPrefixMigrationResult.class);
+        assertThat(result.registered()).isOne();
+        assertThat(result.alreadyRegistered()).isEqualTo(2);
+        paths.removeAll().add(dotted.toUpperCase(java.util.Locale.ROOT));
+        result = json.readValue(mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn()
+                .getResponse().getContentAsByteArray(), PathPrefixMigrationResult.class);
+        assertThat(result.registered()).isZero();
+        assertThat(result.alreadyRegistered()).isOne();
+        var listed = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/tools/path-prefixes"))
+                .andReturn().getResponse();
+        var ids = json.readTree(listed.getContentAsByteArray()).required("prefixes").valueStream()
+                .filter(p -> Path.of(p.required("path").asString()).equals(dirD)).map(p -> p.required("id").asLong()).toList();
+        assertThat(ids).hasSize(1);
+        long id = ids.getFirst();
+        String token = "{" + id + "}/work";
+        assertThat(codec.encode(forward + "/work")).isEqualTo(token);
+        assertThat(codec.encode(dirD.resolve("work").toString())).isEqualTo(token);
+        execute("INSERT INTO artworks(artwork_id,folder) VALUES(1,'" + token + "')");
+        String second = codec.encode(dotted + "\\.\\Cover");
+        assertThat(second).isEqualTo("{" + id + "}/Cover");
+        execute("INSERT INTO artworks(artwork_id,folder) VALUES(2,'" + second + "')");
+        assertThat(service.apply(List.of(new PathPrefixUpdate(idC, dotted)), List.of()).success()).isFalse();
+        body.remove("registerPaths");
+        body.putArray("updates").addObject().put("id", id).put("path", dirE.toString());
+        result = json.readValue(mvc.perform(post.content(json.writeValueAsBytes(body))).andReturn()
+                .getResponse().getContentAsByteArray(), PathPrefixMigrationResult.class);
+        assertThat(result.applied()).isOne();
+        assertThat(Path.of(codec.resolve(queryString("SELECT folder FROM artworks WHERE artwork_id=1")))).isEqualTo(dirE.resolve("work"));
+        assertThat(Path.of(codec.resolve(queryString("SELECT folder FROM artworks WHERE artwork_id=2")))).isEqualTo(dirE.resolve("Cover"));
+    }
+
+    @Test
+    void posixLibraryPrefixesKeepCaseAndLiteralBackslashes() {
+        String upper = "/Library/Art";
+        String lower = "/Library/art";
+        String trailingBackslash = "/Library/art\\";
+        long a = codec.forceCreatePrefixId(upper);
+        long b = codec.forceCreatePrefixId(lower);
+        long c = codec.forceCreatePrefixId(trailingBackslash);
+        assertThat(List.of(a, b, c)).doesNotHaveDuplicates();
+        assertThat(codec.encode(upper + "/cover")).isEqualTo("{" + a + "}/cover");
+        assertThat(codec.encode(lower + "/cover")).isEqualTo("{" + b + "}/cover");
+        assertThat(codec.encode(trailingBackslash + "/cover")).isEqualTo("{" + c + "}/cover");
+        assertThat(codec.resolve("{" + c + "}/cover")).isEqualTo(trailingBackslash + "/cover");
+        assertThat(codec.forceCreatePrefixId("/Library/./Art/.")).isEqualTo(a);
+        assertThat(codec.encode("/Library/./Art/./.cover")).isEqualTo("{" + a + "}/.cover");
+        assertThat(codec.encode("/Library/other/../Art/cover")).isEqualTo("/Library/other/../Art/cover");
+        assertThat(codec.forceCreatePrefixId(lower + "\\.")).isNotEqualTo(b);
+        assertThat(PathPrefixCodec.comparisonKey("\\\\server\\share\\.\\Art\\.")).isEqualTo(PathPrefixCodec.comparisonKey("//server/share/Art"));
+    }
+
+    @Test
+    void legacyPrefixIdsRemainIndividuallyResolvableAndNewReferencesChooseTheLowestId() {
+        String first = "D:/Legacy/Library";
+        String alias = "d:\\legacy\\LIBRARY";
+        long firstId = codec.forceCreatePrefixId(first);
+        mapper.insertIfAbsent(alias);
+        long aliasId = mapper.findIdByPath(alias);
+        codec.reload();
+        assertThat(codec.getOrCreatePrefixId(alias)).isEqualTo(firstId);
+        assertThat(codec.encode(alias + "\\work")).isEqualTo("{" + firstId + "}/work");
+        assertThat(service.apply(List.of(new PathPrefixUpdate(firstId, dirD.toString())), List.of()).success()).isTrue();
+        assertThat(codec.resolve("{" + firstId + "}/work")).isEqualTo(dirD + "/work");
+        assertThat(codec.resolve("{" + aliasId + "}/old")).isEqualTo(alias + "/old");
+        assertThat(codec.getOrCreatePrefixId(first)).isEqualTo(aliasId);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"/api/tools/path-prefixes/pin", "/api/gui/path-prefixes/pin"})
+    void pinReportsStorageFailureBeforeTheSameInputSucceeds(String route) throws Exception {
+        execute("INSERT INTO artworks(artwork_id, folder) VALUES(1, '{0}/100')");
+        var json = tools.jackson.databind.json.JsonMapper.shared();
+        var post = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(route)
+                .header("Host", "localhost").contentType("application/json")
+                .content(json.writeValueAsBytes(java.util.Map.of("path", dirD.toString())));
+        var mvc = http();
+        execute("CREATE TRIGGER reject_pin BEFORE INSERT ON path_prefixes BEGIN SELECT RAISE(ABORT,'fixture write failure'); END");
+        var response = mvc.perform(post).andReturn().getResponse();
+        boolean tool = route.contains("/tools/");
+        assertThat(response.getStatus()).isEqualTo(tool ? 500 : 200);
+        var failure = json.readTree(response.getContentAsByteArray());
+        if (tool) assertThat(failure.required("code").asString()).isEqualTo("PATH_PREFIX_WRITE_FAILED");
+        assertThat(failure.required("success").asBoolean()).isFalse();
+        assertThat(failure.required("applied").asInt()).isZero();
+        assertThat(failure.at("/errors/0/reason").asString()).isEqualTo("write-failed");
+        assertThat(codec.isSymbolicRootActive()).isTrue();
+        assertThat(mapper.findIdByPath(dirD.toString())).isNull();
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id=1")).isEqualTo("{0}/100");
+        execute("DROP TRIGGER reject_pin");
+        // The insert succeeds, then a real duplicate-key failure interrupts reference rewriting.
+        execute("CREATE TRIGGER collide_pin AFTER UPDATE OF folder ON artworks BEGIN INSERT INTO artworks(artwork_id) VALUES(1); END");
+        response = mvc.perform(post).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(tool ? 400 : 200);
+        var conflict = json.readTree(response.getContentAsByteArray());
+        if (tool) assertThat(conflict.required("code").asString()).isEqualTo("PATH_PREFIX_REJECTED");
+        assertThat(conflict.at("/errors/0/reason").asString()).isEqualTo("conflict");
+        assertThat(mapper.findIdByPath(dirD.toString())).isNull();
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id=1")).isEqualTo("{0}/100");
+        assertThat(codec.isSymbolicRootActive()).isTrue();
+        execute("DROP TRIGGER collide_pin");
+        response = mvc.perform(post).andReturn().getResponse();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(json.readTree(response.getContentAsByteArray()).required("success").asBoolean()).isTrue();
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id=1"))
+                .isEqualTo("{" + mapper.findIdByPath(dirD.toString()) + "}/100");
+        assertThat(codec.isSymbolicRootActive()).isFalse();
     }
 
     @Test
@@ -200,7 +441,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
         absCodec.init();
         PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS, absConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), directories(absCodec));
 
         PathPrefixMigrationResult result = absService.apply(List.of(
                 new PathPrefixUpdate(0L, dirD.toString())), List.of());
@@ -236,7 +477,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), directories(relCodec));
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
 
@@ -258,7 +499,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), directories(relCodec));
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
         assertThat(relCodec.isSymbolicRootActive()).isTrue();

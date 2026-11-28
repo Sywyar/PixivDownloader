@@ -1,61 +1,26 @@
 package top.sywyar.pixivdownload.core.download;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
-import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.service.WorkFileLock;
 
-/**
- * 把作品移动落库：图片分类器（{@code ImageClassifier} 桌面端经
- * {@code POST /api/downloaded/move/{artworkId}}）将作品移动到目标目录后，
- * 由本服务写入 {@code artworks.move_*} 并递增 {@code statistics.total_moved}。
- * <p>
- * 写核心 {@code artworks} / {@code statistics} 表、属下载事实，因此是核心 Spring 服务；
- * 与分类器的集成只发生在 REST 端点上（分类器经 HTTP 调用，本服务不持有任何分类器逻辑）。
- * 方法标 {@code @Async} 异步落库，经 CGLIB 代理生效；委托池化的 {@link PixivDatabase}，不自写 SQL。
- */
-@Slf4j
+/** 将调用方已完成的文件移动登记到作品库，同时更新移动统计。 */
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class ArtworkMoveService {
-
     private final PixivDatabase pixivDatabase;
-    private final AppMessages messages;
 
-    public ArtworkMoveService(PixivDatabase pixivDatabase, AppMessages messages) {
-        this.pixivDatabase = pixivDatabase;
-        this.messages = messages;
-    }
-
-    @Async
-    public void moveArtWork(Long artworkId, String movePath, Long moveTime) {
-        moveArtWork(artworkId, movePath, moveTime, null);
-    }
-
-    @Async
-    public void moveArtWork(Long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
-        try {
-            recordMove(artworkId, movePath, moveTime, classifierTargetFolder);
-        } catch (Exception e) {
-            log.error(messages.getForLog("download.log.move-record.failed", e.getMessage()), e);
-        }
-    }
-
-    /** 同步记录移动结果，供需要区分文件完成与记录失败的调用方使用。 */
     public boolean recordMove(long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
-        try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
-            ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
-            if (existing == null) {
-                return false;
-            }
-            pixivDatabase.updateArtworkMove(artworkId, movePath,
+        try (var lease = WorkFileLock.acquire(WorkType.ARTWORK, artworkId)) {
+            boolean recorded = pixivDatabase.updateArtworkMove(artworkId, movePath,
                     EpochMillisNormalizer.normalize(moveTime), classifierTargetFolder);
-            if (!existing.moved()) {
-                pixivDatabase.incrementMoved();
-            }
-            return true;
+            log.info("Artwork move registration id={} result={}", artworkId, recorded ? "recorded" : "not-found");
+            return recorded;
         }
     }
 }

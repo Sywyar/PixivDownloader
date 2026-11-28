@@ -60,10 +60,11 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
     public record Request(String name, String sourceType, String activationToken, String definitionJson, String proxy) {
         @Override public String toString() { return "BatchRequest[redacted]"; }
     }
-    public enum State { RUNNING, PAUSING, CANCELLING, PAUSED, CANCELLED, COMPLETED, FAILED, SUSPENDED }
+    public enum State { RUNNING, PAUSING, CANCELLING, PAUSED, CANCELLED, COMPLETED, FAILED, SUSPENDED, RETRY_LATER }
     public record View(UUID id, String name, String sourceType, State state,
                        @Schema(types = {"string", "null"}, examples = {"batch.work-failed", "batch.work.capacity-exceeded",
                                "schedule.error.source-publication-changed"}) String code,
+                       @Schema(types = {"integer", "null"}, format = "int64", minimum = "0") Long retryAfterMillis,
                        @Schema(types = {"string", "null"}) String programPermission,
                        @top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable String field,
                        @top.sywyar.pixivdownload.plugin.api.web.HttpApiNullable String reason, int run,
@@ -81,11 +82,19 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
         Batch batch = require(id);
         if (!running || active(batch) || expectedRun != batch.run || batch.state == State.COMPLETED)
             throw new IllegalStateException("batch.not-idle");
-        var candidates = credentialCandidates(credential);
-        batch.clearCredentials();
-        batch.secrets.addAll(candidates);
-        batch.prepared = false;
-        LOG.info("Manual batch credentials replaced id={} run={} present={}", id, batch.run, !candidates.isEmpty());
+        Runnable replace = () -> {
+            var candidates = credentialCandidates(credential);
+            batch.clearCredentials();
+            batch.secrets.addAll(candidates);
+            batch.task = null;
+            batch.prepared = false;
+        };
+        if (batch.task != null && batch.task.credentialSecretReference() != null) {
+            ScheduleCredentialService.withMutableBinding(capabilities, batch.task, replace);
+        } else {
+            replace.run();
+        }
+        LOG.info("Manual batch credentials replaced id={} run={} present={}", id, batch.run, !batch.secrets.isEmpty());
         return view(batch);
     }
 
@@ -97,16 +106,16 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
     public synchronized View resolve(UUID id, Resolve request) {
         Batch batch = require(id);
         if (active(batch) || request.expectedRun() != batch.run) throw new IllegalStateException("batch.not-idle");
-        if (request.userAction() == null || !request.userAction().matches("[A-Z][A-Z0-9_]{0,63}")) throw new IllegalArgumentException();
         var key = new ScheduledWorkKey(request.workType(), request.workId());
         synchronized (batch) {
             var row = batch.pending.get(key);
             if (row == null || !Objects.equals(request.reasonCode(), row.reasonCode())
                     || !json.readTree(row.reasonDetailJson()).path("requiresUserAction").asBoolean(false))
                 throw new IllegalStateException("batch.action-changed");
+            if (!row.acceptsUserAction(request.userAction())) throw new InputFieldException("/userAction", "invalid_value");
             batch.pending.put(key, new ScheduledPendingWork(row.taskId(), row.workType(), row.workId(), row.payloadSchema(),
                     row.payloadVersion(), row.payloadJson(), row.relationsJson(), row.presentationJson(), row.reasonCode(),
-                    json.writeValueAsString(Map.of("requiresUserAction", true, "userAction", request.userAction(), "rememberForRun", request.rememberForRun())),
+                    json.writeValueAsString(Map.of("requiresUserAction", false, "userAction", request.userAction(), "rememberForRun", request.rememberForRun())),
                     row.attempts(), row.firstSeenTime(), row.lastAttemptTime()));
         }
         return view(batch);
@@ -212,7 +221,10 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
     public synchronized View stop(UUID id, boolean pause) {
         Batch batch = require(id);
         if (!active(batch)) {
-            if (!pause && batch.state != State.COMPLETED) batch.state = State.CANCELLED;
+            if (!pause && batch.state != State.COMPLETED) {
+                batch.state = State.CANCELLED;
+                batch.retryAfterMillis = null;
+            }
             return view(batch);
         }
         batch.state = pause ? State.PAUSING : State.CANCELLING;
@@ -231,17 +243,11 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
         requireSource(batch.request.sourceType(), program);
         batch.program = program;
         if (failedOnly) {
-            var retry = batch.ledger.retryRows(1, codec);
-            if (retry.isEmpty()) throw new IllegalStateException("batch.no-failed-work");
             synchronized (batch) {
-                var previous = new LinkedHashMap<>(batch.pending);
+                var retry = batch.ledger.retryRows(1, codec, batch.pending);
+                if (retry.isEmpty()) throw new IllegalStateException("batch.no-failed-work");
                 batch.pending.clear();
-                retry.forEach(row -> {
-                    var old = previous.get(new ScheduledWorkKey(row.workType(), row.workId()));
-                    batch.upsertPendingWork(old == null ? row : new ScheduledPendingWork(row.taskId(), row.workType(), row.workId(), row.payloadSchema(),
-                            row.payloadVersion(), row.payloadJson(), row.relationsJson(), row.presentationJson(), row.reasonCode(),
-                            old.reasonDetailJson(), 0, old.firstSeenTime(), old.lastAttemptTime()));
-                });
+                retry.forEach(batch::upsertPendingWork);
             }
         }
         launch(batch, failedOnly);
@@ -258,6 +264,7 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
     private void launch(Batch batch, boolean pendingOnly) {
         batch.state = State.RUNNING;
         batch.code = null;
+        batch.retryAfterMillis = null;
         batch.programPermission = null;
         batch.field = null;
         batch.reason = null;
@@ -276,6 +283,7 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
 
     private void execute(Batch batch, ScheduleRunState.Claim claim, boolean pendingOnly) {
         String code = null;
+        Long retryAfterMillis = null;
         String missingPermission = null;
         InputFieldException invalidInput = null;
         State result = State.COMPLETED;
@@ -284,19 +292,20 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
             if (batch.runs.isCancelRequested(1)) throw ScheduledExecutionException.cancelled();
             if (!batch.prepared) prepare(batch);
             if (batch.runs.isCancelRequested(1)) throw ScheduledExecutionException.cancelled();
+            if (!pendingOnly) batch.discoveryComplete = false;
             var execution = batch.engine.executeBatch(batch.task, batch.request.activationToken(), pendingOnly,
                     decision -> suspendAccount(batch, decision));
             if (!pendingOnly) batch.discoveryComplete = true;
             if (execution.credentialRevoked()) batch.clearCredentials();
-            if (batch.ledger.counts().failed() > 0) {
-                result = State.FAILED;
-                code = "batch.work-failed";
-            } else if (!batch.discoveryComplete) {
-                result = State.PAUSED;
-                code = "batch.discovery-incomplete";
-            }
+
         } catch (ScheduleExecutionControlException failure) {
-            result = State.SUSPENDED; code = failure.reasonCode();
+            result = switch (failure.action()) {
+                case SUSPEND_CREDENTIAL, SUSPEND_POLICY_TASK, SUSPEND_POLICY_ACCOUNT -> State.SUSPENDED;
+                case RETRY_LATER -> State.RETRY_LATER;
+                case FAIL, CONTINUE, REVOKE_CREDENTIAL_AND_CONTINUE -> State.FAILED;
+            };
+            code = failure.reasonCode();
+            if (result == State.RETRY_LATER) retryAfterMillis = failure.retryAfterMillis();
         } catch (ScheduledExecutionException failure) {
             result = failure.category() == ScheduledFailure.Category.CANCELLED ? State.CANCELLED : State.FAILED;
             code = failure.code();
@@ -320,10 +329,20 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
             LOG.warn("Manual batch failed id={} run={} type={}", batch.id, batch.run, failure.getClass().getSimpleName());
         } finally {
             synchronized (this) {
+                synchronized (batch) { batch.ledger.pauseUndispatched(1, codec, batch.pending); }
+                if (result == State.COMPLETED) {
+                    var counts = batch.ledger.counts();
+                    if (counts.failed() > counts.undispatched()) {
+                        result = State.FAILED; code = "batch.work-failed";
+                    } else if (counts.completed() + counts.skipped() < counts.total() || !batch.discoveryComplete) {
+                        result = State.PAUSED; code = BatchWorkLedger.DISCOVERY_INCOMPLETE;
+                    }
+                }
                 if (batch.state == State.PAUSING) result = State.PAUSED;
                 else if (batch.state == State.CANCELLING) result = State.CANCELLED;
                 if (batch.ledger.capacityExceeded()) code = "batch.work.capacity-exceeded";
                 batch.state = result; batch.code = code;
+                batch.retryAfterMillis = result == State.RETRY_LATER ? retryAfterMillis : null;
                 if (invalidInput != null && "schedule.error.definition-invalid".equals(code)) {
                     batch.field = invalidInput.field();
                     batch.reason = invalidInput.reason();
@@ -375,22 +394,32 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
 
     private void prepare(Batch batch) throws Exception {
         if (batch.owner == null) prepareDefinition(batch);
-        batch.task = batch.task(null, null, null, null);
-        if (!batch.secrets.isEmpty()) {
-            try (var binding = batch.engine.prepareCredentialBinding(batch.task, batch.request.activationToken())) {
+        var unbound = batch.task(null, null, null, null);
+        if (batch.secrets.isEmpty()) {
+            batch.task = unbound;
+        } else {
+            try (var binding = batch.engine.prepareCredentialBinding(unbound, batch.request.activationToken())) {
                 if (batch.runs.isCancelRequested(1)) throw ScheduledExecutionException.cancelled();
                 List<String> candidates = batch.secrets.stream().map(String::new).toList();
                 var results = binding.probeCandidates(candidates);
                 for (var bound : results) {
-                    if (bound.probeResult().status() != ScheduledCredentialProbeResult.Status.VALID)
-                        throw new ScheduledExecutionException(ScheduledFailure.Category.CREDENTIAL_INVALID, bound.probeResult().code());
-                    if (bound.postBindResult().decision().action() != ScheduledGuardDecision.Action.CONTINUE)
-                        throw new ScheduleExecutionControlException(bound.postBindResult().decision().action(),
-                                bound.postBindResult().decision().reasonCode(), 0, bound.postBindResult().evidence());
+                    var probe = bound.probeResult();
+                    if (probe.status() == ScheduledCredentialProbeResult.Status.RETRY_LATER)
+                        throw new ScheduleExecutionControlException(ScheduledGuardDecision.Action.RETRY_LATER,
+                                probe.code(), probe.retryAfterMillis(), null);
+                    if (probe.status() != ScheduledCredentialProbeResult.Status.VALID)
+                        throw new ScheduledExecutionException(ScheduledFailure.Category.CREDENTIAL_INVALID, probe.code());
                 }
                 batch.accounts = results.stream().map(value -> value.probeResult().accountKey()).toList();
                 var first = results.getFirst();
                 batch.task = batch.task(binding.policyOwnerPluginId(), binding.policyId(), first.probeResult().accountKey(), first.initialPolicyStateJson());
+                // 探活已确认账号，即使绑定后的策略立即挂起，仍须保护这次绑定。
+                for (var bound : results) {
+                    var decision = bound.postBindResult().decision();
+                    if (decision.action() != ScheduledGuardDecision.Action.CONTINUE)
+                        throw new ScheduleExecutionControlException(decision.action(), decision.reasonCode(),
+                                decision.retryAfterMillis(), bound.postBindResult().evidence());
+                }
             }
         }
         batch.prepared = true;
@@ -420,7 +449,7 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
     private static boolean active(Batch batch) { return batch.runs.get(1) != null; }
     private static View view(Batch batch) {
         var counts = batch.ledger.counts();
-        return new View(batch.id, batch.request.name(), batch.request.sourceType(), batch.state, batch.code, batch.programPermission, batch.field, batch.reason, batch.run, batch.created,
+        return new View(batch.id, batch.request.name(), batch.request.sourceType(), batch.state, batch.code, batch.retryAfterMillis, batch.programPermission, batch.field, batch.reason, batch.run, batch.created,
                 counts.total(), counts.completed(), counts.skipped(), counts.failed());
     }
 
@@ -460,6 +489,7 @@ public final class ManualBatchService implements SmartLifecycle, ManualBatchSubm
         String owner;
         State state;
         String code;
+        Long retryAfterMillis;
         String programPermission;
         String field;
         String reason;

@@ -4,6 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixTransfer;
 import top.sywyar.pixivdownload.gui.config.DatabaseSwitchService;
 import top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
@@ -18,6 +19,7 @@ import java.util.function.Supplier;
 
 /** 归档预览只读；确认后的导入在下一进程取得实例锁后、业务初始化前执行。 */
 public final class EnvironmentTransferService implements DesktopEnvironmentTransfer {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(EnvironmentTransferService.class);
     private static final ObjectMapper JSON = top.sywyar.pixivdownload.migration.database.MigrationSchemaJson.mapper();
     private final TransferArchive archive = new TransferArchive();
     private final ConfigurationTransfer configuration;
@@ -66,13 +68,13 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
     }
 
     /** 仅供已经确认关闭实际后端并持有启动预约的离线导出调用。 */
-    void exportStopped(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
-                       boolean includeState, boolean includeResources) throws IOException {
-        export(destination, password, includeCredentials, includeDatabases, includeState, includeResources, false);
+    TransferArchive.VerifiedArchive exportStopped(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
+                                                  boolean includeState, boolean includeResources) throws IOException {
+        return export(destination, password, includeCredentials, includeDatabases, includeState, includeResources, false);
     }
 
-    private void export(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
-                        boolean includeState, boolean includeResources, boolean pauseBackend) throws IOException {
+    private TransferArchive.VerifiedArchive export(Path destination, char[] password, boolean includeCredentials, boolean includeDatabases,
+                                                   boolean includeState, boolean includeResources, boolean pauseBackend) throws IOException {
         try (var ignored = OfflineRestoreLock.acquire()) {
             requireIdle();
             if ((includeCredentials || includeDatabases || includeState) && (password == null || password.length == 0)) throw new IOException("transfer.password-required");
@@ -85,7 +87,7 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
                 if (includeDatabases) sources.addAll(databases.export(run));
                 sources.addAll(new EnvironmentFiles(session).export(run.resolve("files"), includeCredentials,
                         includeDatabases, includeState, includeResources));
-                archive.write(destination, password, host.applicationVersion(), sources);
+                return archive.writeVerified(destination, password, host.applicationVersion(), sources);
             } catch (IOException failure) { throw failure; }
             catch (Exception failure) { throw new IOException("transfer.database-failed", failure); }
             finally { discardRun(run); }
@@ -178,7 +180,7 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
 
     @Override public RestoreState restoreState() throws IOException {
         Job job = readJob();
-        return job == null ? new RestoreState(Status.NONE, "") : new RestoreState(job.status(), job.failureCode());
+        return job == null ? new RestoreState(Status.NONE, "") : new RestoreState(job.status(), job.failureCode(), job.id());
     }
 
     /** 重启请求前已发布任务，正常关闭不得再改写本次选中的窗口状态。 */
@@ -223,8 +225,17 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
                         job.databases(), job.archive(), arguments);
                 transaction.commit();
                 writeJob(job.status(Status.SUCCEEDED, ""));
+            } catch (PathPrefixTransfer.UnrepresentablePath invalid) {
+                LOG.warn(
+                        "Restore {} rejected an unrepresentable database path: {}", job.id(), invalid.getMessage());
+                recover(job, transaction, PathPrefixTransfer.UnrepresentablePath.CODE);
+            } catch (RestoredPagePaths.Conflict conflict) {
+                LOG.warn(
+                        "Restore {} rejected page mappings: {} ({})", job.id(), conflict.getMessage(), conflict.code);
+                recover(job, transaction, conflict.code);
             } catch (Exception failed) {
-                recover(job, transaction, "transfer.restore-failed");
+                recover(job, transaction, failed instanceof IOException && "transfer.target-changed".equals(failed.getMessage())
+                        ? "transfer.target-changed" : "transfer.restore-failed");
             }
         }
     }
@@ -332,6 +343,8 @@ public final class EnvironmentTransferService implements DesktopEnvironmentTrans
             Files.write(temporary, bytes, LinkOption.NOFOLLOW_LINKS);
             try (var channel = FileChannel.open(temporary, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) { channel.force(true); }
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            if (job.status() == Status.FAILED || job.status() == Status.RECOVERY_REQUIRED)
+                LOG.warn("Restore {} ended with status {} ({})", job.id(), job.status(), job.failureCode());
         } finally { Files.deleteIfExists(temporary); }
     }
 }

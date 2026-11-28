@@ -16,6 +16,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -82,17 +83,122 @@ public record PartialArtwork(long artworkId, String folder, int totalPages, Stri
      * @throws IOException 文件无法读取或为空
      */
     public static String fingerprint(Path stem, ArtworkMediaManifest manifest) throws IOException {
+        return fingerprint(stem, manifest, manifest.thumbnailOwned());
+    }
+
+    private static String fingerprint(Path stem, ArtworkMediaManifest manifest, boolean thumbnail) throws IOException {
         var result = new StringJoiner(",");
         for (String ext : manifest.extensions()) {
-            Path file = stem.resolveSibling(stem.getFileName() + "." + ext);
-            var digest = sha256();
-            try (var input = new DigestInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
-                long size = input.transferTo(OutputStream.nullOutputStream());
-                if (size == 0) throw new IOException("Empty artwork output");
-                result.add(size + ":" + HexFormat.of().formatHex(digest.digest()));
+            result.add(fingerprintFile(stem.resolveSibling(stem.getFileName() + "." + ext)));
+        }
+        if (thumbnail) result.add(fingerprintFile(stem.resolveSibling(stem.getFileName() + "_thumb.jpg")));
+        return result.toString();
+    }
+
+    private static String fingerprintFile(Path file) throws IOException {
+        String stamp = observeFile(file);
+        if (stamp.startsWith("0:")) throw new IOException("Empty artwork output");
+        return stamp;
+    }
+
+    private static String observeFile(Path file) throws IOException {
+        var digest = sha256();
+        try (var input = new DigestInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), digest)) {
+            long size = input.transferTo(OutputStream.nullOutputStream());
+            return size + ":" + HexFormat.of().formatHex(digest.digest());
+        }
+    }
+
+    /**
+     * 同布局续传前观察到的登记文件。未登记、已丢失的目标只能新建。
+     * @param observedHashes 允许替换的已有登记文件及发布前必须再次匹配的 SHA-256
+     * @param verifiedFiles 内容仍匹配原登记，可在本次不再输出时移除的文件
+     * @param preserveThumbnail 已存在用户或归属未经证实的缩略图，应原样保留并从新登记排除
+     */
+    public record PageRepair(Map<Path, String> observedHashes, Set<Path> verifiedFiles, boolean preserveThumbnail) {
+        /**
+         * 保存发布前的文件校验条件，复制文件名和摘要集合。
+         * @param observedHashes 可替换文件及其观察到的 SHA-256
+         * @param verifiedFiles 仍匹配原登记的文件
+         * @param preserveThumbnail 是否保留已存在的缩略图
+         */
+        public PageRepair {
+            observedHashes = Map.copyOf(observedHashes);
+            verifiedFiles = Set.copyOf(verifiedFiles);
+        }
+    }
+
+    /**
+     * 在开始下载该页前记录可替换文件的内容。登记的媒体格式可修复损坏；
+     * 已存在的缩略图只在原记录含有匹配摘要时重新发布。
+     * @param page 待修复的原始页索引
+     * @return 该页发布时的校验条件
+     * @throws IOException 无法读取现有文件
+     */
+    public PageRepair observeRepair(int page) throws IOException {
+        var observed = new java.util.HashMap<Path, String>();
+        var verified = new java.util.HashSet<Path>();
+        var previous = media.get(page);
+        Path stem = Path.of(folder).resolve(baseNames.get(page));
+        Path thumbnail = stem.resolveSibling(stem.getFileName() + "_thumb.jpg");
+        boolean preserveThumbnail = !Files.notExists(thumbnail, LinkOption.NOFOLLOW_LINKS);
+        if (previous != null) {
+            String[] stamps = fingerprints.getOrDefault(page, "").split(",", -1);
+            int formats = previous.extensions().size();
+            for (int index = 0; index < formats; index++) {
+                Path file = stem.resolveSibling(stem.getFileName() + "." + previous.extensions().get(index));
+                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) continue;
+                String stamp = observeFile(file);
+                observed.put(file, stamp.substring(stamp.indexOf(':') + 1));
+                if (index < stamps.length && stamp.equals(stamps[index])) verified.add(file);
+            }
+            if (previous.thumbnailOwned() && stamps.length == formats + 1 && matchesSize(thumbnail, stamps[formats])
+                    && stamps[formats].equals(fingerprintFile(thumbnail))) {
+                observed.put(thumbnail, stamps[formats].substring(stamps[formats].indexOf(':') + 1));
+                verified.add(thumbnail);
+                preserveThumbnail = false;
             }
         }
-        return result.toString();
+        return new PageRepair(observed, verified, preserveThumbnail);
+    }
+
+    /**
+     * 重建时分别核对每个已登记文件，某个副本丢失或被改写不撤销其它副本的归属。
+     * @return 可替换的路径及发布前需复核的 SHA-256
+     * @throws IOException 无法读取文件信息或内容
+     */
+    public Map<Path, String> verifiedOutputs() throws IOException {
+        var files = new java.util.HashMap<Path, String>();
+        for (var page : media.entrySet()) {
+            var manifest = page.getValue();
+            String base = baseNames.get(page.getKey());
+            String expected = fingerprints.get(page.getKey());
+            if (expected == null) continue;
+            String[] stamps = expected.split(",", -1);
+            int formats = manifest.extensions().size();
+            if (stamps.length != formats && !(manifest.thumbnailOwned() && stamps.length == formats + 1)) continue;
+            for (int index = 0; index < stamps.length; index++) {
+                String suffix = index == formats ? "_thumb.jpg" : "." + manifest.extensions().get(index);
+                Path file = Path.of(folder).resolve(base + suffix);
+                if (matchesSize(file, stamps[index]) && stamps[index].equals(fingerprintFile(file)))
+                    files.put(file, stamps[index].substring(stamps[index].indexOf(':') + 1));
+            }
+            // 旧指纹只涵盖媒体格式；已明确记录的缩略图沿用原归属。
+            if (manifest.thumbnailOwned() && stamps.length == formats) {
+                Path thumb = Path.of(folder).resolve(base + "_thumb.jpg");
+                if (Files.isRegularFile(thumb, LinkOption.NOFOLLOW_LINKS)) {
+                    String stamp = fingerprintFile(thumb);
+                    files.put(thumb, stamp.substring(stamp.indexOf(':') + 1));
+                }
+            }
+        }
+        return files;
+    }
+
+    private static boolean matchesSize(Path file, String stamp) throws IOException {
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return false;
+        long size = Files.size(file);
+        return size > 0 && (stamp == null || stamp.startsWith(size + ":"));
     }
 
     private static MessageDigest sha256() {
@@ -106,7 +212,7 @@ public record PartialArtwork(long artworkId, String folder, int totalPages, Stri
      * @throws IOException 读取文件信息失败
      */
     public Map<Integer, List<String>> availableFiles() throws IOException {
-        return availableFiles(false);
+        return availableFiles(media.keySet(), false);
     }
 
     /**
@@ -115,28 +221,43 @@ public record PartialArtwork(long artworkId, String folder, int totalPages, Stri
      * @throws IOException 无法读取文件信息或内容
      */
     public Map<Integer, List<String>> verifiedFiles() throws IOException {
-        return availableFiles(true);
+        return verifiedFiles(media.keySet());
     }
 
-    private Map<Integer, List<String>> availableFiles(boolean verify) throws IOException {
+    /** 仅校验本次请求的页，完整登记前调用无参数版本验证全部产物。
+     * @param pages 本次请求的原始页索引
+     * @return 已验证的输出文件
+     * @throws IOException 无法读取文件信息或内容
+     */
+    public Map<Integer, List<String>> verifiedFiles(Set<Integer> pages) throws IOException {
+        return availableFiles(pages, true);
+    }
+
+    private Map<Integer, List<String>> availableFiles(Set<Integer> pages, boolean verify) throws IOException {
         var files = new TreeMap<Integer, List<String>>();
-        for (var entry : media.entrySet()) {
-            int page = entry.getKey();
+        for (int page : pages) {
+            var manifest = media.get(page);
+            if (manifest == null) continue;
             String name = baseNames.get(page);
-            var outputs = entry.getValue().extensions().stream().map(ext -> name + "." + ext).toList();
+            var outputs = manifest.extensions().stream().map(ext -> name + "." + ext).toList();
             String expected = fingerprints.get(page);
             if (verify && expected == null) continue;
             String[] stamps = expected == null ? null : expected.split(",", -1);
-            if (stamps != null && stamps.length != outputs.size()) continue;
+            boolean hasThumbnailStamp = manifest.thumbnailOwned() && stamps != null && stamps.length == outputs.size() + 1;
+            if (stamps != null && stamps.length != outputs.size() && !hasThumbnailStamp) continue;
             boolean valid = true;
             for (int i = 0; i < outputs.size(); i++) {
                 Path file = Path.of(folder).resolve(outputs.get(i));
-                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) { valid = false; break; }
-                long size = Files.size(file);
-                if (size == 0 || stamps != null && !stamps[i].startsWith(size + ":")) { valid = false; break; }
+                if (!matchesSize(file, stamps == null ? null : stamps[i])) { valid = false; break; }
             }
-            if (valid && (!verify || expected.equals(fingerprint(Path.of(folder).resolve(name), entry.getValue()))))
-                files.put(page, outputs);
+            if (hasThumbnailStamp && !matchesSize(Path.of(folder).resolve(name + "_thumb.jpg"), stamps[outputs.size()])) continue;
+            if (!valid) continue;
+            if (verify) {
+                Path stem = Path.of(folder).resolve(name);
+                String actual = manifest.thumbnailOwned() && !hasThumbnailStamp ? fingerprint(stem, manifest, false) : fingerprint(stem, manifest);
+                if (!expected.equals(actual)) continue;
+            }
+            files.put(page, outputs);
         }
         return files;
     }

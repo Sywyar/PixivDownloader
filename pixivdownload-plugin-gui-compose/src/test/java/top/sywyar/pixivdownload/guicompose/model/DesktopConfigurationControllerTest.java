@@ -96,6 +96,42 @@ class DesktopConfigurationControllerTest {
     }
 
     @Test
+    void failedPinShowsTheStorageReasonAndKeepsTheRootDraft() throws Exception {
+        String root = "download.root-folder";
+        var stored = new HashMap<>(Map.of(root, "old-root"));
+        var field = new GuiConfigFieldContribution(root, "fixture", "Root", GuiConfigFieldType.STRING, "old-root", 0);
+        var listed = DesktopUiHost.GuiValue.of(Map.of("symbolicReferenced", true,
+                "prefixes", List.of(Map.of("symbolic", true, "path", "old-root"))));
+        var failed = DesktopUiHost.GuiValue.of(Map.of("success", false, "errors", List.of(Map.of("reason", "write-failed"))));
+        try (var model = model(stored, Map.of(
+                "coreConfigFields", args -> List.of(field),
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("fixture", "Fixture", 0)),
+                "normalizeRootFolder", args -> args[0],
+                "validateCoreConfigValue", args -> null,
+                "guiGet", args -> "path-prefixes".equals(args[0]) ? new DesktopUiHost.GuiResponse(true, 200, listed, "", false)
+                        : DesktopUiHost.GuiResponse.unreachable(),
+                "guiPostJson", args -> {
+                    assertEquals("path-prefixes/pin", args[0]);
+                    return new DesktopUiHost.GuiResponse(true, 200, failed, "", false);
+                }))) {
+            awaitReady(model);
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.app.download.root-folder.input", DesktopUiNode.Value.text("new-root")));
+            activate(model, "config.save");
+            DesktopSnapshotAwaiter.awaitEnabled(model, "config.symbolic-pin.confirm");
+            activate(model, "config.symbolic-pin.confirm");
+            var snapshot = DesktopSnapshotAwaiter.await(model, state -> state.document().dialogs().stream()
+                    .anyMatch(dialog -> dialog.id().equals("config.symbolic-pin.failed")));
+            var message = descendants(snapshot.document().dialogs().getFirst().content())
+                    .filter(DesktopUiNode.Text.class::isInstance).map(DesktopUiNode.Text.class::cast)
+                    .map(DesktopUiNode.Text::text).filter(token -> token.key().equals("gui.config.symbolic-pin.failed")).findFirst().orElseThrow();
+            assertEquals(List.of("gui.migrate-dir.reason.write-failed"), message.arguments());
+            assertEquals("old-root", stored.get(root));
+            assertTrue(pendingCount(model) > 0);
+        }
+    }
+
+    @Test
     @DisplayName("存储失败没有字段错误时仍显示错误提示并保留草稿")
     void storageFailureHasErrorNoticeWithoutInvalidField() throws Exception {
         DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {

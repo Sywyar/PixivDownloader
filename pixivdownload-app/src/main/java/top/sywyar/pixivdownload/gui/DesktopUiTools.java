@@ -2,19 +2,18 @@ package top.sywyar.pixivdownload.gui;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
+import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
-import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.io.IOException;
@@ -27,11 +26,11 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
 import java.util.Properties;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema;
@@ -40,13 +39,6 @@ import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.
 import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 final class DesktopUiTools {
-    private static final java.util.concurrent.locks.ReentrantLock CLASSIFICATION = new java.util.concurrent.locks.ReentrantLock();
-    static final class ClassificationBusyException extends IOException {
-        ClassificationBusyException() {
-            super(top.sywyar.pixivdownload.i18n.MessageBundles.get("gui.message.backend-busy"));
-        }
-    }
-
     private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
             CoreMigrationSchema.create(DatabaseSchemaRegistry.forBuiltInPlugins(), true);
     private static final Logger log = LoggerFactory.getLogger(DesktopUiTools.class);
@@ -81,7 +73,7 @@ final class DesktopUiTools {
         Expression filter = table.columns().stream().anyMatch(c -> c.name().equals("deleted"))
                 ? call(EQUAL, column("artworks", "deleted"), value(0)) : null;
         var fields = new java.util.LinkedHashMap<String, Expression>();
-        for (String field : List.of("artwork_id", "title", "folder", "moved", "move_folder")) fields.put(field, column("artworks", field));
+        for (String field : List.of("artwork_id", "title", "folder", "move_folder")) fields.put(field, column("artworks", field));
         var query = new Query("artworks", fields, filter, List.of(),
                 List.of(new Query.Order(column("artworks", "time"), true, false),
                         new Query.Order(column("artworks", "artwork_id"), true, false)), Integer.MAX_VALUE, 0);
@@ -92,8 +84,9 @@ final class DesktopUiTools {
             var codec = loadPathCodec(session, actual.containsKey("path_prefixes"), rootFolder);
             session.scan(query, row -> {
                 total[0] = Math.incrementExact(total[0]);
-                boolean moved = Long.valueOf(1).equals(row.get("moved"));
-                String stored = (String) (moved && row.get("move_folder") != null ? row.get("move_folder") : row.get("folder"));
+                String moveFolder = (String) row.get("move_folder");
+                boolean moved = ArtworkRecord.usesMoveFolder(moveFolder);
+                String stored = moved ? moveFolder : (String) row.get("folder");
                 String path = codec.resolve(stored);
                 if (!isDirectory(path)) {
                     if (missing[0]++ >= offset && inaccessible.size() < limit)
@@ -115,13 +108,74 @@ final class DesktopUiTools {
 
     void updateArtworkFolder(Connection connection, DatabaseTarget target, String rootFolder,
                              long artworkId, boolean moved, String newPath) throws SQLException {
-        boolean hasPrefixes = target.readSchema(connection).containsKey("path_prefixes");
-        try (var session = target.storageSession(connection, SCHEMA)) {
-            String path = loadPathCodec(session, hasPrefixes, rootFolder).encode(newPath);
-            if (session.update("artworks", Map.of(moved ? "move_folder" : "folder", value(path)),
-                    call(EQUAL, column("artworks", "artwork_id"), value(artworkId))) == 0)
-                throw new SQLException("ARTWORK_NOT_FOUND", "02000");
+        updateArtworkFolder(connection, target, rootFolder, artworkId, moved, newPath, null);
+    }
+
+    void updateArtworkFolder(Connection connection, DatabaseTarget target, String rootFolder,
+                             long artworkId, boolean moved, String newPath, DownloadDirectories directories) throws SQLException {
+        var tables = target.readSchema(connection).keySet();
+        synchronized (directories == null ? this : directories) {
+            var artwork = call(EQUAL, column("artworks", "artwork_id"), value(artworkId));
+            // SQLite 的删除事务可能已经持有写锁，先用读会话返回已知的目录冲突。
+            if (directories != null && directories.hasDeletionReservations()) {
+                try (var session = target.storageSession(connection, SCHEMA)) {
+                    var codec = loadPathCodec(session, tables.contains("path_prefixes"), rootFolder);
+                    var update = readArtworkFolderUpdate(session, codec, tables, artwork, moved, newPath);
+                    directories.requireDirectoryAvailable(Path.of(update.effectivePath()));
+                }
+            }
+            var transaction = target.beginToolTransaction(connection);
+            Throwable failure = null;
+            try {
+                try (var session = target.storageSession(connection, SCHEMA)) {
+                    var codec = loadPathCodec(session, tables.contains("path_prefixes"), rootFolder);
+                    var update = readArtworkFolderUpdate(session, codec, tables, artwork, moved, newPath);
+                    if (directories != null) directories.requireDirectoryAvailable(Path.of(update.effectivePath()));
+                    if (session.update("artworks", Map.of(moved ? "move_folder" : "folder", value(update.storedPath())), artwork) == 0)
+                        throw new SQLException("ARTWORK_NOT_FOUND", "02000");
+                    if (tables.contains("artwork_image_hashes") && !update.external()
+                            && !sameDirectory(codec.resolve(update.previousPath()), update.effectivePath())) {
+                        ImageHashMapper.deleteByArtwork(session, artworkId);
+                    }
+                }
+                transaction.commit();
+            } catch (SQLException | RuntimeException | Error uncommitted) {
+                failure = uncommitted;
+                throw uncommitted;
+            } finally {
+                transaction.finish(failure);
+            }
         }
+    }
+
+    private record ArtworkFolderUpdate(String storedPath, String previousPath, String effectivePath, boolean external) {}
+
+    private static ArtworkFolderUpdate readArtworkFolderUpdate(DatabaseSession session, StoredPathCodec codec,
+            java.util.Set<String> tables, Expression artwork, boolean moved, String newPath) throws SQLException {
+        var fields = new java.util.LinkedHashMap<String, Expression>();
+        fields.put("folder", column("artworks", "folder"));
+        fields.put("move_folder", column("artworks", "move_folder"));
+        if (tables.contains("external_work_files")) {
+            fields.put("external", ExternalWorkFiles.referenceMarker(WorkType.ARTWORK,
+                    column("artworks", "artwork_id"), column("artworks", "time")));
+        }
+        var rows = session.query(new Query("artworks", fields, artwork, List.of(), List.of(), 1, 0));
+        if (rows.isEmpty()) throw new SQLException("ARTWORK_NOT_FOUND", "02000");
+        var row = rows.getFirst();
+        String oldMove = (String) row.get("move_folder");
+        String oldLocation = ArtworkRecord.usesMoveFolder(oldMove) ? oldMove : (String) row.get("folder");
+        String stored = codec.encode(newPath);
+        String newMove = moved ? stored : oldMove;
+        String newFolder = moved ? (String) row.get("folder") : stored;
+        String newLocation = ArtworkRecord.usesMoveFolder(newMove) ? newMove : newFolder;
+        return new ArtworkFolderUpdate(stored, oldLocation, codec.resolve(newLocation), row.get("external") != null);
+    }
+
+    private static boolean sameDirectory(String previous, String current) {
+        if (java.util.Objects.equals(previous, current)) return true;
+        if (previous == null || previous.isBlank()) return false;
+        try { return Files.isSameFile(Path.of(previous), Path.of(current)); }
+        catch (IOException | java.nio.file.InvalidPathException unavailable) { return false; }
     }
 
     DesktopUiHost.ImageClassifierSettings loadImageClassifierSettings(String rootFolder) throws IOException {
@@ -238,11 +292,8 @@ final class DesktopUiTools {
                 log.debug("Failed to resolve artwork by move folder: {}", exception.getMessage());
             }
         }
-        if (artworkId == null || artworkId <= 0) {
-            Path name = folder.getFileName();
-            artworkId = name == null ? null : parseLongOrNull(name.toString());
-        }
-        if (artworkId == null || artworkId <= 0) {
+        artworkId = classifierArtworkId(folder, artworkId);
+        if (artworkId == null) {
             return Optional.empty();
         }
 
@@ -269,90 +320,11 @@ final class DesktopUiTools {
         return Optional.of(new DesktopUiHost.ImageClassifierArtwork(artworkId, title, xRestrict));
     }
 
-    Path classifyImageFolder(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
-                             DesktopUiHost.ImageClassifierServer server,
-                             DesktopUiHost.ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
-        try (var work = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(
-                top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
-            if (!CLASSIFICATION.tryLock()) throw new ClassificationBusyException();
-            try {
-                return classifyFiles(sourceFolder, images, artworkId, targetFolder, server, deleteFailureHandler);
-            } finally { CLASSIFICATION.unlock(); }
-        }
-    }
-
-    private Path classifyFiles(Path sourceFolder, List<Path> images, long artworkId, Path targetFolder,
-                               DesktopUiHost.ImageClassifierServer server,
-                               DesktopUiHost.ImageClassifierDeleteFailureHandler deleteFailureHandler) throws IOException {
-        if (images == null || images.isEmpty()) {
-            throw new IOException("No images were supplied for classification");
-        }
-        Files.createDirectories(targetFolder);
-        Path numberedFolder = images.size() == 1 ? null : nextNumberedFolder(targetFolder);
-        Path destination = numberedFolder == null ? targetFolder : numberedFolder;
-        List<Path> copied = new ArrayList<>();
-        java.util.Set<Path> mediaFiles = new java.util.LinkedHashSet<>(images);
-        for (Path image : images) {
-            String name = image.getFileName().toString();
-            int dot = name.lastIndexOf('.');
-            String base = dot < 0 ? name : name.substring(0, dot);
-            if (base.endsWith("_thumb")) base = base.substring(0, base.length() - "_thumb".length());
-            Path stem = image.resolveSibling(base);
-            for (String extension : List.of("jpg", "jpeg", "png", "webp", "gif", "apng", "mp4", "zip")) {
-                Path output = stem.resolveSibling(base + "." + extension);
-                if (Files.isRegularFile(output)) mediaFiles.add(output);
-            }
-            for (String suffix : List.of("_thumb.jpg", ".frames.properties")) {
-                Path companion = stem.resolveSibling(base + suffix);
-                if (Files.isRegularFile(companion)) mediaFiles.add(companion);
-            }
-        }
-        if (numberedFolder != null) Files.createDirectory(numberedFolder);
-        Path sidecar = sourceFolder.resolve(WorkSidecarFiles.fileName(artworkId));
-        try {
-            for (Path image : mediaFiles) {
-                Path target = destination.resolve(image.getFileName());
-                Files.copy(image, target);
-                copied.add(target);
-            }
-            if (Files.isRegularFile(sidecar)) {
-                Path target = destination.resolve(sidecar.getFileName());
-                Files.copy(sidecar, target);
-                copied.add(target);
-            }
-        } catch (IOException exception) {
-            rollbackCopies(numberedFolder, copied);
-            throw exception;
-        }
-
-        while (Files.exists(sourceFolder)) {
-            try {
-                for (Path image : mediaFiles) {
-                    Files.deleteIfExists(image);
-                }
-                Files.deleteIfExists(sidecar);
-                int remaining;
-                try (var paths = Files.list(sourceFolder)) {
-                    remaining = Math.toIntExact(paths.count());
-                }
-                if (remaining > 0) {
-                    throw new IOException("Source folder contains " + remaining + " other file(s)");
-                }
-                Files.deleteIfExists(sourceFolder);
-            } catch (Exception exception) {
-                if (!Files.exists(sourceFolder)) {
-                    break;
-                }
-                if (!deleteFailureHandler.retry(String.valueOf(exception.getMessage()), sourceFolder)) {
-                    break;
-                }
-            }
-        }
-
-        if (server != null && server.available()) {
-            recordClassifierMove(server.url(), artworkId, destination, targetFolder);
-        }
-        return destination;
+    static Long classifierArtworkId(Path folder, Long movedArtworkId) {
+        if (movedArtworkId != null && movedArtworkId > 0) return movedArtworkId;
+        Path name = folder.getFileName();
+        Long id = name == null ? null : parseLongOrNull(name.toString());
+        return id != null && id > 0 ? id : null;
     }
 
     private static StoredPathCodec loadPathCodec(DatabaseSession session, boolean hasPrefixes, String rootFolder) throws SQLException {
@@ -405,48 +377,6 @@ final class DesktopUiTools {
             return "http://" + url.substring("https://".length());
         }
         return null;
-    }
-
-    private static Path nextNumberedFolder(Path parent) throws IOException {
-        for (int i = 0; i < Integer.MAX_VALUE; i++) {
-            Path candidate = parent.resolve(Integer.toString(i));
-            if (!Files.exists(candidate)) {
-                return candidate;
-            }
-        }
-        throw new IOException("No numbered classifier folder is available under " + parent);
-    }
-
-    private static void rollbackCopies(Path numberedFolder, List<Path> copied) {
-        for (int i = copied.size() - 1; i >= 0; i--) {
-            try {
-                Files.deleteIfExists(copied.get(i));
-            } catch (IOException exception) {
-                log.warn("Failed to roll back copied classifier file {}", copied.get(i), exception);
-            }
-        }
-        if (numberedFolder != null) {
-            try {
-                Files.deleteIfExists(numberedFolder);
-            } catch (IOException exception) {
-                log.warn("Failed to remove classifier rollback folder {}", numberedFolder, exception);
-            }
-        }
-    }
-
-    private void recordClassifierMove(String serverUrl, long artworkId, Path movePath, Path classifierTargetFolder) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = new HashMap<>();
-        body.put("movePath", movePath.toString());
-        body.put("moveTime", System.currentTimeMillis());
-        body.put("classifierTargetFolder", stripTrailingSeparators(classifierTargetFolder.toString()));
-        try {
-            restTemplate.exchange(serverUrl + "/api/downloaded/move/" + artworkId,
-                    HttpMethod.POST, new HttpEntity<>(body, headers), byte[].class);
-        } catch (Exception exception) {
-            log.error("Failed to record classifier move for artwork {}", artworkId, exception);
-        }
     }
 
     private static String stripTrailingSeparators(String value) {

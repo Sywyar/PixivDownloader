@@ -366,10 +366,15 @@ public final class RuntimeFiles {
         if (rootFolder == null || rootFolder.isBlank()) {
             return DEFAULT_DOWNLOAD_ROOT;
         }
-        String value = rootFolder.trim();
+        String value = rootFolder;
         if (value.indexOf('{') >= 0 || value.indexOf('}') >= 0) {
             return top.sywyar.pixivdownload.core.work.directory.WorkDirectoryTemplate.parse(value).fixedPrefix().toString();
         }
+        return normalizeLiteralRoot(value);
+    }
+
+    /** Normalize a selected directory without interpreting its name as a template. */
+    public static String normalizeLiteralRoot(String value) {
         if (value.matches("(?i)^[a-z]:($|[^/\\\\].*)")) {
             throw new IllegalArgumentException("download root must not be drive-relative: " + value);
         }

@@ -27,19 +27,7 @@ class FileOperationCrashRecoveryTest {
     void recoversAfterProcessExit(String action, boolean committed) throws Exception {
         Path outside = Files.createDirectories(directory.resolve("previous-custom-root"));
         Path file = Files.writeString(outside.resolve("body.txt"), "old body", StandardCharsets.UTF_8);
-        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-        Path arguments = directory.resolve("child.args");
-        Files.writeString(arguments, "-cp\n" + quote(classpath) + "\n" + Child.class.getName() + "\n"
-                + quote(directory.toString()) + "\n" + action + "\n" + committed, StandardCharsets.UTF_8);
-        Path log = directory.resolve("child.log");
-        Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "@" + arguments).redirectErrorStream(true).redirectOutput(log.toFile()).start();
-        try {
-            assertThat(child.waitFor(45, TimeUnit.SECONDS)).isTrue();
-            assertThat(child.exitValue()).withFailMessage(Files.readString(log)).isEqualTo(committed ? 72 : 71);
-        } finally {
-            if (child.isAlive()) child.destroyForcibly().waitFor();
-        }
+        haltChild(action, committed, committed ? 72 : 71);
         String property = RuntimeFiles.DATA_DIR_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, directory.resolve("data").toString());
@@ -60,6 +48,70 @@ class FileOperationCrashRecoveryTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"prepare,external-same,guarded", "prepare,external-different,plain",
+            "install,own,plain", "install,own,guarded", "install,external-same,guarded",
+            "install,external-different,plain", "install,edited-in-place,guarded",
+            "legacy,external-same,plain", "legacy,external-different,plain"})
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    @DisplayName("新建目标按发布身份恢复；准备后出现的外部文件和旧日志的歧义目标不阻断重启")
+    void recoversNewTargetWithoutClaimingExternalFiles(String boundary, String owner, String mode,
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        Path outside = Files.createDirectories(directory.resolve("previous-custom-root"));
+        Path previous = Files.writeString(outside.resolve("body.txt"), "old body", StandardCharsets.UTF_8);
+        Path target = outside.resolve("new-image.png");
+        haltChild(boundary + "-" + mode, false, boundary.equals("prepare") ? 73 : 71);
+        assertThat(Files.exists(target)).isEqualTo(boundary.equals("install"));
+        String external = owner.equals("external-same") ? "new image" : "independent image";
+        if (!owner.equals("own")) {
+            // A new directory entry can point to identical bytes. An edit can also keep the original file identity.
+            if (!owner.equals("edited-in-place")) Files.deleteIfExists(target);
+            Files.writeString(target, external, StandardCharsets.UTF_8);
+        }
+        String property = RuntimeFiles.DATA_DIR_PROPERTY;
+        String saved = System.getProperty(property);
+        System.setProperty(property, directory.resolve("data").toString());
+        try (var source = new SingleConnectionDataSource("jdbc:sqlite:" + directory.resolve("facts.db"), true)) {
+            var journal = FileOperationTestSupport.journal(source);
+            assertThat(journal.operations()).hasSize(1);
+            String operation = journal.operations().getFirst();
+            assertThat(journal.entries(operation)).hasSize(2);
+            var recovery = new StagedFileDeletion(TestI18nBeans.appMessages(), journal);
+            recovery.recoverPending();
+            recovery.recoverPending();
+            assertThat(journal.operations()).isEmpty();
+            assertThat(Files.readString(previous)).isEqualTo("old body");
+            assertThat(new JdbcTemplate(source).queryForObject("SELECT value FROM business", String.class)).isEqualTo("old");
+            if (owner.equals("own")) assertThat(target).doesNotExist();
+            else assertThat(Files.readString(target)).isEqualTo(external);
+            var notices = output.getAll().lines().filter(line -> line.contains(operation)).toList();
+            if (owner.equals("own")) assertThat(notices).isEmpty();
+            else assertThat(notices).singleElement().asString().contains("WARN", "preserved 1").doesNotContain(target.toString(), external);
+            try (var files = Files.list(outside); var backups = Files.list(RuntimeFiles.deleteStagingDirectory())) {
+                assertThat(files.map(path -> path.getFileName().toString())).noneMatch(name -> name.startsWith(".work-file-"));
+                assertThat(backups).isEmpty();
+            }
+        } finally {
+            if (saved == null) System.clearProperty(property); else System.setProperty(property, saved);
+        }
+    }
+
+    private void haltChild(String action, boolean committed, int expectedExit) throws Exception {
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        Path arguments = directory.resolve("child.args");
+        Files.writeString(arguments, "-cp\n" + quote(classpath) + "\n" + Child.class.getName() + "\n"
+                + quote(directory.toString()) + "\n" + action + "\n" + committed, StandardCharsets.UTF_8);
+        Path log = directory.resolve("child.log");
+        Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "@" + arguments).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertThat(child.waitFor(45, TimeUnit.SECONDS)).isTrue();
+            assertThat(child.exitValue()).withFailMessage(Files.readString(log)).isEqualTo(expectedExit);
+        } finally {
+            if (child.isAlive()) child.destroyForcibly().waitFor();
+        }
+    }
+
     private static String quote(String value) { return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""; }
 
     public static final class Child {
@@ -75,6 +127,10 @@ class FileOperationCrashRecoveryTest {
             var manager = new DataSourceTransactionManager(source) {
                 @Override protected void doCommit(DefaultTransactionStatus status) {
                     super.doCommit(status);
+                    if (args[1].startsWith("prepare-") && Boolean.TRUE.equals(jdbc.queryForObject(
+                            "SELECT EXISTS(SELECT 1 FROM file_operation_entries WHERE committed = 0)", Boolean.class))) {
+                        Runtime.getRuntime().halt(73);
+                    }
                     if (afterCommit && Boolean.TRUE.equals(jdbc.queryForObject(
                             "SELECT EXISTS(SELECT 1 FROM file_operation_entries WHERE committed = 1)", Boolean.class))) {
                         Runtime.getRuntime().halt(72);
@@ -91,9 +147,31 @@ class FileOperationCrashRecoveryTest {
             else {
                 Path staged = Files.writeString(root.resolve("new.txt"), "new body", StandardCharsets.UTF_8);
                 Path image = Files.writeString(root.resolve("image.png"), "new image", StandardCharsets.UTF_8);
-                deletion.publishFiles(Map.of(target, staged, target.resolveSibling("new-image.png"), image), records);
+                Path newTarget = target.resolveSibling("new-image.png");
+                var files = new LinkedHashMap<Path, Path>();
+                files.put(target, staged);
+                files.put(newTarget, image);
+                if (args[1].startsWith("legacy-")) {
+                    // Old writers recorded hashes and backups, with no durable new-target identity.
+                    String operation = UUID.randomUUID().toString();
+                    Path backups = Files.createDirectories(RuntimeFiles.deleteStagingDirectory().resolve(operation));
+                    Files.copy(target, backups.resolve("0.old"));
+                    Files.copy(staged, backups.resolve("0.new"));
+                    Files.copy(image, backups.resolve("1.new"));
+                    FileOperationTestSupport.journal(source, manager).prepare(operation, List.of(
+                            new FileOperationJournal.Entry(0, target, hash(target), hash(staged)),
+                            new FileOperationJournal.Entry(1, newTarget, null, hash(image))));
+                    Files.copy(staged, target, StandardCopyOption.REPLACE_EXISTING);
+                    Runtime.getRuntime().halt(71);
+                }
+                if (args[1].endsWith("-guarded")) deletion.changeFiles(files, List.of(), Set.of(newTarget), records);
+                else deletion.publishFiles(files, records);
             }
             throw new AssertionError("Expected process termination");
+        }
+
+        private static String hash(Path path) throws Exception {
+            return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
         }
     }
 }

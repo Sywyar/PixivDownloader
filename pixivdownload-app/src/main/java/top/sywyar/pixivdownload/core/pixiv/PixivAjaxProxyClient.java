@@ -11,12 +11,14 @@ import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 public class PixivAjaxProxyClient implements PixivAjaxClient {
 
     static final int MAX_JSON_RESPONSE_BYTES = 4 * 1024 * 1024;
     static final int MAX_SERIES_RESPONSE_BYTES = 1024 * 1024;
+    private static final Pattern LEGACY_JSON_PAGE = Pattern.compile("/[a-z_]+\\.php");
 
     private final RestTemplate restTemplate;
     private final PixivCredentialRetry credentials;
@@ -107,11 +109,30 @@ public class PixivAjaxProxyClient implements PixivAjaxClient {
                 || containsDotSegment(path)) {
             return false;
         }
-        return isSupportedPath(rawPath) && isSupportedPath(path);
+        return isJsonDocument(rawPath, uri.getRawQuery()) && isJsonDocument(path, uri.getRawQuery());
     }
 
-    private static boolean isSupportedPath(String path) {
-        return path.startsWith("/ajax/") || "/rpc/index.php".equals(path);
+    /**
+     * JSON 命名空间（{@code /ajax/}、{@code /rpc/}）按路径放行；根级旧版 PHP 页面只有显式请求
+     * {@code format=json} 时才视为 JSON 文档，其它页面（例如带登录态副作用的 HTML 页面）仍拒绝。
+     */
+    private static boolean isJsonDocument(String path, String rawQuery) {
+        if (path.startsWith("/ajax/") || path.startsWith("/rpc/")) {
+            return true;
+        }
+        return LEGACY_JSON_PAGE.matcher(path).matches() && requestsJson(rawQuery);
+    }
+
+    private static boolean requestsJson(String rawQuery) {
+        if (rawQuery == null) {
+            return false;
+        }
+        for (String parameter : rawQuery.split("&", -1)) {
+            if ("format=json".equals(parameter)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean containsEncodedSeparator(String rawPath) {

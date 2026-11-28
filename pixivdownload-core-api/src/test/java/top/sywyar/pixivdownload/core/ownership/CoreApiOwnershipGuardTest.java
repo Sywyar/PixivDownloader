@@ -131,7 +131,8 @@ class CoreApiOwnershipGuardTest {
                     types("top.sywyar.pixivdownload.core.ffmpeg",
                             "FfmpegCommandResolver", "FfmpegProcessGate", "FfmpegRunner", "ResolvedFfmpegCommand"),
                     types("top.sywyar.pixivdownload.core.web", "AcquisitionCredentialResolver", "MissingProgramPermissionException",
-                            "CsvIds", "HttpIds", "KnownErrorCodes", "HttpParameterError", "HttpParameterException"),
+                            "CsvIds", "HttpIds", "KnownErrorCodes", "HttpParameterError", "HttpParameterException",
+                            "ResponseStreamAbortedException"),
                     types("top.sywyar.pixivdownload.i18n",
                             "MessageResolver", "NamespaceMessageResolver", "ResourceBundleMessageResolver", "LocaleBundlePolicy"),
                     types("top.sywyar.pixivdownload.setup",
@@ -179,6 +180,9 @@ class CoreApiOwnershipGuardTest {
                             "PixivProxyAccessOutcome", "PixivProxyAccessPolicy"),
                     types("top.sywyar.pixivdownload.core.pixiv.filename",
                             "PixivWorkFileNameFormatter"),
+                    // Pixiv CDN 媒体的宿主统一出口；请求头、来源校验与字节上限归核心所有。
+                    types("top.sywyar.pixivdownload.core.pixiv.media",
+                            "PixivMediaClient", "PixivMediaStream"),
                     types("top.sywyar.pixivdownload.core.metadata.sidecar", "WorkSidecarFiles"),
                     types("top.sywyar.pixivdownload.core.pixiv.thumbnail",
                             "PixivThumbnailFetcher", "PixivThumbnailFetchException",
@@ -215,6 +219,8 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            "top.sywyar.pixivdownload.core.archive.ArchiveExportRules$EntryNames",
+            "top.sywyar.pixivdownload.core.artwork.download.PartialArtwork$PageRepair",
             "top.sywyar.pixivdownload.core.web.KnownErrorCodes$Group",
             "top.sywyar.pixivdownload.core.work.query.WorkQuery$InvalidField",
             "top.sywyar.pixivdownload.core.pixiv.PixivQueryParameters$Order",
@@ -244,6 +250,9 @@ class CoreApiOwnershipGuardTest {
     );
 
     private static final Map<String, Object> APPROVED_PUBLIC_CONSTANTS = Map.ofEntries(
+            Map.entry("top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest#UNKNOWN_ORIGINAL:java.lang.String", "unknown"),
+            Map.entry("top.sywyar.pixivdownload.core.work.service.DownloadPathPlan$NeedsAction#REASON:java.lang.String",
+                    "DOWNLOAD_PATH_ACTION_REQUIRED"),
             Map.entry("top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException#CODE:java.lang.String",
                     "validation.archive.export.format.unsupported"),
             Map.entry("top.sywyar.pixivdownload.ai.model.AiChatMessage#ROLE_SYSTEM:java.lang.String", "system"),
@@ -333,7 +342,7 @@ class CoreApiOwnershipGuardTest {
             Map.entry("top.sywyar.pixivdownload.core.work.model.WorkType",
                     List.of("ARTWORK", "NOVEL")),
             Map.entry("top.sywyar.pixivdownload.core.work.service.WorkDeletionException$Reason",
-                    List.of("LOCAL_FILE_DELETE_FAILED")),
+                    List.of("LOCAL_FILE_DELETE_FAILED", "INCOMPLETE_FILE_OWNERSHIP")),
             Map.entry("top.sywyar.pixivdownload.notification.NotificationScenario",
                     List.of("POLICY_ACCOUNT_SUSPENDED", "CREDENTIAL_SUSPENDED",
                             "CREDENTIAL_FAILURE_CIRCUIT_OPEN", "PENDING_EXHAUSTED",
@@ -671,7 +680,8 @@ class CoreApiOwnershipGuardTest {
                         "public abstract startPartial(top.sywyar.pixivdownload.core.artwork.download.PartialArtwork):boolean",
                         "public abstract record(top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadCompletion):void");
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadLookup.class))
-                .containsExactly("public abstract isDownloaded(long,boolean):boolean");
+                .containsExactlyInAnyOrder("public abstract isDownloaded(long,boolean):boolean",
+                        "public abstract registeredOutputs(long):java.util.Optional");
         assertThat(publicDeclaredMethodSignatures(ArtworkDownloadStatistics.class))
                 .containsExactlyInAnyOrder(
                         "public abstract recordCompleted(int):void",
@@ -684,6 +694,8 @@ class CoreApiOwnershipGuardTest {
                         "public limits(java.nio.file.Path):top.sywyar.pixivdownload.core.work.service.DownloadPathLimits",
                         "public pathSupport(java.nio.file.Path):java.util.function.Predicate",
                         "public abstract prepareDirectory(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.nio.file.Path):void",
+                        "public abstract prepareDirectoryIf(top.sywyar.pixivdownload.core.work.model.WorkType,long,java.nio.file.Path,java.util.function.BooleanSupplier):boolean",
+                        "public abstract reserveOutputs(long,java.util.Collection):java.io.Closeable",
                         "public abstract requireSafeDirectoryName(java.lang.String):java.lang.String",
                         "public abstract requireWithinRoot(java.nio.file.Path,java.nio.file.Path):void");
         assertThat(publicDeclaredMethodSignatures(DownloadPathRejectedException.class)).isEmpty();

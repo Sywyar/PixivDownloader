@@ -9,7 +9,8 @@ import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
 import top.sywyar.pixivdownload.core.archive.UnsupportedArchiveFormatException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
-import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.core.metadata.CoreWorkDeletionService;
+import java.util.function.BiConsumer;
 
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -30,14 +31,14 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
 
     private final UserQuotaService userQuotaService;
     private final MultiModeSettings multiModeSettings;
-    private final WorkDeletionService workDeletionService;
+    private final CoreWorkDeletionService workDeletionService;
     private final PixivDatabase pixivDatabase;
     private final WorkAssetService workAssetService;
     private final NovelMetadataRepository novelMetadataRepository;
 
     public QuotaArchiveExportServiceAdapter(UserQuotaService userQuotaService,
                                             MultiModeSettings multiModeSettings,
-                                            WorkDeletionService workDeletionService,
+                                            CoreWorkDeletionService workDeletionService,
                                             PixivDatabase pixivDatabase,
                                             NovelMetadataRepository novelMetadataRepository,
                                             WorkAssetService workAssetService) {
@@ -68,10 +69,10 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
 
         WorkType deleteWorkType = resolveDeleteWorkType(request);
         List<Long> deleteWorkIds = request.deleteAfterReady() == null
-                ? List.of() : request.deleteAfterReady().workIds();
+                ? List.of() : request.deleteAfterReady().workIds().stream().filter(Objects::nonNull).distinct().toList();
 
-        String token = userQuotaService.triggerAdminFileArchive(
-                request.entries(), request.exportType(), request.workCount(), deleteWorkType == null
+        String token = userQuotaService.queueAdminFileArchive(
+                request.entries(), request.exportType(), request.workCount(), deleteWorkIds.size(), deleteWorkType == null
                         ? null
                         : prepareDeletion(deleteWorkType, deleteWorkIds, request.entries()),
                 () -> deleteWorkType == null ? () -> {}
@@ -81,16 +82,16 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
     }
 
     /** 排队期间重下载或元数据变化时保留源作品，避免旧导出任务删除新登记。 */
-    private Runnable prepareDeletion(WorkType type, List<Long> ids, List<ArchiveExportEntry> entries) {
+    private BiConsumer<Map<Path, String>, Runnable> prepareDeletion(WorkType type, List<Long> ids, List<ArchiveExportEntry> entries) {
         var expected = new LinkedHashMap<Long, Object>();
         Map<Long, Set<Path>> archivedFiles = entries.stream()
-                .filter(entry -> entry != null && entry.workId() != null && entry.sourcePath() != null)
+                .filter(entry -> entry != null && entry.workId() != null && entry.sourcePath() != null && entry.bytes() == null)
                 .collect(Collectors.groupingBy(ArchiveExportEntry::workId, Collectors.mapping(
                         entry -> entry.sourcePath().toAbsolutePath().normalize(), Collectors.toSet())));
         for (Long id : ids) {
-            if (id != null) expected.put(id, record(type, id));
+            expected.put(id, record(type, id));
         }
-        return () -> {
+        return (hashes, deleted) -> {
             for (var work : expected.entrySet()) {
                 if (work.getValue() == null || !work.getValue().equals(record(type, work.getKey()))) {
                     throw new IllegalStateException("Archive source work changed: " + work.getKey());
@@ -98,15 +99,20 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
             }
             for (Long id : expected.keySet()) {
                 Set<Path> archived = archivedFiles.getOrDefault(id, Set.of());
-                var asset = workAssetService.findAsset(type, id).orElseThrow();
-                if (!workAssetService.hasCompleteFiles(type, id) || asset.files().isEmpty() || asset.files().size() < asset.pageCount()
-                        || asset.files().stream().anyMatch(file -> !archived.contains(file.path().toAbsolutePath().normalize()))) {
+                var required = workAssetService.archiveSources(type, id).stream()
+                        .map(file -> file.toAbsolutePath().normalize()).collect(Collectors.toSet());
+                if (!workAssetService.hasCompleteFiles(type, id) || required.isEmpty() || !archived.equals(required)
+                        || !hashes.keySet().containsAll(archived)) {
                     throw new IllegalStateException("Archive does not contain all work files: " + id);
                 }
             }
             for (Long id : expected.keySet()) {
                 // 逐项传播失败，ZIP 仍由任务 owner 保留。
-                workDeletionService.delete(type, id);
+                var sources = archivedFiles.get(id).stream().collect(Collectors.toMap(path -> path, hashes::get));
+                if (!workDeletionService.deleteArchived(type, id, sources)) {
+                    throw new IllegalStateException("Archive source work was not deleted: " + id);
+                }
+                deleted.run();
             }
         };
     }

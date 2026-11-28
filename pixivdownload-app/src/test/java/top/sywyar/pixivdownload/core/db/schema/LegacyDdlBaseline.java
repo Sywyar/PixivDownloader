@@ -71,12 +71,12 @@ final class LegacyDdlBaseline {
             "CREATE TABLE IF NOT EXISTS artwork_file_names (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
                     + " base_name TEXT NOT NULL, PRIMARY KEY (artwork_id, page))",
             "CREATE TABLE IF NOT EXISTS artwork_partial_pages (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
-                    + "base_name TEXT NOT NULL, original_extension TEXT, extensions TEXT, original_retained INTEGER, output_fingerprints TEXT,"
+                    + "base_name TEXT NOT NULL, original_extension TEXT, extensions TEXT, original_retained INTEGER, output_fingerprints TEXT, thumbnail_owned INTEGER,"
                     + "PRIMARY KEY(artwork_id,page))",
             "CREATE TABLE IF NOT EXISTS artwork_partial_downloads (artwork_id INTEGER PRIMARY KEY, folder TEXT NOT NULL,"
                     + "total_pages INTEGER NOT NULL, template TEXT NOT NULL, max_length INTEGER NOT NULL, output_settings TEXT NOT NULL, source_revision TEXT)",
             "CREATE TABLE IF NOT EXISTS artwork_media (artwork_id INTEGER NOT NULL, page INTEGER NOT NULL,"
-                    + "original_extension TEXT NOT NULL, extensions TEXT NOT NULL, original_retained INTEGER NOT NULL,"
+                    + "original_extension TEXT NOT NULL, extensions TEXT NOT NULL, original_retained INTEGER NOT NULL, thumbnail_owned INTEGER,"
                     + "PRIMARY KEY(artwork_id, page))",
             "CREATE TABLE IF NOT EXISTS artwork_image_hashes ("
                     + "artwork_id INTEGER NOT NULL,"

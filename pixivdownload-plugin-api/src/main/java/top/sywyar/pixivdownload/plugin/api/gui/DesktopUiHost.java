@@ -262,6 +262,12 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     void validateDirectoryTemplate(String value) throws java.io.IOException;
 
+    /** 校验新固定目录可由当前模板原样表示；校验失败时不得提交关联的路径前缀修改。
+     * @param root 用户选择的目录
+     * @throws java.io.IOException 目录无法表示或配置读取失败，消息可直接展示
+     */
+    void validateDownloadTemplateRoot(String root) throws java.io.IOException;
+
     /**
      * 目录迁移确认后保存默认模板的新固定前缀，保留作品模板后缀与独立模式覆盖。
      * @param root 用户确认的新固定目录

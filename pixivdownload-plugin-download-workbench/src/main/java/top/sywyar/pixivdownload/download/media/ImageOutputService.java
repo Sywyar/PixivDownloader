@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.download.media;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
+import top.sywyar.pixivdownload.core.asset.FileTransactionService;
 import top.sywyar.pixivdownload.core.artwork.download.PartialArtwork;
 import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
@@ -10,6 +12,7 @@ import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
 
 import javax.imageio.ImageIO;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +21,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -29,11 +34,13 @@ public final class ImageOutputService {
     private final FfmpegRunner runner;
     private final ObjectMapper mapper;
     private final ArtworkMediaStore mediaStore;
+    private final FileTransactionService transactions;
 
-    public ImageOutputService(FfmpegRunner runner, ObjectMapper mapper, ArtworkMediaStore mediaStore) {
+    public ImageOutputService(FfmpegRunner runner, ObjectMapper mapper, ArtworkMediaStore mediaStore, FileTransactionService transactions) {
         this.runner = runner;
         this.mapper = mapper;
         this.mediaStore = mediaStore;
+        this.transactions = transactions;
     }
 
     public List<String> process(long artworkId, int page, Path stem, String sourceExtension, MediaOutputSettings settings,
@@ -74,6 +81,7 @@ public final class ImageOutputService {
         if (selected.contains("original")) outputs.add(sourceExtension);
         List<Path> pending = new ArrayList<>();
         List<Path> destinations = new ArrayList<>();
+        Path stagedThumbnail = null;
         int outputIndex = 0;
         try {
             for (String format : selected) {
@@ -115,38 +123,44 @@ public final class ImageOutputService {
                 checkInput(temporary, cancelled, progress(progress, "verifying", format, index, outputCount));
                 outputs.add(format);
             }
-            if (outputs.contains("webp") && (previous == null || !Files.exists(stem.resolveSibling(stem.getFileName() + "_thumb.jpg")))) {
-                writeThumbnail(source, stem, cancelled, progress(progress, "thumbnail", null, null, outputCount));
+            boolean thumbnailOwned = previous != null && previous.thumbnailOwned();
+            Path thumbnail = stem.resolveSibling(stem.getFileName() + "_thumb.jpg");
+            Map<Path, Path> newFiles = new LinkedHashMap<>();
+            if (outputs.contains("webp") && Files.notExists(thumbnail, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                stagedThumbnail = Files.createTempFile(thumbnail.toAbsolutePath().getParent(), ".media-thumb-", ".jpg");
+                writeThumbnail(source, stagedThumbnail, cancelled, progress(progress, "thumbnail", null, null, outputCount));
+                newFiles.put(thumbnail, stagedThumbnail);
+                thumbnailOwned = true;
             }
             checkCancelled(cancelled);
             report(progress, "finalizing", null, null, outputCount);
             for (int index = 0; index < pending.size(); index++) {
                 checkCancelled(cancelled);
                 if (previous == null) publish(pending.get(index), destinations.get(index));
-                else {
-                    try { Files.move(pending.get(index), destinations.get(index)); }
-                    catch (java.nio.file.FileAlreadyExistsException exists) { /* 预览后新增的副本也保留。 */ }
-                }
+                else newFiles.put(destinations.get(index), pending.get(index));
             }
             LinkedHashSet<String> recorded = new LinkedHashSet<>();
             if (previous != null) recorded.addAll(previous.extensions());
             recorded.addAll(outputs);
-            sink.save(page, stem, new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
-                    previous == null ? outputs.contains(sourceExtension) : previous.originalRetained()));
-            if (!outputs.contains(sourceExtension)) Files.delete(source);
+            var manifest = new ArtworkMediaManifest(previous == null ? sourceExtension : previous.originalExtension(), List.copyOf(recorded),
+                    previous == null ? outputs.contains(sourceExtension) : previous.originalRetained(), thumbnailOwned);
+            sink.publishAndSave(transactions, newFiles, page, stem, manifest, cancelled);
+            if (!outputs.contains(sourceExtension) && !sink.keepStagedSource()) Files.delete(source);
             return List.copyOf(outputs);
         } finally {
+            if (stagedThumbnail != null) Files.deleteIfExists(stagedThumbnail);
             for (Path temporary : pending) Files.deleteIfExists(temporary);
         }
     }
 
-    /** 历史处理只补缺失副本，既有媒体及其原始格式身份保持不变。 */
-    public void addMissingFormats(long artworkId, int page, Path source, String selectedFormats, BooleanSupplier cancelled) throws IOException {
+    /** 根据调用方核实的页资产补缺失副本，沿用完整基名和既有媒体的原始格式身份。 */
+    public void addMissingFormats(long artworkId, int page, Path source, String selectedFormats, BooleanSupplier cancelled,
+                                  DownloadPathGuard paths) throws IOException {
         String name = source.getFileName().toString();
         int dot = name.lastIndexOf('.');
         if (dot < 1) throw new IOException("Invalid image filename");
         String extension = name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
-        if (!List.of("jpg", "jpeg", "png", "webp").contains(extension) || name.endsWith("_thumb.jpg")) {
+        if (!List.of("jpg", "jpeg", "png", "webp").contains(extension)) {
             throw new IOException("Animation requires its original frame archive");
         }
         Path stem = source.resolveSibling(name.substring(0, dot));
@@ -168,12 +182,53 @@ public final class ImageOutputService {
         var settings = new MediaOutputSettings();
         settings.setImageFormats(String.join(",", missing));
         process(page, stem, extension, settings, cancelled,
-                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null, downloadedMedia(artworkId, false));
+                previous.orElse(new ArtworkMediaManifest(extension, List.of(extension))), null, MediaSink.forMaintenance(artworkId, mediaStore, paths));
     }
 
     @FunctionalInterface
     public interface MediaSink {
         void save(int page, Path stem, ArtworkMediaManifest media) throws IOException;
+
+        /** 历史补转只占用实际新增的输出，直至文件及媒体登记一起提交或回滚。 */
+        static MediaSink forMaintenance(long artworkId, ArtworkMediaStore store, DownloadPathGuard paths) {
+            return new MediaSink() {
+                @Override public void save(int page, Path stem, ArtworkMediaManifest media) throws IOException {
+                    store.save(artworkId, page, media);
+                }
+
+                @Override public void publishAndSave(FileTransactionService transactions, Map<Path, Path> newFiles, int page,
+                                                     Path stem, ArtworkMediaManifest media, BooleanSupplier cancelled) throws IOException {
+                    checkCancelled(cancelled);
+                    try (var reservation = java.util.Objects.requireNonNull(paths.reserveOutputs(artworkId, newFiles.keySet()))) {
+                        MediaSink.super.publishAndSave(transactions, newFiles, page, stem, media, cancelled);
+                    } catch (top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException conflict) {
+                        throw new IOException("Another work uses a requested media output", conflict);
+                    }
+                }
+            };
+        }
+
+        /** 延迟正式登记的首次下载在暂存目录保留原件，提交失败时可交还已下载的源文件。 */
+        default boolean keepStagedSource() { return false; }
+
+        default void publishAndSave(FileTransactionService transactions, Map<Path, Path> newFiles, int page, Path stem,
+                                    ArtworkMediaManifest media, BooleanSupplier cancelled) throws IOException {
+            checkCancelled(cancelled);
+            if (newFiles.isEmpty()) {
+                save(page, stem, media);
+                return;
+            }
+            try {
+                transactions.changeFiles(newFiles, List.of(), newFiles.keySet(), () -> {
+                    checkCancelled(cancelled);
+                    try { save(page, stem, media); }
+                    catch (IOException failure) { throw new UncheckedIOException(failure); }
+                    checkCancelled(cancelled);
+                });
+            } catch (UncheckedIOException failure) {
+                throw failure.getCause();
+            }
+        }
     }
 
     public MediaSink downloadedMedia(long artworkId, boolean partial) {
@@ -215,26 +270,20 @@ public final class ImageOutputService {
         }
     }
 
-    private void writeThumbnail(Path source, Path stem, BooleanSupplier cancelled,
+    private void writeThumbnail(Path source, Path temporary, BooleanSupplier cancelled,
                                 Consumer<FfmpegRunner.Phase> progress) throws IOException {
-        Path temporary = Files.createTempFile(stem.toAbsolutePath().getParent(), ".media-thumb-", ".jpg");
         try {
-            try {
-                if (!ImageIO.write(ImageThumbnailScaler.scale(source, 1600, 1600), "jpg", temporary.toFile())) {
-                    throw new IOException("JPEG writer unavailable");
-                }
-            } catch (IOException unsupported) {
-                runner.run(FfmpegRunner.Tool.FFMPEG,
-                        List.of("-y", "-nostdin", "-v", "error", "-i", source.toAbsolutePath().toString(),
-                                "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
-                                temporary.toAbsolutePath().toString()), null, temporary,
-                        PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled, progress);
+            if (!ImageIO.write(ImageThumbnailScaler.scale(source, 1600, 1600), "jpg", temporary.toFile())) {
+                throw new IOException("JPEG writer unavailable");
             }
-            checkCancelled(cancelled);
-            publish(temporary, stem.resolveSibling(stem.getFileName() + "_thumb.jpg"));
-        } finally {
-            Files.deleteIfExists(temporary);
+        } catch (IOException unsupported) {
+            runner.run(FfmpegRunner.Tool.FFMPEG,
+                    List.of("-y", "-nostdin", "-v", "error", "-i", source.toAbsolutePath().toString(),
+                            "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease",
+                            temporary.toAbsolutePath().toString()), null, temporary,
+                    PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled, progress);
         }
+        checkCancelled(cancelled);
     }
 
     static void publish(Path source, Path target) throws IOException {

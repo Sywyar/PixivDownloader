@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
+import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
 import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopAutomationSource;
@@ -780,12 +781,11 @@ public class ScheduleService implements DesktopAutomationSource, top.sywyar.pixi
                 || task.suspendReason() != ScheduleSuspendReason.USER_ACTION_REQUIRED) {
             throw concurrentChange();
         }
-        boolean exists = store.listPendingWork(id).stream().anyMatch(p ->
+        var pending = store.listPendingWork(id).stream().filter(p ->
                 p.workType().equals(workType) && p.workId().equals(workId)
-                        && requiresUserAction(p.reasonDetailJson()));
-        if (!exists) {
-            throw concurrentChange();
-        }
+                        && requiresUserAction(p.reasonDetailJson())).findFirst().orElseThrow(this::concurrentChange);
+        if (!pending.acceptsUserAction(userAction))
+            throw new InputFieldException("/userAction", "invalid_value");
         requireChanged(store.resolvePendingWork(id, expectedVersion, workType, workId, userAction, rememberForRun));
         return get(id);
     }

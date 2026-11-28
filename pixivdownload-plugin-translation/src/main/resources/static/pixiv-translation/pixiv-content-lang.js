@@ -39,7 +39,7 @@
 
     function engineLabel(engine, i18n) {
         return ['ai', 'youdao', 'libretranslate', 'unknown'].indexOf(engine) >= 0
-            ? tt(i18n, 'switcher.engine.' + engine, engine) : engine;
+            ? tt(i18n, 'switcher.engine.' + engine, engine) : tt(i18n, 'translation.engine.' + engine, engine);
     }
 
     function variantLabel(code, i18n) {

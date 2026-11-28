@@ -53,7 +53,10 @@ class SettingsControllerTest {
         var controller = new SettingsController(settings, new ToolApiRequests(messages, mock(WebI18nService.class)), messages);
         var allowed = new SettingsApiService.Preset("allowed", "allowed", 1, "section", "preset", "example", "label", null, java.util.Map.of());
         var other = new SettingsApiService.Preset("other", "other", 1, "section", "preset", "example", "label", null, java.util.Map.of());
-        when(settings.presets()).thenReturn(List.of(allowed, other));
+        when(settings.presets(any())).thenAnswer(call -> {
+            java.util.function.Predicate<String> permits = call.getArgument(0);
+            return List.of(allowed, other).stream().filter(preset -> permits.test(preset.owner())).toList();
+        });
         var request = new MockHttpServletRequest();
         request.setAttribute(ProgramIdentity.REQUEST_ATTRIBUTE, new ProgramIdentity(java.util.UUID.randomUUID(),
                 java.util.Set.of("core:settings.read", "allowed:settings.read")));
@@ -87,7 +90,7 @@ class SettingsControllerTest {
         doThrow(new IOException("DATABASE_MIGRATION_REQUIRED")).when(settings).save(changes, false);
         mvc.perform(post("/api/settings").contentType("application/json").content(body))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DATABASE_MIGRATION_REQUIRED"));
-        when(settings.fields()).thenThrow(new IOException("fixture-secret"));
+        when(settings.fields(any())).thenThrow(new IOException("fixture-secret"));
         mvc.perform(get("/api/settings")).andExpect(status().isInternalServerError())
                 .andExpect(content().string(not(containsString("fixture-secret"))));
     }

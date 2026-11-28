@@ -142,6 +142,18 @@ public final class CliSetupCommand {
         printOption(out, CliWebPublications.COMMAND, "cli.publications.help");
         out.println();
 
+        out.println(message("cli.help.section.program-keys"));
+        printOption(out, CliProgramKeys.CMD_LIST, "cli.help.opt.program-keys");
+        printOption(out, CliProgramKeys.CMD_PERMISSIONS, "cli.help.opt.program-key-permissions");
+        printOption(out, CliProgramKeys.CMD_CREATE, "cli.help.opt.program-key-create");
+        printOption(out, CliProgramKeys.CMD_REVOKE, "cli.help.opt.program-key-revoke");
+        printOption(out, CliProgramKeys.FLAG_SERVER + "=URL", "cli.help.opt.server-url");
+        printOption(out, CliProgramKeys.FLAG_NAME + "=NAME", "cli.help.opt.key-name");
+        printOption(out, CliProgramKeys.FLAG_PERMISSIONS + "=ID,...", "cli.help.opt.key-permissions");
+        printOption(out, CliProgramKeys.FLAG_SOURCES + "=any|IP,...", "cli.help.opt.key-sources");
+        printOption(out, CliProgramKeys.FLAG_ID + "=ID", "cli.help.opt.key-id");
+        out.println();
+
         out.println(message("cli.help.section.cli-flags"));
         printOption(out, FLAG_USERNAME + "=NAME", "cli.help.opt.username");
         printOption(out, FLAG_PASSWORD + "=PWD", "cli.help.opt.password");
@@ -166,6 +178,9 @@ public final class CliSetupCommand {
         out.println("  java -jar app.jar --change-password");
         out.println("  java -jar app.jar --reset-password");
         out.println("  java -jar app.jar --no-gui");
+        out.println("  java -jar app.jar --program-keys --server-url=http://127.0.0.1:6999");
+        out.println("  java -jar app.jar --program-key-create --key-name=agent"
+                + " --key-permissions=core:api-reference.read --key-sources=127.0.0.1");
         out.println();
 
         out.println(message("cli.help.section.exit-codes"));
@@ -193,6 +208,11 @@ public final class CliSetupCommand {
      */
     public static boolean containsCliCommand(String[] args) {
         return CliSetupArguments.containsCommand(args);
+    }
+
+    /** 判断启动参数中是否含有连接运行中实例的密钥命令；只做参数分类，不初始化命令执行对象。 */
+    public static boolean containsProgramKeyCommand(String[] args) {
+        return CliSetupArguments.containsProgramKeyCommand(args);
     }
 
     /**
@@ -652,7 +672,7 @@ public final class CliSetupCommand {
 
     // ── 输入/输出 ────────────────────────────────────────────────────────────────
 
-    private static String promptLine(String prompt) {
+    static String promptLine(String prompt) {
         System.out.print(prompt);
         System.out.flush();
         Console console = System.console();
@@ -670,7 +690,7 @@ public final class CliSetupCommand {
     /**
      * 读取一行密码，尽量不回显。无 {@link System#console()} 时（如 IDE）会回显并打印警告。
      */
-    private static String promptPassword(String prompt) {
+    static String promptPassword(String prompt) {
         Console console = System.console();
         if (console != null) {
             System.out.print(prompt);

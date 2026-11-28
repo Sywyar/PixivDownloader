@@ -94,7 +94,7 @@ public final class ArchiveDatabaseSource implements MigrationSource {
             if (maximum < 1 || maximum > TransferArchive.MAX_CONTENT_BYTES) throw new IllegalArgumentException("transfer.database-limit");
             remaining = maximum;
         }
-        private OutputStream wrap(OutputStream output) {
+        public OutputStream wrap(OutputStream output) {
             return new FilterOutputStream(output) {
                 @Override public void write(int value) throws IOException { reserve(1); out.write(value); }
                 @Override public void write(byte[] bytes, int offset, int length) throws IOException {
@@ -140,15 +140,7 @@ public final class ArchiveDatabaseSource implements MigrationSource {
             }
             @Override public MigrationRows rows(String name) throws Exception {
                 if (closed || active != null) throw new IOException("transfer.database-cursor-busy");
-                int index = -1;
-                for (int i = 0; i < metadata.schema().tables().size(); i++) if (metadata.schema().tables().get(i).name().equals(name)) index = i;
-                if (index < 0) throw new IOException("transfer.database-unknown-table");
-                Path file = files.get(index + ".rows");
-                PlainFilePathGuard.requirePlainRegularFile(file);
-                var input = new BufferedInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS));
-                MigrationRows cursor;
-                try { cursor = DatabaseRowsCodec.read(input, metadata.schema().tables().get(index), metadata.verification().tables().get(name), control); }
-                catch (Exception failure) { try { input.close(); } catch (IOException close) { failure.addSuppressed(close); } throw failure; }
+                MigrationRows cursor = openArchivedRows(name, control);
                 active = new MigrationRows() {
                     private boolean cursorClosed;
                     public boolean next() throws Exception { return cursor.next(); }
@@ -164,6 +156,21 @@ public final class ArchiveDatabaseSource implements MigrationSource {
             @Override public void close() throws Exception { closed = true; if (active != null) active.close(); }
         };
     }
+    /** Reads the immutable staged table in archive order and verifies its digest at EOF. */
+    public MigrationRows openArchivedRows(String name, MigrationControl control) throws Exception {
+        var tables = metadata.schema().tables();
+        for (int i = 0; i < tables.size(); i++) {
+            var table = tables.get(i);
+            if (!table.name().equals(name)) continue;
+            Path file = files.get(i + ".rows");
+            PlainFilePathGuard.requirePlainRegularFile(file);
+            var input = new BufferedInputStream(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS));
+            try { return DatabaseRowsCodec.read(input, table, metadata.verification().tables().get(name), control); }
+            catch (Exception failure) { try { input.close(); } catch (IOException close) { failure.addSuppressed(close); } throw failure; }
+        }
+        throw new IOException("transfer.database-unknown-table");
+    }
+
     public void verifyRows(MigrationControl control) throws Exception {
         try (var session = export(new MigrationRequest(metadata.schema(), metadataFile(), Set.copyOf(metadata.rebuildObjects())), control)) {
             for (var table : metadata.schema().tables()) try (var rows = session.rows(table.name())) {

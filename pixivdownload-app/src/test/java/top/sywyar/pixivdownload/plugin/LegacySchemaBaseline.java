@@ -222,7 +222,8 @@ final class LegacySchemaBaseline {
                         column("original_extension", "TEXT", false, null, 0),
                         column("extensions", "TEXT", false, null, 0),
                         column("original_retained", "INTEGER", false, null, 0),
-                        column("output_fingerprints", "TEXT", false, null, 0)), List.of()));
+                        column("output_fingerprints", "TEXT", false, null, 0),
+                        column("thumbnail_owned", "INTEGER", false, null, 0)), List.of()));
         tables.put("artwork_partial_downloads", new TableSpec("artwork_partial_downloads", List.of(
                         column("artwork_id", "INTEGER", false, null, 1),
                         column("folder", "TEXT", true, null, 0),
@@ -238,7 +239,8 @@ final class LegacySchemaBaseline {
                         column("page", "INTEGER", true, null, 2),
                         column("original_extension", "TEXT", true, null, 0),
                         column("extensions", "TEXT", true, null, 0),
-                        column("original_retained", "INTEGER", true, null, 0)
+                        column("original_retained", "INTEGER", true, null, 0),
+                        column("thumbnail_owned", "INTEGER", false, null, 0)
                 ), List.of()
         ));
         tables.put("artwork_image_hashes", new TableSpec(

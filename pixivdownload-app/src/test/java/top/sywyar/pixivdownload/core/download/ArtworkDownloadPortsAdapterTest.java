@@ -172,7 +172,8 @@ class ArtworkDownloadPortsAdapterTest {
     @DisplayName("判重适配器应透传文件校验选择并保留记录存在性")
     void lookupAdapterDelegatesFileVerification() {
         DownloadedArtworkService downloadedArtworkService = mock(DownloadedArtworkService.class);
-        ArtworkDownloadLookupAdapter adapter = new ArtworkDownloadLookupAdapter(downloadedArtworkService);
+        ArtworkDownloadLookupAdapter adapter = new ArtworkDownloadLookupAdapter(downloadedArtworkService,
+                mock(top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class));
         when(downloadedArtworkService.getDownloadedRecord(42L, true))
                 .thenReturn(mock(ArtworkRecord.class));
 

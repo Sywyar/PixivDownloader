@@ -190,22 +190,25 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
         if (record != null && (record.deleted() || old.isEmpty())) return new Item(id, projected, Disposition.CONFLICT, "IMPORT_EXISTING_MANAGED_WORK");
         Map<Integer, Path> pages = new HashMap<>();
         Map<Path, Integer> paths = new HashMap<>();
+        var identities = new ExternalWorkFiles.FileIdentities();
         for (var ref : old) {
-            paths.put(ref.file(), ref.sourcePage());
-            if (ref.sourcePage() != null) pages.put(ref.sourcePage(), ref.file());
+            Path identity = identities.identify(ref.root(), ref.file());
+            paths.put(identity, ref.sourcePage());
+            if (ref.sourcePage() != null) pages.put(ref.sourcePage(), identity);
         }
-        boolean added = false;
+        int count = old.size();
         for (Found file : files) {
             Integer page = file.match.page();
-            if (page != null && (pages.containsKey(page) && !pages.get(page).equals(file.file)
-                    || paths.get(file.file) != null && !page.equals(paths.get(file.file))))
+            Path identity = identities.identify(file.root, file.file);
+            if (page != null && (pages.containsKey(page) && !pages.get(page).equals(identity)
+                    || paths.get(identity) != null && !page.equals(paths.get(identity))))
                 return new Item(id, projected, Disposition.CONFLICT, "IMPORT_PAGE_CONFLICT");
-            added |= !paths.containsKey(file.file);
-            paths.put(file.file, page);
-            if (page != null) pages.put(page, file.file);
+            if (!paths.containsKey(identity)) count++;
+            paths.putIfAbsent(identity, page);
+            if (page != null) pages.put(page, identity);
         }
-        if (paths.size() > 1000) return new Item(id, projected, Disposition.CONFLICT, "IMPORT_FILE_LIMIT");
-        return new Item(id, projected, record == null ? Disposition.NEW : added ? Disposition.SUPPLEMENT : Disposition.DUPLICATE, "");
+        if (count > 1000) return new Item(id, projected, Disposition.CONFLICT, "IMPORT_FILE_LIMIT");
+        return new Item(id, projected, record == null ? Disposition.NEW : count > old.size() ? Disposition.SUPPLEMENT : Disposition.DUPLICATE, "");
     }
 
     private void importFiles(Task current) {
@@ -249,6 +252,8 @@ public final class LocalImportService implements LocalArtworkImports, AutoClosea
                 current.phase == Phase.CANCELLED ? "CANCELLED" : reason(failure));
     }
     private static String reason(Exception failure) {
+        if (failure instanceof top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException rejected
+                && "occupied".equals(rejected.reason())) return "IMPORT_MANAGED_DIRECTORY";
         String code = failure.getMessage();
         return code != null && code.matches("(?:IMPORT_|INVALID_|UNSUPPORTED_|SOURCE_|AMBIGUOUS_|UNKNOWN_)[A-Z_]{1,64}")
                 ? code : "IMPORT_IO_FAILED";

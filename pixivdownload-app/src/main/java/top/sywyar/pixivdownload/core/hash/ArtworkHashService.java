@@ -33,12 +33,14 @@ public class ArtworkHashService {
     private final AppMessages messages;
     private final TransactionTemplate transactionTemplate;
     private final ArtworkMediaDecoder mediaDecoder;
+    private final top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec paths;
 
     public ArtworkHashService(ImageHashMapper imageHashMapper,
                               ArtworkFileLocator artworkFileLocator,
                               AppMessages messages,
                               PlatformTransactionManager transactionManager,
-                              ArtworkMediaDecoder mediaDecoder) {
+                              ArtworkMediaDecoder mediaDecoder, top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec paths) {
+        this.paths = paths;
         this.imageHashMapper = imageHashMapper;
         this.artworkFileLocator = artworkFileLocator;
         this.messages = messages;
@@ -49,30 +51,24 @@ public class ArtworkHashService {
     /** 单页哈希的计算结果。{@code hashes == null} 表示该页不可哈希（文件缺失 / 解码失败），落库时写页级哨兵。 */
     private record PageHashResult(int page, String extension, ImageHasher.Hashes hashes) {}
 
-    public int recordArtworkHashes(ArtworkRecord artwork) {
-        if (artwork == null) {
-            return 0;
-        }
-        try {
-            // 解码 + 计算哈希在事务外完成（耗时部分），避免在 SQLite 单写者写锁内做图片解码、
-            // 长时间阻塞并发下载落库。
-            int pageCount = Math.max(artwork.count(), 0);
-            List<PageHashResult> results = new ArrayList<>(pageCount);
-            for (int page = 0; page < pageCount; page++) {
-                results.add(computePageHash(artwork, page));
+    public java.util.OptionalInt recordArtworkHashes(long id, java.util.function.Supplier<ArtworkRecord> lookup) {
+        return paths.publishFromCurrentPaths(() -> {
+            ArtworkRecord artwork = lookup.get();
+            if (artwork == null) return null;
+            int pages = Math.max(artwork.count(), 0);
+            List<PageHashResult> results = new ArrayList<>(pages);
+            for (int page = 0; page < pages; page++) results.add(computePageHash(artwork, page));
+            return results;
+        }, results -> {
+            if (results == null) return java.util.OptionalInt.empty();
+            try {
+                int count = transactionTemplate.execute(status -> persistArtworkHashes(id, results, System.currentTimeMillis()));
+                return java.util.OptionalInt.of(count);
+            } catch (RuntimeException failure) {
+                log.warn(messages.getForLog("core.hash.log.artwork-failed", id, failure.getMessage()), failure);
+                return java.util.OptionalInt.of(0);
             }
-            // 落库放进一个短事务里整作品原子完成：删旧 + 写新（含逐页“无哈希”哨兵）。进程被强杀只会
-            // 整体回滚为旧状态，不会留下“删了旧的、新的只写一半”的中间态；因解码已在事务外完成，
-            // 写锁仅在这几条 SQL 期间短暂持有。
-            long now = System.currentTimeMillis();
-            Integer count = transactionTemplate.execute(status ->
-                    persistArtworkHashes(artwork.artworkId(), results, now));
-            return count == null ? 0 : count;
-        } catch (Exception e) {
-            log.warn(messages.getForLog("core.hash.log.artwork-failed",
-                    artwork.artworkId(), e.getMessage()), e);
-        }
-        return 0;
+        });
     }
 
     private int persistArtworkHashes(long artworkId, List<PageHashResult> results, long now) {

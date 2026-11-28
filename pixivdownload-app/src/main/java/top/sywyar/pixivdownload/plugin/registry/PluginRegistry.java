@@ -400,31 +400,51 @@ public class PluginRegistry implements SmartLifecycle {
      * 不可逆副作用、又不能在注册中心锁内调用插件代码的准备步骤。回调结束（包括异常路径）后 reservation 必定释放。
      */
     public <T> T withActiveIdentityReservation(RegisteredPlugin registered, Supplier<T> action) {
-        Objects.requireNonNull(registered, "registered plugin");
         Objects.requireNonNull(action, "action");
+        return withActiveIdentityReservations(List.of(registered), action::get);
+    }
+
+    public static final class InactiveIdentityException extends IllegalStateException {
+        private final String pluginId;
+
+        private InactiveIdentityException(String pluginId) {
+            super("plugin registration is not the current active identity: " + pluginId);
+            this.pluginId = pluginId;
+        }
+
+        public String pluginId() { return pluginId; }
+    }
+
+    @FunctionalInterface
+    public interface ReservedAction<T, E extends Exception> {
+        T get() throws E;
+    }
+
+    /** 在同一活动快照中保留整批身份，直至最终提交或回滚结束。 */
+    public <T, E extends Exception> T withActiveIdentityReservations(java.util.Collection<RegisteredPlugin> requested,
+                                                                      ReservedAction<T, E> action) throws E {
+        Objects.requireNonNull(action, "action");
+        var identities = List.copyOf(requested);
+        if (identities.isEmpty()) return action.get();
         Thread holder = Thread.currentThread();
-        ActiveIdentityReservationState reservation;
         synchronized (lock) {
-            if (!containsIdentity(state.active(), registered)) {
-                throw new IllegalStateException(
-                        "plugin registration is not the current active identity: " + registered.id());
+            for (var identity : identities) {
+                if (!containsIdentity(state.active(), identity)) throw new InactiveIdentityException(identity.id());
             }
-            reservation = activeIdentityReservations.computeIfAbsent(
-                    registered, ignored -> new ActiveIdentityReservationState());
-            reservation.acquire(holder);
+            for (var identity : identities)
+                activeIdentityReservations.computeIfAbsent(identity, ignored -> new ActiveIdentityReservationState()).acquire(holder);
         }
         try {
             return action.get();
         } finally {
             synchronized (lock) {
-                ActiveIdentityReservationState current = activeIdentityReservations.get(registered);
-                if (current != reservation || !reservation.release(holder)) {
-                    throw new IllegalStateException("invalid plugin active identity reservation state");
+                for (var identity : identities) {
+                    var reservation = activeIdentityReservations.get(identity);
+                    if (reservation == null || !reservation.release(holder))
+                        throw new IllegalStateException("invalid plugin active identity reservation state");
+                    if (reservation.isEmpty()) activeIdentityReservations.remove(identity);
                 }
-                if (reservation.isEmpty()) {
-                    activeIdentityReservations.remove(registered);
-                    lock.notifyAll();
-                }
+                lock.notifyAll();
             }
         }
     }

@@ -4,9 +4,11 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.core.JacksonException;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +27,7 @@ import top.sywyar.pixivdownload.translation.machine.TranslationBatch;
 import top.sywyar.pixivdownload.translation.machine.TranslationRequestGate;
 import lombok.extern.slf4j.Slf4j;
 
-/** 普通翻译 API；不解析或执行服务端返回的标记、地址与错误详情。 */
+/** 普通翻译 API；服务端诊断只映射为本地错误提示。 */
 @Slf4j
 public class MachineTranslationClient implements AutoCloseable {
     static final int RESPONSE_BYTES = 1024 * 1024;
@@ -65,9 +67,12 @@ public class MachineTranslationClient implements AutoCloseable {
             String tag = language(code.equals("jw") ? "jv" : code);
             return new Language(tag, Locale.forLanguageTag(tag).getDisplayName(Locale.ENGLISH));
         }).toList();
+        var cloud = CloudProvider.BY_ID.get(engine);
+        if (cloud == CloudProvider.DEEPL) return deepLTargets();
+        if (cloud != null) return cloud.targets().keySet().stream().map(MachineTranslationClient::displayLanguage).toList();
         if (!engine.equals("libretranslate")) throw new IllegalArgumentException("translation.unknown-engine");
         if (!available(engine)) throw new IllegalStateException("translation.unavailable");
-        JsonNode json = exchange("libretranslate", endpoint(config.getLibretranslateUrl()).resolve("languages"), HttpMethod.GET, null, null, RESPONSE_BYTES);
+        JsonNode json = exchange("libretranslate", endpoint(config.getLibretranslateUrl()).resolve("languages"), HttpMethod.GET, null, null, Map.of(), RESPONSE_BYTES);
         if (json == null || !json.isArray()) throw new Failure("translation.invalid-response", "invalid_languages", 200, null);
         Map<String, Language> found = new LinkedHashMap<>();
         // targets 是实际可翻译的方向，不能把仅能作为源语言的模型列作目标。
@@ -82,25 +87,59 @@ public class MachineTranslationClient implements AutoCloseable {
         return List.copyOf(found.values());
     }
 
+    private static Language displayLanguage(String code) {
+        return new Language(code, Locale.forLanguageTag(code).getDisplayName(Locale.ENGLISH));
+    }
+
+    private List<Language> deepLTargets() {
+        var provider = CloudProvider.DEEPL;
+        if (!available(provider.id)) throw new IllegalStateException("translation.unavailable");
+        var settings = config.cloud(provider);
+        var uri = provider.endpoint(settings).resolve("/v3/languages?resource=translate_text");
+        var json = exchange(provider.id, uri, HttpMethod.GET, null, null, CloudTranslationProtocol.deepLAuth(settings), RESPONSE_BYTES);
+        if (json == null || !json.isArray()) throw new Failure("translation.invalid-response", "invalid_languages", 200, null);
+        var targets = new LinkedHashMap<String, Language>();
+        for (var row : json) {
+            if (!row.path("usable_as_target").asBoolean(false)) continue;
+            String code = language(row.path("lang").asString(""));
+            if (!code.isEmpty()) targets.put(code, displayLanguage(code));
+            if (targets.size() > MAX_LANGUAGES) throw new Failure("translation.response-too-large", "too_many_languages", 200, null);
+        }
+        return List.copyOf(targets.values());
+    }
+
     public MachineTranslationClient(TranslationConfig config, RestTemplate youdao, RestTemplate libretranslate, ObjectMapper mapper) {
+        this(config, Map.of("youdao", youdao, "libretranslate", libretranslate), mapper);
+    }
+
+    MachineTranslationClient(TranslationConfig config, Map<String, ? extends RestTemplate> clients, ObjectMapper mapper) {
         config.validate();
         this.config = config;
-        this.clients = Map.of("youdao", youdao, "libretranslate", libretranslate);
+        this.clients = Map.copyOf(clients);
         this.mapper = mapper;
-        this.gates = Map.of("youdao", gate(config.getYoudao()), "libretranslate", gate(config.getLibretranslate()));
+        this.gates = new LinkedHashMap<>();
+        clients.keySet().forEach(id -> gates.put(id, gate(config.machine(id))));
     }
 
     private static TranslationRequestGate gate(TranslationConfig.MachineSettings settings) {
         return new TranslationRequestGate(settings.getRequestConcurrency(), settings.getRequestIntervalMs());
     }
 
-    @Override public void close() { gates.values().forEach(TranslationRequestGate::close); }
+    @Override public void close() {
+        gates.values().forEach(TranslationRequestGate::close);
+        for (var client : clients.values()) {
+            if (client instanceof top.sywyar.pixivdownload.plugin.runtime.http.ManagedPluginRestTemplate managed) managed.close();
+        }
+    }
 
     public boolean available(String engine) {
         return switch (engine) {
             case "youdao" -> !config.getYoudaoAppKey().isBlank() && !config.getYoudaoAppSecret().isBlank();
             case "libretranslate" -> !config.getLibretranslateUrl().isBlank();
-            default -> false;
+            default -> {
+                var provider = CloudProvider.BY_ID.get(engine);
+                yield provider != null && provider.configured(config.cloud(provider)) && clients.containsKey(engine);
+            }
         };
     }
 
@@ -123,7 +162,8 @@ public class MachineTranslationClient implements AutoCloseable {
         boolean success = false;
         try {
             int[] index = {0};
-            String result = TranslationBatch.translate(source, size, settings.getRequestChars(), settings.getBatchSize(),
+            int utf16Limit = engine.equals(CloudProvider.ALIYUN.id) ? CloudProvider.ALIYUN.chars : Integer.MAX_VALUE;
+            String result = TranslationBatch.translate(source, size, settings.getRequestChars(), settings.getBatchSize(), utf16Limit,
                     texts -> checkpoint == null ? requestWithRetry(engine, texts, language, stats)
                             : checkpoint.batch(field, index[0]++, texts, () -> requestWithRetry(engine, texts, language, stats)));
             success = true;
@@ -159,7 +199,7 @@ public class MachineTranslationClient implements AutoCloseable {
                 }
                 return result;
             } catch (Failure failure) {
-                boolean limited = failure.httpStatus == 429 || "411".equals(failure.providerCode) || "412".equals(failure.providerCode);
+                boolean limited = "translation.rate-limited".equals(failure.getMessage());
                 if (!limited) throw failure;
                 long delay = Math.max(failure.retryAfterMs,
                         Math.min(60_000L, Math.max(1000L, settings.getRequestIntervalMs()) * (1L << attempt)));
@@ -175,6 +215,13 @@ public class MachineTranslationClient implements AutoCloseable {
     }
 
     private List<String> request(String engine, List<String> texts, String language) {
+        int responseLimit = Math.max(RESPONSE_BYTES, texts.stream().mapToInt(t -> t.codePointCount(0, t.length())).sum() * 16);
+        var cloud = CloudProvider.BY_ID.get(engine);
+        if (cloud != null) {
+            var request = CloudTranslationProtocol.request(cloud, config.cloud(cloud), mapper, texts, language);
+            var json = exchange(engine, request.uri(), HttpMethod.POST, request.body(), request.type(), request.headers(), responseLimit);
+            return CloudTranslationProtocol.translations(cloud, json, texts.size());
+        }
         URI uri;
         byte[] body;
         MediaType contentType;
@@ -204,9 +251,7 @@ public class MachineTranslationClient implements AutoCloseable {
             catch (JacksonException impossible) { throw new IllegalStateException("translation.invalid-request"); }
             contentType = MediaType.APPLICATION_JSON;
         } else throw new IllegalArgumentException("translation.unknown-engine");
-        // 按实际输入预留 UTF-8 / JSON 与译文膨胀空间；不按整篇小说分配响应预算。
-        int responseLimit = Math.max(RESPONSE_BYTES, texts.stream().mapToInt(t -> t.codePointCount(0, t.length())).sum() * 16);
-        JsonNode json = exchange(engine, uri, HttpMethod.POST, body, contentType, responseLimit);
+        JsonNode json = exchange(engine, uri, HttpMethod.POST, body, contentType, Map.of(), responseLimit);
         JsonNode values;
         if (engine.equals("youdao")) {
             String code = json == null ? "" : json.path("errorCode").asString();
@@ -228,11 +273,12 @@ public class MachineTranslationClient implements AutoCloseable {
         return result;
     }
 
-    private JsonNode exchange(String engine, URI uri, HttpMethod method, byte[] body, MediaType contentType, int responseLimit) {
+    private JsonNode exchange(String engine, URI uri, HttpMethod method, byte[] body, MediaType contentType, Map<String, String> headers, int responseLimit) {
         RestTemplate client = clients.get(engine);
         try {
             var request = client.getRequestFactory().createRequest(uri, method);
             request.getHeaders().setAccept(List.of(MediaType.APPLICATION_JSON));
+            headers.forEach(request.getHeaders()::set);
             if (body != null) {
                 request.getHeaders().setContentType(contentType);
                 request.getBody().write(body);
@@ -240,15 +286,18 @@ public class MachineTranslationClient implements AutoCloseable {
             try (var response = request.execute()) {
                 int status = response.getStatusCode().value();
                 if (!response.getStatusCode().is2xxSuccessful()) {
-                    var failure = new Failure(status == 429 ? "translation.rate-limited" : status == 401 || status == 403
-                            ? "translation.credentials-error" : "translation.remote-error", "http_error", status, null);
+                    String key = switch (status) {
+                        case 429 -> "translation.rate-limited";
+                        case 401 -> "translation.credentials-error";
+                        case 403 -> engine.equals("google") ? googleForbiddenKey(response, responseLimit) : "translation.credentials-error";
+                        case 456 -> engine.equals("deepl") ? "translation.balance-error" : "translation.remote-error";
+                        default -> "translation.remote-error";
+                    };
+                    var failure = new Failure(key, key, status, null);
                     failure.retryAfterMs = retryAfter(response.getHeaders().getFirst("Retry-After"));
                     throw failure;
                 }
-                if (response.getHeaders().getContentLength() > responseLimit) throw new Failure("translation.response-too-large", "response_too_large", status, null);
-                byte[] bytes = response.getBody().readNBytes(responseLimit + 1);
-                if (bytes.length > responseLimit) throw new Failure("translation.response-too-large", "response_too_large", status, null);
-                return mapper.readTree(new String(bytes, StandardCharsets.UTF_8));
+                return readResponse(response, responseLimit);
             }
         } catch (JacksonException failure) {
             throw new Failure("translation.invalid-response", "invalid_json", 200, null);
@@ -256,6 +305,41 @@ public class MachineTranslationClient implements AutoCloseable {
             throw new Failure("translation.remote-error", failure instanceof java.net.SocketTimeoutException
                     ? "timeout" : "transport_error", 0, null);
         }
+    }
+
+    private JsonNode readResponse(ClientHttpResponse response, int limit) throws IOException {
+        if (response.getHeaders().getContentLength() <= limit) {
+            byte[] bytes = response.getBody().readNBytes(limit + 1);
+            if (bytes.length <= limit) return mapper.readTree(new String(bytes, StandardCharsets.UTF_8));
+        }
+        throw new Failure("translation.response-too-large", "response_too_large", response.getStatusCode().value(), null);
+    }
+
+    private String googleForbiddenKey(ClientHttpResponse response, int limit) throws IOException {
+        JsonNode json;
+        try {
+            json = readResponse(response, limit);
+        } catch (JacksonException invalidBody) {
+            return "translation.access-denied";
+        }
+        if (json == null) return "translation.access-denied";
+        JsonNode error = json.path("error");
+        for (String field : List.of("errors", "details")) {
+            for (JsonNode detail : error.path(field)) {
+                switch (detail.path("reason").asString("")) {
+                    case "dailyLimitExceeded" -> { return "translation.daily-quota-exceeded"; }
+                    case "userRateLimitExceeded", "rateLimitExceeded" -> { return "translation.rate-limited"; }
+                    case "keyInvalid", "authError", "insufficientPermissions", "ipRefererBlocked",
+                         "API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "API_KEY_HTTP_REFERRER_BLOCKED",
+                         "API_KEY_IP_ADDRESS_BLOCKED" -> { return "translation.credentials-error"; }
+                }
+            }
+        }
+        return switch (error.path("message").asString("").strip().toLowerCase(Locale.ROOT)) {
+            case "daily limit exceeded", "daily limit exceeded." -> "translation.daily-quota-exceeded";
+            case "user rate limit exceeded", "user rate limit exceeded." -> "translation.rate-limited";
+            default -> "translation.access-denied";
+        };
     }
 
     static long retryAfter(String value) {
@@ -322,11 +406,15 @@ public class MachineTranslationClient implements AutoCloseable {
         if (!value.matches("(?i)[a-z]{2,3}(?:-[a-z0-9]{2,8})*")) return "";
         return Locale.forLanguageTag(value).toLanguageTag();
     }
+    static Locale chineseWritingSystem(Locale target) {
+        return "Hant".equals(target.getScript()) || List.of("TW", "HK", "MO").contains(target.getCountry())
+                ? Locale.TRADITIONAL_CHINESE : Locale.SIMPLIFIED_CHINESE;
+    }
+
     static String providerLanguage(String engine, String language) {
         Locale target = Locale.forLanguageTag(language(language));
         if (Locale.CHINESE.getLanguage().equals(target.getLanguage())) {
-            boolean traditional = "Hant".equals(target.getScript())
-                    || java.util.List.of("TW", "HK", "MO").contains(target.getCountry());
+            boolean traditional = chineseWritingSystem(target).equals(Locale.TRADITIONAL_CHINESE);
             return engine.equals("youdao") ? (traditional ? "zh-CHT" : "zh-CHS") : (traditional ? "zt" : "zh");
         }
         if (engine.equals("youdao")) {

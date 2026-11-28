@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.core.schedule;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathAction;
+import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
+
 /**
  * 可跨重启和插件 reload 重试的中性作品 envelope。
  *
@@ -65,6 +68,16 @@ public record ScheduledPendingWork(
         if (attempts < 0) {
             throw new IllegalArgumentException("attempts must not be negative");
         }
+    }
+
+    /**
+     * 检查当前原因可消费的选择，其他提供者可使用自己的操作码。
+     * @param action 用户提交的操作码
+     * @return 该操作可用于当前待处理原因
+     */
+    public boolean acceptsUserAction(String action) {
+        return action != null && action.matches("[A-Z][A-Z0-9_]{0,63}")
+                && (!DownloadPathPlan.NeedsAction.REASON.equals(reasonCode) || DownloadPathAction.parse(action) != DownloadPathAction.ASK);
     }
 
     private static void requireText(String value, String field) {

@@ -61,27 +61,45 @@ public class TranslationPlugin implements PixivFeaturePlugin {
     private static List<GuiConfigContribution> createGuiConfig() {
         var youdao = GuiConfigCondition.equalsTo("translation.engine", "youdao");
         var libre = GuiConfigCondition.equalsTo("translation.engine", "libretranslate");
-        var connection = List.of(
-                field("translation.engine", GuiConfigFieldType.ENUM, "ai", 100, List.of("ai", "youdao", "libretranslate")),
+        var connection = new ArrayList<>(List.of(
+                field("translation.engine", GuiConfigFieldType.ENUM, "ai", 100, CloudProvider.ENGINES),
                 field("translation.youdao-app-key", GuiConfigFieldType.STRING, "", 110, List.of(), youdao).requiredWhen(youdao),
                 field("translation.youdao-app-secret", GuiConfigFieldType.PASSWORD, "", 120, List.of(), youdao).requiredWhen(youdao),
                 field("translation.libretranslate-url", GuiConfigFieldType.STRING, "", 130, List.of(), libre).requiredWhen(libre),
-                field("translation.libretranslate-api-key", GuiConfigFieldType.PASSWORD, "", 140, List.of(), libre));
-        var requests = new ArrayList<GuiConfigFieldContribution>();
+                field("translation.libretranslate-api-key", GuiConfigFieldType.PASSWORD, "", 140, List.of(), libre)));
         var defaults = new TranslationConfig();
+        for (var provider : CloudProvider.values()) {
+            var selected = GuiConfigCondition.equalsTo("translation.engine", provider.id);
+            for (String name : provider.fields) {
+                boolean secret = name.equals("api-key") || name.equals("secret");
+                String value = name.equals("region") ? defaults.cloud(provider).getRegion() : "";
+                var setting = field("translation.providers." + provider.id + "." + name,
+                        secret ? GuiConfigFieldType.PASSWORD : GuiConfigFieldType.STRING, value,
+                        110 + provider.fields.indexOf(name), List.of(), selected);
+                connection.add(provider == CloudProvider.AZURE && name.equals("region") ? setting : setting.requiredWhen(selected));
+            }
+        }
+        var deepl = GuiConfigCondition.equalsTo("translation.engine", "deepl");
+        connection.add(field("translation.providers.deepl.source-language", GuiConfigFieldType.STRING, "", 120, List.of(), deepl));
+        connection.add(field("translation.providers.deepl.glossary-id", GuiConfigFieldType.STRING, "", 121, List.of(), deepl));
+        connection.add(field("translation.providers.deepl.formality", GuiConfigFieldType.ENUM, defaults.cloud(CloudProvider.DEEPL).getFormality(), 122, CloudProvider.FORMALITY, deepl));
+        var requests = new ArrayList<GuiConfigFieldContribution>();
         requests.add(field("translation.ai-segment-size", GuiConfigFieldType.INT,
                 Integer.toString(defaults.getAiSegmentSize()), 150, List.of(),
                 GuiConfigCondition.equalsTo("translation.engine", "ai")));
-        for (String engine : List.of("youdao", "libretranslate")) {
+        for (String engine : CloudProvider.ENGINES) {
+            if (engine.equals("ai")) continue;
+            var provider = CloudProvider.BY_ID.get(engine);
             var settings = defaults.machine(engine);
             requests.add(requestField(engine, "request-chars", settings.getRequestChars(), 1,
-                    engine.equals("youdao") ? 5000 : 1_000_000, 200));
-            requests.add(requestField(engine, "batch-size", settings.getBatchSize(), 1, 100, 210));
+                    provider != null ? provider.chars : engine.equals("youdao") ? 5000 : 1_000_000, 200));
+            if (provider == null || provider.batch > 1)
+                requests.add(requestField(engine, "batch-size", settings.getBatchSize(), 1, provider == null ? 100 : provider.batch, 210));
             requests.add(requestField(engine, "request-interval-ms", settings.getRequestIntervalMs(), 0, 60_000, 220));
             requests.add(requestField(engine, "request-concurrency", settings.getRequestConcurrency(), 1, 32, 230));
             requests.add(requestField(engine, "max-retries", settings.getMaxRetries(), 0, 10, 240));
             requests.add(requestField(engine, "read-timeout-seconds", settings.getReadTimeoutSeconds(), 1, 3600, 250));
-            requests.add(field("translation." + engine + ".use-proxy", GuiConfigFieldType.BOOL,
+            requests.add(field(prefix(engine) + ".use-proxy", GuiConfigFieldType.BOOL,
                     Boolean.toString(settings.isUseProxy()), 260, List.of(), GuiConfigCondition.equalsTo("translation.engine", engine)));
         }
         var automatic = List.of(field("translation.max-concurrent", GuiConfigFieldType.INT,
@@ -104,18 +122,27 @@ public class TranslationPlugin implements PixivFeaturePlugin {
         ));
     }
 
+    private static String prefix(String engine) {
+        return (CloudProvider.BY_ID.containsKey(engine) ? "translation.providers." : "translation.") + engine;
+    }
+
     private static String labelKey(String key) {
+        if (key.startsWith("translation.providers.")) {
+            String name = key.substring(key.lastIndexOf('.') + 1);
+            return "gui.config.field.translation." + (List.of("api-key", "secret", "key-id", "region", "source-language", "glossary-id", "formality").contains(name)
+                    ? "cloud." : "request.") + name + ".label";
+        }
         return "gui.config.field." + key.replace("translation.youdao.", "translation.request.")
                 .replace("translation.libretranslate.", "translation.request.") + ".label";
     }
 
     private static String helpKey(String key) {
-        if (key.endsWith(".request-chars")) return "gui.config.field." + key + ".help";
+        if (key.endsWith(".request-chars") && !key.startsWith("translation.providers.")) return "gui.config.field." + key + ".help";
         return labelKey(key).replace(".label", ".help");
     }
 
     private static GuiConfigFieldContribution requestField(String engine, String name, int value, int min, int max, int order) {
-        String key = "translation." + engine + "." + name;
+        String key = prefix(engine) + "." + name;
         return new GuiConfigFieldContribution(key, ID, labelKey(key), helpKey(key), "translate",
                 GuiConfigFieldType.INT, Integer.toString(value), order, false, GuiConfigEffect.BACKEND_RESTART,
                 List.of(), List.of(), List.of(GuiConfigCondition.equalsTo("translation.engine", engine)), min, max, true, Map.of());
@@ -166,8 +193,8 @@ public class TranslationPlugin implements PixivFeaturePlugin {
                 type == GuiConfigFieldType.INT ? (key.equals("translation.ai-segment-size") ? 0 : 1) : null,
                 key.equals("translation.ai-segment-size") ? 1_000_000 : null,
                 true,
-                type == GuiConfigFieldType.ENUM ? Map.of("ai", "translation.engine.ai", "youdao", "translation.engine.youdao",
-                        "libretranslate", "translation.engine.libretranslate") : Map.of()
+                type == GuiConfigFieldType.ENUM ? options.stream().collect(
+                        java.util.stream.Collectors.toMap(id -> id, id -> (key.endsWith(".formality") ? "translation.formality." : "translation.engine.") + id)) : Map.of()
         );
     }
 }

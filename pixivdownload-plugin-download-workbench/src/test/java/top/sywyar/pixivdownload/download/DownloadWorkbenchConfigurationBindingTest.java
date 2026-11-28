@@ -38,6 +38,7 @@ class DownloadWorkbenchConfigurationBindingTest {
                     top.sywyar.pixivdownload.core.work.service.WorkAssetService.class,
                     top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository.class,
                     top.sywyar.pixivdownload.core.work.service.WorkQueryService.class,
+                    top.sywyar.pixivdownload.core.work.service.DownloadPathGuard.class,
                     top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class,
                     top.sywyar.pixivdownload.core.database.DatabaseAvailability.class,
                     top.sywyar.pixivdownload.i18n.MessageResolver.class)) {

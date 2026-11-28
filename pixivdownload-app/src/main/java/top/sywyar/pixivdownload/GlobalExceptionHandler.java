@@ -169,20 +169,13 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
             WorkDeletionException e, Locale locale) {
         String typeName = workTypeName(locale, e.workType());
         String logTypeName = messages.getForLog("work.type." + e.workType().name().toLowerCase(Locale.ROOT));
-        String message = switch (e.reason()) {
-            case LOCAL_FILE_DELETE_FAILED -> messages.getOrDefault(
-                    locale,
-                    "work.delete.file-failed",
-                    "{0} {1} 的磁盘文件未能全部删除，已中止数据库清理",
-                    typeName,
-                    e.workId());
+        String code = switch (e.reason()) {
+            case LOCAL_FILE_DELETE_FAILED -> "work.delete.file-failed";
+            case INCOMPLETE_FILE_OWNERSHIP -> "work.delete.ownership-incomplete";
         };
-        String logDetail = switch (e.reason()) {
-            case LOCAL_FILE_DELETE_FAILED -> messages.getForLog(
-                    "work.delete.file-failed", logTypeName, e.workId());
-        };
-        log.warn(logMessage("error.log.request.failed", logDetail));
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error("work.delete.file-failed", message));
+        String message = messages.get(locale, code, typeName, e.workId());
+        log.warn(logMessage("error.log.request.failed", messages.getForLog(code, logTypeName, e.workId())));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error(code, message));
     }
 
     @ExceptionHandler(UnsafeDeletionPathException.class)
@@ -356,6 +349,11 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
 
     @ExceptionHandler(IOException.class)
     public ResponseEntity<?> handleIOException(IOException e, Locale locale) {
+        if (e instanceof top.sywyar.pixivdownload.core.web.ResponseStreamAbortedException) {
+            // 内容 owner 已记录中止原因；响应通常已提交，这里只结束连接，不重复记录堆栈。
+            log.debug("Streaming response aborted by its owner: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
         if (isClientDisconnect(e)) {
             log.debug(logMessage("error.log.client-disconnected",
                     fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));

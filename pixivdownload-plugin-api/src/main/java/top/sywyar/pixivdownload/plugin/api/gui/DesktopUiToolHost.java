@@ -18,9 +18,9 @@ public interface DesktopUiToolHost {
     default boolean startupCacheTraining() { return false; }
 
     /**
-     * 定位可用的 FFmpeg 安装。
+     * 查询桌面展示用的 FFmpeg 安装状态。文件发布期间返回最近确认的安装信息。
      *
-     * @return 找到的可用安装；没有时为空
+     * @return 最近确认的安装；没有时为空
      */
     Optional<FfmpegInstallation> locateFfmpeg();
 
@@ -823,11 +823,7 @@ public interface DesktopUiToolHost {
     }
 
     /**
-     * 复制、移除并记录一个已分类作品。
-     *
-     * <p>复制失败会回滚并抛出异常。源文件删除失败会报告给
-     * {@code deleteFailureHandler}；返回 {@code true} 会重试删除，返回
-     * {@code false} 则保留已复制的目标文件及其余源文件。</p>
+     * 已退役的分类移动入口。宿主在修改文件或登记作品之前报告失败。
      *
      * @param sourceFolder         源工作目录
      * @param images               源图片
@@ -835,9 +831,11 @@ public interface DesktopUiToolHost {
      * @param targetFolder         选择的分类目标目录
      * @param server               先前解析的服务状态
      * @param deleteFailureHandler 源文件删除失败时的用户决策回调
-     * @return 实际目标目录
-     * @throws IOException 创建目标目录或复制失败时抛出
+     * @return 原契约中的目标目录
+     * @throws IOException 分类移动已退役
+     * @deprecated 分类移动已退役。
      */
+    @Deprecated
     default Path classifyImageFolder(
             Path sourceFolder,
             List<Path> images,
@@ -846,7 +844,7 @@ public interface DesktopUiToolHost {
             ImageClassifierServer server,
             ImageClassifierDeleteFailureHandler deleteFailureHandler
     ) throws IOException {
-        throw new UnsupportedOperationException("Image classification is not supported by this host");
+        throw new IOException("Image classifier moves have been retired");
     }
 
     /**

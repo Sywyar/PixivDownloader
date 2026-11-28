@@ -182,10 +182,12 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             try {
                 var detail = objectMapper.readTree(row.reasonDetailJson() == null ? "{}" : row.reasonDetailJson());
                 String action = detail == null ? "" : detail.path("userAction").asString("");
-                if (action.matches("[A-Z][A-Z0-9_]{0,63}")) {
-                    userActions.put(work.key(), Map.of(row.reasonCode(), action));
-                    if (detail.path("rememberForRun").asBoolean(false)) {
-                        runUserActions.merge(row.reasonCode(), action, (old, next) -> old.equals(next) ? old : "");
+                if (!action.isEmpty()) {
+                    if (row.acceptsUserAction(action)) {
+                        userActions.put(work.key(), Map.of(row.reasonCode(), action));
+                        if (detail.path("rememberForRun").asBoolean(false)) {
+                            runUserActions.merge(row.reasonCode(), action, (old, next) -> old.equals(next) ? old : "");
+                        }
                     }
                     // 先消费耐久授权，再执行作品；崩溃或下一轮重试不得沿用本轮批次选择。
                     row = new ScheduledPendingWork(row.taskId(), row.workType(), row.workId(), row.payloadSchema(),
@@ -240,7 +242,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     public void submit(ScheduledWork submitted) throws ScheduledExecutionException {
         ensureAcceptingAndNotCancelled();
         validateSubmittedWork(submitted);
-        if (runQueue.alreadyResolved(submitted.key())) return;
+        if (seen.contains(submitted.key()) || runQueue.alreadyResolved(submitted.key())) return;
         ScheduledPendingWork pendingRow = pending.get(submitted.key());
         ScheduledWork work = pendingRow == null
                 ? submitted
@@ -269,10 +271,8 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                     "schedule.work.type-unplanned");
         }
+        if (!seen.add(work.key())) return;
         discover(work);
-        if (!seen.add(work.key())) {
-            return;
-        }
         if (result.outcome() == ScheduledWorkResult.Outcome.COMPLETED) {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.INTERNAL,
@@ -410,7 +410,11 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                 };
                 ScheduledWorkResult result;
                 try {
-                    result = credential.call(cancellation::isCancellationRequested, () -> executor.execute(work, context));
+                    result = credential.call(cancellation::isCancellationRequested, () -> {
+                        String workType = work.key().workType();
+                        runQueue.dispatched(work.key(), executorOwners.get(workType), executorPublicationIds.get(workType));
+                        return executor.execute(work, context);
+                    });
                 } catch (ScheduledExecutionException failure) {
                     return Completion.failure(
                             work, retry, sanitizeFailure(failure.toFailure()));

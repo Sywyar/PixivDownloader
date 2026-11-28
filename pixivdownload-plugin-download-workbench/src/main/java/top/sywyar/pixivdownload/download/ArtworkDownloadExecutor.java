@@ -274,11 +274,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             ensureNotCancelled(status);
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             PartialArtwork partial = artworkDownloadHistory.partial(artworkId);
-            String revision = partial == null && selected.isEmpty() ? null : PartialArtwork.sourceRevision(imageUrls, other.getSourceUploadDate());
+            String revision = partial != null ? PartialArtwork.sourceRevision(imageUrls, other.getSourceUploadDate()) : null;
             var mediaSettings = other.resolveMediaOutputSettings();
-            String outputSettings = new TreeSet<>(List.of(mediaSettings.getImageFormats().split(","))) + "/"
+            var imageFormats = new TreeSet<>(List.of(mediaSettings.getImageFormats().split(",")));
+            String outputSettings = imageFormats + "/"
                     + mediaSettings.getQuality() + "/" + mediaSettings.isWebpLossless() + "/" + mediaSettings.getMaximumEdge();
-            boolean restart = partial != null && (other.isUgoira() || !Objects.equals(partial.sourceRevision(), revision)
+            boolean animation = other.isUgoira() && other.getUgoiraZipUrl() != null;
+            boolean restart = partial != null && (animation || !Objects.equals(partial.sourceRevision(), revision)
                     || !partial.outputSettings().equals(outputSettings)
                     || (other.getFileNameTemplate() != null && !other.getFileNameTemplate().isBlank()
                         && !partial.template().equals(requestedPlan.template()))
@@ -295,29 +297,40 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             Path downloadPath = fileNamePlan.directory();
             requireWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
-            downloadPathGuard.prepareDirectory(WorkType.ARTWORK, artworkId, downloadPath);
-            status.setDownloadPath(downloadPath.toString());
-
-            if (partial == null && !selected.isEmpty()) {
-                partial = new PartialArtwork(artworkId, downloadPath.toString(), imageUrls.size(), fileNamePlan.template(),
-                        fileNamePlan.maxLength(), outputSettings, revision, fileNamePlan.baseNames(), Map.of(), Map.of());
-                if (!artworkDownloadHistory.startPartial(partial)) {
+            var registeredOutputs = partial == null && selected.isEmpty()
+                    ? artworkDownloadLookup.registeredOutputs(artworkId) : Optional.<Set<Path>>empty();
+            boolean verifiedPageList = other.isResolvedPageList() && !animation;
+            // 未经上游核全的 URL 列表不能成为跨请求可续用的页布局。
+            boolean unresolvedFirstDownload = partial == null && selected.isEmpty() && registeredOutputs.isEmpty()
+                    && !verifiedPageList && !animation;
+            boolean stageReplacement = restart || registeredOutputs.isPresent() || unresolvedFirstDownload || animation;
+            if (partial == null && registeredOutputs.isEmpty() && (!selected.isEmpty() || verifiedPageList)) {
+                var layout = new PartialArtwork(artworkId, downloadPath.toString(), imageUrls.size(), fileNamePlan.template(),
+                        fileNamePlan.maxLength(), outputSettings, PartialArtwork.sourceRevision(imageUrls, other.getSourceUploadDate()),
+                        fileNamePlan.baseNames(), Map.of(), Map.of());
+                if (!downloadPathGuard.prepareDirectoryIf(WorkType.ARTWORK, artworkId, downloadPath,
+                        () -> artworkDownloadHistory.startPartial(layout))) {
                     throw LocalizedException.badRequest("download.selection.library-registered",
                             "The artwork is already registered; read its saved pages or submit the whole work to replace its outputs");
                 }
+                partial = layout;
+            } else {
+                downloadPathGuard.prepareDirectory(WorkType.ARTWORK, artworkId, downloadPath);
             }
-            Path outputDirectory = restart ? rebuild.start(paths, artworkId) : downloadPath;
-            MediaSink sink = restart ? rebuild::save : imageOutputService.downloadedMedia(artworkId, partial != null);
-            var existingFiles = partial == null || restart ? Map.<Integer, List<String>>of() : partial.verifiedFiles();
-            int alreadyRequested = selected.isEmpty() ? existingFiles.size()
-                    : (int) selected.stream().filter(existingFiles::containsKey).count();
-            AtomicInteger successCount = new AtomicInteger(alreadyRequested);
-            recordPages.accept(alreadyRequested);
+            status.setDownloadPath(downloadPath.toString());
+            PartialArtwork resume = stageReplacement ? null : partial;
+            if (unresolvedFirstDownload) rebuild.initialSources(downloadPath, fileTransactions, imageFormats);
+            MediaSink sink = stageReplacement ? rebuild.wholeArtwork() : imageOutputService.downloadedMedia(artworkId, resume != null);
+            var existingFiles = resume == null ? Map.<Integer, List<String>>of()
+                    : resume.verifiedFiles(selected.isEmpty() ? resume.media().keySet() : selected);
+            boolean stagePages = resume != null && existingFiles.size() < requestedCount;
+            Path outputDirectory = stageReplacement || stagePages ? rebuild.start(paths, artworkId) : downloadPath;
+            AtomicInteger successCount = new AtomicInteger(existingFiles.size());
+            recordPages.accept(existingFiles.size());
 
             Set<String> fileExtensions = ConcurrentHashMap.newKeySet();
-            if (partial != null) for (int page : existingFiles.keySet()) fileExtensions.addAll(partial.media().get(page).extensions());
 
-            if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
+            if (animation) {
                 // === 动图 (ugoira) 处理：委托给 UgoiraService ===
                 fileExtensions.addAll(ugoiraService.outputFormats(other));
                 status.setCurrentImageIndex(0);
@@ -329,9 +342,10 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                 };
                 BooleanSupplier cancelled = () -> !database.available() || status.isCancelled();
-                successCount.set(restart
-                        ? ugoiraService.processUgoira(artworkId, other, outputDirectory, referer, cookie, progressListener, cancelled, sink)
-                        : ugoiraService.processUgoira(artworkId, other, outputDirectory, referer, cookie, progressListener, cancelled));
+                MediaSink animationSink = !restart && registeredOutputs.isEmpty()
+                        ? rebuild.initialPage(downloadPath, fileNamePlan.baseName(0)) : sink;
+                successCount.set(ugoiraService.stageUgoira(artworkId, other, outputDirectory, referer, cookie,
+                        progressListener, cancelled, animationSink, rebuild::stageFrameArchive));
 
                 recordPages.accept(successCount.get());
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -358,7 +372,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                         eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
                         try {
-                            Path fileStem = outputDirectory.resolve(fileNamePlan.baseName(i));
+                            BooleanSupplier cancelled = () -> !database.available() || status.isCancelled();
+                            MediaSink pageSink;
+                            if (unresolvedFirstDownload) pageSink = rebuild.initialPage(downloadPath, fileNamePlan.baseName(i));
+                            else if (resume != null) pageSink = rebuild.partialPage(fileTransactions, downloadPathGuard, artworkId, resume.observeRepair(i), downloadPath, sink, cancelled);
+                            else pageSink = sink;
+                            Path fileStem = resume == null ? outputDirectory.resolve(fileNamePlan.baseName(i))
+                                    : rebuild.pageStem(i, fileNamePlan.baseName(i));
                             int imageNumber = i + 1;
                             Consumer<ImageDownloadProgress> imageProgressListener = progress -> {
                                 ensureNotCancelled(status);
@@ -366,17 +386,25 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                             };
                             String extension = downloadImage(imageUrl, fileStem, referer, cookie,
-                                    imageNumber, imageUrls.size(), imageProgressListener, () -> !database.available() || status.isCancelled(),
+                                    imageNumber, imageUrls.size(), imageProgressListener, cancelled,
                                     remainingImageBytes);
                             if (extension != null) {
-                                pipeline.submit(() -> processDownloadedImage(status, fileStem, extension, mediaSettings,
-                                        imageNumber, imageUrls.size(), fileExtensions, successCount, sink, recordPages));
+                                if (unresolvedFirstDownload || resume != null) rebuild.downloadedSource(i, fileStem, extension);
+                                pipeline.submit(() -> {
+                                    try {
+                                        processDownloadedImage(status, fileStem, extension, mediaSettings,
+                                                imageNumber, imageUrls.size(), fileExtensions, successCount, pageSink, recordPages);
+                                    } finally {
+                                        if (resume != null) rebuild.finishPage(imageNumber - 1, fileStem.getParent());
+                                    }
+                                });
                                 status.setImageProgress(null);
                                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                             }
                             if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), () -> !database.available() || status.isCancelled());
                         } catch (Exception e) {
-                            if (e instanceof CancellationException || e instanceof top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException) {
+                            if (e instanceof CancellationException || e instanceof LocalizedException
+                                    || e instanceof top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentialsUnavailableException) {
                                 throw e;
                             }
                             if (status.getImageProgress() != null) {
@@ -394,11 +422,11 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             ensureNotCancelled(status);
 
             // 多人模式：记录已下载的文件夹（用于配额超出时打包）；部分失败时已落盘的文件同样要纳入打包/清理
-            if (userUuid != null && visitorDownloadQuotaService != null && successCount.get() > 0) {
+            if (!stageReplacement && userUuid != null && visitorDownloadQuotaService != null && successCount.get() > 0) {
                 visitorDownloadQuotaService.recordFolder(userUuid, downloadPath);
             }
 
-            int expectedCount = other.isUgoira() && other.getUgoiraZipUrl() != null ? 1 : requestedCount;
+            int expectedCount = animation ? 1 : requestedCount;
             if (successCount.get() < expectedCount) {
                 // 有图片未下载成功时绝不写下载历史：一旦入库就会被「跳过已下载」判重挡住，缺页再也补不齐
                 status.setSuccessCount(successCount.get());
@@ -414,8 +442,24 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 return false;
             }
 
-            int covered = existingFiles.size() - alreadyRequested + successCount.get();
-            if (covered < imageUrls.size() && !other.isUgoira()) {
+            int covered = successCount.get();
+            if (partial != null && !restart) {
+                if (!selected.isEmpty()) {
+                    var savedPages = partial.media().keySet();
+                    covered = savedPages.size() + (int) selected.stream().filter(page -> !savedPages.contains(page)).count();
+                }
+                if (covered == imageUrls.size()) {
+                    // 发布前从持久清单重新验证整部作品，包括本次写入及未请求的旧页。
+                    var latest = artworkDownloadHistory.partial(artworkId);
+                    var verified = latest.verifiedFiles();
+                    covered = verified.size();
+                    if (covered != imageUrls.size() && (selected.isEmpty() || !verified.keySet().containsAll(selected)))
+                        throw new IOException("Artwork output changed before publication");
+                    fileExtensions.clear();
+                    for (int page : verified.keySet()) fileExtensions.addAll(latest.media().get(page).extensions());
+                }
+            }
+            if (covered < imageUrls.size() && !animation) {
                 applyCollectionActions(status, artworkId, other, cookie);
                 finishSelection(status, attempt, requestedCount, covered, userUuid);
                 succeeded = completedAttempt = true;
@@ -427,10 +471,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     covered, other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
                     fileNamePlan.template(), fileNamePlan.recordTime(), fileNamePlan.normalizedAuthorName(),
                     other.getSeriesId(), other.getSeriesOrder(), fileNamePlan.maxLength(), fileNamePlan.baseNames());
-            if (restart) {
-                rebuild.publish(fileTransactions, partial, completion, imageOutputService.downloadedMedia(artworkId, false), () -> {
+            if (stageReplacement) {
+                var expectedHashes = restart ? partial.verifiedOutputs() : Map.<Path, String>of();
+                var previousFiles = restart ? expectedHashes.keySet() : registeredOutputs.orElse(Set.of());
+                rebuild.publish(fileTransactions, downloadPathGuard, previousFiles, expectedHashes, completion, imageOutputService.downloadedMedia(artworkId, false), () -> {
                     ensureNotCancelled(status);
                     artworkDownloadHistory.record(completion);
+                    status.beginReplacementCommit();
                 });
             } else if (partial != null) {
                 artworkDownloadHistory.completePartial(completion);
@@ -438,6 +485,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 artworkDownloadHistory.record(completion);
             }
             completedAttempt = true;
+            rebuild.completed();
+            if (stageReplacement && userUuid != null && visitorDownloadQuotaService != null)
+                visitorDownloadQuotaService.recordFolder(userUuid, downloadPath);
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
             ensureNotCancelled(status);
@@ -520,6 +570,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     case "ACQUISITION_CREDENTIALS_UNAVAILABLE" -> DownloadEvent.FailureReason.CREDENTIALS_UNAVAILABLE;
                     case "download.selection.layout-changed" -> DownloadEvent.FailureReason.OUTPUT_LAYOUT_CONFLICT;
                     case "download.selection.library-registered" -> DownloadEvent.FailureReason.OUTPUT_ALREADY_REGISTERED;
+                    case "download.rebuild.target-exists", "download.rebuild.output-in-use" -> DownloadEvent.FailureReason.OUTPUT_FILE_CONFLICT;
                     case null, default -> null;
                 };
                 downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
@@ -567,7 +618,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         status.setCurrentImageIndex(-1);
         status.setCompleted(true);
         downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
-        log.info("Artwork page selection completed: artwork={} attempt={} selected={} available={}",
+        log.info("Artwork page selection completed: artwork={} attempt={} selected={} covered={}",
                 status.getArtworkId(), attempt.attemptId(), count, covered);
         eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, userUuid));
     }
@@ -1066,7 +1117,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     public void cancelDownload(Long artworkId) {
         downloadStatusMap.forEach(10, (key, status) -> {
             if (Objects.equals(status.getArtworkId(), artworkId)) {
-                status.setCancelled(true);
+                status.requestCancellation();
             }
         });
     }
@@ -1078,7 +1129,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         }
         DownloadStatus status = getDownloadStatus(artworkId, ownerUuid, admin);
         if (status != null) {
-            status.setCancelled(true);
+            status.requestCancellation();
         }
     }
 
@@ -1150,10 +1201,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 if (status == null || !matcher.test(status)) {
                     continue;
                 }
-                status.setCancelled(true);
-                status.setCompleted(true);
-                status.setFailed(false);
-                status.setErrorMessage(messages.get("download.cancelled"));
+                cancelTrackedStatus(status);
                 if (downloadStatusMap.remove(key, status)) {
                     cleared++;
                 }
@@ -1167,7 +1215,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private void cancelTrackedStatus(DownloadStatus status) {
-        status.setCancelled(true);
+        if (!status.requestCancellation()) return;
         status.setCompleted(true);
         status.setFailed(false);
         status.setErrorMessage(messages.get("download.cancelled"));

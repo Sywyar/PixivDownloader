@@ -4,6 +4,8 @@
   "defaultLang": "en-US",
   "messages": {
     "admin.title": "관리자 로그인",
+    "automation.description": "API 레퍼런스, 프로그램 액세스 키, AI 에이전트 연결 안내",
+    "automation.link": "AI 및 자동화",
     "button.login": "로그인",
     "editor.authentication": "로그인 영역",
     "editor.error": "오류 메시지",

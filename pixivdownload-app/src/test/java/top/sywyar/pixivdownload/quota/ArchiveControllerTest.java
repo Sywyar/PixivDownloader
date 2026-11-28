@@ -188,6 +188,7 @@ class ArchiveControllerTest {
                 .andExpect(jsonPath("$.tasks[0].exportType").value("artworks"))
                 .andExpect(jsonPath("$.tasks[0].workCount").value(3))
                 .andExpect(jsonPath("$.tasks[0].processedWorks").value(2))
-                .andExpect(jsonPath("$.tasks[0].fileCount").value(8));
+                .andExpect(jsonPath("$.tasks[0].fileCount").value(8))
+                .andExpect(jsonPath("$.tasks[0].sourceDeletion.status").value("not_requested"));
     }
 }

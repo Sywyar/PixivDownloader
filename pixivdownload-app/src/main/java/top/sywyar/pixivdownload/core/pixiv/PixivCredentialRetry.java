@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials;
 
@@ -19,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentia
 import java.util.regex.Pattern;
 
 /** 仅重试一个只读上游请求；选择顺序和持久化配置不受成功候选影响。 */
+@Slf4j
 @Service
 public final class PixivCredentialRetry implements org.springframework.beans.factory.DisposableBean {
     private static final Pattern ACCOUNT = Pattern.compile("(?:^|;\\s*)PHPSESSID=([1-9][0-9]*)_[^;\\s]+");
@@ -26,7 +28,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             + "illust/[1-9][0-9]*(?:/(?:pages|ugoira_meta))?"
             + "|novel/[1-9][0-9]*|novel/(?:series|series_content)/[1-9][0-9]*"
             + "|series/[1-9][0-9]*|user/[1-9][0-9]*(?:/profile/(?:all|top))?"
-            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|novels)/[^/]+)");
+            + "|commission/page/users/[1-9][0-9]*/request|search/(?:artworks|illustrations|manga|novels)/[^/]+)");
     private static final int MAX_HEALTH = 1024;
     private static final long DEFAULT_COOLDOWN = 30_000;
     private static final long HEALTH_TTL = 24 * 60 * 60 * 1000L;
@@ -75,7 +77,11 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
         long started = clock.millis();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
         long retryAfter = Long.MAX_VALUE;
-        for (String candidate : AcquisitionCredentials.candidates(primary)) {
+        boolean rateLimited = false;
+        var candidates = AcquisitionCredentials.candidates(primary);
+        int position = 0;
+        for (String candidate : candidates) {
+            position++;
             scope.checkCancelled();
             if (clock.millis() - started >= budgetMillis || System.nanoTime() >= deadline)
                 throw new AcquisitionCredentialsUnavailableException(DEFAULT_COOLDOWN);
@@ -88,8 +94,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             Health blocked = blocked(key);
             if (blocked == null) blocked = blocked(accountKey);
             if (blocked != null) {
-                if (blocked.status() == 429)
+                if (blocked.status() == 429) {
+                    rateLimited = true;
                     retryAfter = Math.min(retryAfter, Math.max(1, blocked.until() - clock.millis()));
+                }
                 continue;
             }
             RequestBudget budget = new RequestBudget(deadline, deadlines, new AtomicReference<>());
@@ -105,9 +113,20 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
                         || failure.statusCode() != 401 && failure.statusCode() != 429) throw failure;
                 long delay = failure.statusCode() == 401 ? HEALTH_TTL
                         : Math.max(DEFAULT_COOLDOWN, failure.retryAfterMillis());
-                if (failure.statusCode() == 429) retryAfter = Math.min(retryAfter, delay);
+                if (failure.statusCode() == 429) {
+                    rateLimited = true;
+                    retryAfter = Math.min(retryAfter, delay);
+                }
                 block(failure.statusCode() == 401 ? key : accountKey,
                         new Health(saturatingAdd(clock.millis(), delay), failure.statusCode()));
+                // 只记录候选序号，不记录 Cookie、账号或其摘要。
+                if (failure.statusCode() == 401) {
+                    log.warn("Pixiv credential rejected; skipping this credential for {} ms: candidate={}/{}",
+                            delay, position, candidates.size());
+                } else {
+                    log.info("Pixiv account rate limited; pausing its credentials for {} ms: candidate={}/{}",
+                            delay, position, candidates.size());
+                }
             } catch (Exception failure) {
                 scope.checkCancelled();
                 if (System.nanoTime() >= deadline)
@@ -119,7 +138,7 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
             }
         }
         scope.checkCancelled();
-        throw new AcquisitionCredentialsUnavailableException(retryAfter == Long.MAX_VALUE ? 0 : retryAfter);
+        throw new AcquisitionCredentialsUnavailableException(rateLimited ? retryAfter : 0, rateLimited);
     }
 
     private synchronized Health blocked(String key) {

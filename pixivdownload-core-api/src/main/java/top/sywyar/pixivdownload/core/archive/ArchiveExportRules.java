@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.core.archive;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -13,6 +16,7 @@ import java.util.regex.Pattern;
  */
 public final class ArchiveExportRules {
 
+    private static final int SEGMENT_LENGTH = 120;
     private static final Pattern UNSAFE_PATH_CHARS = Pattern.compile("[\\\\/:*?\"<>|\\p{Cntrl}]+");
 
     /**
@@ -147,8 +151,8 @@ public final class ArchiveExportRules {
         }
         String[] parts = relativePath.replace('\\', '/').split("/");
         List<String> safe = new ArrayList<>(parts.length);
-        for (String part : parts) {
-            safe.add(safeSegment(part, "file"));
+        for (int i = 0; i < parts.length; i++) {
+            safe.add(i == parts.length - 1 ? safeFileName(parts[i]) : safeSegment(parts[i], "file"));
         }
         return String.join("/", safe);
     }
@@ -161,18 +165,104 @@ public final class ArchiveExportRules {
      * @return 方法返回的字符串
      */
     public static String safeSegment(String value, String fallback) {
+        return trimTrailingDots(truncate(cleanSegment(value, fallback), SEGMENT_LENGTH), fallback);
+    }
+
+    private static String cleanSegment(String value, String fallback) {
         String source = hasText(value) ? value.trim() : fallback;
-        String clean = UNSAFE_PATH_CHARS.matcher(source).replaceAll("_").trim();
+        return trimTrailingDots(UNSAFE_PATH_CHARS.matcher(source).replaceAll("_").trim(), fallback);
+    }
+
+    private static String trimTrailingDots(String clean, String fallback) {
         while (clean.endsWith(".")) {
             clean = clean.substring(0, clean.length() - 1).trim();
         }
-        if (!hasText(clean)) {
-            clean = fallback;
+        return hasText(clean) ? clean : fallback;
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value.length() <= limit) return value;
+        int end = Character.isHighSurrogate(value.charAt(limit - 1)) ? limit - 1 : limit;
+        return value.substring(0, end).stripTrailing();
+    }
+
+    /**
+     * 清理一个文件名，缩短长文件名时保留可容纳的扩展名。
+     * @param value 原始文件名
+     * @return 安全的包内文件名
+     */
+    public static String safeFileName(String value) {
+        return trimTrailingDots(fileName(cleanSegment(value, "file"), ""), "file");
+    }
+
+    private static String fileName(String name, String marker) {
+        // Preserve compound extensions when the shortened member still has room for its stem.
+        int dot = name.indexOf('.', 1);
+        int budget = SEGMENT_LENGTH - marker.length();
+        if (dot >= 0 && name.length() - dot >= budget) dot = name.lastIndexOf('.');
+        if (dot < 1 || name.length() - dot >= budget) dot = name.length();
+        String suffix = name.substring(dot);
+        return truncate(name.substring(0, dot), budget - suffix.length()) + marker + suffix;
+    }
+
+    /** 一个 ZIP 共用一份成员名集合；返回的最终路径可直接用于 manifest 和文件条目。 */
+    public static final class EntryNames {
+        private final Directory root = new Directory("");
+
+        /** 创建一个 ZIP 导出使用的成员名集合。 */
+        public EntryNames() {}
+
+        /**
+         * 登记相对成员名，并在文件名冲突时分配独立名称。
+         * @param requested 请求的包内路径
+         * @return 可直接写入 ZIP 的唯一相对路径
+         * @throws IllegalArgumentException 路径为空或同名条目过多
+         */
+        public String reserve(String requested) {
+            List<String> parts = new ArrayList<>();
+            if (requested != null) {
+                for (String part : requested.replace('\\', '/').split("/")) {
+                    if (!part.isBlank() && !part.equals(".") && !part.equals("..")) parts.add(part);
+                }
+            }
+            if (parts.isEmpty()) throw new IllegalArgumentException("Invalid archive entry name");
+            Directory directory = root;
+            StringBuilder path = new StringBuilder();
+            for (int i = 0; i < parts.size() - 1; i++) {
+                directory = directory.child(parts.get(i));
+                path.append(directory.name).append('/');
+            }
+            return path.append(directory.allocate(parts.getLast())).toString();
         }
-        if (clean.length() > 120) {
-            clean = clean.substring(0, 120).trim();
+
+        private static final class Directory {
+            private final String name;
+            private final Set<String> used = new HashSet<>();
+            private final Map<String, Integer> nextSuffix = new HashMap<>();
+            private final Map<String, Directory> children = new HashMap<>();
+
+            private Directory(String name) {
+                this.name = name;
+            }
+
+            private Directory child(String requested) {
+                return children.computeIfAbsent(requested, key -> new Directory(allocate(key)));
+            }
+
+            private String allocate(String requested) {
+                // 即便在大小写不敏感的磁盘上解包，一个名称也只能用作文件或目录之一。
+                String key = requested.toLowerCase(Locale.ROOT);
+                if (used.add(key)) return requested;
+                for (int i = nextSuffix.getOrDefault(key, 2); i < 10_000; i++) {
+                    String candidate = fileName(requested, " (" + i + ")");
+                    if (used.add(candidate.toLowerCase(Locale.ROOT))) {
+                        nextSuffix.put(key, i + 1);
+                        return candidate;
+                    }
+                }
+                throw new IllegalArgumentException("Too many archive entries with the same name");
+            }
         }
-        return clean;
     }
 
     private static boolean hasText(String value) {

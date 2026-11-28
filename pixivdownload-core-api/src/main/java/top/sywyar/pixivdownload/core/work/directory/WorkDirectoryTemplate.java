@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.work.directory;
 
 import top.sywyar.pixivdownload.core.work.filename.WorkTemplateVariables;
 
+import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -90,14 +91,54 @@ public final class WorkDirectoryTemplate {
     public Path fixedPrefix() { return prefix; }
 
     /**
+     * 在拼接模板前交由文件系统解析父目录段，保留符号链接的实际指向。
+     * @param root 用户选中的下载根
+     * @return 解析后的目录路径，或不含父目录段的原路径
+     * @throws IOException 含父目录段的路径无法解析
+     */
+    public static String selectedRoot(String root) throws IOException {
+        if (root == null || root.isBlank()) throw rejected("path", "");
+        Path path = Path.of(root);
+        for (Path part : path) {
+            if (part.toString().equals("..")) return path.toRealPath().toString();
+        }
+        return root;
+    }
+
+    /**
+     * 将应用目录下选择的下载根转换为可供迁移对话框使用的相对路径。
+     * @param root 用户选中的下载根
+     * @param appRoot 应用目录
+     * @return 使用斜杠的相对路径，无法解析或不在应用目录下时为 {@code null}
+     */
+    public static String relativeToAppRoot(String root, String appRoot) {
+        if (root == null || root.isBlank() || appRoot == null || appRoot.isBlank()) return null;
+        try {
+            Path app = Path.of(selectedRoot(appRoot)).toAbsolutePath().normalize();
+            Path target = Path.of(selectedRoot(root)).toAbsolutePath().normalize();
+            if (target.equals(app) || !target.startsWith(app)) return null;
+            return app.relativize(target).toString().replace(java.io.File.separatorChar, '/');
+        } catch (IOException | InvalidPathException unavailable) {
+            return null;
+        }
+    }
+
+    /**
      * 目录迁移工具替换固定前缀，保留完整的作品模板后缀。
      * @param root 用户确认的新固定目录
      * @return 可保存的最终目录模板
      */
     public String withFixedPrefix(String root) {
-        if (root == null || root.isBlank() || root.contains("{") || root.contains("}")) throw rejected("path", "");
-        String result = Path.of(root).resolve(String.join("/", segments)).toString().replace('\\', '/');
-        parse(result);
+        if (root == null || root.isBlank()) throw rejected("path", "");
+        if (root.contains("{") || root.contains("}") || java.io.File.separatorChar == '/' && root.contains("\\")) {
+            throw rejected("literal-root", "");
+        }
+        Path selected = Path.of(root);
+        String result = selected.resolve(String.join("/", segments)).toString().replace(java.io.File.separatorChar, '/');
+        // Keep leading whitespace inside a relative path segment when the template is read back.
+        if (result.startsWith(" ")) result = "./" + result;
+        if (!parse(result).fixedPrefix().toAbsolutePath().normalize().equals(selected.toAbsolutePath().normalize()))
+            throw rejected("path", "");
         return result;
     }
 

@@ -24,7 +24,11 @@ import java.time.Duration;
 public class TranslationPluginConfiguration {
     @Bean public TranslationPlugin translationPlugin() { return new TranslationPlugin(); }
     @Bean public TranslationConfig translationConfig(Environment environment) {
-        var config = Binder.get(environment).bind("translation", Bindable.of(TranslationConfig.class)).orElseGet(TranslationConfig::new);
+        var binder = Binder.get(environment);
+        var config = binder.bind("translation", Bindable.of(TranslationConfig.class)).orElseGet(TranslationConfig::new);
+        // Binding a map value would construct fresh settings and discard the provider's limits.
+        for (var provider : CloudProvider.values())
+            binder.bind("translation.providers." + provider.id, Bindable.ofInstance(config.cloud(provider)));
         config.validate();
         return config;
     }
@@ -33,10 +37,6 @@ public class TranslationPluginConfiguration {
                 "i18n.translation.messages", "i18n.web.translate");
     }
     @Bean public TranslationDocuments translationDocuments(PluginServices services) { return new TranslationDocuments(services); }
-    @Bean(name = "translationYoudaoHttp", destroyMethod = "close")
-    public ManagedPluginRestTemplate youdaoHttp(OutboundHttpClientFactory factory, TranslationConfig config) { return http(factory, config.getYoudao()); }
-    @Bean(name = "translationLibretranslateHttp", destroyMethod = "close")
-    public ManagedPluginRestTemplate libretranslateHttp(OutboundHttpClientFactory factory, TranslationConfig config) { return http(factory, config.getLibretranslate()); }
     private ManagedPluginRestTemplate http(OutboundHttpClientFactory factory, TranslationConfig.MachineSettings settings) {
         var route = settings.isUseProxy() ? OutboundHttpRoute.configuredProxy() : OutboundHttpRoute.direct();
         int connections = settings.getRequestConcurrency() + 1;
@@ -44,10 +44,21 @@ public class TranslationPluginConfiguration {
                 Duration.ofSeconds(30), Duration.ofSeconds(settings.getReadTimeoutSeconds()), route,
                 OutboundHttpRedirectPolicy.NEVER, OutboundHttpCookiePolicy.DISABLED, connections, connections));
     }
-    @Bean public MachineTranslationClient machineTranslationClient(TranslationConfig config,
-            @Qualifier("translationYoudaoHttp") ManagedPluginRestTemplate youdao,
-            @Qualifier("translationLibretranslateHttp") ManagedPluginRestTemplate libretranslate, ObjectMapper mapper) {
-        return new MachineTranslationClient(config, youdao, libretranslate, mapper);
+    @Bean(destroyMethod = "close")
+    public MachineTranslationClient machineTranslationClient(TranslationConfig config, OutboundHttpClientFactory factory, ObjectMapper mapper) {
+        var clients = new java.util.LinkedHashMap<String, ManagedPluginRestTemplate>();
+        try {
+            clients.put("youdao", http(factory, config.getYoudao()));
+            clients.put("libretranslate", http(factory, config.getLibretranslate()));
+            for (var provider : CloudProvider.values()) {
+                var settings = config.cloud(provider);
+                if (provider.configured(settings)) clients.put(provider.id, http(factory, settings));
+            }
+            return new MachineTranslationClient(config, clients, mapper);
+        } catch (RuntimeException | Error failure) {
+            clients.values().forEach(ManagedPluginRestTemplate::close);
+            throw failure;
+        }
     }
     @Bean public NovelTranslationService novelTranslationService(TranslationConfig config, AiChatClient ai,
             TranslationDocuments documents, MachineTranslationClient machine,

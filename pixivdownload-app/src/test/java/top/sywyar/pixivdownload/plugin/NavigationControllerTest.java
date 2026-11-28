@@ -188,7 +188,7 @@ class NavigationControllerTest {
         // 统计页用宿主中立的 app.sidebar slot：内置入口先排序，外置 gallery 在内置入口之后。
         // 插件管理现仅进顶部栏 placement（app.top），不再出现在主侧栏。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("invite-manage", "gallery");
+                .containsExactly("invite-manage", "api-reference", "gallery");
     }
 
     @Test
@@ -199,7 +199,7 @@ class NavigationControllerTest {
 
         // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("invite-manage");
+                .containsExactly("invite-manage", "api-reference");
     }
 
     @Test

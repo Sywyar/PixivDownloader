@@ -403,29 +403,6 @@ final class DesktopToolsView {
         var backfillProgress = model.backfillProgress;
         List<DesktopUiNode> cards = new ArrayList<>();
         cards.add(group(
-                "tools.image-classifier",
-                "gui.tools.card.image-classifier.title",
-                column(
-                        "tools.image-classifier.summary",
-                        composeText(
-                                "tools.image-classifier.description",
-                                "tools.classifier-description",
-                                TextStyle.CAPTION
-                        ),
-                        row(
-                                "tools.image-classifier.actions",
-                                button(
-                                        "tools.image-classifier.open",
-                                        "tools.image-classifier.open",
-                                        "gui.tools.action.open-image-classifier",
-                                        !model.toolsBusy(),
-                                        nextActions,
-                                        () -> model.openToolDialog(DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER)
-                                )
-                        )
-                )
-        ));
-        cards.add(group(
                 "tools.folder-checker",
                 "gui.tools.card.folder-checker.title",
                 column(

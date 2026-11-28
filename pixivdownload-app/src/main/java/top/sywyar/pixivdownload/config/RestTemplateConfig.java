@@ -78,6 +78,15 @@ public class RestTemplateConfig {
         return restTemplate;
     }
 
+    /**
+     * Pixiv CDN 媒体流专用客户端。响应流交给调用方逐步转发，可能长时间占用连接，因此与下载和缩略图使用的
+     * 图片客户端分开连接池；同样禁止自动重定向、不保存 Cookie。
+     */
+    @Bean("pixivMediaRestTemplate")
+    public RestTemplate pixivMediaRestTemplate() {
+        return buildRestTemplate(10_000, 30_000, false, false);
+    }
+
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs) {
         return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, true, true);
     }

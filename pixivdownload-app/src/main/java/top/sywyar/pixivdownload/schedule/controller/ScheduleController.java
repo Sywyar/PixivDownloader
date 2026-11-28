@@ -4,6 +4,9 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import top.sywyar.pixivdownload.core.web.KnownErrorCodes;
+import top.sywyar.pixivdownload.core.web.HttpParameterError;
+import top.sywyar.pixivdownload.plugin.api.contract.InputFieldException;
+import top.sywyar.pixivdownload.web.HttpParameterBinding;
 import top.sywyar.pixivdownload.plugin.api.web.HttpApiGroup;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -255,16 +258,12 @@ public class ScheduleController {
         return scheduleService.pause(id);
     }
 
-    /**
-     * 恢复手动暂停 / 单任务挂起并<b>立即继续</b>：先清挂起（事务提交后 {@code next_run_time=now}），
-     * 再触发一次后台运行立刻跑起来。{@code runOnce} 在 resume 事务提交后调用，异步执行线程读到的是已清挂起的状态；
-     * 即时触发若因竞态被跳过，调度 tick 也会兜底捡起。返回刷新后的视图以即时反映「排队中」运行态。
-     */
+    /** 按当前挂起原因和任务版本保存待处理作品的选择。 */
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
-    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
+    @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(anyOf = {ApiErrorResponse.Basic.class, HttpParameterError.class})))
     @ApiResponse(responseCode = "503", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @KnownErrorCodes(status = "400", value = {
-            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change"})
+            "schedule.error.not-found", "schedule.error.busy", "schedule.error.concurrent-change", "error.request.param.invalid"})
     @PostMapping("/tasks/{id}/pending/resolve")
     public ScheduleTaskView resolvePending(@PathVariable long id,
             @Valid @RequestBody SchedulePendingResolveRequest request, HttpServletRequest httpRequest) {
@@ -273,6 +272,7 @@ public class ScheduleController {
                 request.workId(), request.userAction(), request.rememberForRun());
     }
 
+    /** 恢复暂停的任务，并为已启用的任务发起本轮执行。 */
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @ApiResponse(responseCode = "429", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
@@ -335,6 +335,12 @@ public class ScheduleController {
     }
 
     public record SuccessResponse(boolean success) {}
+
+    @ExceptionHandler(InputFieldException.class)
+    public ResponseEntity<HttpParameterError> invalidField(InputFieldException failure, Locale locale) {
+        return ResponseEntity.badRequest().body(HttpParameterBinding.error("error.request.param.invalid", "body",
+                failure.field(), failure.reason(), messages, locale));
+    }
 
     @ExceptionHandler(ScheduleManagementException.class)
     public ResponseEntity<ApiErrorResponse> handleLocalized(ScheduleManagementException failure, Locale locale) {

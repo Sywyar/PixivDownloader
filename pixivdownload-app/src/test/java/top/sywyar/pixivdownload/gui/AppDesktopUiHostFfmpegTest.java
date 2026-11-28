@@ -16,7 +16,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 @DisplayName("桌面宿主 FFmpeg 目录")
-class AppDesktopUiHostFfmpegTest {
+public class AppDesktopUiHostFfmpegTest {
+
+    /** 在发布夹具放行前检查真实桌面宿主与排在查询之后的 Swing 事件。 */
+    public static void checkSwingStatus(Path tools) throws Exception {
+        var host = new AppDesktopUiHost(0, mock(DesktopUiHost.ConfigFile.class));
+        var status = new java.util.concurrent.FutureTask<>(host::locateFfmpeg);
+        var nextEvent = new java.util.concurrent.CountDownLatch(1);
+        javax.swing.SwingUtilities.invokeLater(status);
+        javax.swing.SwingUtilities.invokeLater(nextEvent::countDown);
+        var installation = status.get(5, java.util.concurrent.TimeUnit.SECONDS).orElseThrow();
+        assertThat(installation.source()).isEqualTo(DesktopUiHost.FfmpegSource.MANAGED);
+        assertThat(installation.homeDir()).isEqualTo(tools);
+        assertThat(nextEvent.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    }
 
     @Test
     @DisplayName("未安装 FFmpeg 时打开目录不沿 Junction 祖先创建文件夹")

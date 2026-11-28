@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.core.pixiv;
 import java.util.Objects;
 
 /**
- * Pixiv JSON 请求的受控失败，不携带响应体、凭证或具体 HTTP 客户端异常。
+ * Pixiv 上游请求（JSON 文档与 CDN 媒体）的受控失败，不携带响应体、凭证或具体 HTTP 客户端异常。
  */
 public final class PixivAjaxException extends RuntimeException {
 
@@ -72,7 +72,7 @@ public final class PixivAjaxException extends RuntimeException {
     private static String message(PixivAjaxFailure failure, int statusCode) {
         Objects.requireNonNull(failure, "failure");
         return failure == PixivAjaxFailure.HTTP_STATUS
-                ? "Pixiv JSON request failed with HTTP status " + statusCode
-                : "Pixiv JSON request failed: " + failure;
+                ? "Pixiv request failed with HTTP status " + statusCode
+                : "Pixiv request failed: " + failure;
     }
 }

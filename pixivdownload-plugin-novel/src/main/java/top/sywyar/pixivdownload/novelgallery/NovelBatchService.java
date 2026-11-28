@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.nio.file.Path;
+import top.sywyar.pixivdownload.core.work.model.FileManagement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -127,6 +128,7 @@ public class NovelBatchService {
         List<Map<String, Object>> manifest = new ArrayList<>();
         List<Long> exportedIds = new ArrayList<>();
         int fileCount = 0;
+        var entryNames = new ArchiveExportRules.EntryNames();
         long generatedBytes = 0;
 
         for (WorkMetadata meta : metas) {
@@ -139,7 +141,7 @@ public class NovelBatchService {
                     : "novels/" + ArchiveExportRules.authorSegment(meta.authorId(), meta.authorName())
                             + "/" + ArchiveExportRules.workSegment(meta.workId(), meta.title());
             List<Map<String, Object>> fileEntries = new ArrayList<>();
-            LocalWorkAsset asset = workAssetService.findAsset(WorkType.NOVEL, meta.workId()).orElse(null);
+            LocalWorkAsset asset = deleteAfter ? null : workAssetService.findAsset(WorkType.NOVEL, meta.workId()).orElse(null);
             if (!key.isEmpty()) {
                 Set<NovelFormat> documentFormats = new LinkedHashSet<>();
                 if (asset != null) for (WorkAssetFile file : asset.files()) {
@@ -152,22 +154,30 @@ public class NovelBatchService {
                     if (rendered == null) throw new ExportRejected("unavailable");
                     generatedBytes += rendered.content().length;
                     if (generatedBytes > MAX_GENERATED_BYTES) throw new ExportRejected("too-large");
-                    String entryName = baseDir + "/" + rendered.filename();
+                    String entryName = entryNames.reserve(baseDir + "/" + ArchiveExportRules.safeFileName(rendered.filename()));
                     entries.add(new ArchiveExportEntry(null, entryName, rendered.content(), meta.workId()));
                     fileEntries.add(fileManifest(entryName, null));
                     fileCount++;
                 }
             }
-            if (asset != null && asset.directory() != null) {
-                for (WorkAssetFile file : asset.files()) {
-                    if (!key.isEmpty() && documentFormat(file) != null) continue;
-                    String relative = asset.directory().relativize(file.path())
-                            .toString().replace('\\', '/');
-                    String entryName = baseDir + "/" + ArchiveExportRules.safeRelativePath(relative);
-                    entries.add(ArchiveExportEntry.file(file.path(), entryName, meta.workId()));
-                    fileEntries.add(fileManifest(entryName, file.path()));
-                    fileCount++;
-                }
+            Path directory = asset == null ? null : asset.directory();
+            List<Path> sources;
+            if (deleteAfter) {
+                sources = workAssetService.archiveSources(WorkType.NOVEL, meta.workId());
+                if (meta.folder() != null && meta.fileManagement() != FileManagement.EXTERNAL_REFERENCE)
+                    directory = Path.of(meta.folder());
+            } else {
+                sources = asset == null ? List.of() : asset.files().stream()
+                        .filter(file -> key.isEmpty() || documentFormat(file) == null).map(WorkAssetFile::path).toList();
+            }
+            if (directory != null) directory = directory.toAbsolutePath().normalize();
+            for (Path file : sources) {
+                Path absolute = file.toAbsolutePath().normalize();
+                Path relative = directory != null && absolute.startsWith(directory) ? directory.relativize(absolute) : file.getFileName();
+                String entryName = entryNames.reserve(baseDir + "/" + ArchiveExportRules.safeRelativePath(relative.toString()));
+                entries.add(ArchiveExportEntry.file(file, entryName, meta.workId()));
+                fileEntries.add(fileManifest(entryName, file));
+                fileCount++;
             }
             var workManifest = novelManifest(meta, details, fileEntries);
             if (!key.isEmpty()) workManifest.put("translationVariant", key);

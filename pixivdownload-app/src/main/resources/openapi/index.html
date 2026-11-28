@@ -11,21 +11,53 @@
     <script defer src="/js/pixiv-i18n.js"></script>
     <script defer src="/js/pixiv-lang-switcher.js"></script>
 </head><body>
-    <header class="reference-bar"><strong>PixivDownloader</strong><label id="reference-language"></label></header>
+    <header class="reference-bar">
+        <span class="reference-brand"><strong>PixivDownloader</strong><span class="reference-section">{{nav.label}}</span></span>
+        <span class="reference-actions">
+            <a class="reference-guide" href="{{guide}}" target="_blank" rel="noopener">{{page.guide}}</a>
+            <label id="reference-language"></label>
+        </span>
+    </header>
     <main>
         <section id="reference-access" class="reference-access" data-admin="{{admin}}" data-failure="{{page.failed}}" aria-labelledby="reference-access-title">
             <h1 id="reference-access-title">{{title}}</h1>
+            <p class="reference-lead">{{page.lead}}</p>
             <p id="reference-status" class="reference-access-status" role="status">{{page.loading}}</p>
             <div class="reference-progress" role="progressbar" aria-labelledby="reference-status"></div>
             <div class="reference-guidance">
-                <p>{{page.document}}</p>
-                <p>{{page.program}}</p>
-                <form id="reference-key-form" hidden autocomplete="off">
-                    <label for="reference-key">{{key}}</label>
-                    <input id="reference-key" type="password" autocomplete="off" spellcheck="false" required>
-                    <button type="submit">{{page.openWithKey}}</button>
-                </form>
-                <p>{{page.admin}}</p>
+                <section class="reference-open" aria-labelledby="reference-open-title">
+                    <h2 id="reference-open-title">{{page.open.title}}</h2>
+                    <p>{{page.admin}}</p>
+                    <form id="reference-key-form" hidden autocomplete="off">
+                        <label for="reference-key">{{key}}</label>
+                        <input id="reference-key" type="password" autocomplete="off" spellcheck="false" required>
+                        <button type="submit">{{page.openWithKey}}</button>
+                    </form>
+                </section>
+                <ol class="reference-steps">
+                    <li>
+                        <h2>{{page.step.key}}</h2>
+                        <p>{{page.step.key.desktop}}</p>
+                        <p>{{page.step.key.cli}}</p>
+                        <pre><code>java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create</code></pre>
+                        <p>{{page.step.key.docker}}</p>
+                        <pre><code>docker compose run --rm app --program-key-create --server-url=http://app:6999</code></pre>
+                        <p>{{page.step.key.once}}</p>
+                    </li>
+                    <li>
+                        <h2>{{page.step.call}}</h2>
+                        <p>{{page.program}}</p>
+                        <pre><code>curl -H "Authorization: Bearer $PIXIV_PROGRAM_KEY" {{self}}</code></pre>
+                        <p>{{page.document}}</p>
+                    </li>
+                    <li>
+                        <h2>{{page.step.agent}}</h2>
+                        <p>{{page.step.agent.skill}}</p>
+                        <pre><code>npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g</code></pre>
+                        <p>{{page.step.agent.env}}</p>
+                        <p>{{page.step.agent.body}}</p>
+                    </li>
+                </ol>
             </div>
         </section>
         <div id="reference-content"></div>

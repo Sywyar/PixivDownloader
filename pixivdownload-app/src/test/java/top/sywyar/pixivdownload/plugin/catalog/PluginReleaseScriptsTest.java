@@ -281,7 +281,7 @@ class PluginReleaseScriptsTest {
         assertThat(runPowerShell(". './scripts/plugin-distribution-common.ps1'; "
                 + "ConvertTo-Json -InputObject @(Get-OfficialRequiredPlugins) -Compress").trim()).isEqualTo("[]");
         assertThat(defaults)
-                .contains("download-workbench", "gui-compose", "gui-swing", "database-sqlite")
+                .contains("download-workbench", "pixiv-content", "gui-compose", "gui-swing", "database-sqlite")
                 .doesNotContain("database-postgresql", "pixiv-batch-downloader-import", "page-editor", "captcha", "recovery-sentinel");
         assertThat(optional)
                 .contains("database-postgresql", "pixiv-batch-downloader-import", "page-editor", "captcha")

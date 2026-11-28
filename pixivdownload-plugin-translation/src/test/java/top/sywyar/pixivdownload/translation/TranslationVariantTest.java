@@ -15,7 +15,7 @@ class TranslationVariantTest {
         UUID token = UUID.randomUUID();
         when(port.beginWrite(any(), anyLong(), anyString(), anyInt(), anyInt(), anyInt())).thenReturn(token);
         var documents = new TranslationDocuments(port);
-        for (String engine : new String[]{"ai", "youdao", "libretranslate"}) {
+        for (String engine : CloudProvider.ENGINES) {
             var session = documents.snapshot(engine);
             String key = "zh-CN@" + engine;
             session.translation(NovelTranslationDocuments.Kind.NOVEL, 7, "zh-CN");

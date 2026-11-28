@@ -100,6 +100,112 @@ class ArtworkMediaDecoderTest {
         }
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"ordered", "reversed", "directory-first"})
+    void selectsTheFirstFrameByFileName(String order) throws Exception {
+        Path archive = directory.resolve("animation.zip");
+        Path selected = directory.resolve("selected.png");
+        var image = new BufferedImage(12, 10, BufferedImage.TYPE_INT_RGB);
+        image.setRGB(3, 5, 0xcc1122);
+        var frame = new java.io.ByteArrayOutputStream();
+        ImageIO.write(image, "png", frame);
+        try (var zip = new ZipOutputStream(Files.newOutputStream(archive))) {
+            if (order.equals("directory-first")) {
+                zip.putNextEntry(new ZipEntry("frames/"));
+                zip.closeEntry();
+            }
+            for (int page : order.equals("reversed") ? new int[]{1, 0} : new int[]{0, 1}) {
+                zip.putNextEntry(new ZipEntry(page == 0 ? "000000.png" : "000001.png"));
+                if (page == 0) zip.write(frame.toByteArray());
+                else {
+                    image.setRGB(3, 5, 0x2233dd);
+                    ImageIO.write(image, "png", zip);
+                }
+                zip.closeEntry();
+            }
+        }
+        ZipPreviewFrame.copy(archive, selected, frame.size());
+        assertArrayEquals(frame.toByteArray(), Files.readAllBytes(selected));
+        assertThrows(java.io.IOException.class, () -> ZipPreviewFrame.copy(archive, selected, frame.size() - 1L));
+    }
+
+    @Test
+    void readsOnlyTheSelectedFrameAndBoundsTheIndex() throws Exception {
+        Path archive = directory.resolve("many.zip");
+        Path selected = directory.resolve("frame");
+        byte[] pixel = {42};
+        for (int entries : new int[]{500, 501}) {
+            try (var zip = new ZipOutputStream(Files.newOutputStream(archive))) {
+                zip.putNextEntry(new ZipEntry("000001.png"));
+                zip.write(new byte[64 * 1024]);
+                zip.closeEntry();
+                for (int i = 2; i < entries; i++) {
+                    zip.putNextEntry(new ZipEntry("directory-" + i + "/"));
+                    zip.closeEntry();
+                }
+                zip.putNextEntry(new ZipEntry("000000.png"));
+                zip.write(pixel);
+                zip.closeEntry();
+            }
+            if (entries == 500) {
+                ZipPreviewFrame.copy(archive, selected, 1);
+                assertArrayEquals(pixel, Files.readAllBytes(selected));
+                Thread.currentThread().interrupt();
+                try { assertThrows(java.io.InterruptedIOException.class, () -> ZipPreviewFrame.copy(archive, selected, 1)); }
+                finally { Thread.interrupted(); }
+            } else {
+                assertThrows(java.io.IOException.class, () -> ZipPreviewFrame.copy(archive, selected, 1));
+            }
+        }
+    }
+
+    @Test
+    void ignoresUnselectedFrameDataAndChecksTheSelectedFrameCrc() throws Exception {
+        Path archive = directory.resolve("stored.zip");
+        Path selected = directory.resolve("frame");
+        var offsets = new java.util.ArrayList<Integer>();
+        var bytes = new java.io.ByteArrayOutputStream();
+        byte[] data = {1, 2, 3};
+        var checksum = new CRC32();
+        checksum.update(data);
+        try (var zip = new ZipOutputStream(bytes)) {
+            for (String name : new String[]{"b.jpg", "a.jpg"}) {
+                var entry = new ZipEntry(name);
+                entry.setMethod(ZipEntry.STORED);
+                entry.setSize(data.length);
+                entry.setCrc(checksum.getValue());
+                zip.putNextEntry(entry);
+                offsets.add(bytes.size());
+                zip.write(data);
+                zip.closeEntry();
+            }
+        }
+        byte[] contents = bytes.toByteArray();
+        contents[offsets.getFirst()] ^= 1;
+        Files.write(archive, contents);
+        ZipPreviewFrame.copy(archive, selected, data.length);
+        assertArrayEquals(data, Files.readAllBytes(selected));
+        contents[offsets.getLast()] ^= 1;
+        Files.write(archive, contents);
+        assertThrows(ZipException.class, () -> ZipPreviewFrame.copy(archive, selected, data.length));
+    }
+
+    @Test
+    void acceptsForceZip64AndRejectsDirectoryOnlyArchive() throws Exception {
+        Path archive = directory.resolve("zip64.zip");
+        Path selected = directory.resolve("frame");
+        try (var zip = FileSystems.newFileSystem(archive, java.util.Map.of("create", "true", "forceZIP64End", "true"))) {
+            Files.createDirectory(zip.getPath("/frames"));
+        }
+        assertThrows(java.io.IOException.class, () -> ZipPreviewFrame.copy(archive, selected, 1));
+        try (var zip = FileSystems.newFileSystem(archive, java.util.Map.of("forceZIP64End", "true"))) {
+            Files.write(zip.getPath("/1.png"), new byte[]{1});
+            Files.write(zip.getPath("/0.png"), new byte[]{0});
+        }
+        ZipPreviewFrame.copy(archive, selected, 1);
+        assertArrayEquals(new byte[]{0}, Files.readAllBytes(selected));
+    }
+
     private void assertCacheEmpty() {
         // Windows 删除成功后可能短暂枚举 .tmp 条目；等待目录收敛，不主动清理被测结果。
         org.awaitility.Awaitility.await().pollDelay(java.time.Duration.ZERO)

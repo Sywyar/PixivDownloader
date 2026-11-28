@@ -27,10 +27,16 @@ class ArtworkSubmissionHandlerTest {
         var attempt = new DownloadAttempt(UUID.randomUUID(), "artwork", "42");
         var notFound = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 404);
         var meta = mock(PixivFetchService.ArtworkMetaCapture.class, RETURNS_DEEP_STUBS);
-        when(fetch.fetchArtworkMetaCapture("42", null)).thenThrow(notFound).thenReturn(meta);
-        when(fetch.resolveArtworkPages("42", null)).thenThrow(notFound);
+        var limited = new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429, 12_345);
+        when(fetch.fetchArtworkMetaCapture("42", null)).thenThrow(notFound).thenThrow(limited).thenReturn(meta);
+        when(fetch.resolveArtworkPages("42", null)).thenThrow(limited).thenThrow(notFound);
         assertThatExceptionOfType(DownloadTaskException.class).isThrownBy(() -> handler.submit(submission, attempt, null))
                 .extracting(DownloadTaskException::code).isEqualTo(DownloadTaskException.Code.WORK_NOT_FOUND);
+        for (int i = 0; i < 2; i++) {
+            var failure = handler.submitAndReportFailure(submission, attempt, null);
+            assertThat(failure).isEqualTo(new DownloadTaskException.Failure(
+                    DownloadTaskException.Code.UPSTREAM_RATE_LIMITED, null, null, 12_345));
+        }
         assertThatThrownBy(() -> handler.submit(submission, attempt, null)).isSameAs(notFound);
         verifyNoInteractions(executor);
     }

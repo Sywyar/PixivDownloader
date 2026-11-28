@@ -49,4 +49,16 @@ class CliSetupArgumentsTest {
         assertThat(CliSetupArguments.containsCommand(new String[]{"--no-gui", "--server.port=8080"})).isFalse();
         assertThat(CliSetupArguments.containsCommand(null)).isFalse();
     }
+
+    @Test
+    @DisplayName("密钥命令不属于需要实例锁的本地管理命令，其参数缺值时应报告")
+    void classifiesProgramKeyCommands() {
+        String[] args = {"--program-key-create", "--key-name", "--key-sources=any"};
+        CliSetupArguments.Inspection inspection = CliSetupArguments.inspect(args);
+
+        assertThat(inspection.unknownPositions()).isEmpty();
+        assertThat(inspection.missingValue()).containsExactly("--key-name");
+        assertThat(CliSetupArguments.containsProgramKeyCommand(args)).isTrue();
+        assertThat(CliSetupArguments.containsCommand(args)).isFalse();
+    }
 }

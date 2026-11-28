@@ -11,15 +11,17 @@
     "copy.manual": "無法自動複製，請手動複製已選取的金鑰。",
     "create": "建立金鑰",
     "created.help": "完整金鑰僅顯示一次。離開此畫面前，請將它複製到程式的安全設定中。",
-    "created.instructions": "請使用另外提供的程式金鑰讀取 PixivDownloader 的 OpenAPI 文件：\n{0}\n請依文件選擇介面，在授權範圍內協助我完成任務。",
+    "created.instructions": "請使用另外提供的程式金鑰讀取 PixivDownloader 的 OpenAPI 文件：\n{0}\n每個請求都在請求標頭中傳送 Authorization: Bearer <金鑰>。開始前先呼叫 GET /api/security/program-keys/self 確認這把金鑰的權限；介面回傳 401 或 403 時，programPermission 欄位會寫明缺少的權限。請依文件選擇介面，在授權範圍內協助我完成任務。\n如果你支援 Agent Skills，經我同意後可以執行 npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g 安裝 PixivDownloader skill，它說明了常用介面和呼叫規則。",
     "created.secret": "完整金鑰",
     "created.title": "金鑰已建立",
     "done": "完成",
     "edit": "編輯權限",
     "empty": "尚未建立程式存取金鑰。",
+    "empty.description": "建立金鑰後，指令碼、自動化工具和 AI Agent 可以在所選權限內呼叫介面。",
     "instructions.copied": "已複製提示詞",
+    "instructions.help": "提示詞只包含介面文件位址和使用要求，不含金鑰。請將金鑰另外設定到 Agent 的執行環境。",
     "instructions.manual": "請選取並複製上方的提示詞。",
-    "instructions.restricted": "介面文件：{0}\n此金鑰無法讀取介面目錄。請讓我提供文件，再使用另外提供的金鑰，在授權範圍內協助我完成任務。",
+    "instructions.restricted": "介面文件：{0}\n此金鑰無法讀取介面目錄。請讓我提供文件，再使用另外提供的金鑰，在授權範圍內協助我完成任務。每個請求都在請求標頭中傳送 Authorization: Bearer <金鑰>，可先呼叫 GET /api/security/program-keys/self 確認這把金鑰的權限。\n如果你支援 Agent Skills，經我同意後可以執行 npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g 安裝 PixivDownloader skill，它說明了常用介面和呼叫規則。",
     "instructions.title": "給 Agent 的提示詞",
     "instructions.unavailable": "無法讀取執行個體位址。請先儲存金鑰。",
     "keys.back": "返回安全",
@@ -62,6 +64,8 @@
     "transport.state.HTTP_ALLOWED": "允許公網 HTTP",
     "transport.state.HTTPS_REQUIRED": "公網需 HTTPS",
     "transport.state.REVIEWED": "已檢視公網 HTTP 風險",
-    "unused": "本次啟動後尚未使用"
+    "unused": "本次啟動後尚未使用",
+    "verify.help": "將金鑰儲存到環境變數 PIXIV_PROGRAM_KEY 後，執行下面任一命令；傳回金鑰 ID 與權限即表示可用。",
+    "verify.title": "驗證金鑰"
   }
 }

@@ -46,12 +46,12 @@ public final class SettingsController {
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping public List<SettingsApiService.Field> fields(HttpServletRequest request) throws IOException {
-        return settings.fields().stream().filter(field -> ProgramAccess.permits(request, field.owner(), "settings.read")).toList();
+        return settings.fields(owner -> ProgramAccess.permits(request, owner, "settings.read"));
     }
     @ApiResponse(responseCode = "200", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "500", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiErrorResponse.Basic.class)))
     @GetMapping("/presets") public List<SettingsApiService.Preset> presets(HttpServletRequest request) throws IOException {
-        return settings.presets().stream().filter(preset -> ProgramAccess.permits(request, preset.owner(), "settings.read")).toList();
+        return settings.presets(owner -> ProgramAccess.permits(request, owner, "settings.read"));
     }
 
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(

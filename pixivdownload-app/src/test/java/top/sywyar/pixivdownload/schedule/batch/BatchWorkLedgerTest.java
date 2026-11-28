@@ -35,14 +35,14 @@ class BatchWorkLedgerTest {
         assertThat(ledger.begin(1)).isSameAs(run);
         assertThat(run.alreadyResolved(good.key())).isTrue();
         assertThat(run.alreadyResolved(bad.key())).isFalse();
-        var retries = ledger.retryRows(1, new ScheduleWorkPersistenceCodec(json));
+        var retries = ledger.retryRows(1, new ScheduleWorkPersistenceCodec(json), java.util.Map.of());
         assertThat(retries).singleElement().satisfies(row -> {
             assertThat(row.workId()).isEqualTo("bad");
             assertThat(row.payloadJson()).isEqualTo(bad.payloadJson());
             assertThat(row.attempts()).isZero();
         });
         run.markResult(bad.key(), ScheduledWorkResult.completed(), ScheduleRunQueue.STATUS_DOWNLOADED, null);
-        assertThat(ledger.retryRows(1, new ScheduleWorkPersistenceCodec(json))).isEmpty();
+        assertThat(ledger.retryRows(1, new ScheduleWorkPersistenceCodec(json), java.util.Map.of())).isEmpty();
         assertThat(run.snapshot()).hasSize(2);
     }
 

@@ -13,7 +13,10 @@ import top.sywyar.pixivdownload.collection.CollectionInsert;
 import top.sywyar.pixivdownload.collection.CollectionMapper;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
+import top.sywyar.pixivdownload.core.asset.DownloadDirectories;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl;
+import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
+import top.sywyar.pixivdownload.core.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.core.db.pathprefix.*;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
@@ -93,12 +96,146 @@ class PostgresHostStorageTest {
     }
 
     @Test
+    void concurrentFirstMoveCountsOnceAfterStatisticsRollback() throws Exception {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var config = new DownloadConfig();
+        config.setRootFolder(directory.toString() + "/{artwork_id}");
+        var paths = new PathPrefixCodec(new PathPrefixMapper(main), config, TestI18nBeans.appMessages());
+        paths.init();
+        var target = new PixivDatabase(new PixivMapper(main), TestI18nBeans.appMessages(), paths, initializer);
+        target.init();
+        var proxy = new org.springframework.aop.framework.ProxyFactory(target);
+        proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(database.transactionManager(),
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        var artworks = (PixivDatabase) proxy.getProxy();
+        jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(42,'test','/src',1,'png',100)");
+        jdbc.execute("ALTER TABLE statistics ADD CONSTRAINT reject_move CHECK(total_moved=0)");
+        assertThatThrownBy(() -> artworks.updateArtworkMove(42, directory.toString(), 200L)).isInstanceOf(RuntimeException.class);
+        assertThat(artworks.getArtwork(42).moved()).isFalse();
+        assertThat(artworks.getArtwork(42).moveFolder()).isNull();
+        assertThat(artworks.getStats()[2]).isZero();
+        jdbc.execute("ALTER TABLE statistics DROP CONSTRAINT reject_move");
+        var start = new java.util.concurrent.CyclicBarrier(2);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Boolean> move = () -> {
+                start.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                return artworks.updateArtworkMove(42, directory.toString(), 200L);
+            };
+            for (var result : workers.invokeAll(List.of(move, move))) assertThat(result.get()).isTrue();
+        }
+        assertThat(artworks.getArtwork(42).moved()).isTrue();
+        assertThat(artworks.getStats()[2]).isOne();
+        jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(43,'test','/src',1,'png',101)");
+        for (long id : List.of(42L, 43L)) {
+            artworks.markArtworkDeleted(id);
+            var deleted = artworks.getArtwork(id);
+            assertThat(artworks.updateArtworkMove(id, directory.resolve("other").toString(), 300L)).isFalse();
+            assertThat(artworks.getArtwork(id)).isEqualTo(deleted);
+            assertThat(artworks.getStats()[2]).isOne();
+        }
+    }
+
+    @Test
+    void sharedImportedFileIsExcludedFromExportsAndCannotBeReservedForReplacement() throws Exception {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var paths = new PathPrefixCodec(new PathPrefixMapper(main), new DownloadConfig(), TestI18nBeans.appMessages());
+        paths.init();
+        Path folder = Files.createDirectory(directory.resolve("novel-77"));
+        Path body = Files.writeString(folder.resolve("body.txt"), "novel");
+        Path image = Files.write(folder.resolve("image.png"), new byte[]{17});
+        paths.forceCreatePrefixId(folder.toString());
+        jdbc.update("INSERT INTO external_work_files(reference_id,work_type,work_id,page,root_path,file_path,record_time) VALUES(?,?,?,?,?,?,?)",
+                "source", "ARTWORK", 78L, 0, paths.encode(folder.toString()), paths.encode(image.toString()), 100L);
+        var owners = new DownloadDirectories(main, paths, initializer);
+        assertThat(owners.referencedFiles(List.of(body, image))).containsExactly(image);
+        assertThatThrownBy(() -> owners.reserveDeletion(List.of(body, image)))
+                .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+        try (var reservation = owners.reserveDeletion(List.of(body))) {
+            assertThatThrownBy(() -> owners.requireImportable(List.of(body)))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+        }
+        owners.requireImportable(List.of(body));
+        assertThat(Files.readAllBytes(image)).containsExactly(17);
+    }
+
+    @Test
+    void novelDeletionFollowsCurrentArtworkDirectoryAndProtectsItsSubtree() throws Exception {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var paths = new PathPrefixCodec(new PathPrefixMapper(main), new DownloadConfig(), TestI18nBeans.appMessages());
+        paths.init();
+        paths.forceCreatePrefixId(directory.toString());
+        var owners = new DownloadDirectories(main, paths, initializer);
+        Path novel = Files.createDirectory(directory.resolve("novel"));
+        Path nested = Files.createDirectory(novel.resolve("illustrations"));
+        Path relocated = Files.createDirectory(directory.resolve("gallery"));
+        jdbc.update("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(77,'novel',?,1,'txt',100)",
+                paths.encode(novel.toString()));
+        jdbc.update("INSERT INTO artworks(artwork_id,title,folder,move_folder,count,extensions,time) VALUES(78,'art',?,?,1,'png',101)",
+                paths.encode(relocated.toString()), paths.encode(nested.toString()));
+        assertThat(owners.foreignNovelDirectories(77, novel)).containsExactly(nested);
+        assertThatThrownBy(() -> owners.reserveNovelDeletion(77, novel))
+                .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+
+        jdbc.update("UPDATE artworks SET folder=?, move_folder=? WHERE artwork_id=78",
+                paths.encode(nested.toString()), paths.encode(relocated.toString()));
+        assertThat(owners.foreignNovelDirectories(77, novel)).isEmpty();
+        try (var reservation = owners.reserveNovelDeletion(77, novel)) {
+            assertThatThrownBy(() -> owners.requireDirectoryAvailable(nested))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+            assertThatThrownBy(() -> owners.requireImportable(List.of(nested.resolve("late.png"))))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+            owners.requireDirectoryAvailable(relocated);
+        }
+        owners.requireDirectoryAvailable(nested);
+    }
+
+    @Test
+    void recoveryRollsBackPageFactsWhenDirectoryClaimFails() throws Exception {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var config = new DownloadConfig();
+        config.setRootFolder(directory + "/{artwork_id}");
+        var messages = TestI18nBeans.appMessages();
+        var paths = new PathPrefixCodec(new PathPrefixMapper(main), config, messages);
+        paths.init();
+        var artworks = new PixivDatabase(new PixivMapper(main), messages, paths, initializer);
+        artworks.init();
+        var directories = new DownloadDirectories(main, paths, initializer);
+        var recovery = new ArtworkMetadataRecoveryService(artworks, null, config, messages, directories);
+        var media = new ArtworkMediaStoreImpl(main, initializer);
+        var request = new RecoverMetadataRequest();
+        request.setPageCount(1);
+        long id = 42L;
+        Path folder = Files.createDirectory(directory.resolve("42"));
+        Path image = folder.resolve("42_p0.png");
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_RGB),
+                "png", image.toFile());
+        byte[] original = Files.readAllBytes(image);
+
+        jdbc.execute("ALTER TABLE download_directories ADD CONSTRAINT reject_claim CHECK (work_id <> 42)");
+        assertThatThrownBy(() -> recovery.recoverMetadata(id, request))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class);
+        assertThat(artworks.getArtwork(id)).isNull();
+        assertThat(artworks.getArtworkFileNames(id)).isEmpty();
+        assertThat(media.find(id, 0)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM download_directories", Integer.class)).isZero();
+        assertThat(Files.readAllBytes(image)).containsExactly(original);
+
+        jdbc.execute("ALTER TABLE download_directories DROP CONSTRAINT reject_claim");
+        assertThat(recovery.recoverMetadata(id, request).deleted()).isFalse();
+        assertThat(media.find(id, 0)).hasValue(new ArtworkMediaManifest(ArtworkMediaManifest.UNKNOWN_ORIGINAL,
+                List.of("png"), false, false));
+        assertThat(directories.owns(WorkType.ARTWORK, id, folder)).isTrue();
+        assertThatThrownBy(() -> directories.requireImportable(List.of(image)))
+                .isInstanceOf(top.sywyar.pixivdownload.core.work.directory.DirectoryTemplateException.class);
+    }
+
+    @Test
     void partialArtworkPublishesOnlyAfterEverySourcePageIsSaved() throws Exception {
         var main = DatabaseProviderTestFixtures.main(database.pool());
         var mapper = new PixivMapper(main);
         var media = new ArtworkMediaStoreImpl(main, initializer);
         var original = new ArtworkMediaManifest("jpg", List.of("jpg"), true);
-        var converted = new ArtworkMediaManifest("jpg", List.of("webp"), false);
+        var converted = new ArtworkMediaManifest("jpg", List.of("webp"), false, true);
         long id = 42;
         mapper.insertPartialArtwork(new top.sywyar.pixivdownload.core.artwork.download.PartialArtwork(
                 id, directory.toString(), 2, "{artwork_id}_p{page}", 180, "webp", "revision",
@@ -229,7 +366,8 @@ class PostgresHostStorageTest {
     @Test
     @DisplayName("路径互换与反斜杠 token 改写在真实事务中一致完成")
     void pathSwapAndRollback() throws Exception {
-        var mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var mapper = new PathPrefixMapper(main);
         var codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
         Path a = Files.createDirectory(directory.resolve("a"));
@@ -238,7 +376,7 @@ class PostgresHostStorageTest {
         long second = codec.forceCreatePrefixId(b.toString());
         var transaction = new TransactionTemplate(database.transactionManager());
         var service = new PathPrefixMigrationService(codec, mapper, registry.pathPrefixColumns(),
-                new DownloadConfig(), TestI18nBeans.appMessages(), database.transactionManager(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
+                new DownloadConfig(), TestI18nBeans.appMessages(), database.transactionManager(), main, new DownloadDirectories(main, codec, initializer));
         assertThat(service.apply(List.of(new PathPrefixMigrationService.PathPrefixUpdate(first, b.toString()),
                 new PathPrefixMigrationService.PathPrefixUpdate(second, a.toString())), List.of()).success()).isTrue();
         assertThat(mapper.findPathById(first)).isEqualTo(b.toString());

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.media;
 
+import top.sywyar.pixivdownload.core.work.service.DownloadPathGuard;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaStore;
 import top.sywyar.pixivdownload.core.work.model.WorkAssetFile;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
@@ -7,7 +8,7 @@ import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
-import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
+import top.sywyar.pixivdownload.download.UgoiraService;
 import top.sywyar.pixivdownload.download.web.LocalizedException;
 
 import java.io.IOException;
@@ -38,6 +39,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private final ImageOutputService images;
     private final top.sywyar.pixivdownload.download.UgoiraService animations;
     private final PluginRuntimeTaskRegistrar tasks;
+    private final DownloadPathGuard paths;
     private PluginRuntimeTask pendingTask;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "media-maintenance");
@@ -55,7 +57,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
                                    top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore,
                                    top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
-                                   top.sywyar.pixivdownload.i18n.MessageResolver messages, PluginRuntimeTaskRegistrar tasks) {
+                                   top.sywyar.pixivdownload.i18n.MessageResolver messages, PluginRuntimeTaskRegistrar tasks, DownloadPathGuard paths) {
         this.assets = assets;
         this.metadata = metadata;
         this.query = query;
@@ -65,6 +67,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
         this.database = java.util.Objects.requireNonNull(database);
         this.messages = messages;
         this.tasks = java.util.Objects.requireNonNull(tasks);
+        this.paths = java.util.Objects.requireNonNull(paths);
     }
 
     public record Request(String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
@@ -179,8 +182,6 @@ public final class MediaMaintenanceService implements AutoCloseable {
         String name = file.path().getFileName().toString();
         int dot = name.lastIndexOf('.');
         if (dot < 1) throw new IOException("Invalid media filename");
-        String base = name.substring(0, dot).replaceFirst("_thumb$", "");
-        Path stem = file.path().resolveSibling(base);
         var manifest = mediaStore.find(id, file.page());
         checkCancelled();
         boolean animation = manifest.map(value -> value.originalExtension().equals("zip")).orElse(false)
@@ -193,6 +194,9 @@ public final class MediaMaintenanceService implements AutoCloseable {
                         && (header[20] & 2) != 0;
             }
         }
+        // 页资产的完整基名来自作品登记；真正的缩略图经独立的 thumbnail 接口读取。
+        String base = name.substring(0, dot);
+        Path stem = file.path().resolveSibling(base);
         List<String> missing = new ArrayList<>();
         String formats = animation ? request.ugoiraFormats() : request.imageFormats();
         if (formats != null) {
@@ -204,17 +208,8 @@ public final class MediaMaintenanceService implements AutoCloseable {
                         && !(format.equals("jpg") && Files.exists(stem.resolveSibling(base + ".jpeg")))) missing.add(format);
             }
         }
-        boolean unavailable = false;
-        if (!missing.isEmpty() && animation) {
-            Path zip = stem.resolveSibling(base + ".zip");
-            Path timing = stem.resolveSibling(base + ".frames.properties");
-            if (manifest.isEmpty() || !manifest.get().originalExtension().equals("zip")
-                    || !Files.isRegularFile(zip, LinkOption.NOFOLLOW_LINKS)
-                    || !Files.isRegularFile(timing, LinkOption.NOFOLLOW_LINKS)) {
-                unavailable = true;
-                missing.clear();
-            }
-        }
+        boolean unavailable = !missing.isEmpty() && animation && !UgoiraService.hasRetainedFrames(manifest, stem);
+        if (unavailable) missing.clear();
         boolean thumbnail = request.repairThumbnails() && assets.existingThumbnail(WorkType.ARTWORK, id, file.page()).isEmpty();
         if (missing.isEmpty() && !thumbnail && !unavailable) return null;
         return new Candidate(id, file, Files.size(file.path()), Files.getLastModifiedTime(file.path()).toMillis(),
@@ -317,7 +312,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                     var current = assets.rawFile(WorkType.ARTWORK, candidate.artworkId(), file.page());
                     if (assets.isReadOnly(WorkType.ARTWORK, candidate.artworkId())
                             || metadata.find(WorkType.ARTWORK, candidate.artworkId()).isEmpty() || current.isEmpty()
-                            || !current.get().path().equals(file.path()) || Files.size(file.path()) != candidate.bytes()
+                            || !current.get().equals(file) || Files.size(file.path()) != candidate.bytes()
                             || Files.getLastModifiedTime(file.path()).toMillis() != candidate.modified()) {
                         throw new IOException("Source changed after preview");
                     }
@@ -325,10 +320,10 @@ public final class MediaMaintenanceService implements AutoCloseable {
                     if (!candidate.formats().isEmpty()) {
                         String formats = String.join(",", candidate.formats());
                         if (candidate.animation()) {
-                            if (!animations.addMissingFormats(candidate.artworkId(), file.path(), formats, this::shouldStop)) {
+                            if (!animations.addMissingFormats(candidate.artworkId(), current.get(), formats, this::shouldStop, paths)) {
                                 throw new IOException("Animation source unavailable");
                             }
-                        } else images.addMissingFormats(candidate.artworkId(), file.page(), file.path(), formats, this::shouldStop);
+                        } else images.addMissingFormats(candidate.artworkId(), current.get().page(), current.get().path(), formats, this::shouldStop, paths);
                     }
                     checkCancelled();
                     if (candidate.thumbnail()

@@ -26,7 +26,8 @@ class RestTemplatePluginOwnershipTest {
             "restTemplate",
             "pixivCredentialRestTemplate",
             "downloadRestTemplate",
-            "pixivImageRestTemplate");
+            "pixivImageRestTemplate",
+            "pixivMediaRestTemplate");
 
     @Test
     @DisplayName("父应用全部生产配置只声明核心 HTTP 客户端")

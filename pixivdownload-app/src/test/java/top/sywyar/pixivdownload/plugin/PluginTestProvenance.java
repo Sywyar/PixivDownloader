@@ -131,22 +131,29 @@ public final class PluginTestProvenance {
 
     /** 为需要真实存储的启动夹具打包当前 SQLite classes 与私有驱动，并沿用测试签名。 */
     public static void stageSqliteProvider(Path pluginsDir) throws IOException {
-        Path classes = Path.of(java.util.Objects.requireNonNull(
-                System.getProperty("database-sqlite.plugin.classes"), "database-sqlite.plugin.classes"));
+        stageOfficialPlugin(pluginsDir, "database-sqlite");
+    }
+
+    /**
+     * 把 surefire 登记的官方插件当前 classes（含私有依赖目录）打包为本地上传包，并写入测试签名的已批准来源。
+     *
+     * @param pluginsDir 插件安装目录
+     * @param pluginId   官方插件 ID，对应系统属性 {@code <pluginId>.plugin.classes}
+     * @return 生成的插件包路径
+     * @throws IOException          classes 尚未构建或写入失败时抛出
+     * @throws NullPointerException 未在 surefire 中登记该插件时抛出
+     */
+    public static Path stageOfficialPlugin(Path pluginsDir, String pluginId) throws IOException {
+        String property = pluginId + ".plugin.classes";
+        Path classes = Path.of(java.util.Objects.requireNonNull(System.getProperty(property), property));
         if (!Files.isRegularFile(classes.resolve("plugin.properties"))) {
-            throw new IOException("SQLite provider classes are missing");
+            throw new IOException("Plugin classes are missing: " + pluginId);
         }
         Files.createDirectories(pluginsDir);
-        Path artifact = pluginsDir.resolve("database-sqlite-plugin.jar");
-        try (var files = Files.walk(classes);
-             var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(artifact))) {
-            for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
-                zip.putNextEntry(new java.util.zip.ZipEntry(classes.relativize(file).toString().replace('\\', '/')));
-                Files.copy(file, zip);
-                zip.closeEntry();
-            }
-        }
+        Path artifact = pluginsDir.resolve(pluginId + "-plugin.jar");
+        PluginTestArtifacts.zipDirectoryAsJar(classes, artifact);
         writeVerifiedLocalUpload(pluginsDir, artifact);
+        return artifact;
     }
 
     public static final class VerifiedLocalSqliteBootstrapInitializer

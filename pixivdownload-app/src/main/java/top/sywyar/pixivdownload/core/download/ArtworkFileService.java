@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.core.download;
 
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
@@ -16,9 +17,10 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +33,7 @@ import java.util.concurrent.Semaphore;
  * 本服务只产出文件（{@link #getThumbnailFile} / {@link #getImageFile}），不构造 HTTP 响应体。
  */
 @Service
+@Slf4j
 public class ArtworkFileService {
 
     private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp", "apng", "mp4", "webm", "zip");
@@ -65,10 +68,10 @@ public class ArtworkFileService {
     public ThumbnailFile existingThumbnail(Long artworkId, int page) throws IOException {
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork == null || page < 0 || page >= artwork.count()) return null;
-        File source = resolveThumbnailSourceFile(artwork, page);
+        File source = artworkFileLocator.resolveThumbnailSourceFile(artwork, page);
         if (source == null) return null;
         String format = "png";
-        Path cache = thumbnailCachePath(artworkId, page, 512, false);
+        Path cache = thumbnailCachePath(artworkId, page, 512, false, source);
         return isFreshThumbnailCache(cache, Files.getLastModifiedTime(source.toPath()))
                 ? new ThumbnailFile(cache, format) : null;
     }
@@ -87,17 +90,17 @@ public class ArtworkFileService {
             return null;
         }
 
-        File imageFile = resolveThumbnailSourceFile(artwork, page);
+        File imageFile = artworkFileLocator.resolveThumbnailSourceFile(artwork, page);
         if (imageFile == null) {
             return null;
         }
         String writeFormat = "png";
-        Path cachePath = thumbnailCachePath(artworkId, page, edge, cover);
+        Path cachePath = thumbnailCachePath(artworkId, page, edge, cover, imageFile);
         FileTime sourceTime = Files.getLastModifiedTime(imageFile.toPath());
         if (isFreshThumbnailCache(cachePath, sourceTime)) {
             return new ThumbnailFile(cachePath, writeFormat);
         }
-        String lockKey = cachePath.toString();
+        String lockKey = cachePath.getParent().toString();
         ThumbnailLock lock = thumbnailCacheLocks.compute(lockKey, (key, current) -> {
             ThumbnailLock value = current == null ? new ThumbnailLock() : current;
             value.users++;
@@ -133,8 +136,12 @@ public class ArtworkFileService {
                                 }
                             }
                             requireDatabase();
+                            Files.setLastModifiedTime(tempPath, sourceTime);
                             moveReplacing(tempPath, cachePath);
-                            Files.setLastModifiedTime(cachePath, sourceTime);
+                            var current = pixivDatabase.getArtwork(artworkId);
+                            if (current != null && imageFile.equals(artworkFileLocator.resolveThumbnailSourceFile(current, page))) {
+                                removePreviousSources(cachePath);
+                            }
                         } finally {
                             Files.deleteIfExists(tempPath);
                         }
@@ -157,34 +164,31 @@ public class ArtworkFileService {
         }
     }
 
-    private File resolveThumbnailSourceFile(ArtworkRecord artwork, int page) {
-        File imageFile = artworkFileLocator.resolveImageFile(artwork, page);
-        if (imageFile == null) {
-            return null;
-        }
-        String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-        if (artworkFileLocator.isReadOnly(artwork) || !Set.of("mp4", "webm").contains(extension)) {
-            return imageFile;
-        }
-        String dirPath = artworkFileLocator.resolveArtworkDirectory(artwork);
-        String baseName = artworkFileLocator.resolveStoredFileBaseName(artwork, page);
-        File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
-        return thumbFile.exists() ? thumbFile : imageFile;
-    }
-
-    private Path thumbnailCachePath(Long artworkId, int page, int edge, boolean cover) {
+    Path thumbnailCachePath(Long artworkId, int page, int edge, boolean cover, File source) throws IOException {
+        var sourceKey = UUID.nameUUIDFromBytes(source.toPath().toRealPath().toString().getBytes(StandardCharsets.UTF_8));
         return RuntimeFiles.galleryThumbnailDirectory()
                 .resolve(String.valueOf(artworkId))
-                .resolve("p" + page + "-" + edge + (cover ? "-cover" : "-fit") + "-v2.png")
+                .resolve("p" + page + "-" + edge + (cover ? "-cover" : "-fit") + "-v4")
+                .resolve(sourceKey + ".png")
                 .toAbsolutePath()
                 .normalize();
+    }
+
+    private void removePreviousSources(Path current) {
+        try (var previous = Files.newDirectoryStream(current.getParent(), "????????-????-????-????-????????????.png")) {
+            for (Path path : previous) {
+                if (!path.equals(current)) Files.deleteIfExists(path);
+            }
+        } catch (IOException | java.nio.file.DirectoryIteratorException busy) {
+            log.debug("Could not remove an obsolete thumbnail in {}", current.getParent(), busy);
+        }
     }
 
     private boolean isFreshThumbnailCache(Path cachePath, FileTime sourceTime) throws IOException {
         if (!Files.isRegularFile(cachePath) || Files.size(cachePath) <= 0) {
             return false;
         }
-        return Files.getLastModifiedTime(cachePath).toMillis() >= sourceTime.toMillis();
+        return Files.getLastModifiedTime(cachePath).toMillis() == sourceTime.toMillis();
     }
 
     private void moveReplacing(Path source, Path target) throws IOException {

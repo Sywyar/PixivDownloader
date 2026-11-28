@@ -51,7 +51,15 @@ public final class FfmpegLocator {
         return locate(RuntimeFiles.resolveConfigYamlPath());
     }
 
+    public static Optional<FfmpegInstallation> locateForStatus() {
+        return locate(RuntimeFiles.resolveConfigYamlPath(), true);
+    }
+
     static Optional<FfmpegInstallation> locate(Path configFile) {
+        return locate(configFile, false);
+    }
+
+    private static Optional<FfmpegInstallation> locate(Path configFile, boolean statusOnly) {
         try {
             String configured = configuredPath(configFile);
             if (configured != null && !configured.isBlank()) {
@@ -60,7 +68,7 @@ public final class FfmpegLocator {
         } catch (IOException | RuntimeException invalid) {
             // 手工编辑后配置可能失效；保留既有自动查找能力。
         }
-        Optional<FfmpegInstallation> managed = managedInstallation();
+        Optional<FfmpegInstallation> managed = managedInstallation(statusOnly);
         if (managed.isPresent()) {
             return managed;
         }
@@ -164,7 +172,16 @@ public final class FfmpegLocator {
     }
 
     static Optional<FfmpegInstallation> managedInstallation() {
-        return installationAt(managedToolsDir(), FfmpegInstallation.Source.MANAGED);
+        return managedInstallation(false);
+    }
+
+    private static Optional<FfmpegInstallation> managedInstallation(boolean statusOnly) {
+        try {
+            return FfmpegInstaller.managedInstallation(managedToolsDir(), statusOnly);
+        } catch (IOException failure) {
+            org.slf4j.LoggerFactory.getLogger(FfmpegLocator.class).warn("Cannot recover managed FFmpeg installation", failure);
+            return Optional.empty();
+        }
     }
 
     static Optional<FfmpegInstallation> bundledInstallation() {
