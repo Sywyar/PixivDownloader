@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Bug Fixes
+
+- 桌面端关于页会自动列出已署名的提交作者和共同作者，并排除已识别的自动化账号。
+
 ## [v1.15.0] - 2026.11.28
 
 ### Features

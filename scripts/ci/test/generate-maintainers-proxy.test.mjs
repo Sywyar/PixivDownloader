@@ -38,7 +38,7 @@ async function fixture(t, { respond, rejectProxy = false } = {}) {
   const tunnels = [];
   const sockets = new Set();
   const server = createSecureServer({ pfx, passphrase: 'fixture-password' }, (request, response) => {
-    requests.push({ url: request.url, headers: request.headers });
+    requests.push({ url: request.url, method: request.method, headers: request.headers });
     if (respond) return respond(request, response);
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ ok: true }));
@@ -186,33 +186,96 @@ test('拒绝重定向后不把 API 凭据发送到第二个来源', async (t) =>
 });
 
 test('真实生成入口通过代理获取 API 和头像并保留双方认证边界', async (t) => {
-  const { maintainers } = JSON.parse(await readFile(join(repository, 'scripts/maintainers-allowlist.json'), 'utf8'));
-  const users = maintainers.map((entry) => ({ ...entry, type: 'User', avatar_url: `https://avatars.githubusercontent.com/u/${entry.id}`, html_url: `https://github.com/${entry.login}` }));
+  const users = [
+    { id: 101, login: 'repo-owner', type: 'User' },
+    { id: 102, login: 'commit-helper', type: 'User' },
+    { id: 103, login: 'coauthor', type: 'User' },
+    { id: 104, login: 'dependency-update[bot]', type: 'Bot' },
+    { id: 105, login: 'automation-account', type: 'Bot' },
+    { id: 81847, login: 'claude', type: 'User' },
+  ].map((entry) => ({
+    ...entry, avatar_url: 'https://avatars.githubusercontent.com/u/' + entry.id, html_url: 'https://github.com/' + entry.login,
+  }));
+  const [owner, helper, coauthor, dependencyBot, apiBot, claude] = users;
+  const root = await mkdtemp(join(directory, 'history-'));
+  function git(...args) {
+    const result = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  }
+  git('init', '--quiet');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=repo-owner@example.test', '-c', 'commit.gpgSign=false',
+    'commit', '--quiet', '--allow-empty', '-m', 'Initial attribution',
+    '-m', 'Co-authored-by: Helper <commit-helper@example.test>\nCo-authored-by: Coauthor <coauthor@example.test>');
+  const first = git('rev-parse', 'HEAD');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=commit-helper@example.test', '-c', 'commit.gpgSign=false',
+    'commit', '--quiet', '--allow-empty', '-m', 'Helper authors a commit');
+  const second = git('rev-parse', 'HEAD');
   const avatar = Buffer.from([137, 80, 78, 71]);
-  const network = await fixture(t, { respond(request, response) {
+  const lookups = [];
+  const actor = (user) => ({ user: { login: user.login, databaseId: user.id } });
+  function authorPage(nodes, endCursor) {
+    return { data: { repository: { object: { authors: { nodes, pageInfo: { hasNextPage: !!endCursor, endCursor } } } } } };
+  }
+  const network = await fixture(t, { async respond(request, response) {
     if (request.headers.host === 'avatars.githubusercontent.com') {
       response.writeHead(200, { 'content-type': 'image/png', 'content-length': avatar.length });
       response.end(avatar);
-    } else {
-      response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify(request.url.includes('/contributors') ? users : { owner: users[0] }));
+      return;
     }
+    let payload;
+    if (request.url === '/graphql') {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const { variables: { oid, cursor } } = JSON.parse(Buffer.concat(chunks));
+      lookups.push([oid, cursor]);
+      if (oid === first) {
+        payload = cursor === null ? authorPage([actor(owner), actor(helper)], 'page-2')
+          : authorPage([actor(coauthor), actor(dependencyBot), actor(apiBot), actor(claude), { user: null }], null);
+      } else if (oid === second) {
+        payload = authorPage([actor(helper)], null);
+      }
+    } else if (request.url.startsWith('/user/')) {
+      payload = users.find((user) => request.url === '/user/' + user.id);
+    } else if (request.url === '/repos/Sywyar/PixivDownloader') {
+      payload = { owner };
+    }
+    response.writeHead(payload ? 200 : 404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(payload ?? {}));
   } });
   const output = join(directory, 'catalog.json');
   const generator = join(repository, 'scripts/generate-maintainers.mjs');
   const result = await run({ env: { HTTPS_PROXY: network.proxyUrl }, script: `
-process.argv = [process.execPath, ${JSON.stringify(generator)}, '--repo-root', ${JSON.stringify(repository)}, '--output', ${JSON.stringify(output)}];
+process.argv = [process.execPath, ${JSON.stringify(generator)}, '--repo-root', ${JSON.stringify(root)}, '--output', ${JSON.stringify(output)}];
 await import(${JSON.stringify(pathToFileURL(generator).href)});
 ` });
   assert.equal(result.status, 0, result.stderr);
   const catalog = JSON.parse(await readFile(output, 'utf8'));
-  assert.deepEqual(catalog.maintainers.map((entry) => entry.id), maintainers.map((entry) => entry.id));
+  assert.deepEqual(catalog.maintainers.map(({ id, role }) => [id, role]), [
+    [owner.id, 'author-core'], [helper.id, 'commit-contributor'], [coauthor.id, 'commit-collaborator'],
+  ]);
+  assert.deepEqual(lookups, [[first, null], [first, 'page-2'], [second, null]]);
   assert.ok(catalog.maintainers.every((entry) => entry.avatarBase64 === avatar.toString('base64')));
   const avatarRequests = network.requests.filter((request) => request.headers.host === 'avatars.githubusercontent.com');
-  assert.equal(avatarRequests.length, maintainers.length);
+  assert.equal(avatarRequests.length, catalog.maintainers.length);
   assert.ok(avatarRequests.every((request) => request.headers.authorization === undefined));
-  assert.ok(network.requests.filter((request) => request.headers.host === 'api.github.com').every((request) => request.headers.authorization === 'Bearer fixture-token'));
+  const apiRequests = network.requests.filter((request) => request.headers.host === 'api.github.com');
+  assert.ok(apiRequests.every((request) => request.headers.authorization === 'Bearer fixture-token'));
+  assert.ok(apiRequests.filter((request) => request.url === '/graphql').every((request) => request.method === 'POST'));
   assert.equal(network.tunnels.length, network.requests.length);
+
+  const shallow = join(directory, 'shallow');
+  git('clone', '--quiet', '--depth', '1', pathToFileURL(root).href, shallow);
+  const requestsBefore = network.requests.length;
+  const shallowResult = await run({ env: { HTTPS_PROXY: network.proxyUrl }, script: `
+process.argv = [process.execPath, ${JSON.stringify(generator)}, '--repo-root', ${JSON.stringify(shallow)}, '--output', ${JSON.stringify(output)}];
+await import(${JSON.stringify(pathToFileURL(generator).href)});
+` });
+  assert.equal(shallowResult.status, 0, shallowResult.stderr);
+  assert.match(shallowResult.stderr, /Git history is shallow/);
+  assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { maintainers: [], unavailable: true });
+  assert.equal(network.requests.length, requestsBefore);
 });
 
 test('PowerShell 支持入口将明确代理传递到真实 Node 子进程', { skip: process.platform !== 'win32' }, async (t) => {
