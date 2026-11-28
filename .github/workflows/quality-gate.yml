@@ -61,7 +61,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up JDK 25
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -89,7 +89,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -124,7 +124,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up JDK 25
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -234,7 +234,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -265,7 +265,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -292,7 +292,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+          sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0).toString("utf8")).version')"
           node scripts/ci/sdk-consumer.mjs --typed-service-only --repo-root . \
             --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
             --sdk-repository target/sdk-staging --work-dir target/sdk-service-consumer
@@ -321,7 +321,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -368,7 +368,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Set up JDK 25
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
@@ -412,7 +412,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           verify-signature: true
           java-version: '25'
