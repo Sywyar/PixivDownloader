@@ -8,51 +8,18 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { fetchGitHub, gitContributorIdentities, readBounded, selectMaintainers } from '../../generate-maintainers.mjs';
+import { attributionCommits, fetchGitHub, readBounded } from '../../generate-maintainers.mjs';
 
-test('维护者为仓库所有者和提交协作者与真人白名单的交集', async () => {
-  const identities = gitContributorIdentities(
-    'Repo Owner <101+repo-owner@users.noreply.github.com>\0'
-      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e',
-  );
-  const selected = await selectMaintainers({
-    owner: { id: 101, login: 'repo-owner', type: 'User' },
-    contributors: [
-      { id: 103, login: 'automation[bot]', type: 'Bot' },
-      { id: 104, login: 'not-approved', type: 'User' },
-    ],
-    identities,
-    allowlist: [
-      { id: 101, login: 'repo-owner' },
-      { id: 102, login: 'commit-helper' },
-      { id: 103, login: 'automation[bot]' },
-    ],
-    loadUser: async (login) => ({ id: 102, login, type: 'User' }),
-  });
-
-  assert.deepEqual(selected.map(({ id, login, role }) => ({ id, login, role })), [
-    { id: 101, login: 'repo-owner', role: 'author-core' },
-    { id: 102, login: 'commit-helper', role: 'commit-collaborator' },
+test('queries only representative commits for each author and co-author email', async () => {
+  const [first, repeated, different, promoted, anonymous] = ['a', 'b', 'c', 'd', 'e'].map((hex) => hex.repeat(40));
+  const result = await attributionCommits([
+    first + '\0OWNER@example.test\0Display Name <helper@example.test>',
+    repeated + '\0owner@example.test\0Changed Name <HELPER@example.test>',
+    different + '\0owner@example.test\0Same Name <another@example.test>',
+    promoted + '\0helper@example.test',
+    anonymous + '\0\0Malformed trailer',
   ]);
-});
-
-test('提交协作者产生独立提交后自动成为提交贡献者', async () => {
-  const identities = gitContributorIdentities(
-    'Repo Owner <101+repo-owner@users.noreply.github.com>\0'
-      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e'
-      + 'Commit Helper <102+commit-helper@users.noreply.github.com>\x1e',
-  );
-  const selected = await selectMaintainers({
-    owner: { id: 101, login: 'repo-owner', type: 'User' },
-    contributors: [{ id: 102, login: 'commit-helper', type: 'User' }],
-    identities,
-    allowlist: [{ id: 102, login: 'commit-helper' }],
-    loadUser: async () => assert.fail('独立提交者不应再次查询用户'),
-  });
-
-  assert.deepEqual(selected.map(({ id, login, role }) => ({ id, login, role })), [
-    { id: 102, login: 'commit-helper', role: 'commit-contributor' },
-  ]);
+  assert.deepEqual(result, [first, different, promoted]);
 });
 
 test('有界读取在声明超限或累计超限时取消正文并释放读取锁', async () => {
@@ -113,21 +80,25 @@ test('真实生成入口在获取失败或离线时写入不可用状态并释�
   const preload = join(fixture, 'fetch.mjs');
   const output = join(fixture, 'maintainers.json');
   await writeFile(preload, `
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import https from 'node:https';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { Readable } from 'node:stream';
-const { maintainers } = JSON.parse(readFileSync(join(process.env.FIXTURE_ROOT, 'scripts/maintainers-allowlist.json'), 'utf8'));
-const users = maintainers.map((user) => ({ ...user, type: 'User', avatar_url: 'https://avatars.githubusercontent.com/u/' + user.id }));
+const owner = { id: 101, login: 'repo-owner', type: 'User', avatar_url: 'https://avatars.githubusercontent.com/u/101' };
+const authors = { nodes: [{ user: { databaseId: owner.id, login: owner.login } }], pageInfo: { hasNextPage: false } };
 https.request = (input, options, callback) => {
   const url = new URL(input);
   const outgoing = new EventEmitter();
   let incoming;
   if (url.hostname === 'api.github.com') {
-    if (process.env.FIXTURE_MODE === 'offline') throw new Error('Offline generation must not request the API');
-    incoming = Readable.from([Buffer.from(JSON.stringify(url.pathname.endsWith('/contributors') ? users : { owner: users[0] }))]);
+    const mode = process.env.FIXTURE_MODE;
+    if (['offline', 'no-token'].includes(mode)) throw new Error('Unavailable generation must not request the API');
+    let payload = url.pathname === '/graphql' ? { data: { repository: { object: { authors } } } } : { owner };
+    if (url.pathname === '/graphql' && mode === 'graphql') {
+      payload = { ...payload, errors: [{ type: 'FORBIDDEN' }] };
+    }
+    if (url.pathname === '/graphql' && mode === 'graphql-body') payload = { data: 'a'.repeat(65 * 1024) };
+    incoming = Readable.from([Buffer.from(JSON.stringify(payload))]);
     incoming.statusCode = ['api', 'rate'].includes(process.env.FIXTURE_MODE) ? 403 : 200;
     incoming.headers = { 'content-type': 'application/json' };
     if (process.env.FIXTURE_MODE === 'rate') {
@@ -151,23 +122,29 @@ https.request = (input, options, callback) => {
 };
 syncBuiltinESMExports();
 `, 'utf8');
-  const allowlist = JSON.parse(await readFile(join(root, 'scripts/maintainers-allowlist.json'), 'utf8'));
-  for (const mode of ['api', 'rate', 'offline', 'status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
+  for (const mode of ['api', 'rate', 'graphql', 'graphql-body', 'offline', 'no-token', 'status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
     await t.test(mode, async () => {
       await writeFile(output, 'existing catalog', 'utf8');
-      const env = { ...process.env, FIXTURE_ROOT: root, FIXTURE_MODE: mode, NO_PROXY: '*' };
+      const env = { ...process.env, FIXTURE_MODE: mode, NO_PROXY: '*' };
       delete env.GITHUB_TOKEN;
       delete env.GH_TOKEN;
+      if (mode !== 'no-token') env.GH_TOKEN = 'fixture-token';
       const child = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, join(root, 'scripts/generate-maintainers.mjs'),
         '--repo-root', root, '--output', output, `--offline=${mode === 'offline'}`], { env, encoding: 'utf8', timeout: 30_000 });
       assert.ifError(child.error);
       assert.equal(child.status, 0, child.stderr);
-      const expected = ['api', 'rate'].includes(mode) ? /GitHub API 403/ : mode === 'offline' ? /offline mode/
-        : mode.startsWith('status') ? /Avatar download 502/ : /Avatar is not an image/;
+      const expected = {
+        api: /GitHub API 403/,
+        rate: /GitHub API 403/,
+        graphql: /GitHub GraphQL author lookup failed.*FORBIDDEN/,
+        'graphql-body': /Response is too large/,
+        offline: /offline mode/,
+        'no-token': /requires GITHUB_TOKEN or GH_TOKEN/,
+      }[mode] ?? (mode.startsWith('status') ? /Avatar download 502/ : /Avatar is not an image/);
       assert.match(child.stderr, expected);
       assert.doesNotMatch(child.stderr, /must not request/);
       assert.equal((child.stdout.match(/BODY_CANCELLED/g) ?? []).length,
-        ['api', 'rate', 'offline'].includes(mode) ? 0 : allowlist.maintainers.length, mode);
+        /^(status|type)/.test(mode) ? 1 : 0, mode);
       assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { maintainers: [], unavailable: true });
     });
   }

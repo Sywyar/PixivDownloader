@@ -31,7 +31,7 @@ if ($null -ne $proxy -and $proxy.AbsoluteUri -ne $uri.AbsoluteUri) { [Console]::
   }
 }
 
-export async function maintainerRequest(input, { headers, signal = AbortSignal.timeout(MAINTAINER_REQUEST_TIMEOUT_MS) } = {}) {
+export async function maintainerRequest(input, { headers, method = 'GET', body, signal = AbortSignal.timeout(MAINTAINER_REQUEST_TIMEOUT_MS) } = {}) {
   const [major, minor] = process.versions.node.split('.').map(Number);
   if (major < 24 || (major === 24 && minor < 5)) {
     throw Object.assign(new Error('Maintainer catalog requests require Node.js 24.5 or later'), { code: 'ERR_NODE_VERSION' });
@@ -54,7 +54,7 @@ export async function maintainerRequest(input, { headers, signal = AbortSignal.t
       agent.destroy();
       reject(signal.aborted ? signal.reason : new TypeError('Maintainer request failed', { cause: error }));
     };
-    const outgoing = request(url, { headers: { 'Accept-Encoding': 'identity', ...headers }, signal, agent }, (incoming) => {
+    const outgoing = request(url, { method, headers: { 'Accept-Encoding': 'identity', ...headers }, signal, agent }, (incoming) => {
       incoming.once('close', () => agent.destroy());
       if ([301, 302, 303, 307, 308].includes(incoming.statusCode)) {
         incoming.destroy();
@@ -74,6 +74,6 @@ export async function maintainerRequest(input, { headers, signal = AbortSignal.t
       }
     });
     outgoing.once('error', fail);
-    outgoing.end();
+    outgoing.end(body);
   });
 }

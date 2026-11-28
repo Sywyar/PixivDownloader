@@ -1,6 +1,8 @@
-import { execFileSync } from 'node:child_process';
-import { readFile, mkdir, rename, writeFile } from 'node:fs/promises';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { MAINTAINER_REQUEST_TIMEOUT_MS, maintainerRequest } from './maintainer-request.mjs';
@@ -10,66 +12,53 @@ const DEFAULT_REPOSITORY = 'Sywyar/PixivDownloader';
 const MAX_AVATAR_BYTES = 1024 * 1024;
 const MAX_API_ATTEMPTS = 3;
 const MAX_RETRY_WAIT_MS = 180_000;
-const MAX_ERROR_BYTES = 64 * 1024;
+const MAX_API_RESPONSE_BYTES = 64 * 1024;
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 
-function isBot(user) {
-  return user?.type === 'Bot' || /\[bot\]$/i.test(user?.login ?? '');
+// GitHub also attributes Claude commits to a regular User account.
+const CLAUDE_ACCOUNT_ID = 81847;
+
+function isAutomated(user) {
+  return user.id === CLAUDE_ACCOUNT_ID || user.type === 'Bot' || /\[bot\]$/i.test(user.login);
 }
 
-function addGitIdentity(identities, value) {
-  const match = value.trim().match(/^(.+?)\s*<([^>]+)>$/);
-  if (!match) return;
-  identities.add(match[1].trim().toLowerCase());
-  const noreply = match[2].match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i);
-  if (noreply) identities.add(noreply[1].toLowerCase());
-}
-
-export function gitContributorIdentities(log) {
-  const authors = new Set();
+export async function attributionCommits(lines) {
+  const direct = new Set();
   const collaborators = new Set();
-  for (const record of log.split('\x1e')) {
-    const [author, ...coauthors] = record.trim().split('\0');
-    addGitIdentity(authors, author ?? '');
-    for (const coauthor of coauthors) addGitIdentity(collaborators, coauthor);
-  }
-  return { authors, collaborators };
-}
-
-function maintainerRole(user, owner, contributorIds, identities) {
-  const login = user.login.toLowerCase();
-  if (owner && user.id === owner.id) return 'author-core';
-  if (identities.authors.has(login)) return 'commit-contributor';
-  if (identities.collaborators.has(login)) return 'commit-collaborator';
-  return contributorIds.has(user.id) ? 'commit-contributor' : null;
-}
-
-export async function selectMaintainers({ owner, contributors, identities, allowlist, loadUser }) {
-  const candidatesById = new Map();
-  const candidatesByLogin = new Map();
-  const contributorIds = new Set();
-  for (const user of contributors) {
-    if (user && !isBot(user)) contributorIds.add(user.id);
-  }
-  for (const user of [owner, ...contributors]) {
-    if (!user || isBot(user)) continue;
-    candidatesById.set(user.id, user);
-    candidatesByLogin.set(user.login.toLowerCase(), user);
-  }
-
-  const selected = [];
-  for (const allowed of allowlist) {
-    const login = allowed.login.toLowerCase();
-    let user = candidatesById.get(allowed.id) ?? candidatesByLogin.get(login);
-    if (!user && (identities.authors.has(login) || identities.collaborators.has(login))) {
-      user = await loadUser(allowed.login);
+  const commits = [];
+  for await (const line of lines) {
+    const [oid, author, ...trailers] = line.split('\0');
+    if (!/^[a-f0-9]{40}$/.test(oid)) continue;
+    let needed = false;
+    const authorEmail = author?.toLowerCase();
+    if (authorEmail && !direct.has(authorEmail)) {
+      direct.add(authorEmail);
+      needed = true;
     }
-    if (!user || isBot(user) || user.id !== allowed.id
-        || user.login.toLowerCase() !== login) continue;
-    const role = maintainerRole(user, owner, contributorIds, identities);
-    if (role) selected.push({ ...user, role });
+    for (const trailer of trailers) {
+      const email = trailer.match(/<([^<>]+)>\s*$/)?.[1]?.trim().toLowerCase();
+      if (!email || collaborators.has(email)) continue;
+      collaborators.add(email);
+      needed = true;
+    }
+    if (needed) commits.push(oid);
   }
-  return selected;
+  return commits;
+}
+
+async function checkoutAttributionCommits(repoRoot) {
+  const shallow = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--is-shallow-repository'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (shallow.trim() !== 'false') throw new Error('Git history is shallow; fetch the complete checkout');
+  const git = spawn('git', [
+    '-C', repoRoot, 'log', '--reverse',
+    '--format=%H%x00%ae%x00%(trailers:key=Co-authored-by,valueonly,unfold=true,separator=%x00)',
+  ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  const finished = once(git, 'close').then(([status]) => status, () => null);
+  const commits = await attributionCommits(createInterface({ input: git.stdout, crlfDelay: Infinity }));
+  if (await finished !== 0 || commits.length === 0) throw new Error('Cannot read Git authorship history');
+  return commits;
 }
 
 function headers() {
@@ -91,10 +80,14 @@ function safe(value) {
   return text.replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 1024);
 }
 
-export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = sleep, now = Date.now, warn = console.warn } = {}) {
+export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = sleep, now = Date.now, warn = console.warn, body } = {}) {
   const url = new URL(path, API_BASE);
   if (url.origin !== API_BASE || url.username || url.password) throw new Error('GitHub request left api.github.com');
   const requestHeaders = headers();
+  if (body !== undefined) {
+    requestHeaders['Content-Type'] = 'application/json';
+    requestHeaders['Content-Length'] = String(Buffer.byteLength(body));
+  }
   let waited = 0;
   for (let attempt = 1; attempt <= MAX_API_ATTEMPTS; attempt++) {
     let response;
@@ -102,7 +95,8 @@ export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = 
     let delay = 1000 * 2 ** (attempt - 1);
     try {
       response = await fetchImpl(url, {
-        headers: requestHeaders, redirect: 'error', signal: AbortSignal.timeout(MAINTAINER_REQUEST_TIMEOUT_MS),
+        headers: requestHeaders, method: body === undefined ? 'GET' : 'POST', body,
+        redirect: 'error', signal: AbortSignal.timeout(MAINTAINER_REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
       failure = new Error(`GitHub API transport failure: ${url.pathname}; authenticated=${Boolean(requestHeaders.Authorization)}; ${safe(error.cause?.code ?? error.code ?? error.name)}`);
@@ -112,7 +106,7 @@ export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = 
     if (response) {
       let message;
       try {
-        message = JSON.parse((await readBounded(response, MAX_ERROR_BYTES)).toString('utf8')).message;
+        message = JSON.parse((await readBounded(response, MAX_API_RESPONSE_BYTES)).toString('utf8')).message;
       } catch {
         // 诊断正文缺失或过大时，仍保留状态码与限流头；不输出原始响应。
       }
@@ -143,29 +137,26 @@ export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = 
   }
 }
 
-async function fetchJson(path) {
-  return (await fetchGitHub(path)).json();
+async function fetchJson(path, options) {
+  return JSON.parse((await readBounded(await fetchGitHub(path, options), MAX_API_RESPONSE_BYTES)).toString('utf8'));
 }
 
-async function fetchContributors(repository) {
-  const contributors = [];
-  let url = `${API_BASE}/repos/${repository}/contributors?per_page=100&anon=false`;
-  while (url) {
-    const response = await fetchGitHub(url);
-    contributors.push(...await response.json());
-    const next = response.headers.get('link')?.match(/<([^>]+)>; rel="next"/)?.[1];
-    if (next) {
-      const parsed = new URL(next);
-      if (parsed.origin !== API_BASE) throw new Error('GitHub pagination left api.github.com');
-      url = parsed.href;
-    } else {
-      url = '';
+const COMMIT_AUTHORS = `query($owner: String!, $name: String!, $oid: GitObjectID!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $oid) {
+      ... on Commit {
+        authors(first: 100, after: $cursor) {
+          nodes { user { databaseId login } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
     }
   }
-  return contributors;
-}
+}`;
 
 function githubUser(user) {
+  if (!Number.isSafeInteger(user?.id) || user.id <= 0 || typeof user.login !== 'string'
+      || typeof user.type !== 'string') throw new Error('GitHub returned an invalid account');
   return {
     id: user.id,
     login: user.login,
@@ -173,6 +164,58 @@ function githubUser(user) {
     avatarUrl: user.avatar_url,
     profileUrl: user.html_url,
   };
+}
+
+async function fetchMaintainers(repository, repoRoot) {
+  const [ownerLogin, repoName] = repository.split('/');
+  if (!LOGIN_PATTERN.test(ownerLogin) || !/^[A-Za-z0-9_.-]+$/.test(repoName ?? '')
+      || repository !== `${ownerLogin}/${repoName}`) throw new Error('Invalid GitHub repository');
+  const commits = await checkoutAttributionCommits(repoRoot);
+  const owner = githubUser((await fetchJson(`/repos/${repository}`)).owner);
+  const roles = new Map();
+  if (owner.type === 'User' && !isAutomated(owner)) roles.set(owner.id, 'author-core');
+  for (const oid of commits) {
+    let cursor = null;
+    do {
+      const { data, errors } = await fetchJson('/graphql', { body: JSON.stringify({
+        query: COMMIT_AUTHORS, variables: { owner: ownerLogin, name: repoName, oid, cursor },
+      }) });
+      if (errors?.length) {
+        const types = errors.map(({ type }) => type).filter(Boolean).join(', ');
+        throw new Error(`GitHub GraphQL author lookup failed for ${oid}: ${safe(types || 'unknown error')}`);
+      }
+      const authors = data?.repository?.object?.authors;
+      if (!Array.isArray(authors?.nodes) || typeof authors.pageInfo?.hasNextPage !== 'boolean') {
+        throw new Error(`GitHub did not return commit authors for ${oid}`);
+      }
+      for (const [index, actor] of authors.nodes.entries()) {
+        if (!actor || !Object.hasOwn(actor, 'user')) throw new Error(`GitHub returned an invalid commit actor for ${oid}`);
+        if (actor.user === null) continue;
+        const { databaseId: id, login } = actor.user;
+        if (!Number.isSafeInteger(id) || id <= 0 || typeof login !== 'string') {
+          throw new Error(`GitHub returned an invalid commit author for ${oid}`);
+        }
+        if (isAutomated({ id, login }) || id === owner.id) continue;
+        if (cursor === null && index === 0) roles.set(id, 'commit-contributor');
+        else if (!roles.has(id)) roles.set(id, 'commit-collaborator');
+      }
+      if (!authors.pageInfo.hasNextPage) break;
+      const next = authors.pageInfo.endCursor;
+      if (typeof next !== 'string' || !next || next === cursor) {
+        throw new Error(`GitHub returned an invalid author cursor for ${oid}`);
+      }
+      cursor = next;
+    } while (true);
+  }
+
+  const maintainers = [];
+  for (const [id, role] of roles) {
+    const user = id === owner.id ? owner : githubUser(await fetchJson(`/user/${id}`));
+    if (user.id !== id) throw new Error('GitHub account ID does not match the commit author');
+    if (user.type === 'User' && !isAutomated(user)) maintainers.push({ ...user, role });
+  }
+  if (maintainers.length === 0) throw new Error('No eligible GitHub accounts found in the commit history');
+  return maintainers;
 }
 
 async function materializeAvatar(maintainer) {
@@ -227,21 +270,6 @@ export async function readBounded(response, maximumBytes) {
   }
 }
 
-function validateAllowlist(allowlist) {
-  if (!Array.isArray(allowlist) || allowlist.length === 0) throw new Error('Maintainer allowlist is empty');
-  const ids = new Set();
-  const logins = new Set();
-  for (const entry of allowlist) {
-    const login = typeof entry?.login === 'string' ? entry.login.toLowerCase() : '';
-    if (!Number.isSafeInteger(entry?.id) || entry.id <= 0 || !LOGIN_PATTERN.test(login)
-        || isBot(entry) || ids.has(entry.id) || logins.has(login)) {
-      throw new Error('Maintainer allowlist is invalid');
-    }
-    ids.add(entry.id);
-    logins.add(login);
-  }
-}
-
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
   return index < 0 ? fallback : process.argv[index + 1];
@@ -251,31 +279,17 @@ async function main() {
   const repository = option('--repository', DEFAULT_REPOSITORY);
   const repoRoot = resolve(option('--repo-root', process.cwd()));
   const output = resolve(option('--output', 'pixivdownload-app/target/classes/pixivdownload/maintainers.json'));
-  const allowlistPath = resolve(repoRoot, 'scripts/maintainers-allowlist.json');
-  const allowlist = JSON.parse(await readFile(allowlistPath, 'utf8')).maintainers;
-  validateAllowlist(allowlist);
   let catalog = { maintainers: [], unavailable: true };
   if (process.argv.includes('--offline=true')) {
     console.warn('Maintainer catalog unavailable: Maven offline mode; continuing without the list.');
+  } else if (!headers().Authorization) {
+    console.warn('Maintainer catalog unavailable: GitHub GraphQL requires GITHUB_TOKEN or GH_TOKEN.');
   } else {
     try {
-      const repositoryData = await fetchJson(`/repos/${repository}`);
-      const contributors = (await fetchContributors(repository)).map(githubUser);
-      const log = execFileSync('git', [
-        '-C', repoRoot,
-        'log', '--format=%aN <%aE>%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x1e',
-      ], { encoding: 'utf8' });
-      const selected = await selectMaintainers({
-        owner: githubUser(repositoryData.owner),
-        contributors,
-        identities: gitContributorIdentities(log),
-        allowlist,
-        loadUser: async (login) => githubUser(await fetchJson(`/users/${login}`)),
-      });
-      if (selected.length !== allowlist.length) {
-        throw new Error(`Expected ${allowlist.length} approved maintainers, found ${selected.length}`);
-      }
-      catalog = { maintainers: await Promise.all(selected.map(materializeAvatar)) };
+      const selected = await fetchMaintainers(repository, repoRoot);
+      const maintainers = [];
+      for (const person of selected) maintainers.push(await materializeAvatar(person));
+      catalog = { maintainers };
     } catch (error) {
       console.warn(`Maintainer catalog unavailable; continuing without the list: ${safe(error.message)}`);
     }
