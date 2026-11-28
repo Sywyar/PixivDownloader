@@ -22,7 +22,7 @@ runs:
           all|templates|incremental|build-tools) ;;
           *) echo "Unsupported consumer scope: $CONSUMER_SCOPE" >&2; exit 1 ;;
         esac
-        sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+        sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0).toString("utf8")).version')"
         if [ "$CONSUMER_SCOPE" != build-tools ]; then
           node scripts/ci/sdk-consumer.mjs --repo-root . --scope "$CONSUMER_SCOPE" \
             --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \

@@ -68,8 +68,9 @@ runs:
           exit 1
         }
         if github_exists "repos/$SDK_REPOSITORY/git/ref/tags/$RELEASE_ID"; then tag_exists=true; fi
+        # Decode the buffer after reading to avoid Node.js's UTF-8 pipe reader crash.
         releases="$(gh api --paginate --slurp "repos/$SDK_REPOSITORY/releases?per_page=100" | \
-          node -e 'const pages = JSON.parse(require("node:fs").readFileSync(0, "utf8")); process.stdout.write(JSON.stringify(pages.flat().filter(release => release.tag_name === process.env.RELEASE_ID)))')"
+          node -e 'const pages = JSON.parse(require("node:fs").readFileSync(0).toString("utf8")); process.stdout.write(JSON.stringify(pages.flat().filter(release => release.tag_name === process.env.RELEASE_ID)))')"
         release_count="$(node -pe 'JSON.parse(process.argv[1]).length' "$releases")"
         [ "$release_count" -le 1 ] || { echo 'Duplicate SDK release identity' >&2; exit 1; }
         reuse_release=false
