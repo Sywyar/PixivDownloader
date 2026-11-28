@@ -77,7 +77,7 @@ class RestTemplateConfigLifecycleTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"restTemplate", "pixivCredentialRestTemplate",
-            "downloadRestTemplate", "pixivImageRestTemplate"})
+            "downloadRestTemplate", "pixivImageRestTemplate", "pixivMediaRestTemplate"})
     @DisplayName("关闭上下文释放空闲连接且不影响另一上下文")
     void closesOwnedConnectionsWithoutClosingAnotherContext(String beanName) throws Exception {
         ExecutorService requests = Executors.newSingleThreadExecutor();

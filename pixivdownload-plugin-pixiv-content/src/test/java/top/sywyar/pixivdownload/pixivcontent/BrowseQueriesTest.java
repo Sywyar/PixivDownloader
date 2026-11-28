@@ -14,7 +14,7 @@ class BrowseQueriesTest {
     private static final String SESSION = "PHPSESSID=42_test";
 
     private static ContentQueries queries(PixivAjaxClient ajax) {
-        return new ContentQueries(ajax, null, new JsonMapper());
+        return new ContentQueries(ajax, new JsonMapper());
     }
 
     private static String body(String json) { return "{\"error\":false,\"body\":" + json + "}"; }

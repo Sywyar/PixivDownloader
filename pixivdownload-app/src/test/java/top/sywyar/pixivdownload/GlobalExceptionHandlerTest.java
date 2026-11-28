@@ -259,6 +259,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("内容 owner 已记录并中止的流式响应只结束连接，上游连接重置也不误判为客户端断开")
+    void ownerAbortedStreamEndsTheResponseWithoutAServerError() {
+        var aborted = new top.sywyar.pixivdownload.core.web.ResponseStreamAbortedException(
+                "Pixiv content stream aborted: media_transfer_failed", new java.net.SocketException("Connection reset"));
+
+        ResponseEntity<?> response = handler.handleIOException(aborted, Locale.US);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(response.getBody()).isNull();
+    }
+
+    @Test
     @DisplayName("循环原因链仍返回 IO 错误响应")
     void cyclicIoCausesReturnErrorResponse() {
         class GuardedFailure extends IOException {

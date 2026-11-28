@@ -24,11 +24,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.config.credential.AcquisitionCredentialLibrary;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxException;
+import top.sywyar.pixivdownload.core.pixiv.PixivAjaxFailure;
+import top.sywyar.pixivdownload.core.pixiv.media.PixivMediaClient;
+import top.sywyar.pixivdownload.core.pixiv.media.PixivMediaStream;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
-import top.sywyar.pixivdownload.plugin.api.http.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -37,7 +40,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,7 +94,7 @@ class PixivContentAccessTest {
     @Autowired AcquisitionCredentialLibrary library;
 
     @TestBean(methodName = "ajax") PixivAjaxClient pixivAjaxProxyClient;
-    @TestBean(methodName = "cdn") OutboundHttpClientFactory outboundHttpClientFactory;
+    @TestBean(methodName = "media") PixivMediaClient pixivMediaStreamService;
     @TestBean(methodName = "visibility") WorkVisibilityService guestWorkVisibilityService;
 
     static WorkVisibilityService visibility() {
@@ -164,6 +166,8 @@ class PixivContentAccessTest {
                 yield body("{\"userId\":21,\"name\":\"Test account\",\"comment\":\"About\",\"premium\":true}");
             }
             case "/ajax/user/3" -> body("{\"userId\":3,\"name\":\"Artist\",\"imageBig\":\"https://i.pximg.net/avatar.png\"}");
+            case "/ajax/user/5" -> body("{\"userId\":6,\"name\":\"Mismatch\"}");
+            case "/ajax/user/6" -> body("{\"userId\":6,\"name\":\"Truncated\",\"imageBig\":\"https://i.pximg.net/truncated.png\"}");
             case "/ajax/illust/57" -> body("""
                     {"id":"57","title":"Manga","userId":"3","userName":"Artist","illustType":1,"pageCount":30,
                      "xRestrict":0,"aiType":1,"createDate":"2026-11-03T10:00:00+09:00","uploadDate":"2026-11-05T10:00:00+09:00",
@@ -242,6 +246,20 @@ class PixivContentAccessTest {
                       {"type":"Work","status":"Active","workType":"novel","workId":"88"}]}},
                      "thumbnails":{"illust":[%s],"novel":[%s]}}
                     """.formatted(ARTWORK_CARD, NOVEL_CARD));
+            case "/rpc/cps.php" -> {
+                assertThat(cookie).isNull();
+                assertThat(uri.getRawQuery()).matches(".*keyword=(a%2Bb%20%26%20c|Cat%20Artist)(&.*)?");
+                yield "{\"candidates\":[{\"tag_name\":\"ink\",\"tag_translation\":\"Ink\"}]}";
+            }
+            case "/ranking.php" -> {
+                assertThat(uri.getQuery()).contains("format=json");
+                if (uri.getQuery().contains("date=")) throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429);
+                if (uri.getQuery().contains("mode=daily_r18")) {
+                    assertThat(cookie).isEqualTo(FIXTURE_COOKIE);
+                    yield "{\"date\":\"20261001\",\"mode\":\"daily_r18\",\"page\":1,\"contents\":[],\"next\":false}";
+                }
+                yield "{\"date\":\"20240102\",\"mode\":\"daily\",\"page\":1,\"contents\":[],\"next\":false}";
+            }
             case "/ajax/illust/42/ugoira_meta" -> body("""
                     {"src":"https://i.pximg.net/test.zip","mime_type":"image/png",
                     "frames":[{"file":"0.png","delay":17},{"file":"1.png","delay":41}]}
@@ -250,52 +268,25 @@ class PixivContentAccessTest {
         };
     }
 
-    static OutboundHttpClientFactory cdn() {
-        return profile -> new OutboundHttpClient() {
-            @Override public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
-                if ("www.pixiv.net".equals(request.uri().getHost())) {
-                    if (request.uri().getPath().equals("/rpc/cps.php")) {
-                        assertThat(request.headers()).doesNotContainKey("Cookie");
-                        assertThat(request.uri().getRawQuery()).matches(".*keyword=(a%2Bb%20%26%20c|Cat%20Artist)(&.*)?");
-                        return new OutboundHttpStreamResponse(200, "OK", Map.of(), new ByteArrayInputStream(
-                                "{\"candidates\":[{\"tag_name\":\"ink\",\"tag_translation\":\"Ink\"}]}".getBytes(StandardCharsets.UTF_8)));
-                    }
-                    assertThat(request.uri().getPath()).isEqualTo("/ranking.php");
-                    if (request.uri().getQuery().contains("date=")) {
-                        return new OutboundHttpStreamResponse(429, "Too Many Requests", Map.of(),
-                                new ByteArrayInputStream(new byte[0]));
-                    }
-                    if (request.uri().getQuery().contains("mode=daily_r18")) {
-                        assertThat(request.headers().get("Cookie")).containsExactly(FIXTURE_COOKIE);
-                        return new OutboundHttpStreamResponse(200, "OK", Map.of(), new ByteArrayInputStream(
-                                "{\"date\":\"20261001\",\"mode\":\"daily_r18\",\"page\":1,\"contents\":[],\"next\":false}".getBytes(StandardCharsets.UTF_8)));
-                    }
-                    String ranking = """
-                            {"date":"20240102","mode":"daily","page":1,"contents":[],"next":false}
-                            """;
-                    return new OutboundHttpStreamResponse(200, "OK", Map.of("Content-Type", List.of("application/json")),
-                            new ByteArrayInputStream(ranking.getBytes(StandardCharsets.UTF_8)));
-                }
-                assertThat(request.headers()).doesNotContainKey("Cookie");
-                if ("/avatar.png".equals(request.uri().getPath())) {
-                    assertThat(request.headers().get("Referer")).containsExactly("https://www.pixiv.net/users/3");
-                    return new OutboundHttpStreamResponse(200, "OK", Map.of(), new ByteArrayInputStream(PNG));
-                }
-                if (List.of("/novel-cover.png", "/novel-illustration.png").contains(request.uri().getPath())) {
-                    assertThat(request.headers().get("Referer")).containsExactly("https://www.pixiv.net/novel/show.php?id=88");
-                    return new OutboundHttpStreamResponse(200, "OK", Map.of("Content-Type", List.of("image/png")),
-                            new ByteArrayInputStream(PNG));
-                }
-                if (request.uri().toString().equals("https://i.pximg.net/test.zip")) {
-                    assertThat(request.headers().get("Referer")).containsExactly("https://www.pixiv.net/artworks/42");
-                    return new OutboundHttpStreamResponse(200, "OK", Map.of("Content-Type", List.of("application/zip")),
-                            new ByteArrayInputStream(animationArchive()));
-                }
-                assertThat(request.uri().toString()).isEqualTo("https://i.pximg.net/page.png");
-                return new OutboundHttpStreamResponse(200, "OK", Map.of("Content-Type", List.of("image/png")),
-                        new ByteArrayInputStream(PNG));
+    static PixivMediaClient media() {
+        return (source, referer, maximumBytes) -> {
+            assertThat(maximumBytes).isPositive();
+            String page = referer.toString();
+            if ("/truncated.png".equals(source.getPath())) {
+                // 声明长度大于实际正文：回传开始后才发现截断。
+                return new PixivMediaStream(new ByteArrayInputStream(PNG), PNG.length + 100L, maximumBytes);
             }
-            @Override public void close() {}
+            if ("/avatar.png".equals(source.getPath())) {
+                assertThat(page).isEqualTo("https://www.pixiv.net/users/3");
+            } else if (List.of("/novel-cover.png", "/novel-illustration.png").contains(source.getPath())) {
+                assertThat(page).isEqualTo("https://www.pixiv.net/novel/show.php?id=88");
+            } else if (source.toString().equals("https://i.pximg.net/test.zip")) {
+                assertThat(page).isEqualTo("https://www.pixiv.net/artworks/42");
+                return new PixivMediaStream(new ByteArrayInputStream(animationArchive()), -1, maximumBytes);
+            } else {
+                assertThat(source.toString()).isEqualTo("https://i.pximg.net/page.png");
+            }
+            return new PixivMediaStream(new ByteArrayInputStream(PNG), PNG.length, maximumBytes);
         };
     }
 
@@ -423,8 +414,41 @@ class PixivContentAccessTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].type").value("manga"));
         mvc.perform(get(API + "/rankings").secure(true).header("Authorization", metadata))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.rankingDate").value("2024-01-02"));
-        mvc.perform(get(API + "/rankings").param("date", "2024-01-01").secure(true).header("Authorization", metadata))
-                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("PIXIV_RATE_LIMITED"));
+        var root = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        var captured = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        captured.start();
+        root.addAppender(captured);
+        try {
+            mvc.perform(get(API + "/rankings").param("date", "2024-01-01").secure(true).header("Authorization", metadata)
+                            .header("X-Acquisition-Credential", FIXTURE_COOKIE))
+                    .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("PIXIV_RATE_LIMITED"));
+            mvc.perform(get(API + "/users/5").secure(true).header("Authorization", metadata))
+                    .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("PIXIV_RESPONSE_INVALID"));
+            mvc.perform(get(API + "/users/6/avatar").secure(true).header("Authorization", images));
+        } finally {
+            root.detachAppender(captured);
+        }
+        // 上游失败在默认级别留下固定英文诊断：路由模板、数字路径 ID、耗时、错误码、状态与源码位置，
+        // 不含查询参数或凭据。
+        var failures = captured.list.stream()
+                .filter(event -> event.getFormattedMessage().startsWith("Pixiv content request failed")).toList();
+        assertThat(failures).hasSize(2).allSatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.WARN);
+            assertThat(event.getFormattedMessage()).containsPattern("elapsedMs=\\d+").contains(" at=")
+                    .doesNotContain("2024", FIXTURE_COOKIE, "PHPSESSID");
+        });
+        assertThat(failures.get(0).getFormattedMessage()).contains("operation=" + API + "/rankings ",
+                "code=PIXIV_RATE_LIMITED", "upstreamStatus=429", "at=ContentQueries.");
+        assertThat(failures.get(1).getFormattedMessage()).contains("operation=" + API + "/users/{id} id=5 ",
+                "code=PIXIV_RESPONSE_INVALID", "at=ContentQueries.user:");
+        // 回传开始后才发现截断时由插件记录一次中止原因，宿主不再记成服务器读写错误。
+        assertThat(captured.list).filteredOn(event -> event.getFormattedMessage().startsWith("Pixiv content stream aborted"))
+                .singleElement().satisfies(event -> {
+                    assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.WARN);
+                    assertThat(event.getFormattedMessage()).contains("operation=" + API + "/users/{id}/avatar id=6 ",
+                            "reason=media_transfer_failed", "bytesSent=" + PNG.length);
+                });
+        assertThat(captured.list).noneMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR);
         mvc.perform(get(IMAGE).param("size", "original").secure(true).header("Authorization", images))
                 .andExpect(status().isOk()).andExpect(content().contentType("image/png")).andExpect(content().bytes(PNG));
 

@@ -29,6 +29,7 @@ final class ApngInputStream extends InputStream {
     private int row;
     private long produced = SIGNATURE.length;
     private boolean closed;
+    private String failureReason = "animation_encode_failed";
     private Stage stage = Stage.HEADER;
 
     private enum Stage { HEADER, ANIMATION, FRAME, DATA, END, DONE }
@@ -87,8 +88,14 @@ final class ApngInputStream extends InputStream {
         } catch (IOException | RuntimeException failure) {
             close();
             if (failure instanceof IOException io) throw io;
+            failureReason = "animation_frame_invalid";
             throw new IOException("Invalid Pixiv animation frame", failure);
         }
+    }
+
+    /** {@return 生成中断时的固定英文原因码，供中止日志使用} */
+    String failureReason() {
+        return failureReason;
     }
 
     private void startFrame() throws IOException {
@@ -149,7 +156,10 @@ final class ApngInputStream extends InputStream {
     private void emit(String type, Integer frameSequence, byte[] data, int count) throws IOException {
         int size = count + (frameSequence == null ? 0 : 4);
         produced += size + 12L;
-        if (produced > OUTPUT_BYTES) throw new IOException("Pixiv animation exceeded its output limit");
+        if (produced > OUTPUT_BYTES) {
+            failureReason = "animation_output_limit";
+            throw new IOException("Pixiv animation exceeded its output limit");
+        }
         var block = ByteBuffer.allocate(size + 12).putInt(size).put(type.getBytes(StandardCharsets.US_ASCII));
         if (frameSequence != null) block.putInt(frameSequence);
         block.put(data, 0, count);

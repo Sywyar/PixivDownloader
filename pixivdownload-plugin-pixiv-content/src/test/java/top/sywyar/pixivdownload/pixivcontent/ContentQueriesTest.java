@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import ch.qos.logback.classic.Level;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
@@ -50,18 +52,21 @@ class ContentQueriesTest {
         assertTrue(result.filter(id -> false).items().isEmpty());
     }
 
-    @Test void rankingsReadPublicationDateAndPixivRankAndRejectWrongIssue() {
-        var queries = new ContentQueries(null, (uri, cookie) -> {
+    @Test
+    @DisplayName("排行榜经宿主 JSON 出口携带凭据读取，并拒绝期号不符的结果")
+    void rankingsReadPublicationDateAndPixivRankAndRejectWrongIssue() {
+        var queries = new ContentQueries((uri, cookie) -> {
             assertEquals("www.pixiv.net", uri.getHost());
             assertEquals("/ranking.php", uri.getPath());
             assertEquals("mode=weekly&format=json&p=2&date=20261120", uri.getRawQuery());
+            assertEquals("ticket", cookie);
             return """
                     {"mode":"weekly","page":2,"date":"20261120","next":false,"contents":[
                     {"rank":58,"illust_id":91,"illust_type":"1","illust_page_count":"2",
                     "title":"A","user_id":2,"user_name":"Artist","illust_upload_timestamp":1500000000}]}
                     """;
         }, new JsonMapper());
-        var result = queries.rankings("weekly", ContentModels.RankingContent.all, LocalDate.of(2026, 11, 20), 2, null);
+        var result = queries.rankings("weekly", ContentModels.RankingContent.all, LocalDate.of(2026, 11, 20), 2, "ticket");
         assertEquals(LocalDate.of(2026, 11, 20), result.rankingDate());
         assertEquals(58, result.items().getFirst().rank());
         var ranked = result.items().getFirst().artwork();
@@ -70,7 +75,7 @@ class ContentQueriesTest {
         assertNull(ranked.createdAt());
         assertEquals(Instant.ofEpochSecond(1500000000), ranked.uploadedAt());
         assertFalse(result.hasNext());
-        var malformed = new ContentQueries(null, (uri, cookie) ->
+        var malformed = new ContentQueries((uri, cookie) ->
                 "{\"mode\":\"weekly\",\"page\":1,\"date\":\"20260230\",\"contents\":[],\"next\":false}", new JsonMapper());
         assertThrows(ContentFailure.class, () -> malformed.rankings("weekly", ContentModels.RankingContent.all, null, 1, null));
     }
@@ -159,7 +164,10 @@ class ContentQueriesTest {
         assertEquals(2, calls.get());
     }
 
-    @Test void staleCdnIsRefetchedOnceWithTheSameCredentialAndOnlyWhenTheUrlChanges() {
+    @Test
+    @DisplayName("CDN 链接失效时用同一凭据只刷新一次页清单，并记录重试或放弃")
+    void staleCdnIsRefetchedOnceWithTheSameCredentialAndOnlyWhenTheUrlChanges() {
+        var log = new LogCapture(ContentQueries.class);
         var manifestPath = new AtomicReference<>("first.jpg");
         var pages = new AtomicInteger();
         var transfers = new AtomicInteger();
@@ -185,6 +193,26 @@ class ContentQueriesTest {
         assertEquals(3, pages.get());
         manifestPath.set("third.jpg");
         assertEquals("/third.jpg", queries.readImage(91, 0, "preview", "A", URI::getPath));
+        log.close();
+        var events = log.messages(Level.INFO);
+        assertEquals(2, events.size());
+        assertTrue(events.get(0).contains("artworkId=91 pageIndex=0 upstreamStatus=404 action=retry"), events.get(0));
+        assertTrue(events.get(1).contains("upstreamStatus=403 action=give_up"), events.get(1));
+        assertTrue(events.stream().noneMatch(text -> text.contains("pximg")), events.toString());
+    }
+
+    @Test
+    @DisplayName("校验失败与映射自宿主端口的失败都能定位到插件内的源码位置")
+    void failuresReportWhereInThePluginTheyWereRaised() {
+        var mismatch = ajax((uri, cookie) -> envelope("{\"userId\":\"3\",\"name\":\"A\"}"));
+        var invalid = assertThrows(ContentFailure.class, () -> mismatch.user(2, null));
+        assertTrue(invalid.origin().startsWith("ContentQueries.user:"), invalid.origin());
+        var denied = ajax((uri, cookie) -> { throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 403); });
+        var mapped = ContentFailure.from(assertThrows(PixivAjaxException.class, () -> denied.user(2, null)));
+        assertTrue(mapped.origin().contains("ContentQueries.user:"), mapped.origin());
+        assertEquals("unknown", ContentFailure.origin(new IllegalStateException("outside the plugin") {
+            @Override public synchronized Throwable fillInStackTrace() { return this; }
+        }));
     }
 
     @Test void artworkPublishesOnlySameOriginPageLinksAndResolvesExactPageVariant() {
@@ -270,6 +298,6 @@ class ContentQueriesTest {
     }
 
     private static ContentQueries ajax(PixivAjaxClient ajax) {
-        return new ContentQueries(ajax, (uri, cookie) -> { throw new AssertionError(uri); }, new JsonMapper());
+        return new ContentQueries(ajax, new JsonMapper());
     }
 }

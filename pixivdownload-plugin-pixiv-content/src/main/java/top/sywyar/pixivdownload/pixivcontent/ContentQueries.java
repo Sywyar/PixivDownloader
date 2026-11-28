@@ -14,6 +14,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.function.Function;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -26,23 +28,17 @@ import top.sywyar.pixivdownload.pixivcontent.ContentModels.*;
 
 /** Maps Pixiv web responses to the stable content API. */
 final class ContentQueries {
+    private static final Logger log = LoggerFactory.getLogger(ContentQueries.class);
     static final String WEB = "https://www.pixiv.net";
     private static final int USER_PAGE_SIZE = 48;
     private static final int SERIES_PAGE_SIZE = 12;
 
-    @FunctionalInterface
-    interface RankingSource {
-        String get(URI uri, String cookie);
-    }
-
     private final PixivAjaxClient ajax;
-    private final RankingSource rankings;
     private final ObjectMapper json;
     private final PageManifestCache pageCache = new PageManifestCache(System::nanoTime);
 
-    ContentQueries(PixivAjaxClient ajax, RankingSource rankings, ObjectMapper json) {
+    ContentQueries(PixivAjaxClient ajax, ObjectMapper json) {
         this.ajax = ajax;
-        this.rankings = rankings;
         this.json = json;
     }
 
@@ -98,7 +94,8 @@ final class ContentQueries {
                 .queryParam("mode", mode).queryParam("format", "json").queryParam("p", page);
         if (content != RankingContent.all) request.queryParam("content", content.name());
         if (date != null) request.queryParam("date", date.format(DateTimeFormatter.BASIC_ISO_DATE));
-        JsonNode result = parse(rankings.get(request.build().toUri(), cookie));
+        // 排行榜是旧版 PHP 页面，format=json 让宿主 JSON 出口按 JSON 文档放行。
+        JsonNode result = document(request.build().toUri(), cookie);
         if (!mode.equals(result.path("mode").asString("")) || result.path("page").asInt(-1) != page
                 || !content.name().equals(result.path("content").asString("all"))) {
             throw ContentFailure.invalidResponse();
@@ -139,6 +136,8 @@ final class ContentQueries {
         int count = positive(info.path("pageCount"));
         var manifest = pages(id, cookie, count);
         if (manifest.manifest().pages().size() != count && manifest.cached()) {
+            log.info("Pixiv page list was stale; refetching: artworkId={} cachedPages={} expectedPages={}",
+                    id, manifest.manifest().pages().size(), count);
             pageCache.invalidate(manifest);
             manifest = pages(id, cookie, count);
         }
@@ -182,6 +181,8 @@ final class ContentQueries {
         };
         var manifest = pages(id, cookie, 0);
         if (pageIndex >= manifest.manifest().pages().size() && manifest.cached()) {
+            log.info("Pixiv page list may have changed; refetching: artworkId={} cachedPages={} pageIndex={}",
+                    id, manifest.manifest().pages().size(), pageIndex);
             pageCache.invalidate(manifest);
             manifest = pages(id, cookie, 0);
         }
@@ -192,7 +193,11 @@ final class ContentQueries {
             if (!manifest.cached() || !staleUrl(failure)) throw failure;
             var fresh = pages(id, cookie, 0);
             URI updated = imageUri(fresh, pageIndex, original);
-            if (uri.equals(updated)) {
+            boolean unchanged = uri.equals(updated);
+            // 只重试一次：刷新后的地址相同即放弃，最终失败由控制器记录。
+            log.info("Pixiv image link rejected; refreshed the page list: artworkId={} pageIndex={} upstreamStatus={} action={}",
+                    id, pageIndex, failure.upstreamStatus, unchanged ? "give_up" : "retry");
+            if (unchanged) {
                 pageCache.invalidate(fresh);
                 throw failure;
             }

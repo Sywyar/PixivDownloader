@@ -91,6 +91,11 @@ class PixivAjaxProxyClientTest {
                 URI.create("http://www.pixiv.net/ajax/novel/42"),
                 URI.create("https://example.com/ajax/novel/42"),
                 URI.create("https://www.pixiv.net/novel/show.php?id=42"),
+                URI.create("https://www.pixiv.net/novel/show.php?id=42&format=json"),
+                URI.create("https://www.pixiv.net/ranking.php?mode=daily"),
+                URI.create("https://www.pixiv.net/ranking.php?mode=daily&format=jsonp"),
+                URI.create("https://www.pixiv.net/logout.php"),
+                URI.create("https://www.pixiv.net/rpc/../logout.php?format=json"),
                 URI.create("https://www.pixiv.net/ajax/../account"),
                 URI.create("https://www.pixiv.net/ajax/%2e%2e/account"),
                 URI.create("https://www.pixiv.net/ajax%2f..%2faccount"),
@@ -103,6 +108,22 @@ class PixivAjaxProxyClientTest {
                     });
         }
 
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://www.pixiv.net/ranking.php?mode=daily&format=json&p=1",
+            "https://www.pixiv.net/rpc/cps.php?keyword=a%2Bb&lang=en",
+            "https://www.pixiv.net/rpc/index.php?mode=get_illust_detail_by_ids"})
+    @DisplayName("JSON 命名空间与显式 format=json 的旧版页面按同一请求头发送")
+    void shouldSendJsonNamespacesAndExplicitJsonPages(String target) {
+        URI uri = URI.create(target);
+        server.expect(requestTo(uri))
+                .andExpect(header(HttpHeaders.USER_AGENT, PixivRequestHeaders.USER_AGENT))
+                .andExpect(header(HttpHeaders.COOKIE, "PHPSESSID=test"))
+                .andRespond(withSuccess("{}".getBytes(StandardCharsets.UTF_8), MediaType.APPLICATION_JSON));
+
+        assertThat(new PixivAjaxProxyClient(restTemplate, retryService).get(uri, "PHPSESSID=test")).isEqualTo("{}");
     }
 
     @Test

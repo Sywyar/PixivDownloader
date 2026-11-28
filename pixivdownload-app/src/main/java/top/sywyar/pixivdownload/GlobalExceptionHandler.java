@@ -349,6 +349,11 @@ public class GlobalExceptionHandler implements ResponseBodyAdvice<Object> {
 
     @ExceptionHandler(IOException.class)
     public ResponseEntity<?> handleIOException(IOException e, Locale locale) {
+        if (e instanceof top.sywyar.pixivdownload.core.web.ResponseStreamAbortedException) {
+            // 内容 owner 已记录中止原因；响应通常已提交，这里只结束连接，不重复记录堆栈。
+            log.debug("Streaming response aborted by its owner: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
         if (isClientDisconnect(e)) {
             log.debug(logMessage("error.log.client-disconnected",
                     fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));

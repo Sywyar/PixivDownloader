@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
-@DisplayName("Pixiv JSON 稳定失败模型")
+@DisplayName("Pixiv 上游请求稳定失败模型")
 class PixivAjaxExceptionTest {
 
     @Test
@@ -18,7 +18,7 @@ class PixivAjaxExceptionTest {
         assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.HTTP_STATUS);
         assertThat(failure.statusCode()).isEqualTo(429);
         assertThat(failure.getCause()).isNull();
-        assertThat(failure.getMessage()).isEqualTo("Pixiv JSON request failed with HTTP status 429");
+        assertThat(failure.getMessage()).isEqualTo("Pixiv request failed with HTTP status 429");
     }
 
     @Test

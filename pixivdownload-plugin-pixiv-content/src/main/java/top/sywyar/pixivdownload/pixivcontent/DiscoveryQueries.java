@@ -79,9 +79,12 @@ final class DiscoveryQueries {
         return new UserSeries(type, page, rows.size(), offset + SERIES_PER_PAGE < rows.size(), items);
     }
 
-    TagSuggestions suggestions(String json) {
+    TagSuggestions suggestions(String word) {
+        // 标签建议始终匿名请求，关键词只编码一次。
+        URI uri = UriComponentsBuilder.fromUriString(WEB + "/rpc/cps.php")
+                .queryParam("keyword", "{word}").queryParam("lang", "en").encode().buildAndExpand(word).toUri();
         var items = new ArrayList<TagSuggestion>();
-        for (var row : array(content.parse(json).path("candidates"))) {
+        for (var row : array(content.document(uri, null).path("candidates"))) {
             items.add(new TagSuggestion(text(row, "tag_name"), row.path("tag_translation").asString(null)));
         }
         return new TagSuggestions(items);

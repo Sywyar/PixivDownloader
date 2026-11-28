@@ -228,7 +228,7 @@ class PersonalContentQueriesTest {
     }
 
     private static PersonalContentQueries queries(PixivAjaxClient ajax) {
-        return new PersonalContentQueries(new ContentQueries(ajax, null, new JsonMapper()));
+        return new PersonalContentQueries(new ContentQueries(ajax, new JsonMapper()));
     }
 
     private static String envelope(String body) {

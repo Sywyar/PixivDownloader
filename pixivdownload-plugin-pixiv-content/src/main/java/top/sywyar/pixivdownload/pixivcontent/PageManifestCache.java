@@ -15,10 +15,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials;
 
 /** Short-lived page metadata only. This cache never holds authentication material or image bytes. */
 final class PageManifestCache {
+    private static final Logger log = LoggerFactory.getLogger(PageManifestCache.class);
     static final long TTL_NANOS = Duration.ofSeconds(30).toNanos();
     static final int MAX_MANIFESTS = 64;
     static final int MAX_WEIGHT = 2 * 1024 * 1024;
@@ -28,6 +31,8 @@ final class PageManifestCache {
     private final LinkedHashMap<Key, Entry> entries = new LinkedHashMap<>(16, .75f, true);
     private final Map<Key, CompletableFuture<Manifest>> loading = new HashMap<>();
     private int weight;
+    /** 合并名额耗尽时只记录一次；在途加载降到一半以下才重新允许记录，避免在边界反复刷日志。 */
+    private boolean saturationReported;
 
     PageManifestCache(LongSupplier nanoTime) {
         this.nanoTime = nanoTime;
@@ -54,6 +59,7 @@ final class PageManifestCache {
         if (key == null) return new Read(null, fetch.get(), false);
         CompletableFuture<Manifest> flight;
         boolean owner = false;
+        boolean reportSaturation = false;
         synchronized (this) {
             var found = entries.get(key);
             if (found != null) {
@@ -65,7 +71,13 @@ final class PageManifestCache {
                 flight = new CompletableFuture<>();
                 loading.put(key, flight);
                 owner = true;
+            } else if (flight == null && !saturationReported) {
+                saturationReported = true;
+                reportSaturation = true;
             }
+        }
+        if (reportSaturation) {
+            log.info("Pixiv page list loads at capacity; fetching without sharing: inFlight={}", MAX_IN_FLIGHT);
         }
         if (flight == null) return new Read(null, fetch.get(), false);
         if (!owner) {
@@ -76,24 +88,34 @@ final class PageManifestCache {
         try {
             var manifest = fetch.get();
             if (scope != null) scope.checkCancelled();
+            boolean oversized = manifest.weight > MAX_WEIGHT;
             synchronized (this) {
                 if (loading.get(key) != flight) return new Read(key, await(flight), false);
-                if (manifest.weight <= MAX_WEIGHT) {
+                if (!oversized) {
                     while (entries.size() >= MAX_MANIFESTS || weight + manifest.weight > MAX_WEIGHT) {
                         remove(entries.firstEntry().getKey());
                     }
                     entries.put(key, new Entry(manifest, nanoTime.getAsLong()));
                     weight += (int) manifest.weight;
                 }
-                loading.remove(key, flight);
+                finishLoad(key, flight);
                 flight.complete(manifest);
+            }
+            if (oversized) {
+                log.info("Pixiv page list too large to cache: artworkId={} pages={} weight={}",
+                        artworkId, manifest.pages().size(), manifest.weight);
             }
             return new Read(key, manifest, false);
         } catch (RuntimeException | Error failure) {
-            synchronized (this) { loading.remove(key, flight); }
+            synchronized (this) { finishLoad(key, flight); }
             flight.completeExceptionally(failure);
             throw failure;
         }
+    }
+
+    private void finishLoad(Key key, CompletableFuture<Manifest> flight) {
+        loading.remove(key, flight);
+        if (loading.size() <= MAX_IN_FLIGHT / 2) saturationReported = false;
     }
 
     synchronized void invalidate(Read read) {
@@ -108,6 +130,7 @@ final class PageManifestCache {
         synchronized (this) {
             if (entries.containsKey(key)) remove(key);
             var pending = loading.remove(key);
+            if (loading.size() <= MAX_IN_FLIGHT / 2) saturationReported = false;
             if (pending != null) pending.completeExceptionally(rejection);
         }
     }

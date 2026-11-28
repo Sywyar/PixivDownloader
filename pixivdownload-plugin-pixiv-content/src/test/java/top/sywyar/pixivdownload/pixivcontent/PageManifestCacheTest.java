@@ -6,6 +6,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import ch.qos.logback.classic.Level;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,7 +29,10 @@ class PageManifestCacheTest {
         assertSame(fresh.manifest(), cache.read(1, null, MISS).manifest());
     }
 
-    @Test void evictsByAccessOrderAndTotalWeightAndServesOversizedManifestsWithoutRetainingThem() {
+    @Test
+    @DisplayName("按访问顺序与总权重淘汰，超大清单照常返回但不缓存并记录原因")
+    void evictsByAccessOrderAndTotalWeightAndServesOversizedManifestsWithoutRetainingThem() {
+        var log = new LogCapture(PageManifestCache.class);
         var cache = new PageManifestCache(() -> 0L);
         for (int id = 1; id <= PageManifestCache.MAX_MANIFESTS; id++) cache.read(id, null, () -> SMALL);
         assertTrue(cache.read(1, null, MISS).cached());
@@ -42,6 +47,10 @@ class PageManifestCacheTest {
         assertTrue(cache.read(2001, null, MISS).cached());
         assertFalse(cache.read(2000, null, () -> half).cached());
         for (int i = 0; i < 2; i++) assertFalse(cache.read(3000, null, () -> oversized).cached());
+        log.close();
+        var events = log.messages(Level.INFO);
+        assertEquals(2, events.size());
+        assertTrue(events.getFirst().startsWith("Pixiv page list too large to cache: artworkId=3000 pages=1"), events.getFirst());
     }
 
     @Test void sharesTheSameLoadAndAConcurrentDenialPreventsOlderLoadsFromFillingTheCache() throws Exception {
@@ -83,7 +92,10 @@ class PageManifestCacheTest {
         }
     }
 
-    @Test void overflowLoadsRemainAvailableAndDoNotAccumulatePendingOrCachedState() throws Exception {
+    @Test
+    @DisplayName("合并名额耗尽时直接读取上游，不累积状态，并只记录一次容量降级")
+    void overflowLoadsRemainAvailableAndDoNotAccumulatePendingOrCachedState() throws Exception {
+        var log = new LogCapture(PageManifestCache.class);
         var cache = new PageManifestCache(() -> 0L);
         int limit = PageManifestCache.MAX_IN_FLIGHT;
         var started = new CountDownLatch(limit);
@@ -105,6 +117,9 @@ class PageManifestCacheTest {
         }
         assertFalse(cache.read(limit, null, () -> SMALL).cached());
         assertTrue(cache.read(limit, null, MISS).cached());
+        log.close();
+        assertEquals(List.of("Pixiv page list loads at capacity; fetching without sharing: inFlight=" + limit),
+                log.messages(Level.INFO));
     }
 
     private static void waitFor(CountDownLatch latch) {

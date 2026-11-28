@@ -10,7 +10,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -19,9 +18,9 @@ import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.InputStreamResource;
 import tools.jackson.databind.json.JsonMapper;
-import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
-import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRequest;
-import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpStreamResponse;
+import org.junit.jupiter.api.DisplayName;
+import top.sywyar.pixivdownload.core.pixiv.media.PixivMediaClient;
+import top.sywyar.pixivdownload.core.pixiv.media.PixivMediaStream;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -104,37 +103,55 @@ class UgoiraAnimationTest {
         }
     }
 
-    @Test void aCorruptLaterFrameTerminatesTheStreamAndReleasesItsSlot() throws IOException {
+    @Test
+    @DisplayName("后续帧损坏时中止回传、记录原因并释放转换名额")
+    void aCorruptLaterFrameTerminatesTheStreamAndReleasesItsSlot() throws IOException {
         byte[] headerOnly = java.util.Arrays.copyOf(png(SECOND), 33);
         var service = service(META, zip("first.png", png(FIRST), "second.png", headerOnly), new AtomicBoolean());
-        try (var held = service.read(23, "fixture credential").getBody().getInputStream()) {
+        try (var log = new LogCapture(AbortLoggingStream.class);
+             var held = service.read(23, "fixture credential").getBody().getInputStream()) {
             for (int i = 0; i < 3; i++) {
                 try (var stream = service.read(23, "fixture credential").getBody().getInputStream()) {
-                    assertThatIOException().isThrownBy(stream::readAllBytes);
+                    assertThatThrownBy(stream::readAllBytes)
+                            .isInstanceOf(top.sywyar.pixivdownload.core.web.ResponseStreamAbortedException.class);
                 }
             }
+            assertThat(log.messages(ch.qos.logback.classic.Level.WARN)).hasSize(3)
+                    .allSatisfy(text -> assertThat(text).contains("reason=animation_frame_invalid"));
+        }
+    }
+
+    @Test
+    @DisplayName("未声明长度的归档超过字节预算时返回超限并释放名额")
+    void undeclaredArchivesBeyondTheByteBudgetAreTooLarge() throws IOException {
+        byte[] source = zip("first.png", png(FIRST), "second.png", png(SECOND));
+        var closed = new AtomicBoolean();
+        var service = service(META, source, closed, source.length - 1);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            assertThatThrownBy(() -> service.read(23, "fixture credential")).hasMessage("PIXIV_RESPONSE_TOO_LARGE");
+            assertThat(closed).isTrue();
         }
     }
 
     private static UgoiraAnimation service(String metadata, byte[] archive, AtomicBoolean closed) {
+        return service(metadata, archive, closed, 0);
+    }
+
+    /** {@code budget} 为正数时代替插件请求的归档上限，用于模拟宿主按上限截断的流。 */
+    private static UgoiraAnimation service(String metadata, byte[] archive, AtomicBoolean closed, long budget) {
         var queries = new ContentQueries((uri, cookie) -> {
             assertThat(uri.toString()).isEqualTo("https://www.pixiv.net/ajax/illust/23/ugoira_meta");
             assertThat(cookie).isEqualTo("fixture credential");
             return metadata;
-        }, null, new JsonMapper());
-        var http = new OutboundHttpClient() {
-            @Override public OutboundHttpStreamResponse exchangeStream(OutboundHttpRequest request) {
-                assertThat(request.uri().toString()).isEqualTo("https://i.pximg.net/play.zip");
-                assertThat(request.headers()).doesNotContainKey("Cookie")
-                        .containsEntry("Referer", List.of("https://www.pixiv.net/artworks/23"));
-                return new OutboundHttpStreamResponse(200, "", Map.of(), new ByteArrayInputStream(archive) {
-                    @Override public void close() { closed.set(true); }
-                });
-            }
-
-            @Override public void close() {}
+        }, new JsonMapper());
+        PixivMediaClient media = (source, referer, maximumBytes) -> {
+            assertThat(source.toString()).isEqualTo("https://i.pximg.net/play.zip");
+            assertThat(referer.toString()).isEqualTo("https://www.pixiv.net/artworks/23");
+            return new PixivMediaStream(new ByteArrayInputStream(archive) {
+                @Override public void close() { closed.set(true); }
+            }, -1, budget > 0 ? budget : maximumBytes);
         };
-        return new UgoiraAnimation(queries, new ContentTransport(http));
+        return new UgoiraAnimation(queries, new ContentTransport(media));
     }
 
     private static byte[] png(int color) throws IOException {

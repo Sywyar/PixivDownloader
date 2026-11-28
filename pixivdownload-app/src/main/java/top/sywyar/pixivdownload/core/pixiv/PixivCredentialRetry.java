@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentials;
 
@@ -19,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.api.download.context.AcquisitionCredentia
 import java.util.regex.Pattern;
 
 /** 仅重试一个只读上游请求；选择顺序和持久化配置不受成功候选影响。 */
+@Slf4j
 @Service
 public final class PixivCredentialRetry implements org.springframework.beans.factory.DisposableBean {
     private static final Pattern ACCOUNT = Pattern.compile("(?:^|;\\s*)PHPSESSID=([1-9][0-9]*)_[^;\\s]+");
@@ -76,7 +78,10 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
         long retryAfter = Long.MAX_VALUE;
         boolean rateLimited = false;
-        for (String candidate : AcquisitionCredentials.candidates(primary)) {
+        var candidates = AcquisitionCredentials.candidates(primary);
+        int position = 0;
+        for (String candidate : candidates) {
+            position++;
             scope.checkCancelled();
             if (clock.millis() - started >= budgetMillis || System.nanoTime() >= deadline)
                 throw new AcquisitionCredentialsUnavailableException(DEFAULT_COOLDOWN);
@@ -114,6 +119,14 @@ public final class PixivCredentialRetry implements org.springframework.beans.fac
                 }
                 block(failure.statusCode() == 401 ? key : accountKey,
                         new Health(saturatingAdd(clock.millis(), delay), failure.statusCode()));
+                // 只记录候选序号，不记录 Cookie、账号或其摘要。
+                if (failure.statusCode() == 401) {
+                    log.warn("Pixiv credential rejected; skipping this credential for {} ms: candidate={}/{}",
+                            delay, position, candidates.size());
+                } else {
+                    log.info("Pixiv account rate limited; pausing its credentials for {} ms: candidate={}/{}",
+                            delay, position, candidates.size());
+                }
             } catch (Exception failure) {
                 scope.checkCancelled();
                 if (System.nanoTime() >= deadline)

@@ -96,12 +96,12 @@ class NovelContentQueriesTest {
         var context = new ContentQueries((uri, cookie) -> {
             batches.add(uri.getQuery().split("&").length);
             return envelope("{}");
-        }, null, new JsonMapper());
+        }, new JsonMapper());
         var empty = new JsonMapper().createObjectNode();
         assertTrue(NovelImages.resolve(context, 88, raw.toString(), empty, null).isEmpty());
         assertEquals(List.of(30, 1), batches);
         var mismatch = new ContentQueries((uri, cookie) ->
-                envelope("{\"17-3\":{\"visible\":true,\"id\":17,\"page\":1}}"), null, new JsonMapper());
+                envelope("{\"17-3\":{\"visible\":true,\"id\":17,\"page\":1}}"), new JsonMapper());
         assertEquals(502, assertThrows(ContentFailure.class, () ->
                 NovelImages.resolve(mismatch, 88, "[pixivimage:17-3]", empty, null)).status);
         for (int i = 32; i <= 331; i++) raw.append("[pixivimage:").append(i).append(']');
@@ -204,7 +204,7 @@ class NovelContentQueriesTest {
     }
 
     private static NovelContentQueries queries(PixivAjaxClient ajax) {
-        return new NovelContentQueries(new ContentQueries(ajax, null, new JsonMapper()));
+        return new NovelContentQueries(new ContentQueries(ajax, new JsonMapper()));
     }
 
     private static String envelope(String body) {

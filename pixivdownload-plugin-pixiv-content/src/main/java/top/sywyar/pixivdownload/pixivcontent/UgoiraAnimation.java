@@ -5,7 +5,6 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.util.ArrayList;
@@ -25,7 +24,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
-import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
+import top.sywyar.pixivdownload.core.pixiv.media.PixivMediaStream;
 
 /** Converts Pixiv's playback archive and frame timings into one directly playable animation. */
 final class UgoiraAnimation {
@@ -59,10 +58,8 @@ final class UgoiraAnimation {
             };
             var timings = timings(metadata.path("frames"));
             Map<String, byte[]> images;
-            try (var response = transport.animationZip(source, artworkId)) {
-                long length = ContentTransport.length(response);
-                if (length > ZIP_BYTES) throw ContentFailure.tooLarge();
-                images = unpack(response.body(), length, timings);
+            try (var archive = transport.animationZip(source, artworkId, ZIP_BYTES)) {
+                images = unpack(archive, timings);
             }
             var frames = new ArrayList<Frame>();
             Dimension canvas = null;
@@ -77,14 +74,13 @@ final class UgoiraAnimation {
             var stream = new ApngInputStream(frames, canvas, slots::release);
             var result = ResponseEntity.ok().cacheControl(CacheControl.noStore())
                     .header("X-Content-Type-Options", "nosniff").contentType(MediaType.parseMediaType("image/apng"))
-                    .<Resource>body(new InputStreamResource(stream));
+                    .<Resource>body(new InputStreamResource(new AbortLoggingStream(stream, RequestDiagnostics.current(),
+                            failure -> stream.failureReason())));
             handedOff = true;
             return result;
-        } catch (ContentTransport.TransferLimitExceeded excessive) {
-            throw ContentFailure.tooLarge();
         } catch (ZipException | EOFException malformed) {
             throw ContentFailure.invalidResponse();
-        } catch (IOException | OutboundHttpTransportException failure) {
+        } catch (IOException failure) {
             throw ContentFailure.transport();
         } finally {
             if (!handedOff) slots.release();
@@ -105,13 +101,12 @@ final class UgoiraAnimation {
         return timings;
     }
 
-    private static Map<String, byte[]> unpack(InputStream raw, long length, Map<String, Integer> timings)
+    private static Map<String, byte[]> unpack(PixivMediaStream archive, Map<String, Integer> timings)
             throws IOException {
-        // Count all bytes, including ZIP headers and the central directory, even with chunked HTTP.
-        var bounded = new ContentTransport.LimitedImageStream(raw, length, ZIP_BYTES);
+        // 计量流统计包括 ZIP 头和中央目录在内的全部字节，分块传输时同样生效。
         var images = new HashMap<String, byte[]>();
         int remaining = EXTRACTED_BYTES;
-        try (var zip = new ZipInputStream(bounded)) {
+        try (var zip = new ZipInputStream(archive)) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName();
@@ -126,9 +121,12 @@ final class UgoiraAnimation {
                 remaining -= bytes.length;
             }
             if (images.size() != timings.size()) throw ContentFailure.invalidResponse();
-            bounded.transferTo(OutputStream.nullOutputStream());
+            archive.transferTo(OutputStream.nullOutputStream());
         } catch (IllegalArgumentException malformedName) {
             throw ContentFailure.invalidResponse();
+        } catch (IOException failure) {
+            if (archive.exceededLimit()) throw ContentFailure.tooLarge();
+            throw failure;
         }
         return images;
     }

@@ -157,6 +157,36 @@ class PixivCredentialRetryTest {
         invalid.destroy();
     }
 
+    @Test @DisplayName("401 与 429 冷却分别记录处理方式与时长，只给出候选序号")
+    void cooldownDecisionsAreLoggedWithoutCredentialDetails() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PixivCredentialRetry.class);
+        var captured = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        captured.start();
+        logger.addAppender(captured);
+        var retry = new PixivCredentialRetry();
+        try {
+            scope.call(() -> retry.execute(PUBLIC, A, cookie -> {
+                if (cookie.equals(A)) throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 401);
+                return "ok";
+            }));
+            var limited = new AcquisitionCredentials(List.of("PHPSESSID=3_c", B));
+            limited.call(() -> retry.execute(PUBLIC, limited.primary(), cookie -> {
+                if (cookie.equals(limited.primary())) throw new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 429, 60_000);
+                return "ok";
+            }));
+        } finally {
+            logger.detachAppender(captured);
+            retry.destroy();
+        }
+        assertThat(captured.list).hasSize(2);
+        assertThat(captured.list.get(0).getLevel()).isEqualTo(ch.qos.logback.classic.Level.WARN);
+        assertThat(captured.list.get(0).getFormattedMessage()).contains("86400000 ms", "candidate=1/2");
+        assertThat(captured.list.get(1).getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+        assertThat(captured.list.get(1).getFormattedMessage()).contains("60000 ms", "candidate=1/2");
+        assertThat(captured.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
+                .doesNotContain("PHPSESSID", "1_a", "3_c"));
+    }
+
     @Test @DisplayName("格式无效候选不发请求，取消优先于后续备用请求")
     void malformedAndCancelledBetweenAttempts() throws Exception {
         var invalid = new AcquisitionCredentials(List.of("other=value", B));

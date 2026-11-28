@@ -63,8 +63,9 @@ class RestTemplateConfigRedirectTest {
             context.refresh();
             assertRedirectAndCookieIsolation(context.getBean("pixivCredentialRestTemplate", RestTemplate.class), sentinelCookie);
             assertRedirectAndCookieIsolation(context.getBean("pixivImageRestTemplate", RestTemplate.class), sentinelCookie);
+            assertRedirectAndCookieIsolation(context.getBean("pixivMediaRestTemplate", RestTemplate.class), sentinelCookie);
         }
-        assertThat(firstHopCookies).containsExactly(sentinelCookie, "null", sentinelCookie, "null");
+        assertThat(firstHopCookies).containsExactly(sentinelCookie, "null", sentinelCookie, "null", sentinelCookie, "null");
         assertThat(redirectedTargetHits).hasValue(0);
     }
 

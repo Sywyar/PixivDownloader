@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.pixivcontent;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.LocalDate;
 import java.util.function.LongPredicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.propertyeditors.StringArrayPropertyEditor;
 import org.springframework.core.io.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -34,6 +37,7 @@ import static top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver.HE
 @KnownErrorCodes(status = "429", value = "PIXIV_RATE_LIMITED")
 @KnownErrorCodes(status = "502", value = {"PIXIV_RESPONSE_INVALID", "PIXIV_RESPONSE_TOO_LARGE", "PIXIV_UNAVAILABLE"})
 public final class PixivContentController {
+    private static final Logger log = LoggerFactory.getLogger(PixivContentController.class);
     public enum RankingMode {
         daily, weekly, monthly, rookie, original, daily_ai, male, female, daily_r18, weekly_r18, male_r18, female_r18, daily_r18_ai, r18g;
 
@@ -78,6 +82,12 @@ public final class PixivContentController {
         this.animations = new UgoiraAnimation(queries, remote);
         this.visibility = visibility;
         this.messages = messages;
+    }
+
+    /** 每个处理器开始前记录起点，失败与中止日志据此给出耗时。 */
+    @ModelAttribute
+    void markStarted(HttpServletRequest request) {
+        RequestDiagnostics.markStarted(request);
     }
 
     @InitBinder("tag")
@@ -128,7 +138,7 @@ public final class PixivContentController {
 
     @GetMapping("/tags/suggest")
     public ResponseEntity<ContentModels.TagSuggestions> suggestTags(@RequestParam String word) {
-        return privateResponse(discovery.suggestions(remote.suggest(requiredWord(word))));
+        return privateResponse(discovery.suggestions(requiredWord(word)));
     }
 
     @GetMapping("/artworks/{id}/related")
@@ -352,7 +362,7 @@ public final class PixivContentController {
     }
 
     private ContentModels.TagPage tagPage(String word, int page) {
-        return browse.tags(word, page, discovery.suggestions(remote.suggest(word)));
+        return browse.tags(word, page, discovery.suggestions(word));
     }
 
     @GetMapping("/users/{id}/bookmarks")
@@ -490,13 +500,26 @@ public final class PixivContentController {
     }
 
     @ExceptionHandler(PixivAjaxException.class)
-    public ResponseEntity<ApiErrorResponse> ajaxFailure(PixivAjaxException failure) {
-        return error(ContentFailure.from(failure), failure.retryAfterMillis());
+    public ResponseEntity<ApiErrorResponse> ajaxFailure(PixivAjaxException failure, HttpServletRequest request) {
+        return error(request, ContentFailure.from(failure), failure.retryAfterMillis());
     }
 
     @ExceptionHandler(ContentFailure.class)
-    public ResponseEntity<ApiErrorResponse> contentFailure(ContentFailure failure) {
-        return error(failure, 0);
+    public ResponseEntity<ApiErrorResponse> contentFailure(ContentFailure failure, HttpServletRequest request) {
+        return error(request, failure, 0);
+    }
+
+    private ResponseEntity<ApiErrorResponse> error(HttpServletRequest request, ContentFailure failure, long retryAfterMillis) {
+        // 只记录路由模板、路径中的数字 ID、耗时、稳定错误码、状态与源码位置；
+        // 不记录查询参数、凭据、上游地址或响应正文。
+        String context = RequestDiagnostics.of(request).fields();
+        if (failure.upstreamFault()) {
+            log.warn("Pixiv content request failed: {} code={} status={} upstreamStatus={} at={}",
+                    context, failure.code, failure.status, failure.upstreamStatus, failure.origin());
+        } else {
+            log.info("Pixiv content request rejected: {} code={} status={}", context, failure.code, failure.status);
+        }
+        return error(failure, retryAfterMillis);
     }
 
     private ResponseEntity<ApiErrorResponse> error(ContentFailure failure, long retryAfterMillis) {
