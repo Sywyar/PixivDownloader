@@ -36,6 +36,11 @@
 | --- | --- | --- | --- |
 | 애플리케이션 호스트(공유 조회 및 썸네일) | `https://www.pixiv.net/ajax/user/{id}?lang=zh`; HTTPS `*.pximg.net`, `embed.pixiv.net` | `/api/pixiv/user/{id}/meta`는 요청이 제공한 가져오기 자격 증명 사용. 예약 조회 `/api/pixiv/user/{id}/meta/schedule`는 해당 예약의 자격 증명과 프록시를 사용하며, 연결된 secret은 서버에서만 읽음. `/api/pixiv/thumbnail-proxy`는 해당 이미지 도메인만 접근하며 Cookie와 리디렉션 없이 요청당 최대 100 MiB | 페이지가 해당 로컬 API를 요청할 때 발생. User 소스의 일러스트·소설 예약에서 같은 사용자의 유효한 이름이 저장되어 있으면 재사용함. 새 예약, 사용자 변경 또는 이름 누락 시 이름을 조회하며 실패하면 예약을 저장하지 않음. 관련 미리보기를 중지하고 이러한 예약을 저장하지 않으면 해당 요청을 방지할 수 있음 |
 | 애플리케이션 호스트(메타데이터 보완) | `https://www.pixiv.net/ajax/illust/{id}`, `/ajax/novel/{id}` | 등록된 작품 폴더의 이전 `.meta.json`을 먼저 가져오고 로컬 메타데이터로 보완. 여전히 누락된 경우에만 Cookie 없이 해당 API 요청. 요청당 최대 4 MiB. 404는 `data/backfill/unreachable.json`에 기록하며 연령 제한 응답은 자동 재시도 보류 | 데스크톱과 헤드리스 서비스가 준비된 후 백그라운드 자동 실행 또는 데스크톱 도구 / 독립 CLI에서 수동 실행. 저장된 전역 프록시 사용, 도구 페이지에서 이번 작업만 덮어쓰기 가능. 도구 페이지나 서비스 중지로 취소 |
+| `pixiv-content` (공개 정보 조회) | `https://www.pixiv.net/ajax/search/artworks/**`, `/ajax/search/illustrations/**`, `/ajax/search/manga/**`, `/ajax/search/novels/**`, `/ajax/illust/**`, `/ajax/user/**`, `/ajax/series/**`, `/ajax/novel/**`, `/ranking.php`, `/ajax/ranking/novel` | 검색어, 작품 유형, 페이지 번호, 날짜 또는 ID를 Pixiv에 보냅니다. 그림과 소설을 검색하고 작가의 작품과 시리즈, 그림과 소설의 랭킹을 조회합니다. 호출자가 Pixiv 인증 정보를 지정할 수 있습니다. | 기본으로 설치됩니다. `/api/pixiv-content/` 아래의 API를 호출하면 호스트의 프록시 설정으로 접속합니다. 플러그인을 비활성화하면 요청이 중지됩니다. |
+| `pixiv-content` (콘텐츠 탐색) | `/ajax/illust/{id}/recommend/init`, `/ajax/illusts/comments/roots`, `/ajax/user/{id}/profile/all`, `/ranking.php`, `/rpc/cps.php`, `/ajax/user/self`, `/ajax/user/{id}`, `https://*.pximg.net` | 관련 작품, 최상위 댓글, 작가 시리즈 및 작품 유형별 랭킹을 조회합니다. 태그 추천 검색어는 익명으로 보냅니다. 작가 프로필 이미지는 쿠키 없이 CDN에서 읽습니다. | 해당 API 호출 시 실행합니다. /me는 선택한 계정을 확인한 뒤 프로필을 조회합니다. |
+| `pixiv-content` | `/ajax/search/*`, `/ajax/{illust,novel}/{new,discovery}`, `/ajax/{illust,novel}/recommend/*`, `/ajax/{illusts,novels}/comments/{roots,replies}`, `/ajax/top/*`, `/ajax/watch_list/*`, `/ajax/user/{id}/*`, `/ajax/user/{id}/{illustmanga,novels}/tag`, `/ajax/collection/{id}`, `/ranking.php` | 작가의 작품을 태그로 검색합니다. 여러 태그를 지정하면 후보 작품을 여러 번에 나누어 조회할 수 있습니다. 사용자, 태그, 공개 컬렉션을 검색하고 발견 피드, 신작, 추가 추천, 댓글 답글을 조회합니다. 홈 추천, 관심 목록, 북마크 태그에는 동일한 인증 계정을 사용합니다. 북마크 수 필터는 프리미엄 가입 여부도 확인합니다. | 기능 사용 시 요청합니다. 태그 검색어는 익명으로 전송합니다. 공개 컬렉션 표지 링크는 embed.pixiv.net을 가리킬 수 있습니다. |
+| `pixiv-content` (개인 콘텐츠) | `https://www.pixiv.net/ajax/user/self`, `/ajax/user/{id}/illusts/bookmarks`, `/ajax/user/{id}/novels/bookmarks`, `/ajax/user/{id}/following`, `/ajax/follow_latest/illust`, `/ajax/follow_latest/novel`, `/ajax/user/{id}/profile/all`, `/ajax/user/{id}/profile/collections`, `/ajax/collection/{id}` | 선택한 Pixiv 쿠키로 로그인된 계정을 확인한 뒤, 같은 쿠키로 북마크(태그 및 공개 여부로 필터링 가능), 팔로우한 작가와 신작, 컬렉션을 조회합니다. 컬렉션에 담긴 작품을 읽기 전에 해당 계정 소유의 컬렉션인지 확인합니다. | `/api/pixiv-content/me/` 아래의 API를 호출할 때만 접속합니다. |
+| `pixiv-content` (이미지와 우고이라) | `https://www.pixiv.net/ajax/illust/{id}/pages`, `/ajax/illust/{id}/ugoira_meta`, `/ajax/novel/{id}`, `/ajax/novel/{id}/insert_illusts`, `https://*.pximg.net` | Pixiv에서 작품의 개별 페이지, 우고이라 프레임, 소설 표지 및 본문 삽화 정보를 조회합니다. CDN에서 이미지나 프레임 ZIP을 가져올 때 해당 작품이나 소설 페이지를 `Referer`로 지정하고 Pixiv 쿠키는 보내지 않습니다. 플러그인이 로컬에서 프레임을 APNG로 변환합니다. | 작품 상세 정보를 조회할 때 개별 페이지 정보를 가져올 수 있으며 소설 상세 정보를 읽을 때 본문에 인용된 작품을 확인합니다. CDN에서는 이미지나 우고이라를 요청할 때만 파일을 받아옵니다. |
 | `download-workbench` 플러그인 | `https://www.pixiv.net/ajax/illust/**`, `/ajax/user/**`, `/ajax/search/artworks/**`, `/ajax/series/**`, `/ajax/collection/**`, `/ajax/follow_latest/illust`, `/rpc/index.php`, `/ajax/illusts/bookmarks/add` | 일러스트/움짤/작가/시리즈/검색/컬렉션/팔로우 새 작품/커미션 메타데이터 가져오기. 일반 JSON 상한 4 MiB, 팔로우 새 작품의 총 페이지 수를 모르면 최대 1,000페이지 검사. '자동 북마크'를 켜면 다운로드 후 북마크 추가. 필요에 따라 Pixiv Cookie 포함 | 미리보기, 빠른 가져오기, 다운로드, 예약 작업, 북마크 수 필터 추가 조회(한 번에 최대 6개 병렬) 또는 시리즈 소개 추가 조회 시 발생. 플러그인이나 자동 북마크를 끄면 해당 요청 중지 |
 | `download-workbench` 일괄 검색 및 검색 예약 | `https://www.pixiv.net/ajax/search/artworks/**`, `/ajax/search/novels/**` | 수동 미리보기는 현재 자격 증명, 검색 예약은 작업 자격 증명과 프록시로 페이지별 작품 수집 | 고정 페이지 검색은 현재 페이지 완료 후 다음 페이지를 요청하며, 실행 한도 도달 또는 현재 페이지에 재시도 대기 작품이 있으면 중단. 다운로드 설정의 페이지 요청 최소 간격은 수동 일괄 가져오기에도 적용되어 양수일 때 간격에 맞춰 미리보기를 요청함. 예약 비활성화로 이후 실행 중지 |
 | `novel` 플러그인 | `https://www.pixiv.net/ajax/novel/**`, `/ajax/novel/series/**`, `/ajax/novel/series_content/**`, `/ajax/user/**/novels`, `/ajax/user/**/novels/bookmarks`, `/ajax/search/novels/**`, `/ajax/novels/bookmarks/add` | 소설 본문, 시리즈(응답 상한 1 MiB), 작가 소설, 북마크, 검색 결과와 다운로드 후 자동 북마크. 미리보기 직후 다운로드는 owner와 자격 증명에 연결된 256 KiB의 단기 일회용 티켓으로 검증된 응답 재사용 | 소설 미리보기, 합본, 검색과 예약 작업 시 발생. `novel` 비활성화 시 중지 |
@@ -78,6 +83,22 @@ AI 플러그인은 OpenAI 호환 프로토콜을 사용합니다. 연결 테스�
 `translation`은 수동·자동 번역 시 선택한 엔진을 호출합니다. AI는 위 설정을 재사용합니다. Youdao는 단일 텍스트를 `https://openapi.youdao.com/api`, 배치를 `https://openapi.youdao.com/v2/api`로 보내며 텍스트·앱 ID·로컬에서 계산한 v3 서명을 전송합니다. 앱 비밀 키는 직접 보내지 않습니다. LibreTranslate는 관리자가 설정한 `{libretranslate-url}/translate`로 텍스트 또는 배열과 선택적 `api_key`를 JSON으로 전송합니다. 엔진별 `translation.<engine>.use-proxy`와 `read-timeout-seconds`를 설정합니다(기본값: 프록시 꺼짐, 읽기 120초). 연결 제한 시간은 30초입니다. 문자·배치·동시 요청·간격·재시도 설정은 [소설과 낭독](/ko/novel)을 참조하세요. 응답 읽기는 1 MiB와 실제 배치 입력 코드 포인트 수 × 16바이트 중 큰 값으로 제한하며 최대 16,000,000바이트입니다. 초과 응답은 거부합니다. 명시적인 호출 제한만 유한 횟수로 재시도하고 시간 초과 등은 자동 재전송하지 않습니다.
 
 LibreTranslate를 선택한 상태에서 번역 대화상자를 열거나 언어를 다시 불러오면 `translation` 플러그인이 설정한 서비스의 `/languages`에 GET 요청을 보내 대상 언어를 가져옵니다. 본문이나 API 키는 보내지 않으며 위의 프록시, 시간 제한 및 1 MiB 응답 제한을 사용합니다. 대화상자를 열지 않거나 다른 엔진을 선택하면 이 조회를 하지 않습니다. Youdao는 포함된 공식 언어 표를 사용하며 추가 요청을 하지 않습니다.
+
+수동 번역, 시리즈 번역 및 다운로드 후 자동 번역 시 `translation` 플러그인은 선택한 제목, 설명 또는 본문 구간과 대상 언어를 지정한 서비스로 보냅니다. 아래 클라우드 서비스는 선택한 경우에만 사용합니다. 기본 연결은 직접 연결이며 설정에서 엔진별로 프록시를 켤 수 있습니다. 엔진을 바꾸면 새 작업은 새 서비스로 전송합니다. 키와 토큰은 HTTPS로 전송합니다. 서명 방식에서는 액세스 ID와 서명을 보내며 비밀 키는 로컬에 보관합니다.
+
+| 서비스 | HTTPS 대상 | 인증 방식 |
+| --- | --- | --- |
+| DeepL | `api-free.deepl.com/v2/translate`, `api.deepl.com/v2/translate` | `DeepL-Auth-Key` |
+| Google 번역 | `translation.googleapis.com/language/translate/v2` | `X-Goog-Api-Key` |
+| Microsoft Azure Translator | `api.cognitive.microsofttranslator.com/translate` | `Ocp-Apim-Subscription-Key, Ocp-Apim-Subscription-Region` |
+| 바이두 번역 | `fanyi-api.baidu.com/api/trans/vip/translate` | `appid / MD5` |
+| Tencent Cloud TMT | `tmt.tencentcloudapi.com/` | `TC3-HMAC-SHA256` |
+| Volcengine 번역 | `translate.volcengineapi.com/?Action=TranslateText&Version=2020-06-01` | `HMAC-SHA256` |
+| 차이윈 번역 | `api.interpreter.caiyunai.com/v1/translator` | `X-Authorization` |
+| NiuTrans | `api.niutrans.com/NiuTransServer/translation` | `apikey` |
+| Alibaba Cloud 기계 번역 | `mt.aliyuncs.com/` | `ACS3-HMAC-SHA256` |
+
+DeepL은 번역 창에서 대상 언어를 불러오거나 새로 고칠 때 같은 호스트의 `/v3/languages?resource=translate_text`에도 키를 보냅니다. 아래의 다른 서비스는 내장 언어 목록을 사용합니다.
 
 ### `tts`, `push` 및 `mail` 플러그인
 

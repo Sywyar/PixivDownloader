@@ -63,6 +63,7 @@ Spring MVC 提供基础方法、路径与参数定义；编译期保留的 Javad
 ## 参数校验、错误契约与测试验收
 
 - **信任边界与错误结构**：路径、凭据和 JSON 在入口边界严格校验；程序密钥仅通过 `Authorization: Bearer` 传递，禁止写入 URL、日志或浏览器持久存储；来源 IP 仅信任经 `server.trusted-proxy-cidrs` 校验后的客户端地址。错误响应统一保留稳定机器码 `code` 与本地化 `error`（下载提交缺权可通过 `DownloadTaskException.programPermission()` 暴露缺失权限 ID）。
+- 在带有 `@HttpApiGroup` 的控制器上，可用 SDK 的 `@KnownErrorCodes` 在类或方法上声明标准 JSON 错误的 HTTP 状态和业务错误码。OpenAPI 可据此生成该 4xx 或 5xx 状态的 `application/json` 响应。若响应还有自定义字段，请在响应模型中说明。
 - **结构化参数错误（`HttpParameterException`）**：插件在 HTTP 入口手动校验参数时，可抛出 `pixivdownload-core-api` 中的 `top.sywyar.pixivdownload.core.web.HttpParameterException(in, field, reason)`（例如查询参数枚举非法时抛出 `new HttpParameterException("query", "order", "invalid_value")`），并在方法上标注 `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")` 以导出到 OpenAPI：
   - 宿主统一返回 HTTP 400、`code = "error.request.param.invalid"`、本地化 `error` 以及 `in`、`field`、`reason` 三个定位字段（严禁在字段中回显调用方提交的原始值或凭据；Spring 自身的缺参或类型转换错误由宿主自动定位）。
   - `in` 取 `query`、`path`、`header`、`part` 或 `body`；前四者的 `field` 填声明的参数名或表单分块名，`body` 填 JSON Pointer（如 `/options/pages`）；`reason` 使用稳定机器码（如 `required`、`type`、`invalid_value`、`out_of_range`）。

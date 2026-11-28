@@ -5,8 +5,58 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 ## スクリプトやエージェントから API を使う
 
 1. **対話型ドキュメントを確認する**：実行中のインスタンスで `/openapi`（ローカルの既定値は `http://localhost:6999/openapi`）を開きます。アクセス手順はログイン不要で閲覧でき、管理者としてログインすると利用可能な API 一覧、リクエスト例、必要な権限、および各レスポンス一覧の下にある「関連する操作」リンク（`links` / `x-related-operations` / `externalDocs`）から後続操作や利用ガイドへ移動できます。
-2. **プログラム用アクセスキーを作成する**：デスクトップの「設定 → アクセス制御 → プログラム用アクセスキー」でキーを作成し（デスクトップがない環境では管理者ログインセッションから `/api/security/program-keys` を呼び出し）、許可する接続元 IP/CIDR と必要な操作権限を選択します。スクリプトやエージェント自身が API 仕様を取得する場合は `core:api-reference.read` も選択してください。
-3. **API の呼び出しとエージェント用プロンプト**：クライアントは `Authorization: Bearer <プログラムキー>` を付けて `GET /api/openapi.json`（権限確認のみなら `HEAD /api/openapi.json`）を呼び出すことで機械可読の OpenAPI JSON を取得できます。エージェントを使う場合は、キー作成後に「プロンプトをコピー」をクリックしてドキュメント URL をエージェントに渡し、秘密キー本体はエージェントの環境へ別途設定してください。
+2. **プログラム用アクセスキーを作成する**：デスクトップの「セキュリティ → プログラム用アクセスキー」でキーを作成します（「設定 → アクセス制御」からも移動できます）。デスクトップがない環境では[コマンドライン](#コマンドラインでキーを管理する)で作成します。許可する接続元 IP/CIDR と必要な操作権限を選択します。スクリプトやエージェント自身が API 仕様を取得する場合は `core:api-reference.read` も選択してください。
+3. **API の呼び出しとエージェント用プロンプト**：クライアントは `Authorization: Bearer <プログラムキー>` を付けて `GET /api/openapi.json`（権限確認のみなら `HEAD /api/openapi.json`）を呼び出すことで機械可読の OpenAPI JSON を取得できます。エージェントを使う場合は、キー作成後、またはキー一覧の「エージェント用プロンプト」からプロンプトをコピーしてドキュメント URL をエージェントに渡し、秘密キー本体はエージェントの環境へ別途設定してください。Agent Skills に対応したエージェントには、代わりに[スキルをインストール](#ai-エージェントにスキルをインストールする)すると、関連する作業で自動的に使われます。
+
+### AI エージェントにスキルをインストールする
+
+メインリポジトリでは [Agent Skills](https://agentskills.io/) 形式の `pixivdownloader` スキルを提供しています。インスタンスへの接続、プログラム用アクセスキーの使い方、よく使う API（Pixiv の閲覧、作品のダウンロード、ダウンロード済み作品の検索）、エラーへの対処をエージェントに説明します。インストールすると、Agent Skills に対応したエージェント（Claude Code、Codex、Cursor、GitHub Copilot、Gemini CLI など）が関連する作業で自動的に使うため、毎回プロンプトを貼り付ける必要はありません。
+
+1. スキルをインストールします（Node.js が必要です）。コマンドはインストール先のエージェントを尋ねます。`-g` を付けるとすべてのプロジェクトで使えます：
+
+   ```bash
+   npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g
+   ```
+
+   新しいバージョンは後から `npx skills update -g` で取得します。
+2. エージェントの実行環境で `PIXIV_PROGRAM_KEY` にプログラム用アクセスキーを設定します。インスタンスが `http://localhost:6999` 以外にある場合は、`PIXIV_BASE_URL` にそのアドレスを設定するか、会話でエージェントに伝えてください。キーは会話に貼り付けないでください。
+3. 作業に必要な権限をキーに付与します。エージェントは最初に `/self` で付与された権限を確認します。`core:api-reference.read` も付与すると、完全な API カタログを参照できます。
+
+?> スキルに書かれているのは、長く変わらない約束事とよく使う API だけです。フィールド、パラメーター、値はインスタンスの `GET /api/openapi.json` に従います。Pixiv を閲覧する API は `pixiv-content` プラグインが提供します。未インストールまたは無効の場合は、エージェントがインストールか有効化を求めます。
+
+### 作者とタグで Pixiv の投稿を検索する
+
+作品タグごとに `tag` を指定します。例えば `GET /api/pixiv-content/users/28329224/artworks?tag=furry&tag=original` は、この作者の投稿のうち両方のタグが付いた作品を返します。小説のパスは `/users/{id}/novels` です。異なるタグは 10 個まで指定できます。複数タグのすべてで個別の該当作品数が 2048 件を超えると、`422 PIXIV_TAG_SEARCH_TOO_BROAD` が返ります。
+
+ニックネームとタグをまとめて検索するには `GET /api/pixiv-content/search/users-and-tags?word=cat&userPage=1&tagPage=1` を使います。`users` と `tags` はそれぞれ 1 ページ目から個別にページを指定します。Pixiv がログインを求める場合は取得用の認証情報が必要です。
+
+### コマンドラインでキーを管理する
+
+デスクトップがない環境（サーバー、Docker）では、コマンドラインでキーを管理します。コマンドは実行中のインスタンスに接続し、管理者としてログインして後述の管理 API を呼び出し、最後にログアウトして終了するため、サービスを停止する必要はありません。権限カタログは読み込まれたプラグインからインスタンスが生成するため、インスタンスは実行中である必要があります。
+
+| コマンド | 用途 |
+| --- | --- |
+| `--program-keys` | キーを一覧表示：名前、ID、権限数、接続元、使用日時 |
+| `--program-key-permissions` | このインスタンスで付与できる権限と、対象となる API を一覧表示 |
+| `--program-key-create` | キーを作成。キー全体は出力に一度だけ表示されます |
+| `--program-key-revoke --key-id=<ID>` | 確認後にキーを失効 |
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create --key-name=agent --key-permissions=core:api-reference.read,core:downloads.read --key-sources=127.0.0.1
+```
+
+- `--key-name`、`--key-permissions`、`--key-sources` を省略すると順に入力を求められ、権限は一覧の番号で選べます。`--key-sources` には `any`、またはカンマ区切りの IP アドレス / CIDR を指定します。
+- 管理者アカウントは `--username` と `--password` で渡すか、プロンプトで入力します。コマンドラインのパスワードはシェル履歴やプロセス一覧に残るため、普段はプロンプト入力を使ってください。
+- インスタンスのアドレスは既定で `config/config.yaml` の `server.port`、`server.ssl.enabled`、`ssl.domain` から導出し、`--server-url=https://<ホスト>:<ポート>` で指定することもできます。コマンドはシステムプロキシを使わず、リダイレクトにも従いません。インスタンスが HTTP を HTTPS へリダイレクトする場合は、表示された HTTPS アドレスを指定してください。自己署名証明書を使う場合は、先に証明書を Java のトラストストアへインポートします。
+- Docker Compose では、新しいコンテナーで実行し、サービス名を指定します：
+
+  ```text
+  docker compose run --rm app --program-key-create --server-url=http://app:6999
+  ```
+
+- インスタンスがログイン時の追加確認（CAPTCHA など）を求める場合、コマンドはログインできず、サーバーが返した理由を表示します。
+- 終了コード：`0` 成功、`1` 接続・ログインの失敗またはサーバーによる拒否、`2` 引数の誤りまたはキャンセル。作成や失効のリクエスト送信後に接続が切れた場合は変更が反映されている可能性があるため、再試行する前に `--program-keys` で確認してください。
 
 ### キーのセキュリティ、接続元制限、CSRF ルール
 
@@ -35,13 +85,34 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 | メタデータ補完 | `GET /api/tools/backfill/defaults`、`/tasks/current`、`/tasks/{id}`；`POST /candidates`、`/tasks`、`/tasks/{id}/cancel` |
 | メディア保守と記録ファイルのインポート | `GET /api/tools/media`、`/api/tools/file-import`（各配下の `POST /previews`、`/tasks`、`/tasks/cancel`、`GET /tasks/current`）；`POST /api/tools/media/capabilities`；`POST /api/tools/file-import/completion/acknowledge` |
 | ローカル作品インポートと起動キャッシュ | `GET /api/local-import/presets`、`POST /previews`、`POST /tasks`；`GET /api/tools/startup-cache`、`POST /tasks`、`POST /tasks/{id}/cancel` |
-| ディレクトリ参照・パスプレフィックス・画像分類 | `GET` / `POST /api/tools/directories`；`/api/tools/path-prefixes`；`/api/tools/classifier/settings`、`/folders`、`/images`、`/image`、`/moves` |
-| FFmpeg 状態/導入・ツール履歴とログ | `GET /api/tools/ffmpeg`、`POST /api/tools/ffmpeg/tasks`；`GET /api/tools/history`、`/api/tools/logs/{fileName}` |
+| ディレクトリ参照とパスプレフィックス | `GET` / `POST /api/tools/directories` · `/api/tools/path-prefixes` |
+| FFmpeg の状態・インストール・キャンセル、ツール履歴とログ | `GET /api/tools/ffmpeg`、`POST /api/tools/ffmpeg/tasks`、`POST /api/tools/ffmpeg/tasks/{executionId}/cancel`；`GET /api/tools/history`、`/api/tools/logs/{fileName}` |
 | システム・コントロールセンター・更新 | `/api/admin/system`、`/api/admin/control-center`；`/api/admin/update/check`、`/last`、`/download`、`/download/progress`、`/install` |
 | AI・メール・プッシュ・サイト内通知テスト | `/api/admin/ai/test`、`/models`；`/api/admin/mail/test`、`/test-all`；`/api/admin/push/test`、`/test-all`；`/api/admin/notifications/test`、`/test-all` |
 | 個別ダウンロード・履歴・手動バッチ | `/api/download/tasks`、`/api/download/tasks/history`；`/api/download/batches` |
 
+復元状態に含まれる `jobId` でアプリのログを検索すると、その復元が失敗した理由を確認できます。確定後、復元を実行する前に復元先が変わった場合、`failureCode` は `transfer.target-changed` になります。再度プレビューして確定してください。
+
+`POST /api/tools/path-prefixes` はプレフィックスの変更と登録を同じトランザクションで確定します。`registerPaths` の各要素には、既存ディレクトリの絶対パスを文字列で指定してください。成功時の `registered` は新規登録件数、`alreadyRegistered` は再利用件数、`applied` は変更件数と新規登録件数の合計です。無効な要素があると 400 と `/registerPaths/i`（`i` は 0 始まり）を返します。書き込みに失敗すると `500 PATH_PREFIX_WRITE_FAILED` を返し、すべての変更を取り消します。
+
+Windows のドライブパスと UNC パスは、大文字・小文字や区切り文字が違っても同じ ID を再利用します。パスに単独の `.` が含まれていても同じプレフィックス ID を使います。POSIX パスでは大文字と小文字を区別します。過去の重複登録がある場合も、編集の対象は指定した ID を参照するレコードだけです。`POST /api/tools/path-prefixes/pin` の書き込みに失敗すると `500 PATH_PREFIX_WRITE_FAILED` が返り、元の参照が保持されます。
+
+画像分類ツールの提供は終了しました。次の API は従来どおりアクセス権を確認し、許可されたリクエストには本文のない `410 Gone` を返します。
+
+- `GET, PUT /api/tools/classifier/settings`
+- `GET, DELETE /api/tools/classifier/folders`
+- `GET /api/tools/classifier/images`
+- `GET /api/tools/classifier/image`
+- `POST /api/tools/classifier/moves`
+- `GET /api/downloaded/by-move-folder`
+- `POST /api/downloaded/move/{artworkId}`
+- `POST /api/library/artworks/{artworkId}/move`
+
+保存済みタスクを照会またはキャンセルするとき、所有者を確認できても記録を読み取れない場合は `503 DOWNLOAD_TASK_RECEIPT_UNAVAILABLE` を返します。他の利用者のタスクと存在しないタスクはどちらも 404 です。
+
 ## 設定の保存
+
+`POST /api/settings/validate` は変更対象の設定と認証情報だけを読み取って入力を検証します。設定の保存や認証情報の移行は行いません。
 
 まず `GET /api/settings` で項目一覧を取得し、返された `owner`、`packageId`、`generation`、`key` を指定して変更を送信します（ホスト設定は `owner` と `packageId` が `null`、`generation` が `0`）。機密項目は真偽値の `stored` フラグのみを返し、平文や既定の秘密値は返しません。`action`（`KEEP`、`SET`、`CLEAR`）で保持・置換・消去を明示します。応答の `effect` は反映条件を示します（保存してもバックエンドやプロセスは自動再起動しません）：
 
@@ -72,7 +143,7 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 4. **制御と再開**：`POST /api/download/batches/{id}/pause`、`/cancel`、`/resume`、`/retry` で一時停止、キャンセル、走査再開、発見済み失敗項目のみの再試行を行います（停止中は実行中の処理が実際に終了してから終端状態に遷移し、完了済みやフィルター除外済みの作品は再開時に再実行されません）。
 5. **認証情報の差し替え・保留項目の解決・削除**：
    - 待機中に `PUT /api/download/batches/{id}/credentials`（本文 `{"expectedRun": 1}`、最大 16 KiB。新しい認証情報はリクエストヘッダーで渡し、ヘッダー省略で消去。再開前に再検証）を呼び出します。
-   - `POST /api/download/batches/{id}/resolve` で保留項目を解決します（本文に `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun` を指定、最大 16 KiB。理由と実行回が現在の記録と一致する必要あり）。
+   - `POST /api/download/batches/{id}/resolve` で保留項目を解決します（本文に `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun` を指定、最大 16 KiB。理由と実行回が現在の記録と一致する必要あり）。 `DOWNLOAD_PATH_ACTION_REQUIRED` では `TRUNCATE`、`DEFAULT_NAME`、`CANCEL` のいずれかを指定してください。それ以外の値は 400 となり、`/userAction` が示されます。作品は確認待ちのままなので、値を修正して再送できます。
    - 待機中に `DELETE /api/download/batches/{id}` でバッチ記録を削除します。
 
 1 バッチの上限は 5,000 項目または符号化内容の予約予算 64 MiB のうち先に到達した方です。フィルターは年齢区分、AI、タグ、イラスト種別、ページ数、小説文字数、最小ブックマーク数に対応します（ブックマーク数フィルター有効時、ブックマーク数不明の作品は通過しません）。
@@ -130,8 +201,7 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
   - `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` で外部読み取り専用参照の作品を絞り込めます（削除時も元ファイルを残して登録のみ削除）。`MANAGED` はアプリ管理ファイルを示します（削除時にファイルも削除し、重複判定用に `deleted=true` を保持）。
   - イラスト・小説の一括 API は `"mode": "filter"`（全ページ対象、`filter` は JSON オブジェクト必須）または `ids` 配列（`42` のような正の JSON 整数のみ。小数・文字列・0・負数は HTTP 400 と `field` を返却）を受け付けます。`"filter": {}` またはページ指定のみの `filter` は全作品選択となるため、削除や「エクスポート後に削除」では `"confirmAll": true` と該当ギャラリーの削除権限が必須です。
   - エクスポートで `archiveToken` が返ったら、`core:archives.read` で `GET /api/archive/status/{token}` をポーリングし、`ready` 後に `core:archives.download` で `GET /api/archive/download/{token}` を取得します。
-- **画像分類、起動キャッシュ、データベース移行、環境アーカイブ**：
-  - 画像分類の移動はコピー結果、元ディレクトリ削除、データベース登録を個別に返すため、部分完了時は結果を確認してから対処してください。
+- **起動キャッシュ、データベース移行、環境アーカイブ**：
   - 起動キャッシュの学習は `POST /api/tools/startup-cache/tasks`（本文 `{}`）で開始し、`GET /api/tools/startup-cache` で状態を確認します。
   - データベース移行と環境復元はプレビューが返した `token` で確定します（環境復元は `RESTORE_PENDING` の後に代替プロセスが実行）。環境エクスポート（`POST /api/settings/environment/exports`）にはサーバーの絶対パス `destination`（既存ファイルは上書きしない）と `"confirmRestart": true` が必須で、認証情報・データベース・状態を含める場合は `password` が必要です（`includeResources` には `includeDatabases` も必要）。エクスポートはバックエンドを停止して完全再起動を要求するため、再起動失敗時は手動で起動してください。オンライン更新のインストールには検証済みパッケージの SHA-256 が必要です。
 
@@ -200,10 +270,10 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 | `core:batches.read` | このキーのバッチと結果を表示 | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
 | `core:batches.resolve` | このキーのバッチの確認待ち項目に対応 | POST `/api/download/batches/*/resolve` |
 | `core:batches.resume` | このキーのバッチを再開・再試行 | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
-| `core:classifier.configure` | 画像分類設定を変更 | PUT `/api/tools/classifier/settings` |
-| `core:classifier.delete` | 画像分類ディレクトリを削除 | DELETE `/api/tools/classifier/folders` |
-| `core:classifier.read` | 画像分類と画像を表示 | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
-| `core:classifier.write` | 分類した画像を移動 | POST `/api/tools/classifier/moves` |
+| `core:classifier.configure` | 画像分類設定を変更 (提供終了, HTTP 410) | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | 画像分類ディレクトリを削除 (提供終了, HTTP 410) | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | 画像分類と画像を表示 (提供終了, HTTP 410) | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | 分類した画像を移動 (提供終了, HTTP 410) | POST `/api/tools/classifier/moves` |
 | `core:collections.delete` | コレクションを削除 | DELETE `/api/collections/*` |
 | `core:collections.members.write` | コレクションの作品を追加・削除 | DELETE `/api/collections/*/artworks/*`; DELETE `/api/collections/*/novels/*`; POST `/api/collections/*/artworks/*`; POST `/api/collections/*/novels/*` |
 | `core:collections.read` | ライブラリ全体のコレクションと所属を読む | GET `/api/collections/*/icon`; GET `/api/collections/novels/of/*`; GET `/api/collections/of/*`; GET `/api/collections`; POST `/api/collections/memberships`; POST `/api/collections/novels/memberships` |
@@ -227,6 +297,7 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 | `core:environment.preview` | 環境全体の復元をプレビュー | POST `/api/settings/environment/preview` |
 | `core:environment.read` | インストールと環境移行の状態を表示 | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
 | `core:environment.restore` | 環境全体を復元 | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.cancel` | FFmpeg のインストールをキャンセル | POST `/api/tools/ffmpeg/tasks/{executionId}/cancel` |
 | `core:ffmpeg.install` | FFmpeg をインストール | POST `/api/tools/ffmpeg/tasks` |
 | `core:ffmpeg.read` | FFmpeg の状態を表示 | GET `/api/tools/ffmpeg` |
 | `core:file-import.acknowledge` | ファイルインポートの結果を確認 | POST `/api/tools/file-import/completion/acknowledge` |
@@ -238,7 +309,7 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 | `core:hooks.publish` | グローバル操作フックのセキュリティポリシーを公開 | POST `/api/web/operation-hooks/publish` |
 | `core:hooks.read` | グローバル操作フックと認可設定を読む | GET `/api/web/operation-hooks/catalog`; GET `/api/web/operation-hooks/configuration`; GET `/api/web/operation-hooks/declarations`; GET `/api/web/operation-hooks/definitions`; GET `/api/web/operation-hooks/targets` |
 | `core:legacy-migration.execute` | 旧 JSON メタデータを移行（ローカルのみ） | GET `/api/migration/json-to-sqlite/stream`; POST `/api/migration/json-to-sqlite` |
-| `core:library.move` | サーバー上のイラストファイルを移動 | POST `/api/library/artworks/*/move` |
+| `core:library.move` | 作品の移動記録（提供終了） · HTTP 410 | POST `/api/library/artworks/*/move` |
 | `core:library.read` | ライブラリ全体のイラスト登録、履歴、パスを表示 | GET `/api/downloaded/by-move-folder`; GET `/api/downloaded/history/paged`; GET `/api/downloaded/history`; GET `/api/downloaded/statistics`; GET `/api/library/artworks/*`; POST `/api/downloaded/batch` |
 | `core:library.recover` | イラストのメタデータを復元 | POST `/api/library/artworks/*/recover-metadata` |
 | `core:local-import.cancel` | ローカルインポートのスキャンと登録をキャンセル | POST `/api/local-import/previews/*/cancel`; POST `/api/local-import/tasks/*/cancel` |
@@ -371,5 +442,5 @@ PixivDownloader には対話型 OpenAPI リファレンスと細粒度の**プ�
 | `<plugin>:file-import.acknowledge` | ファイルインポートの結果を確認 | `core:file-import.acknowledge` |
 | `<plugin>:downloads.create` | ダウンロードタスクを作成 | `core:downloads.create` |
 | `<plugin>:batches.execute` | バッチによるこのプラグインの取得元と作品処理の利用を許可 | `core:batches.create`, `core:batches.resume` |
-| `<plugin>:schedule.manage` | このプラグインの永続スケジュールと認証情報ポリシーを管理 | `core:schedule.*` |
+| `<plugin>:schedule.manage` | このプラグインの永続スケジュールと認証情報ポリシーを管理 | `core:schedule.*`。POST `/api/pixiv/user/{userId}/meta/schedule` で、このプラグインを取得元とするタスクの `taskId` を指定する場合も必要です。 |
 | `<plugin>:plugins.manage` | このプラグインのライフサイクル、有効状態、信頼の管理を許可 | `core:plugins.*` |

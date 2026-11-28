@@ -63,6 +63,7 @@ Controller에 `@HttpApiGroup("core-batch")`를 붙이면 해당 모듈의 `src/m
 ## 매개변수 검증, 오류 계약 및 테스트 검증
 
 - **신뢰 경계 및 오류 구조**: 경로, 자격 증명과 JSON은 신뢰 경계에서 검증합니다. 프로그램 키는 `Authorization: Bearer`로만 받고 URL, 로그나 브라우저 영구 저장소에 기록하지 않습니다. 출발지 IP는 `server.trusted-proxy-cidrs` 처리 후의 클라이언트 주소만 사용합니다. 오류 응답은 안정적인 기계용 `code`와 현지화된 `error`를 유지합니다(다운로드 제출 시 권한 부족은 `DownloadTaskException.programPermission()`으로 누락된 권한 ID 노출 가능).
+- `@HttpApiGroup`을 붙인 컨트롤러에서는 클래스나 메서드에 SDK의 `@KnownErrorCodes`를 붙여 표준 JSON 오류의 HTTP 상태와 업무 오류 코드를 선언할 수 있습니다. OpenAPI는 이 선언을 바탕으로 해당 4xx 또는 5xx 상태의 `application/json` 응답을 생성합니다. 별도 필드가 있으면 응답 스키마에 명시하세요.
 - **구조화된 매개변수 오류(`HttpParameterException`)**: 플러그인이 HTTP 진입점에서 매개변수를 직접 검증할 때는 JDK에만 의존하는 `pixivdownload-core-api`의 `top.sywyar.pixivdownload.core.web.HttpParameterException(in, field, reason)`을 던질 수 있습니다(예: 쿼리 매개변수 `order`가 허용 열거형 밖일 때 `new HttpParameterException("query", "order", "invalid_value")`). 메서드에 `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")`를 붙이면 OpenAPI에 이 오류가 표시됩니다:
   - 호스트는 HTTP 400, `code = "error.request.param.invalid"`, 현지화된 `error` 및 `in`, `field`, `reason` 세 위치 필드를 반환합니다(호출자가 보낸 원본 값이나 자격 증명은 포함하지 마세요. Spring이 처리하는 필수 매개변수 누락이나 타입 변환 오류는 호스트가 자동으로 위치 지정).
   - `in`은 `query`, `path`, `header`, `part`, `body` 중 하나입니다. 앞의 네 가지는 인터페이스에 선언된 매개변수 이름이나 멀티파트 이름을 `field`에 넣고, JSON 본문(`body`)은 JSON Pointer(예: `/options/pages`)를 넣습니다. `reason`에는 `required`, `type`, `invalid_value`, `out_of_range` 같은 안정적인 기계 값을 사용합니다.

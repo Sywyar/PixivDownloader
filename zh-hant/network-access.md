@@ -36,6 +36,11 @@
 | --- | --- | --- | --- |
 | 應用程式宿主（共用查詢與縮圖） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用請求提供的取得憑證；排程查詢 `/api/pixiv/user/{id}/meta/schedule` 使用本次排程的憑證與代理，已綁定的 secret 僅在伺服器端讀取。`/api/pixiv/thumbnail-proxy` 僅存取上述圖片網域，不帶 Cookie、不跟隨重新導向，單次上限 100 MiB | 頁面請求對應本地介面時觸發。儲存 User 來源的插畫或小說排程時，同一使用者已有有效名稱快照便沿用；新增、更換使用者或缺少名稱時查詢並儲存名字，查詢失敗則不儲存排程。停止相關預覽、不儲存這類排程即可避免對應請求 |
 | 應用程式宿主（中繼資料回填） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 先匯入已登記作品目錄的舊 `.meta.json` 並用本地中繼資料補缺，仍有缺少才不帶 Cookie 請求上述介面（單次上限 4 MiB；404 記入 `data/backfill/unreachable.json`，年齡限制回應會暫緩自動重試） | 桌面與無頭服務啟動就緒後，於背景自動回填，或從桌面工具頁 / 獨立 CLI 手動執行；讀取已儲存的全域代理（工具頁可單次暫時覆寫），可在工具頁或停止服務取消 |
+| `pixiv-content` (公開查詢) | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/illustrations/**`、`/ajax/search/manga/**`、`/ajax/search/novels/**`、`/ajax/illust/**`、`/ajax/user/**`、`/ajax/series/**`、`/ajax/novel/**`、`/ranking.php`、`/ajax/ranking/novel` | 將關鍵字、作品類型、頁碼、日期或 ID 傳給 Pixiv，搜尋繪圖作品與小說，查詢創作者的作品與系列，以及繪圖作品與小說的排行榜。呼叫端可提供本次請求的 Pixiv 憑證。 | 預設安裝。呼叫 `/api/pixiv-content/` 下的介面時使用宿主的代理設定，停用外掛即可停止連線。 |
+| `pixiv-content` (作品瀏覽) | `/ajax/illust/{id}/recommend/init`, `/ajax/illusts/comments/roots`, `/ajax/user/{id}/profile/all`, `/ranking.php`, `/rpc/cps.php`, `/ajax/user/self`, `/ajax/user/{id}`, `https://*.pximg.net` | 依作品查詢相關推薦與頂層留言、依創作者列出系列，亦可依作品類型查詢排行榜。標籤建議的關鍵詞會匿名傳送。創作者大頭貼由 CDN 提供，請求不帶 Cookie。 | 呼叫對應 API 時觸發。/me 會先驗證所選帳號，再讀取帳號資料。 |
+| `pixiv-content` | `/ajax/search/*`, `/ajax/{illust,novel}/{new,discovery}`, `/ajax/{illust,novel}/recommend/*`, `/ajax/{illusts,novels}/comments/{roots,replies}`, `/ajax/top/*`, `/ajax/watch_list/*`, `/ajax/user/{id}/*`, `/ajax/user/{id}/{illustmanga,novels}/tag`, `/ajax/collection/{id}`, `/ranking.php` | 可用作品標籤搜尋作者投稿。指定多個標籤時，會分批讀取候選投稿。 搜尋使用者、標籤與公開珍藏集，讀取探索頁、全站新作、後續推薦及留言回覆。個人首頁、追更與收藏標籤使用同一個已驗證帳號；依收藏數篩選時也會讀取其會員資格。 | 按需發出請求。標籤搜尋詞會匿名送往 Pixiv。公開珍藏集的封面連結可能指向 embed.pixiv.net。 |
+| `pixiv-content` (個人內容) | `https://www.pixiv.net/ajax/user/self`、`/ajax/user/{id}/illusts/bookmarks`、`/ajax/user/{id}/novels/bookmarks`、`/ajax/user/{id}/following`、`/ajax/follow_latest/illust`、`/ajax/follow_latest/novel`、`/ajax/user/{id}/profile/all`、`/ajax/user/{id}/profile/collections`、`/ajax/collection/{id}` | 先以選定的 Pixiv Cookie 確認登入帳號，再以同一個 Cookie 查詢收藏（可依標籤及公開狀態篩選）、關注名單、關注作者的新作與珍藏集。讀取珍藏集內的作品前，會先確認該珍藏集屬於目前的帳號。 | 僅在呼叫 `/api/pixiv-content/me/` 下的介面時連線。 |
+| `pixiv-content` (圖片與動圖) | `https://www.pixiv.net/ajax/illust/{id}/pages`、`/ajax/illust/{id}/ugoira_meta`、`/ajax/novel/{id}`、`/ajax/novel/{id}/insert_illusts`、`https://*.pximg.net` | 向 Pixiv 查詢作品各頁、動圖影格、小說封面及文中插圖。向 CDN 取得圖片或影格 ZIP 時，以對應的作品頁或小說頁作為 `Referer`，不傳送 Pixiv Cookie。外掛在本機將影格轉成 APNG。 | 讀取作品詳情時可查詢各頁資訊，讀取小說詳情時會核對文中引用的繪圖作品。僅在呼叫端請求圖片或動圖時從 CDN 取得檔案。 |
 | `download-workbench` 外掛 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | 取得插畫/動圖/畫師/系列/搜尋/收藏夾/關注新作/約稿中繼資料（一般 JSON 上限 4 MiB，關注新作總頁數未知時，最多掃描 1,000 頁），以及開啟「自動收藏」後，在下載完成時新增收藏；依需求攜帶 Pixiv Cookie | 預覽、快速取得、下載、排程工作、收藏數篩選補查（每次最多並行 6 件）或系列簡介補查時觸發；停用外掛或關閉自動收藏可停止對應請求 |
 | `download-workbench` 批次搜尋與搜尋排程 | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/novels/**` | 手動預覽使用目前憑證，搜尋排程使用任務憑證與代理，逐頁取得作品 | 固定頁數搜尋在本頁完成後請求下一頁，達到本輪上限或本頁仍有作品待重試時停止翻頁。下載設定中的最短翻頁間隔同時適用於手動批次取得；設定正值時，工作台依間隔逐頁請求預覽。停用排程可停止後續執行 |
 | `novel` 外掛 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 取得小說正文、系列（回應上限 1 MiB）、作者小說、收藏、搜尋結果及下載後自動收藏；預覽後緊接的下載，會透過綁定 owner 與憑證的 256 KiB 短期一次性票據，重用已驗證回應 | 小說預覽、合訂、搜尋、排程工作時觸發；停用 `novel` 外掛即停止 |
@@ -78,6 +83,22 @@ AI 外掛使用 OpenAI 相容協定：連線測試、小說翻譯和多角色分
 `translation` 外掛在手動或自動翻譯時呼叫所選引擎。AI 沿用上表設定；有道單條請求 `https://openapi.youdao.com/api`，批次請求 `https://openapi.youdao.com/v2/api`，傳送文本、應用 ID 與本機計算的 v3 簽章，不直接傳送應用密鑰。LibreTranslate 向管理員設定的 `{libretranslate-url}/translate` 傳送 JSON，含單條或陣列文本及選用 `api_key`。兩個引擎分別設定 `translation.<engine>.use-proxy` 與 `read-timeout-seconds`（預設關閉代理、讀取 120 秒）；連線逾時為 30 秒。字元、批次、並行、傳送間隔和限流重試參數見[小說與朗讀](/zh-hant/novel)。回應讀取預算取 1 MiB 與本批實際輸入碼點數乘 16 位元組的較大值，最大 16,000,000 位元組，超限拒絕。僅明確限流時有限重試，逾時等其他錯誤不自動重送。
 
 選擇 LibreTranslate 後，開啟翻譯對話框或重新載入語言時，`translation` 外掛會向同一設定地址的 `/languages` 傳送 GET 請求，讀取目標語言，不傳送正文或 API 金鑰。查詢沿用上述代理、逾時和 1 MiB 回應限制；不開啟對話框或切換引擎即可避免此查詢。有道選項使用內建官方語種表，無額外查詢。
+
+手動、系列或下載後自動翻譯時，`translation` 外掛將選取的標題、簡介或本文片段與目標語言傳給選定的服務。下表的雲端服務均須主動選擇，預設直接連線，可在設定中為各引擎啟用代理。切換引擎後，新工作使用新服務。金鑰和權杖透過 HTTPS 傳送；簽章介面傳送存取 ID 和簽章，簽章密鑰留在本機。
+
+| 提供商 | HTTPS 目的地 | 驗證方式 |
+| --- | --- | --- |
+| DeepL | `api-free.deepl.com/v2/translate`, `api.deepl.com/v2/translate` | `DeepL-Auth-Key` |
+| Google 翻譯 | `translation.googleapis.com/language/translate/v2` | `X-Goog-Api-Key` |
+| Microsoft Azure 翻譯 | `api.cognitive.microsofttranslator.com/translate` | `Ocp-Apim-Subscription-Key, Ocp-Apim-Subscription-Region` |
+| 百度翻譯 | `fanyi-api.baidu.com/api/trans/vip/translate` | `appid / MD5` |
+| 騰訊雲 TMT | `tmt.tencentcloudapi.com/` | `TC3-HMAC-SHA256` |
+| 火山翻譯 | `translate.volcengineapi.com/?Action=TranslateText&Version=2020-06-01` | `HMAC-SHA256` |
+| 彩雲小譯 | `api.interpreter.caiyunai.com/v1/translator` | `X-Authorization` |
+| 小牛翻譯 | `api.niutrans.com/NiuTransServer/translation` | `apikey` |
+| 阿里雲機器翻譯 | `mt.aliyuncs.com/` | `ACS3-HMAC-SHA256` |
+
+選擇 DeepL 後，開啟翻譯對話框或重新載入目標語言時也會攜帶金鑰存取同一網域的 `/v3/languages?resource=translate_text`。下表中的其他雲端服務使用內建語言清單。
 
 ### `tts`、`push` 與 `mail` 外掛
 

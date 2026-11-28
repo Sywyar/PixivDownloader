@@ -97,6 +97,7 @@ pixiv.lifecycle-policy=process-restart
 - `pixiv.desktop-only` 默认为 `false`。纯桌面插件可以设为 `true`。无头启动时，宿主会跳过这类插件，除非后端插件直接或间接将它列为必需依赖。跳过的包仍在插件管理页显示为已安装。
 - `plugin.dependencies` 声明外置 PF4J 包之间的依赖。将 `core` 等宿主内置组件列为必需依赖会在写入安装目录前被拒绝。宿主 SDK 版本要求通过 `plugin.requires` 声明。
 - 桌面界面提供方可用 `DesktopUiHost.stopBackend(afterStop, onFailure)` 请求停止后端。需要独占数据的工具应在 `afterStop` 中启动。请求被接受后，成功和失败只触发其中一个回调。返回 `false` 表示请求立即被拒绝，不会触发回调。
+- 同步桌面下载根时，先调用 `DesktopUiHost.validateDownloadTemplateRoot(root)` 校验所选目录。校验通过后再提交目录迁移，迁移成功后调用 `saveDownloadTemplateRoot(root)`，保留现有模板后缀。
 - 外置入口实现 `PixivPluginProvider`，仅返回唯一 `PixivFeaturePlugin`；Spring 子上下文的显式 `@Bean` 配置类由描述符 `pixiv.configuration-classes` 声明，禁止依赖宿主包扫描：
 
 ```java
@@ -175,6 +176,7 @@ new NavigationContribution(
 - **数据库访问**：新插件注入 `PluginDatabase`，通过 `privateSchema()` 与 `privateStorageMigrations()` 声明结构，使用 `read(work)` / `transaction(work)` 执行方言无关操作（兼容 SQLite 与 PostgreSQL）；参与主库协作时注入 `PluginMainDatabase` 访问本 owner 受管表或已申请的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` 创建由插件 Bean 拥有并在销毁时 `close()` 的客户端（`exchangeStream` 返回的响应流必须在所有分支关闭）；禁止自行创建 `HttpClient`、`ProxySelector` 或依赖宿主 HTTP 配置类。
 - **访问 Pixiv**：读取 `www.pixiv.net` 的 JSON 时注入 core-api 的 `PixivAjaxClient`，读取 `*.pximg.net` 的图片或动图归档时注入 `PixivMediaClient`，不要用 `OutboundHttpClientFactory` 自行请求 Pixiv。宿主统一添加浏览器请求头，应用代理设置和响应大小上限，不跟随重定向；请求使用已保存凭据时，按宿主的凭据重试规则换用候选凭据。`PixivAjaxClient` 接受 `/ajax/**`、`/rpc/**` 和查询参数含 `format=json` 的根级 `*.php` 页面，失败时抛出 `PixivAjaxException`。`PixivMediaClient.open(source, referer, maximumBytes)` 只把传入的 Pixiv 页面作为 `Referer` 发送，不发送 Cookie；返回的 `PixivMediaStream` 必须在所有分支关闭，`exceededLimit()` 用于区分超过字节上限与普通传输失败。宿主不会拦截用通用客户端发往 Pixiv 的请求，但带登录 Cookie 而缺少浏览器请求头的请求可能被 Pixiv 的前置防护直接拒绝（HTTP 403）。
+- **流式响应中止**：响应已开始回传后，若上游内容截断、超出字节上限或转换失败，先在默认日志级别记录原因和必要的业务上下文，再抛出 core-api 的 `ResponseStreamAbortedException`。宿主只结束连接，不补写错误正文，也不再记成服务器读写错误；客户端断开仍按宿主原有方式处理。
 
 ## 独立服务契约与组合
 

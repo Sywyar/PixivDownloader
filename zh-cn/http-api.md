@@ -5,8 +5,58 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 ## 用脚本或 Agent 访问 API
 
 1. **查看交互文档**：启动实例后在浏览器打开 `/openapi`（本机默认 `http://localhost:6999/openapi`）。访问说明公开可读；以管理员登录后可浏览完整接口列表、请求示例、所需权限，并通过响应下方的「相关接口」链接（`links` / `x-related-operations` / `externalDocs`）在关联操作与使用指南间跳转。
-2. **创建程序访问密钥**：在桌面「设置 → 访问控制 → 程序访问密钥」中创建密钥（无桌面环境可由管理员登录会话调用 `/api/security/program-keys`），配置允许的来源 IP/网段并勾选所需权限。若脚本或 Agent 需自行拉取接口定义，请同时勾选 `core:api-reference.read`。
-3. **调用接口或生成 Agent 提示词**：客户端通过请求头 `Authorization: Bearer <程序密钥>` 请求 `GET /api/openapi.json`（或用 `HEAD /api/openapi.json` 探测权限）获取机器可读的 OpenAPI 文档；配合 Agent 使用时，可在创建密钥后点击「复制提示词」将文档地址交给 Agent，再将密钥单独配置到 Agent 运行环境。
+2. **创建程序访问密钥**：在桌面「安全 → 程序访问密钥」中创建密钥（「设置 → 访问控制」也提供跳转按钮）；没有桌面环境时用[命令行](#命令行管理密钥)创建。配置允许的来源 IP/网段并勾选所需权限。若脚本或 Agent 需自行拉取接口定义，请同时勾选 `core:api-reference.read`。
+3. **调用接口或生成 Agent 提示词**：客户端通过请求头 `Authorization: Bearer <程序密钥>` 请求 `GET /api/openapi.json`（或用 `HEAD /api/openapi.json` 探测权限）获取机器可读的 OpenAPI 文档；配合 Agent 使用时，可在创建密钥后，或从密钥列表的「给 Agent 的提示词」复制提示词，将文档地址交给 Agent，再将密钥单独配置到 Agent 运行环境。支持 Agent Skills 的 Agent 也可以[安装 skill](#为-ai-agent-安装-skill)，在相关任务中自动启用。
+
+### 为 AI Agent 安装 skill
+
+主仓库提供 [Agent Skills](https://agentskills.io/) 格式的 `pixivdownloader` skill，说明如何连接实例、使用程序访问密钥、调用常用接口（浏览 Pixiv、下载作品、查找已下载的作品）以及处理错误。安装后，支持 Agent Skills 的 Agent（如 Claude Code、Codex、Cursor、GitHub Copilot、Gemini CLI）会在相关任务中自动启用它，不必每次复制提示词。
+
+1. 安装 skill（需要 Node.js）。命令会询问要装到哪些 Agent；`-g` 表示对所有项目生效：
+
+   ```bash
+   npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g
+   ```
+
+   之后可用 `npx skills update -g` 获取新版本。
+2. 在 Agent 的运行环境中把 `PIXIV_PROGRAM_KEY` 设为程序访问密钥。实例不在 `http://localhost:6999` 时，再把 `PIXIV_BASE_URL` 设为实例地址，或在对话中告诉 Agent。不要把密钥粘贴进对话。
+3. 按任务为密钥勾选权限。Agent 会先调用 `/self` 查看已授予的权限；建议同时勾选 `core:api-reference.read`，让它能查阅完整接口目录。
+
+?> skill 只写长期不变的约定和常用接口，字段、参数和取值以实例的 `GET /api/openapi.json` 为准。浏览 Pixiv 的接口由 `pixiv-content` 插件提供；插件未安装或已停用时，Agent 会提示你安装或启用。
+
+### 按作者与标签搜索 Pixiv
+
+在作者投稿接口中，每个 `tag` 参数填一个作品标签。例如，`GET /api/pixiv-content/users/28329224/artworks?tag=furry&tag=original` 只返回该作者同时带有这两个标签的投稿。小说使用 `/users/{id}/novels`。一次最多指定 10 个不同标签；若每个标签都命中超过 2048 件投稿，接口返回 `422 PIXIV_TAG_SEARCH_TOO_BROAD`。
+
+同时查昵称和标签时，使用 `GET /api/pixiv-content/search/users-and-tags?word=cat&userPage=1&tagPage=1`。响应中的 `users` 和 `tags` 分别分页，两者都从第 1 页起。Pixiv 要求登录时需提供采集凭据。
+
+### 命令行管理密钥
+
+没有桌面环境（服务器、Docker）时，用命令行管理密钥。命令会连接正在运行的实例，以管理员身份登录后调用下文的管理接口，结束时注销会话并退出，不需要停止服务。权限目录由实例按已加载的插件生成，因此实例必须正在运行。
+
+| 命令 | 作用 |
+| --- | --- |
+| `--program-keys` | 列出密钥：名称、ID、权限数量、来源和使用时间 |
+| `--program-key-permissions` | 列出当前实例可授予的权限及其覆盖的接口 |
+| `--program-key-create` | 创建密钥；完整密钥只在输出中显示一次 |
+| `--program-key-revoke --key-id=<ID>` | 确认后撤销指定密钥 |
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create --key-name=agent --key-permissions=core:api-reference.read,core:downloads.read --key-sources=127.0.0.1
+```
+
+- 省略 `--key-name`、`--key-permissions` 或 `--key-sources` 时会逐项提示，权限可按列表编号选择。`--key-sources` 填 `any`，或以逗号分隔的 IP / CIDR。
+- 管理员账号可用 `--username`、`--password` 传入，省略时交互输入。命令行中的密码会留在 Shell 历史或进程列表中，日常请使用交互模式。
+- 实例地址默认按 `config/config.yaml` 的 `server.port`、`server.ssl.enabled` 和 `ssl.domain` 推导，也可用 `--server-url=https://<主机>:<端口>` 指定。命令不读取系统代理，也不跟随重定向；实例把 HTTP 重定向到 HTTPS 时，请改用提示中的 HTTPS 地址。使用自签名证书时，需先把证书导入 Java 信任库。
+- 使用 Docker Compose 时，在新容器中执行并指向服务名：
+
+  ```text
+  docker compose run --rm app --program-key-create --server-url=http://app:6999
+  ```
+
+- 实例要求登录验证（例如验证码）时，命令行无法完成登录，会显示服务器返回的原因。
+- 退出码：`0` 成功；`1` 无法连接、登录失败或服务器拒绝；`2` 参数无效或操作已取消。创建或撤销请求发出后连接中断时，结果可能已经生效，请先用 `--program-keys` 查看再决定是否重试。
 
 ### 密钥安全、来源限制与 CSRF 规则
 
@@ -35,13 +85,34 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 | 元数据回填 | `GET /api/tools/backfill/defaults`、`/tasks/current`、`/tasks/{id}`；`POST /candidates`、`/tasks`、`/tasks/{id}/cancel` |
 | 媒体维护与记录文件导入 | `GET /api/tools/media`、`/api/tools/file-import`（各前缀下 `POST /previews`、`/tasks`、`/tasks/cancel`、`GET /tasks/current`）；`POST /api/tools/media/capabilities`；`POST /api/tools/file-import/completion/acknowledge` |
 | 本地作品导入与启动缓存 | `GET /api/local-import/presets`、`POST /previews`、`POST /tasks`；`GET /api/tools/startup-cache`、`POST /tasks`、`POST /tasks/{id}/cancel` |
-| 目录引用、路径前缀与图片分类 | `GET` / `POST /api/tools/directories`；`/api/tools/path-prefixes`；`/api/tools/classifier/settings`、`/folders`、`/images`、`/image`、`/moves` |
-| FFmpeg 状态、安装与工具历史/日志 | `GET /api/tools/ffmpeg`、`POST /api/tools/ffmpeg/tasks`；`GET /api/tools/history`、`/api/tools/logs/{fileName}` |
+| 目录引用与路径前缀 | `GET` / `POST /api/tools/directories` · `/api/tools/path-prefixes` |
+| FFmpeg 状态、安装与取消，工具历史与日志 | `GET /api/tools/ffmpeg`、`POST /api/tools/ffmpeg/tasks`、`POST /api/tools/ffmpeg/tasks/{executionId}/cancel`；`GET /api/tools/history`、`/api/tools/logs/{fileName}` |
 | 系统、控制中心与更新 | `/api/admin/system`、`/api/admin/control-center`；`/api/admin/update/check`、`/last`、`/download`、`/download/progress`、`/install` |
 | AI、邮件、推送与站内信测试 | `/api/admin/ai/test`、`/models`；`/api/admin/mail/test`、`/test-all`；`/api/admin/push/test`、`/test-all`；`/api/admin/notifications/test`、`/test-all` |
 | 单项下载、历史与后台手动批次 | `/api/download/tasks`、`/api/download/tasks/history`；`/api/download/batches` |
 
+恢复状态返回 `jobId`。用该 ID 搜索应用日志，可找到这次恢复失败的详情。若确认后目标在执行恢复前发生变化，`failureCode` 为 `transfer.target-changed`，需重新预览后再确认。
+
+`POST /api/tools/path-prefixes` 在同一事务中改写和登记前缀。`registerPaths` 的每一项都必须是现有目录的绝对路径字符串。成功回执中，`registered` 是新增数，`alreadyRegistered` 是复用数，`applied` 是改写数与新增数之和。登记项无效时返回 400，并标出 `/registerPaths/i`（`i` 从 0 起）；写入失败时返回 `500 PATH_PREFIX_WRITE_FAILED`，整批回滚。
+
+Windows 盘符和 UNC 路径的大小写或分隔符不同，登记时复用同一前缀。路径中单独的 `.` 段沿用同一前缀 ID。POSIX 路径区分大小写。历史记录按各自的前缀 ID 解析，修改指定 ID 只影响引用它的记录。固定符号根的 `POST /api/tools/path-prefixes/pin` 写入失败时同样返回 `500 PATH_PREFIX_WRITE_FAILED`，原引用保持有效。
+
+图片分类工具已移除。以下接口仍检查原有认证和权限，通过后返回空响应 `410 Gone`。
+
+- `GET, PUT /api/tools/classifier/settings`
+- `GET, DELETE /api/tools/classifier/folders`
+- `GET /api/tools/classifier/images`
+- `GET /api/tools/classifier/image`
+- `POST /api/tools/classifier/moves`
+- `GET /api/downloaded/by-move-folder`
+- `POST /api/downloaded/move/{artworkId}`
+- `POST /api/library/artworks/{artworkId}/move`
+
+查询或取消已归档任务时，如果能确认记录属于调用者，但无法读取回执，接口返回 `503 DOWNLOAD_TASK_RECEIPT_UNAVAILABLE`。他人的任务和不存在的任务均返回 404。
+
 ## 保存设置
+
+`POST /api/settings/validate` 仅校验草稿。它只读取本次变更涉及的设置和凭据，不保存配置或迁移凭据信封。
 
 先调用 `GET /api/settings` 读取字段目录，再按返回的 `owner`、`packageId`、`generation` 与 `key` 提交修改（宿主字段的 `owner` 与 `packageId` 为 `null`、`generation` 为 `0`）。敏感字段仅返回 `stored` 布尔标志，不回传明文或默认秘密；提交时通过 `action`（`KEEP`、`SET`、`CLEAR`）明确保留、替换或清除。返回结果中的 `effect` 标明生效方式（保存成功不代表已自动重启后端或进程）：
 
@@ -72,7 +143,7 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 4. **控制与恢复**：`POST /api/download/batches/{id}/pause`、`/cancel`、`/resume`、`/retry` 分别暂停、取消、恢复扫描或仅重试已发现的失败项（停止中状态须等待在途执行实际退出后才进入终态；已完成和筛选跳过的作品在恢复时不会重复执行）。
 5. **替换凭据、处理待确认项与删除**：
    - 在批次空闲时调用 `PUT /api/download/batches/{id}/credentials`（正文 `{"expectedRun": 1}`，上限 16 KiB；通过请求头传入新凭据，省略请求头表示清除，恢复前会重新探活）。
-   - 调用 `POST /api/download/batches/{id}/resolve` 处理待确认项（正文含 `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun`，上限 16 KiB；原因与轮次须匹配当前记录）。
+   - 调用 `POST /api/download/batches/{id}/resolve` 处理待确认项（正文含 `expectedRun`、`workType`、`workId`、`reasonCode`、`userAction`、`rememberForRun`，上限 16 KiB；原因与轮次须匹配当前记录）。 遇到 `DOWNLOAD_PATH_ACTION_REQUIRED` 时可选 `TRUNCATE`、`DEFAULT_NAME` 或 `CANCEL`。其他值返回 400，字段为 `/userAction`。作品仍待确认，可直接改正后重试。
    - 空闲时调用 `DELETE /api/download/batches/{id}` 删除批次记录。
 
 单批次最多接纳 5,000 项作品，并受 64 MiB 编码内容预留预算约束（先达到者生效）。筛选支持内容分级、AI、标签、插画类型、页数、小说字数和最低收藏数（启用收藏数筛选时，未知收藏数不予通过）。
@@ -130,8 +201,7 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
   - `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` 可筛选外部只读引用作品（删除仅移除登记，保留原文件）；`MANAGED` 表示应用管理文件（删除时连同文件清理，并在库中保留 `deleted=true` 供查重）。
   - 插画与小说的批量接口支持 `"mode": "filter"`（跨所有匹配页，要求 `filter` 为 JSON 对象）或按 ID 数组选择（仅接受正整数如 `42`，小数、字符串、零或负数均返回 HTTP 400 及对应 `field`）。当显式传入 `"filter": {}` 或仅含分页参数的 `filter` 时会选中全库该类作品，执行删除或「导出后删除」必须同时传入 `"confirmAll": true` 且密钥须具备对应删除权限。
   - 导出返回 `archiveToken` 后，持 `core:archives.read` 轮询 `GET /api/archive/status/{token}`，状态变为 `ready` 后持 `core:archives.download` 请求 `GET /api/archive/download/{token}`。
-- **图片分类、启动缓存、数据库迁移与环境归档**：
-  - 图片分类移动会分别返回复制结果、源目录删除状态与数据库登记结果，部分完成时请先核对返回状态，勿盲目重试。
+- **启动缓存、数据库迁移与环境归档**：
   - 启动缓存训练调用 `POST /api/tools/startup-cache/tasks`（请求体 `{}`），返回接纳后轮询 `GET /api/tools/startup-cache`。
   - 数据库迁移与环境恢复均使用预览返回的 `token` 确认（环境恢复返回 `RESTORE_PENDING` 后由替代进程完成）。环境导出（`POST /api/settings/environment/exports`）须提供服务器绝对路径 `destination`（不覆盖已有文件）与 `"confirmRestart": true`，包含凭据、数据库或状态时必须设置 `password`（勾选 `includeResources` 须同时勾选 `includeDatabases`）；导出会停止后端并请求完整进程重启，重启失败时需在服务器手动启动。安装在线更新须提交已验证安装包的 SHA-256。
 
@@ -200,10 +270,10 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 | `core:batches.read` | 查看本密钥的批次与结果 | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
 | `core:batches.resolve` | 处理本密钥批次的待确认项 | POST `/api/download/batches/*/resolve` |
 | `core:batches.resume` | 恢复或重试本密钥的批次 | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
-| `core:classifier.configure` | 修改图片分类设置 | PUT `/api/tools/classifier/settings` |
-| `core:classifier.delete` | 删除图片分类目录 | DELETE `/api/tools/classifier/folders` |
-| `core:classifier.read` | 查看图片分类与图片 | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
-| `core:classifier.write` | 移动分类图片 | POST `/api/tools/classifier/moves` |
+| `core:classifier.configure` | 修改图片分类设置 (已退役, HTTP 410) | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | 删除图片分类目录 (已退役, HTTP 410) | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | 查看图片分类与图片 (已退役, HTTP 410) | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | 移动分类图片 (已退役, HTTP 410) | POST `/api/tools/classifier/moves` |
 | `core:collections.delete` | 删除精选集 | DELETE `/api/collections/*` |
 | `core:collections.members.write` | 添加及移除精选集作品 | DELETE `/api/collections/*/artworks/*`; DELETE `/api/collections/*/novels/*`; POST `/api/collections/*/artworks/*`; POST `/api/collections/*/novels/*` |
 | `core:collections.read` | 读取全库精选集与归属 | GET `/api/collections/*/icon`; GET `/api/collections/novels/of/*`; GET `/api/collections/of/*`; GET `/api/collections`; POST `/api/collections/memberships`; POST `/api/collections/novels/memberships` |
@@ -227,6 +297,7 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 | `core:environment.preview` | 预览完整环境恢复 | POST `/api/settings/environment/preview` |
 | `core:environment.read` | 查看安装与环境迁移状态 | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
 | `core:environment.restore` | 恢复完整环境 | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.cancel` | 取消 FFmpeg 安装 | POST `/api/tools/ffmpeg/tasks/{executionId}/cancel` |
 | `core:ffmpeg.install` | 安装 FFmpeg | POST `/api/tools/ffmpeg/tasks` |
 | `core:ffmpeg.read` | 查看 FFmpeg 状态 | GET `/api/tools/ffmpeg` |
 | `core:file-import.acknowledge` | 确认文件导入结果 | POST `/api/tools/file-import/completion/acknowledge` |
@@ -238,7 +309,7 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 | `core:hooks.publish` | 发布全局操作 Hook 安全策略 | POST `/api/web/operation-hooks/publish` |
 | `core:hooks.read` | 读取全局操作 Hook 与授权配置 | GET `/api/web/operation-hooks/catalog`; GET `/api/web/operation-hooks/configuration`; GET `/api/web/operation-hooks/declarations`; GET `/api/web/operation-hooks/definitions`; GET `/api/web/operation-hooks/targets` |
 | `core:legacy-migration.execute` | 迁移旧 JSON 元数据（仅本机） | GET `/api/migration/json-to-sqlite/stream`; POST `/api/migration/json-to-sqlite` |
-| `core:library.move` | 移动服务器上的插画文件 | POST `/api/library/artworks/*/move` |
+| `core:library.move` | 作品移动登记（已退役） · HTTP 410 | POST `/api/library/artworks/*/move` |
 | `core:library.read` | 查看全库插画登记、历史与路径 | GET `/api/downloaded/by-move-folder`; GET `/api/downloaded/history/paged`; GET `/api/downloaded/history`; GET `/api/downloaded/statistics`; GET `/api/library/artworks/*`; POST `/api/downloaded/batch` |
 | `core:library.recover` | 恢复插画元数据 | POST `/api/library/artworks/*/recover-metadata` |
 | `core:local-import.cancel` | 取消本地导入扫描与登记 | POST `/api/local-import/previews/*/cancel`; POST `/api/local-import/tasks/*/cancel` |
@@ -371,5 +442,5 @@ PixivDownloader 内置交互式 OpenAPI 文档与细粒度**程序访问密钥**
 | `<plugin>:file-import.acknowledge` | 确认文件导入结果 | `core:file-import.acknowledge` |
 | `<plugin>:downloads.create` | 创建下载任务 | `core:downloads.create` |
 | `<plugin>:batches.execute` | 允许批次调用此插件的来源与作品执行器 | `core:batches.create`, `core:batches.resume` |
-| `<plugin>:schedule.manage` | 管理此插件来源的持久计划与凭据策略 | `core:schedule.*` |
+| `<plugin>:schedule.manage` | 管理此插件来源的持久计划与凭据策略 | `core:schedule.*`。调用 POST `/api/pixiv/user/{userId}/meta/schedule` 并传入此插件来源任务的 `taskId` 时，也需要该权限。 |
 | `<plugin>:plugins.manage` | 允许管理此插件的生命周期、启用状态与信任 | `core:plugins.*` |

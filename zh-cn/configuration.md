@@ -203,7 +203,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 - **插件业务配置（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面设置页聚合展示并统一保存；禁止覆盖宿主键或写入明文凭据。
 - **插件凭据（`config/credentials/{pluginId}.properties`）**：存储密码、Cookie、API Key、Secret 与 Webhook 密钥，由宿主加密并按 owner 注入插件上下文。跨环境恢复使用包含凭据且设有密码的 `.pdbackup`；同环境文件备份还需保留 `config/credentials.key` 及其解锁条件。
-- **翻译设置（`translation` 插件）**：普通项位于 `config/plugins/translation.properties`（`translation.engine` 默认 `ai`，可选 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 默认 `false`，仅控制有道与 LibreTranslate；`translation.max-concurrent` 默认 `10`），保存后重启后端生效。详见[小说与朗读](/zh-cn/novel#翻译引擎（管理员）)。
+- **翻译设置（`translation` 插件）** 默认引擎为 `ai`。在桌面翻译设置中选择服务、填写凭据，保存后重启后端。云服务请求参数使用 `translation.providers.<engine>.*`，有道和 LibreTranslate 沿用各自的配置键。`translation.max-concurrent` 默认值为 `10`。 [小说与朗读](/zh-cn/novel#翻译引擎（管理员）)
 - **登录验证策略**：`setup.login-verification-policies` 默认为空；可配置最多 16 个逗号分隔的 `LoginVerification.policyId()` 策略键，重启后端生效。配置前请确认对应验证插件已启用，详见[操作验证码](/zh-cn/captcha)与[第三方插件 SDK](/zh-cn/plugin-development#不依赖-gui-的凭据与通用操作验证)。
 
 ## 作品保存目录模板 :id=directory-templates

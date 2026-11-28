@@ -97,6 +97,7 @@ pixiv.lifecycle-policy=process-restart
 - `pixiv.desktop-only` の既定値は `false` です。デスクトップ専用のプラグインには `true` を指定できます。ヘッドレス起動時は、バックエンドのプラグインが直接または間接的に必須の依存先としている場合だけ読み込みます。読み込みを省略したパッケージも、プラグイン管理画面にはインストール済みと表示されます。
 - `plugin.dependencies` には依存先の外部 PF4J パッケージを指定します。`core` などホストの組み込みコンポーネントを必須依存に指定すると、インストール先への書き込み前に拒否されます。必要なホスト SDK のバージョンは `plugin.requires` で宣言してください。
 - デスクトップ UI プロバイダーは、`DesktopUiHost.stopBackend(afterStop, onFailure)` でバックエンドの停止を要求できます。データへの排他アクセスが必要なツールは `afterStop` で起動してください。要求が受理された場合は、結果に応じていずれか一方のコールバックだけが呼ばれます。戻り値が `false` の場合は要求が直ちに拒否され、コールバックは呼ばれません。
+- デスクトップのダウンロードルートも変更する場合は、ディレクトリ移行を送信する前に `DesktopUiHost.validateDownloadTemplateRoot(root)` を呼び出します。検証と移行に成功したら `saveDownloadTemplateRoot(root)` で既存のテンプレートの接尾部を保持します。
 - 外部プラグインの入口は `PixivPluginProvider` を実装し、唯一の `PixivFeaturePlugin` を返します。Spring 子コンテキストの明示的な `@Bean` 設定クラスは記述子の `pixiv.configuration-classes` で宣言します。ホストのパッケージ走査に依存してはいけません。
 
 ```java
@@ -175,6 +176,7 @@ new NavigationContribution(
 - **データベースアクセス**：新しいプラグインは `PluginDatabase` を注入し、`privateSchema()` と `privateStorageMigrations()` で構造を宣言して、`read(work)` / `transaction(work)` で方言非依存の操作を行います。SQLite と PostgreSQL に対応します。主データベースと協調する場合は `PluginMainDatabase` を注入し、この owner の管理対象テーブルや申請済みの `sharedMainStorage()` にアクセスします。
 - **外向き HTTP / WebSocket**：`OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` を注入し、プラグインの Bean が所有して破棄時に `close()` するクライアントを作成します。`exchangeStream` が返す応答ストリームはすべての分岐で閉じる必要があります。独自の `HttpClient`、`ProxySelector` の作成や、ホストの HTTP 設定クラスへの依存は禁止です。
 - **Pixiv へのアクセス**：`www.pixiv.net` の JSON を読むときは core-api の `PixivAjaxClient` を、`*.pximg.net` の画像やうごイラのアーカイブを読むときは `PixivMediaClient` を注入します。`OutboundHttpClientFactory` で Pixiv へ直接リクエストしないでください。ホストがブラウザーのリクエストヘッダーを付け、プロキシ設定と応答サイズの上限を適用し、リダイレクトには従いません。保存済みの認証情報を使うリクエストでは、ホストの認証情報リトライ規則に従って候補の認証情報に切り替えます。`PixivAjaxClient` が受け付けるのは `/ajax/**`、`/rpc/**`、およびクエリに `format=json` を含むルート直下の `*.php` ページで、失敗時は `PixivAjaxException` を投げます。`PixivMediaClient.open(source, referer, maximumBytes)` は渡した Pixiv のページだけを `Referer` として送り、Cookie は送りません。返された `PixivMediaStream` はすべての分岐で閉じ、バイト上限の超過と通常の転送失敗は `exceededLimit()` で区別します。汎用クライアントから Pixiv へのリクエストをホストが遮断することはありませんが、ログイン Cookie を付けたままブラウザーのヘッダーがないリクエストは、Pixiv の前段の保護機能にそのまま拒否されることがあります（HTTP 403）。
+- **ストリーミング応答の中断**：応答の送信開始後に、上流の内容が途切れる、バイト上限を超える、または変換に失敗した場合は、まず既定のログレベルで原因と必要な業務上のコンテキストを記録し、その後 core-api の `ResponseStreamAbortedException` を投げます。ホストは接続を終了するだけで、エラー本文は書き込まず、サーバーの入出力エラーとして重ねて記録することもありません。クライアントの切断は従来どおりホストが処理します。
 
 ## 独立したサービス契約と組み合わせ
 

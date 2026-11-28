@@ -63,6 +63,7 @@ Controller に `@HttpApiGroup("core-batch")` を付けると、そのモジュ�
 ## パラメーター検証、エラー契約、テスト検証
 
 - **信頼境界とエラー構造**：パス、認証情報、JSON は信頼境界で検証します。プログラムキーは `Authorization: Bearer` のみで受け取り、URL、ログ、ブラウザーの永続ストレージには保存しません。接続元 IP は `server.trusted-proxy-cidrs` 処理後のクライアントアドレスのみを使用します。エラー応答は安定した機械用 `code` と翻訳済み `error` を返します（ダウンロード送信時の権限不足は `DownloadTaskException.programPermission()` で不足権限 ID を取得可能）。
+- `@HttpApiGroup` を付けたコントローラーでは、クラスまたはメソッドに SDK の `@KnownErrorCodes` を付けて、標準 JSON エラーの HTTP ステータスと業務エラーコードを宣言できます。OpenAPI はこの宣言から 4xx または 5xx の `application/json` レスポンスを生成します。独自のフィールドはレスポンススキーマに記載してください。
 - **構造化パラメーターエラー（`HttpParameterException`）**：プラグインが HTTP 入口で引数を手動検証する際は、JDK のみに依存する `pixivdownload-core-api` の `top.sywyar.pixivdownload.core.web.HttpParameterException(in, field, reason)` をスローできます（例：クエリ引数 `order` が許容値外のとき `new HttpParameterException("query", "order", "invalid_value")`）。メソッドに `@KnownErrorCodes(status = "400", value = "error.request.param.invalid")` を付けると OpenAPI に出力されます：
   - ホストは HTTP 400、`code = "error.request.param.invalid"`、翻訳済み `error`、および `in`、`field`、`reason` を返します（送信された元の値や認証情報は含めないでください。Spring が処理する必須引数欠落や型変換失敗はホストが自動で位置付けます）。
   - `in` は `query`、`path`、`header`、`part`、`body` のいずれかです。最初の 4 つでは `field` に宣言パラメーター名またはパート名、`body` では JSON Pointer（例：`/options/pages`）を指定し、`reason` には安定した機械値（`required`、`type`、`invalid_value`、`out_of_range` など）を指定します。

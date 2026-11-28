@@ -85,6 +85,12 @@ http://localhost:6999/pixiv-novel-gallery.html
 | 有道 | 填寫有道智雲文字翻譯 API 的應用程式 ID 與應用程式金鑰（無法使用有道詞典用戶端帳號）；目標語言下拉選單使用內建官方語種表 |
 | LibreTranslate | 填寫自架服務基底位址（不含 `/translate`）與選用 API Key；開啟對話框時向該服務的 `/languages` 讀取實際支援的目標語言（失敗可點擊重新載入） |
 
+在桌面翻譯設定中選擇下列雲端服務，憑證由 `translation` 外掛管理。DeepL 可設定正式程度，也可指定來源語言並填入在 DeepL 建立的詞彙表 ID。騰訊 TMT 文字介面即將逐步停用，需要具備該介面權限的帳戶。 [騰訊雲退市公告](https://cloud.tencent.com/announce/detail/2482)
+
+DeepL (`deepl`) · Google 翻譯 (`google`) · Microsoft Azure 翻譯 (`azure`) · 百度翻譯 (`baidu`) · 騰訊雲 TMT (`tencent`) · 火山翻譯 (`volcengine`) · 彩雲小譯 (`caiyun`) · 小牛翻譯 (`niutrans`) · 阿里雲機器翻譯 (`aliyun`)
+
+DeepL Free/Pro 和 Google Cloud Translation Basic v2 請填 API 金鑰。Azure 請填訂用帳戶金鑰，區域資源也須填入區域。彩雲使用權杖，小牛使用 API 金鑰。百度請填 APP ID 和密鑰，騰訊雲、火山引擎及阿里雲請填存取 ID 和密鑰。騰訊雲另須選擇資源區域。
+
 ### 有道與 LibreTranslate 請求參數與限流重試
 
 有道與 LibreTranslate 依請求設定拆分長文本、將短段落合併為批次請求，並保留換行、圖片、分頁與跳轉等 Pixiv 標記（單段優先在句末或空白處切開，超長單詞依 Unicode 碼點切分且不拆開代理對；標題與正文分別請求，不使用或學習 AI 名詞對照表）。桌面設定「翻譯」頁僅顯示目前所選引擎的參數（設定鍵前綴分別為 `translation.youdao.` 與 `translation.libretranslate.`，儲存後重新啟動後端生效）：

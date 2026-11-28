@@ -85,6 +85,12 @@ http://localhost:6999/pixiv-novel-gallery.html
 | Youdao | Youdao AI Cloud 텍스트 번역 API의 애플리케이션 ID와 비밀 키 입력(Youdao 사전 클라이언트 계정은 사용 불가). 대상 언어 드롭다운은 내장 공식 언어 표 사용 |
 | LibreTranslate | 자체 호스팅 서비스의 기본 주소(`/translate` 제외)와 선택적 API Key 입력. 대화상자를 열면 해당 서비스의 `/languages`에서 지원 언어를 조회(실패 시 다시 불러오기 가능) |
 
+데스크톱 번역 설정에서 아래 클라우드 서비스를 선택할 수 있습니다. 자격 증명은 `translation` 플러그인이 관리합니다. DeepL은 격식 수준을 지정할 수 있으며 원문 언어와 DeepL 용어집 ID를 입력하면 용어집을 사용합니다. Tencent TMT 텍스트 API는 단계적으로 종료되므로 이용 권한이 있는 계정이 필요합니다. [Tencent Cloud 서비스 종료 공지](https://cloud.tencent.com/announce/detail/2482)
+
+DeepL (`deepl`) · Google 번역 (`google`) · Microsoft Azure Translator (`azure`) · 바이두 번역 (`baidu`) · Tencent Cloud TMT (`tencent`) · Volcengine 번역 (`volcengine`) · 차이윈 번역 (`caiyun`) · NiuTrans (`niutrans`) · Alibaba Cloud 기계 번역 (`aliyun`)
+
+DeepL Free/Pro와 Google Cloud Translation Basic v2에는 API 키를 입력합니다. Azure는 구독 키를 사용하며 지역 리소스에는 리전도 필요합니다. Caiyun은 토큰, NiuTrans는 API 키를 사용합니다. 바이두는 APP ID와 비밀 키, Tencent Cloud, Volcengine, Alibaba Cloud는 액세스 ID와 비밀 키가 필요합니다. Tencent Cloud에서는 리소스 리전도 선택합니다.
+
 ### Youdao·LibreTranslate 요청 매개변수 및 호출 제한 재시도
 
 Youdao와 LibreTranslate는 엔진별 요청 설정에 따라 긴 텍스트를 나누고 짧은 문단을 배치로 묶으며, 줄바꿈과 이미지·페이지·이동 Pixiv 마커를 유지합니다(문장 끝이나 공백에서 우선 분할하고, 상한보다 긴 단어는 서로게이트 쌍을 깨뜨리지 않고 유니코드 코드 포인트 단위로 분할. 제목과 본문은 별도 요청하며 AI 용어 매핑 테이블은 사용·학습하지 않음). 데스크톱 설정의 '번역' 페이지에는 현재 선택한 엔진의 매개변수만 표시됩니다(키 접두사는 각각 `translation.youdao.`, `translation.libretranslate.`이며 저장 후 백엔드 재시작 필요):

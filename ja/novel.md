@@ -85,6 +85,12 @@ http://localhost:6999/pixiv-novel-gallery.html
 | 有道 | 有道智雲のテキスト翻訳 API のアプリケーション ID と秘密キーを指定（有道辞書クライアントのアカウントは使用不可）。対象言語は内蔵の公式語種表から選択 |
 | LibreTranslate | 自前サービスのベースアドレス（`/translate` を除く）と任意の API Key を指定。ダイアログを開くと設定先の `/languages` から対応言語を取得（失敗時は再読み込み可能） |
 
+デスクトップの翻訳設定で、以下のクラウドサービスを選べます。認証情報は `translation` プラグインが管理します。DeepL は文体を指定でき、原文の言語と DeepL の用語集 ID を指定すると用語集を使えます。Tencent TMT のテキスト API は段階的に終了するため、利用権のあるアカウントが必要です。 [Tencent Cloud の提供終了のお知らせ](https://cloud.tencent.com/announce/detail/2482)
+
+DeepL (`deepl`) · Google 翻訳 (`google`) · Microsoft Azure Translator (`azure`) · 百度翻訳 (`baidu`) · Tencent Cloud TMT (`tencent`) · Volcengine 翻訳 (`volcengine`) · 彩雲小訳 (`caiyun`) · NiuTrans (`niutrans`) · Alibaba Cloud 機械翻訳 (`aliyun`)
+
+DeepL Free/Pro と Google Cloud Translation Basic v2 は API キー、Azure はサブスクリプションキーと地域リソースのリージョンを指定します。Caiyun はトークン、NiuTrans は API キーを使います。百度は APP ID と秘密鍵、Tencent Cloud、Volcengine、Alibaba Cloud はアクセス ID と秘密鍵を指定します。Tencent Cloud はリソースのリージョンも選びます。
+
 ### 有道・LibreTranslate のリクエスト設定とレート制限時の再試行
 
 有道と LibreTranslate は各エンジンのリクエスト設定に従って長文を分割し、短い段落をバッチにまとめ、改行および画像・改ページ・ジャンプの Pixiv 記法を保持します（文末や空白での分割を優先し、上限を超える長単語はサロゲートペアを壊さず Unicode コードポイント単位で分割。タイトルと本文は別リクエストで送信し、AI 用語対応表は使用・学習しません）。デスクトップ設定の「翻訳」には現在選択中のエンジンの項目のみが表示されます（キー接頭辞はそれぞれ `translation.youdao.`、`translation.libretranslate.` で、保存後にバックエンド再起動が必要）：

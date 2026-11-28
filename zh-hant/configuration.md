@@ -203,7 +203,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 - **外掛業務設定（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面設定頁彙整顯示並統一儲存；禁止覆寫宿主鍵或寫入明文憑證。
 - **外掛憑證（`config/credentials/{pluginId}.properties`）**：儲存密碼、Cookie、API Key、Secret 與 Webhook 密鑰，由宿主加密並依 owner 注入外掛上下文。跨環境還原使用包含憑證且設有密碼的 `.pdbackup`；同環境的檔案備份還需保留 `config/credentials.key` 及其解鎖條件。
-- **翻譯設定（`translation` 外掛）**：一般項目位於 `config/plugins/translation.properties`（`translation.engine` 預設 `ai`，可選 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 預設 `false`，僅控制有道與 LibreTranslate；`translation.max-concurrent` 預設 `10`），儲存後重新啟動後端生效。詳見[小說與朗讀](/zh-hant/novel#翻譯引擎（管理員）)。
+- **翻譯設定（`translation` 外掛）** 預設引擎為 `ai`。在桌面翻譯設定選擇服務並填入憑證，儲存後重新啟動後端。雲端服務的請求參數使用 `translation.providers.<engine>.*`，有道和 LibreTranslate 沿用原有設定鍵。`translation.max-concurrent` 預設為 `10`。 [小說與朗讀](/zh-hant/novel#翻譯引擎（管理員）)
 - **登入驗證策略**：`setup.login-verification-policies` 預設為空；可設定最多 16 個逗號分隔的 `LoginVerification.policyId()` 策略鍵，重新啟動後端生效。設定前請確認對應驗證外掛已啟用，詳見[操作驗證碼](/zh-hant/captcha)與[第三方外掛 SDK](/zh-hant/plugin-development#不依賴-gui-的憑證與通用操作驗證)。
 
 ## 作品儲存目錄範本 :id=directory-templates

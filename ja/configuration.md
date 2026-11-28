@@ -203,7 +203,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 - **プラグインの業務設定（`config/plugins/{pluginId}.properties`）**：UTF-8 の Java properties 形式を使い、デスクトップ設定ページに集約表示してまとめて保存します。ホストのキーの上書きや、平文の認証情報の記入は禁止です。
 - **プラグインの認証情報（`config/credentials/{pluginId}.properties`）**：パスワード、Cookie、API Key、Secret、Webhook の秘密キーを保存します。ホストが暗号化し、owner ごとにプラグインコンテキストへ注入します。環境間の移行には認証情報を含むパスワード付き `.pdbackup` を使ってください。同じ環境に戻すファイルバックアップでも、`config/credentials.key` とその復号条件を保持する必要があります。
-- **翻訳設定（`translation` プラグイン）**：通常の項目は `config/plugins/translation.properties` にあります。`translation.engine` はデフォルト `ai`、選択肢は `youdao`、`libretranslate`。`translation.libretranslate-url` は `/translate` を含めません。`translation.use-proxy` はデフォルト `false` で、有道と LibreTranslate だけを制御します。`translation.max-concurrent` はデフォルト `10` です。保存後にバックエンドを再起動すると反映されます。[小説と読み上げ](/ja/novel#翻訳エンジン（管理者）)を参照してください。
+- **翻訳設定（`translation` プラグイン）** 既定のエンジンは `ai` です。デスクトップの翻訳設定でサービスと認証情報を指定し、保存後にバックエンドを再起動します。クラウドのリクエスト設定は `translation.providers.<engine>.*`、有道と LibreTranslate は従来の設定キーを使用します。`translation.max-concurrent` の既定値は `10` です。 [小説と読み上げ](/ja/novel#翻訳エンジン（管理者）)
 - **ログイン検証ポリシー**：`setup.login-verification-policies` はデフォルトで空です。`LoginVerification.policyId()` のポリシーキーをカンマ区切りで最大 16 件指定でき、バックエンド再起動後に反映されます。設定前に対応する検証プラグインが有効であることを確認してください。[操作 CAPTCHA](/ja/captcha)と[サードパーティープラグイン SDK](/ja/plugin-development#gui-に依存しない認証情報と汎用操作検証)を参照してください。
 
 ## 作品の保存先ディレクトリテンプレート :id=directory-templates

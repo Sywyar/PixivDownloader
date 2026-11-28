@@ -85,6 +85,12 @@ Install and enable `translation` (its `novel-translation-contract` dependency is
 | Youdao | Enter the application ID and secret for the Youdao Zhiyun text translation API (Youdao Dictionary client accounts do not work); target-language dropdown uses the bundled official language table |
 | LibreTranslate | Enter the base URL of a self-hosted service (without `/translate`) and an optional API Key; opening the dialog queries `/languages` on that service for supported target languages (with a reload option on failure) |
 
+Select one of these services in desktop translation settings. The `translation` plugin stores its credentials. DeepL accepts a provider glossary ID with an explicit source language and lets you choose formality. Tencent TMT requires an account with access to its retiring text API. [Tencent Cloud retirement notice](https://cloud.tencent.com/announce/detail/2482)
+
+DeepL (`deepl`) · Google Translate (`google`) · Microsoft Azure Translator (`azure`) · Baidu Translate (`baidu`) · Tencent Cloud TMT (`tencent`) · Volcengine Translate (`volcengine`) · Caiyun Translate (`caiyun`) · NiuTrans (`niutrans`) · Alibaba Cloud Machine Translation (`aliyun`)
+
+Use an API key for DeepL Free/Pro or Google Cloud Translation Basic v2. Azure takes a subscription key and the region for regional resources. Caiyun uses a token and NiuTrans an API key. Baidu takes an APP ID and secret. Tencent, Volcengine and Alibaba Cloud take a cloud access ID and secret. For Tencent, select the resource region.
+
 ### Youdao and LibreTranslate request parameters and rate-limit retries
 
 Youdao and LibreTranslate split long text according to their request settings, batch short paragraphs together, and preserve line breaks and Pixiv image, pagination and jump markers (splits prefer sentence endings or whitespace; overlong words split on Unicode code points without breaking surrogate pairs; titles and body text are requested separately without AI term glossaries). Desktop "Settings → Translation" displays parameters for the active engine (prefixed with `translation.youdao.` or `translation.libretranslate.`; save and restart the backend):

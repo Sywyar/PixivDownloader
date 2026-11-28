@@ -36,6 +36,11 @@
 | --- | --- | --- | --- |
 | アプリケーションホスト（共通クエリーとサムネイル） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`、HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` はリクエストで渡された取得用認証情報を使用。スケジュール用の `/api/pixiv/user/{id}/meta/schedule` は、そのスケジュールの認証情報とプロキシを使用し、登録済みの secret はサーバー内でのみ読み取る。`/api/pixiv/thumbnail-proxy` は上記画像ドメインだけに接続し、Cookie なし、リダイレクトなし、1 回最大 100 MiB | ページが対応するローカル API を呼ぶと発生。User ソースのイラスト・小説スケジュールでは、同じユーザーの有効な名前が保存済みなら再利用する。新規作成、ユーザー変更、名前の欠落時は名前を取得し、失敗した場合はスケジュールを保存しない。該当プレビューを停止し、これらのスケジュールを保存しなければ、対応するリクエストは発生しない |
 | アプリケーションホスト（メタデータ補完） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 登録済み作品ディレクトリの旧 `.meta.json` とローカルメタデータで先に補完し、なお不足する場合だけ Cookie なしで取得。1 回最大 4 MiB。404 は `data/backfill/unreachable.json` に記録し、年齢制限の応答は自動再試行を保留 | デスクトップ・ヘッドレスの起動準備完了後にバックグラウンドで自動補完、またはデスクトップツール・独立 CLI から手動実行。保存済みの全体プロキシを使い、ツールではその回だけ上書き可能。ツールページまたはサービス停止でキャンセル |
+| `pixiv-content` (公開情報) | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/illustrations/**`、`/ajax/search/manga/**`、`/ajax/search/novels/**`、`/ajax/illust/**`、`/ajax/user/**`、`/ajax/series/**`、`/ajax/novel/**`、`/ranking.php`、`/ajax/ranking/novel` | 検索語、作品の種類、ページ番号、日付、ID を Pixiv に送り、イラスト・マンガ・小説の検索、作者の作品やシリーズの取得、イラストや小説のランキングの取得を行います。呼び出し元は Pixiv の認証情報を指定できます。 | 標準でインストールされます。`/api/pixiv-content/` 配下の API を呼ぶとホストのプロキシ設定で接続します。プラグインを無効にすると通信は停止します。 |
+| `pixiv-content` (作品の閲覧) | `/ajax/illust/{id}/recommend/init`, `/ajax/illusts/comments/roots`, `/ajax/user/{id}/profile/all`, `/ranking.php`, `/rpc/cps.php`, `/ajax/user/self`, `/ajax/user/{id}`, `https://*.pximg.net` | 関連作品、トップレベルのコメント、作者のシリーズ、作品種別のランキングを取得します。タグ候補の検索語は匿名で送信します。作者のアイコンは Cookie を付けずに CDN から取得します。 | 該当 API の呼び出し時。/me は選択したアカウントを検証してからプロフィールを取得します。 |
+| `pixiv-content` | `/ajax/search/*`, `/ajax/{illust,novel}/{new,discovery}`, `/ajax/{illust,novel}/recommend/*`, `/ajax/{illusts,novels}/comments/{roots,replies}`, `/ajax/top/*`, `/ajax/watch_list/*`, `/ajax/user/{id}/*`, `/ajax/user/{id}/{illustmanga,novels}/tag`, `/ajax/collection/{id}`, `/ranking.php` | 作者の投稿を作品タグで検索します。タグを複数指定した場合、候補の投稿を数回に分けて取得することがあります。 ユーザー、タグ、公開コレクションを検索し、ディスカバリー、新着、おすすめの続き、コメント返信を取得します。ホーム、ウォッチリスト、ブックマークタグには確認済みの同一アカウントを使い、ブックマーク数の検索条件ではプレミアム登録も確認します。 | 機能の利用時に通信します。タグの検索語は匿名で送信します。公開コレクションのカバー画像には embed.pixiv.net のリンクもあります。 |
+| `pixiv-content` (個人向けの情報) | `https://www.pixiv.net/ajax/user/self`、`/ajax/user/{id}/illusts/bookmarks`、`/ajax/user/{id}/novels/bookmarks`、`/ajax/user/{id}/following`、`/ajax/follow_latest/illust`、`/ajax/follow_latest/novel`、`/ajax/user/{id}/profile/all`、`/ajax/user/{id}/profile/collections`、`/ajax/collection/{id}` | 指定された Pixiv の Cookie でログイン中のアカウントを確認し、同じ Cookie でブックマーク（タグと公開範囲で絞り込み可能）、フォロー中の作者とその新作、コレクションを取得します。コレクション内の作品を読む前に、そのアカウントのコレクションであることを確認します。 | `/api/pixiv-content/me/` 配下の API を呼んだときのみ接続します。 |
+| `pixiv-content` (画像とうごイラ) | `https://www.pixiv.net/ajax/illust/{id}/pages`、`/ajax/illust/{id}/ugoira_meta`、`/ajax/novel/{id}`、`/ajax/novel/{id}/insert_illusts`、`https://*.pximg.net` | Pixiv から作品の各ページ、うごイラのフレーム情報、小説の表紙や挿絵の情報を取得します。CDN から画像やフレームの ZIP を取得する際は、該当の作品ページまたは小説ページを `Referer` に設定し、Pixiv の Cookie は送りません。プラグインがローカルでフレームを APNG に変換します。 | 作品の詳細を読む際に各ページの情報を取得し、小説の詳細を読む際に本文に引用された作品を確認します。CDN からファイルを取得するのは、画像またはうごイラを要求したときだけです。 |
 | `download-workbench` プラグイン | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | イラスト・うごイラ・作者・シリーズ・検索・ブックマーク・フォロー新着・リクエストのメタデータ取得。通常 JSON は最大 4 MiB、総ページ数不明のフォロー新着は最大 1,000 ページ。自動ブックマーク有効時はダウンロード完了後に登録。必要に応じて Pixiv Cookie を使用 | プレビュー、クイック取得、ダウンロード、スケジュールタスク、ブックマーク数絞り込みの追加照会（同時最大 6 件）、シリーズ紹介文の追加照会で発生。プラグインまたは自動ブックマークの無効化で対応する通信を停止 |
 | `download-workbench` 一括検索と検索スケジュール | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/novels/**` | 手動プレビューは現在の認証情報、検索スケジュールはタスクの認証情報とプロキシでページ順に作品を取得 | 固定ページ数の検索は現在ページ完了後に次ページを要求し、上限到達または現在ページに再試行待ち作品がある時点で停止。ダウンロード設定の最短ページ取得間隔は手動一括取得にも適用され、正の値なら間隔を空けてプレビューを取得。スケジュール無効化で以降の実行を停止 |
 | `novel` プラグイン | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 小説本文、シリーズ（応答最大 1 MiB）、作者の小説、ブックマーク、検索結果、ダウンロード後の自動ブックマーク。プレビュー直後のダウンロードは、owner と認証情報に紐付く 256 KiB の短期・一回限りのチケットで検証済み応答を再利用 | 小説プレビュー、合本、検索、スケジュールタスクで発生。`novel` の無効化で停止 |
@@ -78,6 +83,22 @@ AI プラグインは OpenAI 互換プロトコルを使います。接続テス
 `translation` は手動・自動翻訳で選択中のエンジンを呼び出します。AI は上表の設定を再利用します。有道は単一テキストを `https://openapi.youdao.com/api`、バッチを `https://openapi.youdao.com/v2/api` に送り、本文・アプリ ID・ローカル計算した v3 署名を渡します。アプリ秘密キーは直接送りません。LibreTranslate は管理者指定の `{libretranslate-url}/translate` に、テキストまたは配列と任意の `api_key` を JSON で送信します。各エンジンの `translation.<engine>.use-proxy` と `read-timeout-seconds` を個別に設定します（既定はプロキシ無効、読み取り 120 秒）。接続タイムアウトは 30 秒です。文字数・バッチ数・同時数・間隔・再試行の設定は[小説と読み上げ](/ja/novel)を参照してください。応答上限は 1 MiB と実際のバッチ入力コードポイント数 × 16 バイトの大きい方で、最大 16,000,000 バイトです。超過は拒否します。明示的な頻度制限のみ有限回再試行し、タイムアウトなどは自動再送しません。
 
 LibreTranslate の選択中に翻訳ダイアログを開くか言語を再読み込みすると、`translation` プラグインが設定先の `/languages` に GET リクエストを送り、翻訳先言語を取得します。本文や API キーは送らず、上記のプロキシ、タイムアウト、応答上限 1 MiB を使います。ダイアログを開かないか、他のエンジンを選べば照会しません。有道は同梱した公式の語種表を使い、追加の通信はしません。
+
+手動翻訳、シリーズ翻訳、ダウンロード後の自動翻訳では、選択したタイトル・説明・本文の区間と翻訳先の言語を、翻訳プラグインが指定先に送信します。以下のクラウドサービスは選択した場合のみ使用します。既定では直接接続し、設定で個別にプロキシを有効にできます。エンジンを切り替えると、新しいジョブの送信先も変わります。キーとトークンは HTTPS で送ります。署名方式ではアクセス ID と署名を送信し、秘密鍵はローカルに保持します。
+
+| サービス | HTTPS 接続先 | 認証方式 |
+| --- | --- | --- |
+| DeepL | `api-free.deepl.com/v2/translate`, `api.deepl.com/v2/translate` | `DeepL-Auth-Key` |
+| Google 翻訳 | `translation.googleapis.com/language/translate/v2` | `X-Goog-Api-Key` |
+| Microsoft Azure Translator | `api.cognitive.microsofttranslator.com/translate` | `Ocp-Apim-Subscription-Key, Ocp-Apim-Subscription-Region` |
+| 百度翻訳 | `fanyi-api.baidu.com/api/trans/vip/translate` | `appid / MD5` |
+| Tencent Cloud TMT | `tmt.tencentcloudapi.com/` | `TC3-HMAC-SHA256` |
+| Volcengine 翻訳 | `translate.volcengineapi.com/?Action=TranslateText&Version=2020-06-01` | `HMAC-SHA256` |
+| 彩雲小訳 | `api.interpreter.caiyunai.com/v1/translator` | `X-Authorization` |
+| NiuTrans | `api.niutrans.com/NiuTransServer/translation` | `apikey` |
+| Alibaba Cloud 機械翻訳 | `mt.aliyuncs.com/` | `ACS3-HMAC-SHA256` |
+
+DeepL では翻訳画面で言語一覧を開いたときや再読み込みしたときに、同じホストの `/v3/languages?resource=translate_text` にキーを送信します。以下の他のサービスは同梱の言語一覧を使います。
 
 ### `tts`、`push`、`mail` プラグイン
 

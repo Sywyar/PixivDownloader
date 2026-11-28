@@ -28,6 +28,7 @@
 | 应用宿主（更新检查与下载） | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 及 `.sig`、nightly 同名清单、已验签清单中的安装包 URL（含 GitHub Release CDN 重定向） | 检查更新并校验内置 Ed25519 签名（清单/签名上限 1 MiB / 16 KiB）；仅在用户确认更新后下载安装包（上限 500 MiB，核对精确大小与 SHA-256）。不发送当前版本、Cookie 或凭据 | `update.enabled` 与 `update.auto-check` 默认开启（启用 nightly 时独立检查两路清单）；沿用宿主代理，最多 5 跳 HTTPS 重定向。本项目 GitHub Release 入口的整条链路限于 `github.com`、`githubusercontent.com` 及其子域；启用代理时由代理解析域名，不受本机 Fake-IP 影响。直连和自定义更新地址仍逐跳检查公网 IP。关闭上述配置即可停用 |
 | 应用宿主（介绍页字体） | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 浏览器加载 Noto Sans SC 字体，仅暴露标准浏览器连接信息 | 打开 `intro.html` 时触发；不经后端代理，屏蔽域名后自动回退本地字体 |
 | 应用宿主（连通性探测） | `https://www.pixiv.net/` | 检测后端到 Pixiv 的连通性，不携带 Pixiv Cookie | 首次配置引导或手动执行探测时触发，无后台心跳 |
+| 应用宿主（程序密钥命令行） | 默认为按 `config/config.yaml` 推导的本机实例地址，或 `--server-url` 指定的 http / https 实例 | 以管理员身份登录 `/api/auth/login`，调用 `/api/security/program-keys` 列出、创建或撤销密钥，结束时调用 `/api/auth/logout`；发送管理员用户名、密码和本次会话 Cookie，单个响应上限 1 MiB | 仅在运行 `--program-keys`、`--program-key-permissions`、`--program-key-create` 或 `--program-key-revoke` 时触发；不读取系统代理，不跟随重定向，不自动重试 |
 | `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、相邻 `.sig` 及 `.../announcements/<message-id>/<locale>.html` | 校验官方 Ed25519 签名、有效期、递增序号与正文 SHA-256，仅为未知或摘要变化的公告下载多语言受控 HTML 并保存在本地；不发送 Cookie 或应用凭据 | 启动后随机等待 0–30 分钟，之后每 6 小时（±15%）检查（支持 `ETag`/`Last-Modified` 条件请求与退避）。沿用宿主代理；禁用或卸载 `notification` 即停止 |
 
 ## Pixiv 下载、浏览与导入
@@ -36,6 +37,11 @@
 | --- | --- | --- | --- |
 | 应用宿主（共用查询与缩略图） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用请求提供的取得凭据；计划查询 `/api/pixiv/user/{id}/meta/schedule` 使用本次计划的凭据和代理，已绑定的 secret 只在服务端读取。`/api/pixiv/thumbnail-proxy` 仅访问上述图片域，不带 Cookie、不跟随重定向，单次上限 100 MiB | 页面请求对应本地接口时触发。保存 User 来源的插画或小说计划时，同一用户已有有效名称快照则复用；新建、换用户或缺少名称时查询并保存名字，查询失败则不保存计划。停止相关预览、不保存此类计划即可避免对应请求 |
 | 应用宿主（元数据回填） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 先导入已登记作品目录的旧 `.meta.json` 并用本地元数据补缺，仍有缺失才无 Cookie 请求上述接口（单次上限 4 MiB；404 记入 `data/backfill/unreachable.json`，年龄限制响应暂缓自动重试） | 桌面与无头服务启动就绪后后台自动回填，或从桌面工具页 / 独立 CLI 手动运行；读取已保存的全局代理（工具页可单次临时覆盖），可在工具页或停止服务取消 |
+| `pixiv-content` (公开查询) | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/illustrations/**`、`/ajax/search/manga/**`、`/ajax/search/novels/**`、`/ajax/illust/**`、`/ajax/user/**`、`/ajax/series/**`、`/ajax/novel/**`、`/ranking.php`、`/ajax/ranking/novel` | 向 Pixiv 发送关键词、作品类型、页码、日期或 ID，搜索画作和小说，查询创作者的作品与系列，以及画作和小说排行榜。调用方可提供本次采集凭证。 | 默认安装。调用 `/api/pixiv-content/` 下的接口时使用宿主代理设置，停用插件即可停止访问。 |
+| `pixiv-content` (内容浏览) | `/ajax/illust/{id}/recommend/init`, `/ajax/illusts/comments/roots`, `/ajax/user/{id}/profile/all`, `/ranking.php`, `/rpc/cps.php`, `/ajax/user/self`, `/ajax/user/{id}`, `https://*.pximg.net` | 按作品查询相关推荐和顶层评论，按作者列出系列，按作品类型读取排行榜。通过标签建议接口输入的关键词会匿名发送给 Pixiv。头像从画师资料给出的 CDN 地址读取，CDN 请求不带 Cookie。 | 调用对应接口时触发。`/me` 用所选凭据核验当前账号后读取该账号资料。 |
+| `pixiv-content` | `/ajax/search/*`, `/ajax/{illust,novel}/{new,discovery}`, `/ajax/{illust,novel}/recommend/*`, `/ajax/{illusts,novels}/comments/{roots,replies}`, `/ajax/top/*`, `/ajax/watch_list/*`, `/ajax/user/{id}/*`, `/ajax/user/{id}/{illustmanga,novels}/tag`, `/ajax/collection/{id}`, `/ranking.php` | 作者投稿可按作品标签读取，多标签查询会分批读取候选投稿。 搜索用户、标签和公开珍藏集，读取发现页、全站新作、后续推荐及评论回复。个人首页、追更和收藏标签使用同一已核验账号；收藏数筛选还会读取其会员状态。 | 按需请求。标签搜索匿名发送关键词。公开珍藏集的封面链接可能指向 embed.pixiv.net。 |
+| `pixiv-content` (个人内容) | `https://www.pixiv.net/ajax/user/self`、`/ajax/user/{id}/illusts/bookmarks`、`/ajax/user/{id}/novels/bookmarks`、`/ajax/user/{id}/following`、`/ajax/follow_latest/illust`、`/ajax/follow_latest/novel`、`/ajax/user/{id}/profile/all`、`/ajax/user/{id}/profile/collections`、`/ajax/collection/{id}` | 先用选定的 Pixiv Cookie 确认登录账号，再用同一 Cookie 查询收藏（可按标签和公开状态筛选）、关注列表、关注作者的新作和珍藏集。读取珍藏集内的作品前，先确认该珍藏集属于当前账号。 | 仅在调用 `/api/pixiv-content/me/` 下的接口时访问。 |
+| `pixiv-content` (图片和动图) | `https://www.pixiv.net/ajax/illust/{id}/pages`、`/ajax/illust/{id}/ugoira_meta`、`/ajax/novel/{id}`、`/ajax/novel/{id}/insert_illusts`、`https://*.pximg.net` | 向 Pixiv 查询作品各页、动图帧、小说封面及文中插图。向 CDN 请求图片或帧 ZIP 时，仅以相应作品页或小说页作为 `Referer`，不发送 Pixiv Cookie。插件在本地将各帧转换为 APNG。 | 读取作品详情时可查询各页信息，读取小说详情时会核验文中引用的画作。仅在调用方请求图片或动图时从 CDN 读取文件。 |
 | `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | 获取插画/动图/画师/系列/搜索/收藏夹/关注新作/约稿元数据（普通 JSON 上限 4 MiB，关注新作未知总页数最多扫 1,000 页），以及开启「自动收藏」后在下载完成时添加收藏；按需携带 Pixiv Cookie | 预览、快捷获取、下载、计划任务、收藏数筛选补查（每次最多并行 6 件）或系列简介补查时触发；停用插件或关闭自动收藏可停止对应请求 |
 | `download-workbench` 批量搜索与搜索计划 | `https://www.pixiv.net/ajax/search/artworks/**`、`/ajax/search/novels/**` | 手动预览使用当前凭据，计划搜索使用任务凭据与代理，逐页获取作品 | 固定页数搜索在本页完成后请求下一页，达到本轮上限或本页有作品待重试时停止翻页。下载设置中的最短翻页间隔也用于手动批量获取；设置正值时，工作台按间隔逐页请求预览。停用计划可停止后续运行。 |
 | `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 获取小说正文、系列（响应上限 1 MiB）、作者小说、收藏、搜索结果及下载后自动收藏；预览后紧随的下载通过绑定 owner 与凭据的 256 KiB 短期一次性票据复用已验证响应 | 小说预览、合订、搜索、计划任务时触发；禁用 `novel` 插件即停止 |
@@ -78,6 +84,22 @@ AI 插件使用 OpenAI 兼容协议：连接测试、小说翻译和多角色分
 `translation` 插件在手动或自动翻译时调用所选引擎。AI 复用上表配置；有道单条请求 `https://openapi.youdao.com/api`，批量请求 `https://openapi.youdao.com/v2/api`，发送文本、应用 ID 与本地计算的 v3 签名，不直接发送应用密钥。LibreTranslate 向管理员配置的 `{libretranslate-url}/translate` 发送 JSON，含单条或数组文本及可选 `api_key`。两个引擎分别配置 `translation.<引擎>.use-proxy` 与 `read-timeout-seconds`（默认关闭代理、读取 120 秒）；连接超时为 30 秒。字符、批量、并发、发送间隔和限流重试参数见[小说与朗读](/zh-cn/novel)。响应读取预算取 1 MiB 与本批实际输入码点数乘 16 字节的较大值，最大 16,000,000 字节，超限拒绝。仅明确限流时有限重试，超时等其他错误不自动重放。
 
 选择 LibreTranslate 后，打开翻译弹窗或重新加载语言时，`translation` 插件会向同一配置地址的 `/languages` 发送 GET 请求，读取目标语言，不发送正文或 API 密钥。查询沿用上述代理、超时和 1 MiB 响应限制；不打开弹窗或切换引擎即可避免此查询。有道选项使用内置官方语种表，无额外查询。
+
+手动、系列或下载后自动翻译时，`translation` 插件将所选的标题、简介或正文片段及目标语言发送给选定服务。下表中的云服务均需主动选择，默认直连，可在设置中为各引擎启用代理。切换引擎后，新任务使用新服务。密钥和令牌通过 HTTPS 传输；签名接口发送访问 ID 和签名，签名密钥保留在本地。
+
+| 提供商 | HTTPS 目标 | 鉴权 |
+| --- | --- | --- |
+| DeepL | `api-free.deepl.com/v2/translate`, `api.deepl.com/v2/translate` | `DeepL-Auth-Key` |
+| Google 翻译 | `translation.googleapis.com/language/translate/v2` | `X-Goog-Api-Key` |
+| Microsoft Azure 翻译 | `api.cognitive.microsofttranslator.com/translate` | `Ocp-Apim-Subscription-Key, Ocp-Apim-Subscription-Region` |
+| 百度翻译 | `fanyi-api.baidu.com/api/trans/vip/translate` | `appid / MD5` |
+| 腾讯云 TMT | `tmt.tencentcloudapi.com/` | `TC3-HMAC-SHA256` |
+| 火山翻译 | `translate.volcengineapi.com/?Action=TranslateText&Version=2020-06-01` | `HMAC-SHA256` |
+| 彩云小译 | `api.interpreter.caiyunai.com/v1/translator` | `X-Authorization` |
+| 小牛翻译 | `api.niutrans.com/NiuTransServer/translation` | `apikey` |
+| 阿里云机器翻译 | `mt.aliyuncs.com/` | `ACS3-HMAC-SHA256` |
+
+选择 DeepL 后，打开翻译弹窗或重新加载目标语言还会携带密钥访问同一域名的 `/v3/languages?resource=translate_text`。下表中的其他云服务使用内置语言列表。
 
 ### `tts`、`push` 与 `mail` 插件
 

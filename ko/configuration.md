@@ -203,7 +203,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 - **플러그인 업무 설정(`config/plugins/{pluginId}.properties`)**: UTF-8 Java properties 형식이며 데스크톱 설정 페이지에 모아 표시하고 함께 저장합니다. 호스트 키를 덮어쓰거나 평문 자격 증명을 기록하면 안 됩니다.
 - **플러그인 자격 증명(`config/credentials/{pluginId}.properties`)**: 비밀번호, Cookie, API Key, Secret과 Webhook 비밀 키를 저장합니다. 호스트가 암호화하고 owner별로 플러그인 컨텍스트에 주입합니다. 환경 간 이전에는 자격 증명을 포함한 비밀번호 보호 `.pdbackup`을 사용하세요. 같은 환경에 복원하는 파일 백업도 `config/credentials.key`와 그 잠금 해제 조건을 보존해야 합니다.
-- **번역 설정(`translation` 플러그인)**: 일반 항목은 `config/plugins/translation.properties`에 있습니다. `translation.engine` 기본값은 `ai`이며 `youdao`, `libretranslate`를 선택할 수 있습니다. `translation.libretranslate-url`에는 `/translate`를 포함하지 않습니다. `translation.use-proxy` 기본값은 `false`이며 Youdao와 LibreTranslate만 제어합니다. `translation.max-concurrent` 기본값은 `10`입니다. 저장 후 백엔드를 재시작해야 적용됩니다. [소설 및 낭독](/ko/novel#번역-엔진관리자)을 참고하세요.
+- **번역 설정(`translation` 플러그인)** 기본 엔진은 `ai`입니다. 데스크톱 번역 설정에서 서비스와 자격 증명을 입력하고 저장한 뒤 백엔드를 다시 시작하세요. 클라우드 요청 설정은 `translation.providers.<engine>.*`를 사용하며 Youdao와 LibreTranslate는 기존 키를 사용합니다. `translation.max-concurrent`의 기본값은 `10`입니다. [소설 및 낭독](/ko/novel#번역-엔진관리자)
 - **로그인 검증 정책**: `setup.login-verification-policies` 기본값은 비어 있습니다. 쉼표로 구분한 `LoginVerification.policyId()` 정책 키를 최대 16개 설정할 수 있으며 백엔드 재시작 후 적용됩니다. 설정 전에 해당 검증 플러그인이 활성화되어 있는지 확인하세요. [작업 CAPTCHA](/ko/captcha)와 [서드파티 플러그인 SDK](/ko/plugin-development#gui에-의존하지-않는-자격-증명-및-일반-작업-검증)을 참고하세요.
 
 ## 작품 저장 디렉터리 템플릿 :id=directory-templates

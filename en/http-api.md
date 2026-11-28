@@ -5,8 +5,58 @@ PixivDownloader includes an interactive OpenAPI reference and fine-grained **pro
 ## Connect a script or agent
 
 1. **Browse the interactive reference**: open `/openapi` on your running instance (default `http://localhost:6999/openapi`). Access instructions are public; signing in as an administrator reveals the live endpoint catalog, request examples, required permissions, and "Related operations" links (`links` / `x-related-operations` / `externalDocs`) below each response list for jumping between follow-up calls and user guides.
-2. **Create a program access key**: under desktop **Settings → Access control → Program access keys** (or via `/api/security/program-keys` in an administrator session on headless servers), create a key, configure allowed source IPs/CIDRs and select the required permissions. Grant `core:api-reference.read` as well if the script or agent will fetch the OpenAPI specification itself.
-3. **Call endpoints or copy the agent prompt**: send `Authorization: Bearer <program-key>` to `GET /api/openapi.json` (or `HEAD /api/openapi.json` to probe access) to retrieve the machine-readable OpenAPI document. When working with an agent, click **Copy prompt** after creating the key to hand the instance documentation URL to the agent, and configure the secret key separately in the agent's environment.
+2. **Create a program access key**: on the desktop, open **Security → Program access keys** (the **Settings → Access control** category also links there); without a desktop, use the [command line](#manage-keys-from-the-command-line). Configure allowed source IPs/CIDRs and select the required permissions. Grant `core:api-reference.read` as well if the script or agent will fetch the OpenAPI specification itself.
+3. **Call endpoints or copy the agent prompt**: send `Authorization: Bearer <program-key>` to `GET /api/openapi.json` (or `HEAD /api/openapi.json` to probe access) to retrieve the machine-readable OpenAPI document. When working with an agent, copy the prompt after creating the key, or from **Agent prompt** in the key list, to hand the instance documentation URL to the agent, and configure the secret key separately in the agent's environment. Agents that support Agent Skills can [install the skill](#install-the-skill-for-ai-agents) instead and use it automatically.
+
+### Install the skill for AI agents
+
+The main repository ships the `pixivdownloader` skill in [Agent Skills](https://agentskills.io/) format. It tells an agent how to connect to the instance, use a program access key, call the common endpoints (browsing Pixiv, downloading works and finding downloaded works) and handle errors. Once it is installed, agents that support Agent Skills, such as Claude Code, Codex, Cursor, GitHub Copilot and Gemini CLI, use it automatically for related tasks, so you do not need to paste a prompt each time.
+
+1. Install the skill (requires Node.js). The command asks which agents to install it for; `-g` makes it available in every project:
+
+   ```bash
+   npx skills add Sywyar/PixivDownloader --skill pixivdownloader -g
+   ```
+
+   Run `npx skills update -g` later to get new versions.
+2. In the agent's environment, set `PIXIV_PROGRAM_KEY` to the program access key. If the instance is not at `http://localhost:6999`, also set `PIXIV_BASE_URL` to its address, or tell the agent the address in the chat. Do not paste the key into the chat.
+3. Grant the key the permissions the task needs. The agent first calls `/self` to see what it has been granted. Granting `core:api-reference.read` as well lets it read the full API catalog.
+
+?> The skill covers conventions that rarely change and the common endpoints. Fields, parameters and values follow the instance's `GET /api/openapi.json`. The Pixiv browsing endpoints come from the `pixiv-content` plugin; if it is not installed or is disabled, the agent asks you to install or enable it.
+
+### Search Pixiv by author and tag
+
+Pass one work tag per `tag` parameter. For example, `GET /api/pixiv-content/users/28329224/artworks?tag=furry&tag=original` returns this artist’s submissions bearing both tags. Use `/users/{id}/novels` for novels. You can specify up to ten distinct tags. If a multi-tag query matches more than 2048 submissions for each individual tag, the API returns `422 PIXIV_TAG_SEARCH_TOO_BROAD`.
+
+Use `GET /api/pixiv-content/search/users-and-tags?word=cat&userPage=1&tagPage=1` to look up nicknames and tags together. The `users` and `tags` groups have separate pages, both starting at 1. Supply an acquisition credential if Pixiv requires login.
+
+### Manage keys from the command line
+
+Without a desktop (servers, Docker), manage keys from the command line. The command connects to the running instance, signs in as the administrator, calls the management endpoints described below, then signs out and exits, so the service keeps running. The instance builds the permission catalog from its loaded plugins, so it must be running.
+
+| Command | Purpose |
+| --- | --- |
+| `--program-keys` | List keys: name, ID, permission count, sources and usage time |
+| `--program-key-permissions` | List the permissions this instance can grant and the endpoints they cover |
+| `--program-key-create` | Create a key; the full key appears in the output only once |
+| `--program-key-revoke --key-id=<ID>` | Revoke the key after confirmation |
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create
+java -Dfile.encoding=UTF-8 -jar APP.jar --program-key-create --key-name=agent --key-permissions=core:api-reference.read,core:downloads.read --key-sources=127.0.0.1
+```
+
+- When `--key-name`, `--key-permissions` or `--key-sources` is omitted, the command prompts for it, and permissions can be picked by their list numbers. Set `--key-sources` to `any`, or to comma-separated IP addresses / CIDR ranges.
+- Pass the administrator account with `--username` and `--password`, or enter it when prompted. A password on the command line stays in the shell history or process list, so prefer the prompt for everyday use.
+- By default the instance address is derived from `server.port`, `server.ssl.enabled` and `ssl.domain` in `config/config.yaml`; set another one with `--server-url=https://<host>:<port>`. The command ignores system proxies and does not follow redirects. If the instance redirects HTTP to HTTPS, use the HTTPS address it reports. For a self-signed certificate, import it into the Java trust store first.
+- With Docker Compose, run the command in a new container and point it at the service name:
+
+  ```text
+  docker compose run --rm app --program-key-create --server-url=http://app:6999
+  ```
+
+- If the instance requires a login verification step (such as a CAPTCHA), the command cannot sign in and shows the reason returned by the server.
+- Exit codes: `0` success; `1` connection failure, sign-in failure or server rejection; `2` invalid arguments or cancelled. If the connection drops after a create or revoke request was sent, the change may already have taken effect, so run `--program-keys` before retrying.
 
 ### Key security, source restrictions and CSRF rules
 
@@ -35,13 +85,34 @@ Short paths in the same row share the first path's prefix. See the [Program perm
 | Metadata backfill | `GET /api/tools/backfill/defaults`, `/tasks/current`, `/tasks/{id}`; `POST /candidates`, `/tasks`, `/tasks/{id}/cancel` |
 | Media maintenance and record-file import | `GET /api/tools/media`, `/api/tools/file-import` (`POST /previews`, `/tasks`, `/tasks/cancel`, `GET /tasks/current` under each); `POST /api/tools/media/capabilities`; `POST /api/tools/file-import/completion/acknowledge` |
 | Local artwork import and startup cache | `GET /api/local-import/presets`, `POST /previews`, `POST /tasks`; `GET /api/tools/startup-cache`, `POST /tasks`, `POST /tasks/{id}/cancel` |
-| Directory references, path prefixes and image classification | `GET` / `POST /api/tools/directories`; `/api/tools/path-prefixes`; `/api/tools/classifier/settings`, `/folders`, `/images`, `/image`, `/moves` |
-| FFmpeg status/install and tool history/logs | `GET /api/tools/ffmpeg`, `POST /api/tools/ffmpeg/tasks`; `GET /api/tools/history`, `/api/tools/logs/{fileName}` |
+| Directory references and path prefixes | `GET` / `POST /api/tools/directories` · `/api/tools/path-prefixes` |
+| FFmpeg status, installation and cancellation, tool history and logs | `GET /api/tools/ffmpeg`, `POST /api/tools/ffmpeg/tasks`, `POST /api/tools/ffmpeg/tasks/{executionId}/cancel`; `GET /api/tools/history`, `/api/tools/logs/{fileName}` |
 | System, control center and updates | `/api/admin/system`, `/api/admin/control-center`; `/api/admin/update/check`, `/last`, `/download`, `/download/progress`, `/install` |
 | AI, mail, push and inbox notification tests | `/api/admin/ai/test`, `/models`; `/api/admin/mail/test`, `/test-all`; `/api/admin/push/test`, `/test-all`; `/api/admin/notifications/test`, `/test-all` |
 | Individual downloads, history and manual batches | `/api/download/tasks`, `/api/download/tasks/history`; `/api/download/batches` |
 
+The restore status includes `jobId`. Search the application log for this ID to find details about the failure. When a confirmed target changes before restore, `failureCode` is `transfer.target-changed`. Preview the archive again before confirming.
+
+`POST /api/tools/path-prefixes` commits edits and registrations in one transaction. Each `registerPaths` entry must be the absolute path of an existing directory, sent as a string. On success, `registered` counts new prefixes, `alreadyRegistered` counts reused entries, and `applied` totals edits and new registrations. An invalid entry returns 400 with its zero-based pointer `/registerPaths/i`. A write failure returns `500 PATH_PREFIX_WRITE_FAILED` and rolls back the whole request.
+
+Windows drive and UNC paths reuse the same prefix across case and separator variants. A standalone `.` path segment reuses the same prefix ID. POSIX paths are case-sensitive. An edit affects only records that reference the specified prefix ID, including in libraries with older duplicate entries. If `POST /api/tools/path-prefixes/pin` fails to write, it returns `500 PATH_PREFIX_WRITE_FAILED` and preserves the original references.
+
+The image classifier has been removed. The following routes retain their original access checks and return an empty `410 Gone` response to authorized requests.
+
+- `GET, PUT /api/tools/classifier/settings`
+- `GET, DELETE /api/tools/classifier/folders`
+- `GET /api/tools/classifier/images`
+- `GET /api/tools/classifier/image`
+- `POST /api/tools/classifier/moves`
+- `GET /api/downloaded/by-move-folder`
+- `POST /api/downloaded/move/{artworkId}`
+- `POST /api/library/artworks/{artworkId}/move`
+
+Looking up or cancelling an archived task returns `503 DOWNLOAD_TASK_RECEIPT_UNAVAILABLE` if the caller owns the task and its record cannot be read. Missing tasks and tasks owned by someone else both return 404.
+
 ## Save settings
+
+`POST /api/settings/validate` checks the draft using only the affected settings and credentials. It leaves configuration files, credential envelopes and installation keys untouched.
 
 Read the field catalog with `GET /api/settings` first, then submit changes using each field's `owner`, `packageId`, `generation` and `key` (host fields use `null` for `owner`/`packageId` and `0` for `generation`). Sensitive fields return only a boolean `stored` flag, never plaintext or default secrets; use `action` (`KEEP`, `SET` or `CLEAR`) to retain, replace or clear them. The response's `effect` indicates how changes take effect (saving does not automatically restart the backend or process):
 
@@ -72,7 +143,7 @@ Each process retains at most one manual batch at a time (execution continues in 
 4. **Control and resume**: `POST /api/download/batches/{id}/pause`, `/cancel`, `/resume` and `/retry` pause, cancel, resume discovery or retry discovered failures only (stopping states become terminal only after in-flight execution exits; completed and filter-skipped works are not re-run on resume).
 5. **Replace credentials, resolve pending items and delete**:
    - While idle, call `PUT /api/download/batches/{id}/credentials` (`{"expectedRun": 1}`, up to 16 KiB; pass new credentials via request header or omit the header to clear them—credentials are re-probed before resuming).
-   - Call `POST /api/download/batches/{id}/resolve` with `expectedRun`, `workType`, `workId`, `reasonCode`, `userAction` and `rememberForRun` (up to 16 KiB; reason and run must match the pending record).
+   - Call `POST /api/download/batches/{id}/resolve` with `expectedRun`, `workType`, `workId`, `reasonCode`, `userAction` and `rememberForRun` (up to 16 KiB; reason and run must match the pending record). For `DOWNLOAD_PATH_ACTION_REQUIRED`, choose `TRUNCATE`, `DEFAULT_NAME` or `CANCEL`. An unsupported value returns 400 at `/userAction`. Correct it while the item is still pending.
    - While idle, call `DELETE /api/download/batches/{id}` to remove the batch record.
 
 A batch accepts at most 5,000 items and a 64 MiB encoded-content reservation budget (whichever is reached first). Filters support content rating, AI, tags, illustration type, page count, novel word count and minimum bookmark count (works with unknown bookmark counts do not pass an active bookmark filter).
@@ -130,8 +201,7 @@ All path parameters in tool endpoints refer to the **server's local filesystem**
   - `GET /api/gallery/artworks?fileManagement=EXTERNAL_REFERENCE` filters works referencing external read-only files (deletion removes only the database record while keeping source files); `MANAGED` indicates application-managed files (deleted along with the record, retaining `deleted=true` for duplicate checks).
   - Illustration and novel bulk endpoints support `"mode": "filter"` (across all matching pages; `filter` must be a JSON object) or an `ids` array of positive JSON integers such as `42` (decimals, strings, zero or negative numbers return HTTP 400 with the offending `field`). Passing an unrestricted `"filter": {}` (or pagination-only fields) selects all works of that type—deleting or exporting with source cleanup then requires `"confirmAll": true` and the corresponding gallery delete permission.
   - When export returns `archiveToken`, poll `GET /api/archive/status/{token}` (`core:archives.read`) until `ready`, then download via `GET /api/archive/download/{token}` (`core:archives.download`).
-- **Image classification, startup cache, database migration and environment archives**:
-  - Classifier moves report file copying, source directory removal and database registration separately—inspect partial outcomes before retrying.
+- **Startup cache, database migration and environment archives**:
   - Train the startup cache with `POST /api/tools/startup-cache/tasks` (`{}`) and poll `GET /api/tools/startup-cache`.
   - Database migration and environment restore both confirm execution using their preview `token` (`RESTORE_PENDING` delegates restoration to a replacement process). Environment export (`POST /api/settings/environment/exports`) requires an absolute server `destination` (never overwrites existing files) and `"confirmRestart": true`, plus a `password` whenever credentials, databases or state are included (`includeResources` also requires `includeDatabases`); export stops the backend and requests a full process restart (start the application manually if automatic restart fails). Installing an online update requires the verified installer package's SHA-256.
 
@@ -200,10 +270,10 @@ Query `GET /api/security/program-keys/permissions` with an administrator session
 | `core:batches.read` | Read this key's batches and results | GET `/api/download/batches/*/items`; GET `/api/download/batches/*`; GET `/api/download/batches` |
 | `core:batches.resolve` | Resolve pending actions in this key's batches | POST `/api/download/batches/*/resolve` |
 | `core:batches.resume` | Resume or retry this key's batches | POST `/api/download/batches/*/resume`; POST `/api/download/batches/*/retry` |
-| `core:classifier.configure` | Change image classification settings | PUT `/api/tools/classifier/settings` |
-| `core:classifier.delete` | Delete image classification folders | DELETE `/api/tools/classifier/folders` |
-| `core:classifier.read` | View image classification and images | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
-| `core:classifier.write` | Move classified images | POST `/api/tools/classifier/moves` |
+| `core:classifier.configure` | Change image classification settings (retired, HTTP 410) | PUT `/api/tools/classifier/settings` |
+| `core:classifier.delete` | Delete image classification folders (retired, HTTP 410) | DELETE `/api/tools/classifier/folders` |
+| `core:classifier.read` | View image classification and images (retired, HTTP 410) | GET `/api/tools/classifier/folders`; GET `/api/tools/classifier/image`; GET `/api/tools/classifier/images`; GET `/api/tools/classifier/settings` |
+| `core:classifier.write` | Move classified images (retired, HTTP 410) | POST `/api/tools/classifier/moves` |
 | `core:collections.delete` | Delete collections | DELETE `/api/collections/*` |
 | `core:collections.members.write` | Add and remove works in collections | DELETE `/api/collections/*/artworks/*`; DELETE `/api/collections/*/novels/*`; POST `/api/collections/*/artworks/*`; POST `/api/collections/*/novels/*` |
 | `core:collections.read` | Read all library collections and memberships | GET `/api/collections/*/icon`; GET `/api/collections/novels/of/*`; GET `/api/collections/of/*`; GET `/api/collections`; POST `/api/collections/memberships`; POST `/api/collections/novels/memberships` |
@@ -227,6 +297,7 @@ Query `GET /api/security/program-keys/permissions` with an administrator session
 | `core:environment.preview` | Preview a full environment restore | POST `/api/settings/environment/preview` |
 | `core:environment.read` | Read installation and environment transfer status | GET `/api/settings/environment/exports`; GET `/api/settings/environment/installation`; GET `/api/settings/environment/restore` |
 | `core:environment.restore` | Restore a full environment | POST `/api/settings/environment/restore` |
+| `core:ffmpeg.cancel` | Cancel an FFmpeg installation | POST `/api/tools/ffmpeg/tasks/{executionId}/cancel` |
 | `core:ffmpeg.install` | Install FFmpeg | POST `/api/tools/ffmpeg/tasks` |
 | `core:ffmpeg.read` | View FFmpeg status | GET `/api/tools/ffmpeg` |
 | `core:file-import.acknowledge` | Acknowledge file import results | POST `/api/tools/file-import/completion/acknowledge` |
@@ -238,7 +309,7 @@ Query `GET /api/security/program-keys/permissions` with an administrator session
 | `core:hooks.publish` | Publish global operation hook security policies | POST `/api/web/operation-hooks/publish` |
 | `core:hooks.read` | Read global operation hooks and authorization configuration | GET `/api/web/operation-hooks/catalog`; GET `/api/web/operation-hooks/configuration`; GET `/api/web/operation-hooks/declarations`; GET `/api/web/operation-hooks/definitions`; GET `/api/web/operation-hooks/targets` |
 | `core:legacy-migration.execute` | Migrate legacy JSON metadata (local only) | GET `/api/migration/json-to-sqlite/stream`; POST `/api/migration/json-to-sqlite` |
-| `core:library.move` | Move artwork files on the server | POST `/api/library/artworks/*/move` |
+| `core:library.move` | Artwork move registration (retired) · HTTP 410 | POST `/api/library/artworks/*/move` |
 | `core:library.read` | View all artwork records, history and paths | GET `/api/downloaded/by-move-folder`; GET `/api/downloaded/history/paged`; GET `/api/downloaded/history`; GET `/api/downloaded/statistics`; GET `/api/library/artworks/*`; POST `/api/downloaded/batch` |
 | `core:library.recover` | Recover artwork metadata | POST `/api/library/artworks/*/recover-metadata` |
 | `core:local-import.cancel` | Cancel local import scans and registration | POST `/api/local-import/previews/*/cancel`; POST `/api/local-import/tasks/*/cancel` |
@@ -371,5 +442,5 @@ Query `GET /api/security/program-keys/permissions` with an administrator session
 | `<plugin>:file-import.acknowledge` | Acknowledge file import results | `core:file-import.acknowledge` |
 | `<plugin>:downloads.create` | Create download tasks | `core:downloads.create` |
 | `<plugin>:batches.execute` | Allow batches to use this plugin's sources and work executors | `core:batches.create`, `core:batches.resume` |
-| `<plugin>:schedule.manage` | Manage persistent schedules and credential policies for this plugin | `core:schedule.*` |
+| `<plugin>:schedule.manage` | Manage persistent schedules and credential policies for this plugin | `core:schedule.*`. Also required by POST `/api/pixiv/user/{userId}/meta/schedule` when the request includes a `taskId` for a task from this plugin. |
 | `<plugin>:plugins.manage` | Allow lifecycle, enabled-state and trust management for this plugin | `core:plugins.*` |

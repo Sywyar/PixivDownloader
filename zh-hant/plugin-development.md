@@ -97,6 +97,7 @@ pixiv.lifecycle-policy=process-restart
 - `pixiv.desktop-only` 預設為 `false`。僅供桌面使用的外掛可設為 `true`。無頭啟動時，主程式會略過這類外掛，除非後端外掛直接或間接將它列為必要相依項目。略過的套件仍會在外掛管理頁顯示為已安裝。
 - `plugin.dependencies` 用來宣告外部 PF4J 套件之間的相依關係。將 `core` 等宿主內建元件列為必要相依項目，會在寫入安裝目錄前遭到拒絕。請使用 `plugin.requires` 宣告所需的宿主 SDK 版本。
 - 桌面介面提供者可用 `DesktopUiHost.stopBackend(afterStop, onFailure)` 要求停止後端。需要獨占資料的工具應在 `afterStop` 中啟動。要求獲接受後，成功與失敗只會觸發其中一個回呼。傳回 `false` 表示要求立即遭拒，不會觸發回呼。
+- 同步桌面下載根目錄時，先呼叫 `DesktopUiHost.validateDownloadTemplateRoot(root)` 檢查所選目錄。通過檢查後再送出目錄遷移，遷移成功後呼叫 `saveDownloadTemplateRoot(root)`，保留現有的範本後綴。
 - 外部入口實作 `PixivPluginProvider`，只回傳唯一的 `PixivFeaturePlugin`；Spring 子上下文的明確 `@Bean` 設定類別由描述符 `pixiv.configuration-classes` 宣告，禁止依賴宿主套件掃描：
 
 ```java
@@ -175,6 +176,7 @@ new NavigationContribution(
 - **資料庫存取**：新外掛注入 `PluginDatabase`，透過 `privateSchema()` 與 `privateStorageMigrations()` 宣告結構，使用 `read(work)` / `transaction(work)` 執行與方言無關的操作（相容 SQLite 與 PostgreSQL）；參與主資料庫協作時，注入 `PluginMainDatabase` 存取本 owner 受管資料表或已申請的 `sharedMainStorage()`。
 - **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`，建立由外掛 Bean 擁有並在銷毀時 `close()` 的用戶端（`exchangeStream` 回傳的回應串流必須在所有分支關閉）；禁止自行建立 `HttpClient`、`ProxySelector` 或依賴宿主 HTTP 設定類別。
 - **存取 Pixiv**：讀取 `www.pixiv.net` 的 JSON 時注入 core-api 的 `PixivAjaxClient`，讀取 `*.pximg.net` 的圖片或動圖封存檔時注入 `PixivMediaClient`，不要用 `OutboundHttpClientFactory` 自行請求 Pixiv。宿主統一加入瀏覽器請求標頭，套用代理設定與回應大小上限，不跟隨重新導向；請求使用已儲存的憑證時，依宿主的憑證重試規則改用候選憑證。`PixivAjaxClient` 接受 `/ajax/**`、`/rpc/**`，以及查詢參數含 `format=json` 的根層級 `*.php` 頁面，失敗時拋出 `PixivAjaxException`。`PixivMediaClient.open(source, referer, maximumBytes)` 只把傳入的 Pixiv 頁面作為 `Referer` 送出，不送出 Cookie；回傳的 `PixivMediaStream` 必須在所有分支關閉，`exceededLimit()` 用於區分超過位元組上限與一般傳輸失敗。宿主不會攔截以通用用戶端發往 Pixiv 的請求，但帶有登入 Cookie 卻缺少瀏覽器請求標頭的請求，可能被 Pixiv 的前置防護直接拒絕（HTTP 403）。
+- **串流回應中止**：回應已開始傳回後，若上游內容截斷、超出位元組上限或轉換失敗，先在預設日誌層級記錄原因與必要的業務上下文，再拋出 core-api 的 `ResponseStreamAbortedException`。宿主只結束連線，不補寫錯誤內容，也不再記為伺服器讀寫錯誤；用戶端中斷連線仍依宿主原有方式處理。
 
 ## 獨立服務契約與組合
 
